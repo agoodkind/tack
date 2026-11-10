@@ -87,8 +87,11 @@ func Check(ctx context.Context, log io.Writer) error {
 		if isExtraction {
 			missing, isPath := errors.AsType[*os.PathError](err)
 			if isPath && errors.Is(missing.Err, errNotRegular) {
-				slog.Error("overlay.file_missing",
-					slog.String("path", missing.Path), slog.Any("error", errNotRegular))
+				slog.Error(
+					"overlay.file_missing",
+					slog.String("path", missing.Path),
+					slog.Any("error", errNotRegular),
+				)
 			}
 
 			problems = []string{extraction.Error()}

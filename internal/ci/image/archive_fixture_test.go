@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	v1 "github.com/google/go-containerregistry/pkg/v1"
@@ -43,7 +44,9 @@ func pushPlatforms(t *testing.T, tag string, amd64 []v1.Layer, arm64 []v1.Layer)
 	amd64Platform := v1.Platform{OS: linuxPlatform, Architecture: "amd64"}
 	arm64Platform := v1.Platform{OS: linuxPlatform, Architecture: "arm64"}
 
-	imagetest.PushIndex(t, tag,
+	imagetest.PushIndex(
+		t,
+		tag,
 		mutate.IndexAddendum{
 			Add:      imagetest.Image(t, arm64Platform, arm64...),
 			Platform: &arm64Platform,
@@ -99,4 +102,58 @@ func runOverlayCheck(t *testing.T, root, host string) (string, error) {
 	output, err := command.CombinedOutput()
 
 	return string(output), err
+}
+
+func plainFDB(t *testing.T) []v1.Layer {
+	t.Helper()
+
+	return []v1.Layer{
+		imagetest.Layer(t, regular(fdbPath, "stale\n")),
+		imagetest.Layer(t, regular("var/fdb/scripts/.wh.fdb.bash", "")),
+		imagetest.Layer(t, regular(fdbPath, upstreamText)),
+	}
+}
+
+func chainedYB(t *testing.T) []v1.Layer {
+	t.Helper()
+
+	return []v1.Layer{
+		imagetest.Layer(
+			t,
+			regular("home/yugabyte/lib/real-yugabyted", upstreamText),
+			symlink("home/yugabyte/tools/yugabyted", "../lib/real-yugabyted"),
+		),
+		imagetest.Layer(t, symlink("home/yugabyte/bin", "tools")),
+	}
+}
+
+func layersOf(entries ...imagetest.Entry) func(*testing.T) []v1.Layer {
+	return func(t *testing.T) []v1.Layer {
+		t.Helper()
+
+		return []v1.Layer{imagetest.Layer(t, entries...)}
+	}
+}
+
+func oversizedUnrelatedFDB(t *testing.T) []v1.Layer {
+	t.Helper()
+
+	other := regular("opt/other/fdb.bash", strings.Repeat("x", oversizedBytes))
+
+	return append(plainFDB(t), imagetest.Layer(t, other))
+}
+
+func oversizedRequestedFDB(t *testing.T) []v1.Layer {
+	t.Helper()
+
+	return []v1.Layer{imagetest.Layer(t, regular(fdbPath, strings.Repeat("x", oversizedBytes)))}
+}
+
+func whitedOutFDB(t *testing.T) []v1.Layer {
+	t.Helper()
+
+	return []v1.Layer{
+		imagetest.Layer(t, regular(fdbPath, upstreamText)),
+		imagetest.Layer(t, regular("var/fdb/scripts/.wh.fdb.bash", "")),
+	}
 }

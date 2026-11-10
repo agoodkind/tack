@@ -37,13 +37,16 @@ func verifyHash(item entry, upstream []byte) (string, error) {
 		return "", &os.PathError{Op: "read recorded sha256", Path: item.shaFile, Err: err}
 	}
 
-	want := strings.Map(func(r rune) rune {
-		if unicode.IsSpace(r) {
-			return -1
-		}
+	want := strings.Map(
+		func(r rune) rune {
+			if unicode.IsSpace(r) {
+				return -1
+			}
 
-		return r
-	}, string(recorded))
+			return r
+		},
+		string(recorded),
+	)
 	sum := sha256.Sum256(upstream)
 	got := hex.EncodeToString(sum[:])
 
@@ -51,15 +54,23 @@ func verifyHash(item entry, upstream []byte) (string, error) {
 		return "", nil
 	}
 
-	return fmt.Sprintf("DRIFT: %s:%s changed (sha256 %s, recorded %s).\n"+
-		"       The pinned image's upstream file moved. Re-vendor:\n"+
-		"         1) extract the new upstream from the image\n"+
-		"         2) re-apply the intended change to produce %s\n"+
-		"         3) refresh the hash:  sha256sum <upstream> | cut -d' ' -f1 > %s\n"+
-		"         4) refresh the patch: diff -u <upstream> %s > %s\n"+
-		"         5) verify on QA before prod",
-		item.image, item.imagePath, got, want,
-		item.overlay, item.shaFile, item.overlay, item.patch), nil
+	return fmt.Sprintf(
+		"DRIFT: %s:%s changed (sha256 %s, recorded %s).\n"+
+			"       The pinned image's upstream file moved. Re-vendor:\n"+
+			"         1) extract the new upstream from the image\n"+
+			"         2) re-apply the intended change to produce %s\n"+
+			"         3) refresh the hash:  sha256sum <upstream> | cut -d' ' -f1 > %s\n"+
+			"         4) refresh the patch: diff -u <upstream> %s > %s\n"+
+			"         5) verify on QA before prod",
+		item.image,
+		item.imagePath,
+		got,
+		want,
+		item.overlay,
+		item.shaFile,
+		item.overlay,
+		item.patch,
+	), nil
 }
 
 // applyPatch applies the committed patch to the upstream bytes.
@@ -94,14 +105,23 @@ func applyPatch(patchPath string, upstream []byte) ([]byte, error) {
 			slog.Any("error", errPatchFileCount),
 		)
 
-		return nil, fmt.Errorf("patch %s changes %d files: %w", patchPath, len(files), errPatchFileCount)
+		return nil, fmt.Errorf(
+			"patch %s changes %d files: %w",
+			patchPath,
+			len(files),
+			errPatchFileCount,
+		)
 	}
 
 	var result bytes.Buffer
 
 	err = gitdiff.Apply(&result, bytes.NewReader(upstream), files[0])
 	if err != nil {
-		slog.Error("overlay.patch_apply_failed", slog.String("path", patchPath), slog.Any("error", err))
+		slog.Error(
+			"overlay.patch_apply_failed",
+			slog.String("path", patchPath),
+			slog.Any("error", err),
+		)
 
 		return nil, fmt.Errorf("apply patch %s: %w", patchPath, err)
 	}
@@ -114,9 +134,15 @@ func applyPatch(patchPath string, upstream []byte) ([]byte, error) {
 func verifyPatch(item entry, upstream []byte) (string, error) {
 	rebuilt, err := applyPatch(item.patch, upstream)
 	if err != nil {
-		return fmt.Sprintf("DRIFT: %s does not apply cleanly to upstream %s (%v). Regenerate it:\n"+
-			"         diff -u <upstream> %s > %s",
-			item.patch, item.imagePath, err, item.overlay, item.patch), nil
+		return fmt.Sprintf(
+			"DRIFT: %s does not apply cleanly to upstream %s (%v). Regenerate it:\n"+
+				"         diff -u <upstream> %s > %s",
+			item.patch,
+			item.imagePath,
+			err,
+			item.overlay,
+			item.patch,
+		), nil
 	}
 
 	overlay, err := os.ReadFile(item.overlay)
@@ -125,9 +151,14 @@ func verifyPatch(item entry, upstream []byte) (string, error) {
 	}
 
 	if !bytes.Equal(overlay, rebuilt) {
-		return fmt.Sprintf("DRIFT: %s does not equal upstream + %s. Regenerate the patch:\n"+
-			"         diff -u <upstream> %s > %s",
-			item.overlay, item.patch, item.overlay, item.patch), nil
+		return fmt.Sprintf(
+			"DRIFT: %s does not equal upstream + %s. Regenerate the patch:\n"+
+				"         diff -u <upstream> %s > %s",
+			item.overlay,
+			item.patch,
+			item.overlay,
+			item.patch,
+		), nil
 	}
 
 	return "", nil

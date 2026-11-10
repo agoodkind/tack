@@ -33,7 +33,11 @@ const outputFilePermBits = 0o666
 func Write(stdout io.Writer) error {
 	outputPath, err := environment.Required("GITHUB_OUTPUT")
 	if err != nil {
-		return &os.PathError{Op: "read output environment variable", Path: "GITHUB_OUTPUT", Err: err}
+		return &os.PathError{
+			Op:   "read output environment variable",
+			Path: "GITHUB_OUTPUT",
+			Err:  err,
+		}
 	}
 
 	_, err = fmt.Fprintf(stdout, "Upstream Yugabyte image is %s\n", YugabyteImage)
@@ -48,7 +52,11 @@ func Write(stdout io.Writer) error {
 
 	_, err = file.WriteString("yugabyte_image=" + YugabyteImage + "\n")
 	if err != nil {
-		writeErr := &os.PathError{Op: "write upstream image output file", Path: outputPath, Err: err}
+		writeErr := &os.PathError{
+			Op:   "write upstream image output file",
+			Path: outputPath,
+			Err:  err,
+		}
 		_ = file.Close()
 
 		return writeErr

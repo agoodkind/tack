@@ -38,18 +38,30 @@ func upstreamFile(ctx context.Context, registry string, item entry) ([]byte, err
 
 	reference, err := name.ParseReference(address)
 	if err != nil {
-		slog.Error("overlay.image_parse_failed", slog.String("image", address), slog.Any("error", err))
+		slog.Error(
+			"overlay.image_parse_failed",
+			slog.String("image", address),
+			slog.Any("error", err),
+		)
 
 		return nil, fmt.Errorf("parse image %s: %w", address, err)
 	}
 
-	image, err := remote.Image(reference,
+	image, err := remote.Image(
+		reference,
 		remote.WithContext(ctx),
 		remote.WithAuth(authn.Anonymous),
-		remote.WithPlatform(v1.Platform{OS: "linux", Architecture: "amd64"}),
+		remote.WithPlatform(v1.Platform{
+			OS:           "linux",
+			Architecture: "amd64",
+		}),
 	)
 	if err != nil {
-		slog.Error("overlay.image_pull_failed", slog.String("image", address), slog.Any("error", err))
+		slog.Error(
+			"overlay.image_pull_failed",
+			slog.String("image", address),
+			slog.Any("error", err),
+		)
 
 		return nil, fmt.Errorf("pull image %s: %w", address, err)
 	}
