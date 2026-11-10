@@ -15,11 +15,11 @@ import (
 // resolve any candidate.
 const unresolvedSummary = "no reference candidate resolved"
 
-// TestRepairConsolePreviewWithoutRepair tests repair previews. A preview
-// without a node ID must fail with domain.ErrInvalidArgument. An issue
-// without legacy status must not need repair. An issue with legacy status
-// Done, two Done states, and without state_id must need a repair that the
-// console cannot apply.
+// TestRepairConsolePreviewWithoutRepair checks invalid and ambiguous previews.
+// An absent node ID must produce domain.ErrInvalidArgument. An issue without
+// legacy status must neither need repair nor allow application. An issue with
+// legacy status Done, two Done states, and without state_id must need repair
+// and refuse application. The test also checks the unresolved summary.
 func TestRepairConsolePreviewWithoutRepair(t *testing.T) {
 	f := newRepairConsoleFixture(t)
 	_, err := f.console.Preview(f.env.Ctx, ops.RepairPreviewInput{Class: ops.RepairClassReferenceProperty, NodeID: uuid.Nil, Profile: legacyStatusProfile()})
@@ -44,11 +44,11 @@ func TestRepairConsolePreviewWithoutRepair(t *testing.T) {
 	}
 }
 
-// TestRepairConsolePreviewMatchesByReferenceStrategy tests parent repair
-// previews using the target type's reference strategy. The console must
-// resolve the workspace by its slug. It must not resolve a state by a legacy
-// slug property when matching by scoped name. It must resolve the first epic
-// of the project by the scoped sequence 1.
+// TestRepairConsolePreviewMatchesByReferenceStrategy checks parent previews
+// against each target type's reference strategy. The test checks workspace
+// resolution by slug and rejects state resolution by a legacy slug under
+// scoped-name matching. It also checks resolution of the first project epic
+// by scoped sequence 1.
 func TestRepairConsolePreviewMatchesByReferenceStrategy(t *testing.T) {
 	f := newRepairConsoleFixture(t)
 	epic := createSchemaNode(t, f.env, f.projectID, f.projectID, "epic", nil)
@@ -82,11 +82,10 @@ func TestRepairConsolePreviewMatchesByReferenceStrategy(t *testing.T) {
 	}
 }
 
-// TestRepairConsolePreviewTransformsLegacyProperties tests a property
-// transform preview for an issue with legacy properties Description, status,
-// and progress. The console must plan a description with the text of
-// Description and the status under its heading. It must also plan the removal
-// of each legacy property.
+// TestRepairConsolePreviewTransformsLegacyProperties checks a transform for
+// an issue with legacy Description, status, and progress properties. The test
+// checks that the planned description includes the Description text and the
+// status beneath its heading. It also checks removal of each legacy property.
 func TestRepairConsolePreviewTransformsLegacyProperties(t *testing.T) {
 	f := newRepairConsoleFixture(t)
 	issue := f.legacyIssue(t, map[string]json.RawMessage{
