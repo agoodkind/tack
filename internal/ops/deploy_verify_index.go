@@ -168,7 +168,9 @@ func requireIndexDescriptor(ctx context.Context, given string, reading indexRead
 	}
 
 	err := fmt.Errorf(
-		"deploy verify: %s on %s (given=%s driver-type=%s container.Image=%s descriptor.digest=%q descriptor.mediaType=%q image.Id=%s repoDigests=%v)",
+		"deploy verify: %s on %s (given=%s driver-type=%s "+
+			"container.Image=%s descriptor.digest=%q descriptor.mediaType=%q "+
+			"image.Id=%s repoDigests=%v)",
 		reason,
 		container,
 		given,

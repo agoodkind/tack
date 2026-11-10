@@ -156,7 +156,9 @@ func (run *scalingRun) openRelay(
 	opened, err := auditrelay.Open(
 		t.Context(),
 		auditrelay.Config{
-			Brokers:               []string{testenv.Kafka(t)},
+			Brokers: []string{
+				testenv.Kafka(t),
+			},
 			Topic:                 topic,
 			YugabyteDSN:           testenv.Ledger(t),
 			FDBClusterFile:        run.server.clusterFile,

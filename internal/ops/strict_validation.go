@@ -89,15 +89,7 @@ func RunStrictValidation(
 	execute bool,
 	reportLimit int,
 ) (StrictValidationReport, error) {
-	report := StrictValidationReport{
-		AlreadyActive:    false,
-		Activated:        false,
-		ScanID:           uuid.Nil,
-		RecordsValidated: 0,
-		Passes:           0,
-		ViolationCount:   0,
-		FirstViolations:  nil,
-	}
+	var report StrictValidationReport
 	current, err := store.StrictActivation(ctx)
 	if err != nil {
 		return report, strictFailure(ctx, "read the strict validation activation record", err)

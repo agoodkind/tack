@@ -54,7 +54,9 @@ func planNodeTypeCorrection(stored, seed *node.NodeType) nodeTypeCorrection {
 
 	plan.Proposed = proposed
 	plan.Conflict = fmt.Sprintf(
-		"the correction did not write this node type: the stored can_live_under %q equals neither the earlier seeded value %q nor the seeded value %q",
+		"the correction did not write this node type: the stored "+
+			"can_live_under %q equals neither the earlier seeded value %q nor "+
+			"the seeded value %q",
 		stored.CanLiveUnder,
 		earlier,
 		seed.CanLiveUnder,

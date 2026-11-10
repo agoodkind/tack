@@ -70,7 +70,7 @@ func storedPropertyDefTarget(
 // the outbox in tr.
 func recordMetadataChange(
 	ctx context.Context,
-	tr fdb.Transaction,
+	transaction fdb.Transaction,
 	changes *mutationAudit,
 	target audit.Target,
 	before []byte,
@@ -84,5 +84,5 @@ func recordMetadataChange(
 		)
 	}
 
-	return changes.append(ctx, tr)
+	return changes.append(ctx, transaction)
 }

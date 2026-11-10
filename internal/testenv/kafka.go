@@ -55,7 +55,7 @@ func provisionKafka(ctx context.Context) (string, error) {
 			kind:       "kafka-address",
 			image:      kafkaImage,
 			platform:   nil,
-			entrypoint: []string{"sleep"},
+			entrypoint: []string{engineSleepCommand},
 			cmd:        []string{kafkaHolderSeconds},
 			env:        nil,
 		},

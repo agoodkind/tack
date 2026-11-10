@@ -111,13 +111,13 @@ func callerMayViewOrg(ctx context.Context, orgID uuid.UUID) bool {
 	return slices.Contains(orgIDs, orgID)
 }
 
-func identifierFor(view *node.NodeView, rc *renderCtx) string {
+func identifierFor(view *node.NodeView, renderContext *renderCtx) string {
 	if view == nil {
 		return ""
 	}
 
-	if rc != nil {
-		if ident := rc.referenceIdentifierFor(view); ident != "" {
+	if renderContext != nil {
+		if ident := renderContext.referenceIdentifierFor(view); ident != "" {
 			return ident
 		}
 	}

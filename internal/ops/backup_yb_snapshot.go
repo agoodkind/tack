@@ -54,29 +54,9 @@ const (
 // every listed prefix is filled.
 func RunBackupYBSnapshotExport(ctx context.Context, cfg *config.Config) error {
 	logger := telemetry.L(ctx)
-	if cfg.BackupS3Endpoint == "" || cfg.BackupS3AccessKey == "" || cfg.BackupS3SecretKey == "" {
-		err := fmt.Errorf(
-			"yb-snapshot-export: TACK_BACKUP_S3_ENDPOINT, _ACCESS_KEY_ID, and _SECRET_ACCESS_KEY are required",
-		)
-		logger.ErrorContext(ctx, "backup.yb_snapshot.failed", slog.String("err", err.Error()))
-
-		return err
-	}
-
-	if cfg.MigratorPassword == "" {
-		err := fmt.Errorf("yb-snapshot-export: TACK_MIGRATOR_PASSWORD is required")
-		logger.ErrorContext(ctx, "backup.yb_snapshot.failed", slog.String("err", err.Error()))
-
-		return err
-	}
-
-	if err := requireBackupYBImage(
-		ctx,
-		cfg,
-		"yb-snapshot-export",
-		"backup.yb_snapshot.failed",
-	); err != nil {
-		return err
+	configErr := checkYBExportConfig(ctx, cfg, logger)
+	if configErr != nil {
+		return configErr
 	}
 
 	filter := "ysql." + cfg.YugabyteDB
@@ -442,13 +422,7 @@ func cleanupYBExportRun(
 	}
 
 	if len(manifest.Nodes) == 0 {
-		logger.InfoContext(
-			ctx,
-			"backup.yb_snapshot.snapshot_kept",
-			slog.String("run_id", runID),
-			slog.String("snapshot_id", manifest.SnapshotID),
-			slog.String("reason", "manifest lists no nodes"),
-		)
+		logKeptYBSnapshot(ctx, logger, runID, manifest.SnapshotID, "manifest lists no nodes")
 
 		return true
 	}
@@ -466,24 +440,24 @@ func cleanupYBExportRun(
 	}
 
 	if len(missing) > 0 {
-		logger.InfoContext(
+		logKeptYBSnapshot(
 			ctx,
-			"backup.yb_snapshot.snapshot_kept",
-			slog.String("run_id", runID),
-			slog.String("snapshot_id", manifest.SnapshotID),
-			slog.String("reason", "nodes "+strings.Join(missing, ", ")+" have not archived"),
+			logger,
+			runID,
+			manifest.SnapshotID,
+			"nodes "+strings.Join(missing, ", ")+" have not archived",
 		)
 
 		return true
 	}
 
 	if !ybSnapshotDeletable(state) {
-		logger.InfoContext(
+		logKeptYBSnapshot(
 			ctx,
-			"backup.yb_snapshot.snapshot_kept",
-			slog.String("run_id", runID),
-			slog.String("snapshot_id", manifest.SnapshotID),
-			slog.String("reason", "state "+string(state)+" is not deletable"),
+			logger,
+			runID,
+			manifest.SnapshotID,
+			"state "+string(state)+" is not deletable",
 		)
 
 		return true
@@ -500,12 +474,7 @@ func cleanupYBExportRun(
 		return true
 	}
 
-	logger.InfoContext(
-		ctx,
-		"backup.yb_snapshot.prior_snapshot_deleted",
-		slog.String("run_id", runID),
-		slog.String("snapshot_id", manifest.SnapshotID),
-	)
+	logDeletedYBSnapshot(ctx, logger, runID, manifest.SnapshotID)
 
 	return true
 }
@@ -947,4 +916,61 @@ func ybSnapshotState(listOutput, snapshotID string) ybSnapshotStatus {
 	}
 
 	return ybSnapStatusUnknown
+}
+
+func checkYBExportConfig(ctx context.Context, cfg *config.Config, logger *slog.Logger) error {
+	if cfg.BackupS3Endpoint == "" || cfg.BackupS3AccessKey == "" || cfg.BackupS3SecretKey == "" {
+		err := errYBBackupSettingsMissing
+		logger.ErrorContext(ctx, "backup.yb_snapshot.failed", slog.String("err", err.Error()))
+
+		return err
+	}
+
+	if cfg.MigratorPassword == "" {
+		err := errYBMigratorPasswordMissing
+		logger.ErrorContext(ctx, "backup.yb_snapshot.failed", slog.String("err", err.Error()))
+
+		return err
+	}
+
+	if err := requireBackupYBImage(
+		ctx,
+		cfg,
+		"yb-snapshot-export",
+		"backup.yb_snapshot.failed",
+	); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func logKeptYBSnapshot(
+	ctx context.Context,
+	logger *slog.Logger,
+	runID string,
+	snapshotID string,
+	reason string,
+) {
+	logger.InfoContext(
+		ctx,
+		"backup.yb_snapshot.snapshot_kept",
+		slog.String("run_id", runID),
+		slog.String("snapshot_id", snapshotID),
+		slog.String("reason", reason),
+	)
+}
+
+func logDeletedYBSnapshot(
+	ctx context.Context,
+	logger *slog.Logger,
+	runID string,
+	snapshotID string,
+) {
+	logger.InfoContext(
+		ctx,
+		"backup.yb_snapshot.prior_snapshot_deleted",
+		slog.String("run_id", runID),
+		slog.String("snapshot_id", snapshotID),
+	)
 }

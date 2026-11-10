@@ -54,13 +54,13 @@ func parseFDBRestoreProgress(status string) map[string]int64 {
 	counters := map[string]int64{}
 
 	fields := strings.Fields(status)
-	for i, field := range fields {
+	for fieldIndex, field := range fields {
 		label, isLabel := strings.CutSuffix(field, ":")
-		if !isLabel || i+1 == len(fields) {
+		if !isLabel || fieldIndex+1 == len(fields) {
 			continue
 		}
 
-		recordFDBRestoreCounter(counters, normalizeFDBCounterName(label), fields[i+1])
+		recordFDBRestoreCounter(counters, normalizeFDBCounterName(label), fields[fieldIndex+1])
 	}
 
 	return counters

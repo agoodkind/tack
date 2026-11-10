@@ -71,8 +71,7 @@ func requireSearchReadEvent(
 		t.Fatalf("%s recorded an invalid final event: %v", verb, err)
 	}
 
-	if event.Actor.Type != audit.ActorService ||
-		event.Actor.ID != actorID ||
+	if event.Actor.Type != audit.ActorService || event.Actor.ID != actorID ||
 		event.Actor.SessionID != searchReadSession ||
 		event.Context.AuditFormatVersion != audit.AuditFormatComplete ||
 		event.Context.OperationClass != audit.OperationRead ||

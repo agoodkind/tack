@@ -47,13 +47,13 @@ func (c *entryCache[V]) get(key string, now time.Time) (V, bool) {
 	var none V
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	element, ok := c.entries[key]
-	if !ok {
+	element, exists := c.entries[key]
+	if !exists {
 		return none, false
 	}
 
-	entry, ok := element.Value.(*cacheEntry[V])
-	if !ok {
+	entry, exists := element.Value.(*cacheEntry[V])
+	if !exists {
 		return none, false
 	}
 

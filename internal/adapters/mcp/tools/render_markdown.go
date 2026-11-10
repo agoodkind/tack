@@ -27,13 +27,13 @@ func formatDisplayTime(t time.Time) string {
 
 func humanLabel(key string) string {
 	words := strings.Fields(strings.ReplaceAll(key, "_", " "))
-	for i, word := range words {
+	for wordIndex, word := range words {
 		if word == "id" {
-			words[i] = "ID"
+			words[wordIndex] = "ID"
 			continue
 		}
 
-		words[i] = strings.ToUpper(word[:1]) + word[1:]
+		words[wordIndex] = strings.ToUpper(word[:1]) + word[1:]
 	}
 
 	return strings.Join(words, " ")

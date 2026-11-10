@@ -217,11 +217,11 @@ func histogramBucketKey(bound float64) string {
 // under the key and bumps it.
 func addFloat(m *expvar.Map, key string, delta float64) {
 	v := m.Get(key)
-	f, ok := v.(*expvar.Float)
+	counter, ok := v.(*expvar.Float)
 	if !ok {
-		f = new(expvar.Float)
-		m.Set(key, f)
+		counter = new(expvar.Float)
+		m.Set(key, counter)
 	}
 
-	f.Add(delta)
+	counter.Add(delta)
 }

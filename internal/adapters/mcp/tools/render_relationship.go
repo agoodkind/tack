@@ -7,16 +7,16 @@ import (
 )
 
 func renderRelationshipMutation(
-	rc *renderCtx,
+	renderContext *renderCtx,
 	heading string,
 	sourceID uuid.UUID,
 	relType string,
 	targetID uuid.UUID,
 ) string {
 	fields := []markdownField{
-		relationshipEndpointField(rc, "Source", sourceID),
+		relationshipEndpointField(renderContext, "Source", sourceID),
 		markdownCodeFieldValue("Relation type", relType),
-		relationshipEndpointField(rc, "Target", targetID),
+		relationshipEndpointField(renderContext, "Target", targetID),
 	}
 
 	return executeMarkdownTemplate(

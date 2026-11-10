@@ -92,16 +92,14 @@ func (s *NodeStore) updateAtomic(
 				return err
 			}
 
-			reconcilePropertyIndexes(tr, current, oldProps, indexedProps)
-			if referenceKeys != nil {
-				if err := writeReferenceKeys(
-					tr,
-					current.OrgID,
-					current.ID,
-					referenceKeys,
-				); err != nil {
-					return err
-				}
+			if err := writeAtomicIndexes(
+				tr,
+				current,
+				oldProps,
+				indexedProps,
+				referenceKeys,
+			); err != nil {
+				return err
 			}
 
 			if err := applyRelationshipChanges(ctx, tr, relationshipChanges, changes); err != nil {

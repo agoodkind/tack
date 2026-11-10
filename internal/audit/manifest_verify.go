@@ -114,6 +114,10 @@ func (r *Reader) VerifyManifest(
 		return result, fmt.Errorf("event %s %s", eventID, violation)
 	}
 
+	return verifiedManifest(read, validator), nil
+}
+
+func verifiedManifest(read *ReadEvidence, validator *manifestValidator) ManifestVerification {
 	return ManifestVerification{
 		DeclaredCount:    read.Count,
 		IdentityCount:    validator.identities,
@@ -122,5 +126,5 @@ func (r *Reader) VerifyManifest(
 		DeclaredDigest:   read.ManifestSHA256,
 		RecomputedDigest: hex.EncodeToString(validator.root.Sum(nil)),
 		PayloadVerified:  true,
-	}, nil
+	}
 }

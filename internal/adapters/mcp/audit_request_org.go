@@ -63,7 +63,7 @@ func addMetadataTargets(ctx context.Context, server *cachedServer) {
 }
 
 // metadataTarget returns the node target of one metadata record.
-func metadataTarget(nodeType string, id uuid.UUID) audit.Target {
+func metadataTarget(nodeType string, nodeID uuid.UUID) audit.Target {
 	return audit.Target{
 		Kind:         audit.TargetKindNode,
 		NodeType:     nodeType,
@@ -71,7 +71,7 @@ func metadataTarget(nodeType string, id uuid.UUID) audit.Target {
 		Name:         "",
 		URI:          "",
 		RelationType: "",
-		ID:           id,
+		ID:           nodeID,
 		SourceID:     uuid.Nil,
 		TargetID:     uuid.Nil,
 	}

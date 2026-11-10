@@ -53,30 +53,9 @@ func planRetentionFDB(
 		return nil, err
 	}
 
-	windows := make(map[string]fdbRestorableVersions, len(markers))
-	for _, name := range fdbBackupNames(markers) {
-		if _, err := time.Parse("20060102T150405Z", name); err != nil {
-			return nil, fmt.Errorf(
-				"FoundationDB backup marker %q is not a timestamp run identifier",
-				name,
-			)
-		}
-
-		window, err := retentionFDBWindow(ctx, cfg, name)
-		if err != nil {
-			return nil, err
-		}
-
-		windows[name] = window
-	}
-
-	if activeName != "" {
-		if _, exists := windows[activeName]; !exists {
-			return nil, fmt.Errorf(
-				"active FoundationDB backup %q does not have a discovered marker",
-				activeName,
-			)
-		}
+	windows, err := retentionFDBWindows(ctx, cfg, markers, activeName)
+	if err != nil {
+		return nil, err
 	}
 
 	actions := make([]retentionFDBAction, 0, len(markers))
@@ -256,4 +235,33 @@ func retentionFDBWindow(
 	}
 
 	return window, nil
+}
+
+func retentionFDBWindows(
+	ctx context.Context,
+	cfg *config.Config,
+	markers []string,
+	activeName string,
+) (map[string]fdbRestorableVersions, error) {
+	windows := make(map[string]fdbRestorableVersions, len(markers))
+	for _, name := range fdbBackupNames(markers) {
+		if _, err := time.Parse("20060102T150405Z", name); err != nil {
+			return nil, &fdbBackupMarkerError{marker: name}
+		}
+
+		window, err := retentionFDBWindow(ctx, cfg, name)
+		if err != nil {
+			return nil, err
+		}
+
+		windows[name] = window
+	}
+
+	if activeName != "" {
+		if _, exists := windows[activeName]; !exists {
+			return nil, &fdbActiveBackupMarkerError{name: activeName}
+		}
+	}
+
+	return windows, nil
 }

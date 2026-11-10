@@ -87,7 +87,7 @@ func propAsString(raw json.RawMessage) string {
 
 func sortedScalarPropKeys(view *node.NodeView) []string {
 	skip := map[string]struct{}{
-		"parent_id":  {},
+		parentIDPropertyName: {},
 		"scope_id":   {},
 		"state_id":   {},
 		"identifier": {},

@@ -65,37 +65,8 @@ func (s *SearchWorkStore) Register(
 		ctx,
 		s.db,
 		func(tr fdb.Transaction) error {
-			access, err := s.verifyPage(ctx, tr, work, page, revision)
+			err := s.verifyRegistration(ctx, tr, work, page, revision)
 			if err != nil {
-				return err
-			}
-
-			tracked := trackRegisteredAccess(access, page.Access)
-			if !samePageTracking(access, tracked) {
-				if err := writeSearchRecord(
-					ctx,
-					tr,
-					searchAccessKey(work.OrgID, work.NodeID),
-					tracked,
-				); err != nil {
-					return err
-				}
-			}
-
-			if err := requireOneProjection(ctx, tr, work, page, revision); err != nil {
-				return err
-			}
-
-			if err := requireActiveProjection(
-				ctx,
-				tr,
-				work.OrgID,
-				page.ProjectionVersion,
-			); err != nil {
-				return err
-			}
-
-			if err := stagePropertyWarnings(ctx, tr, work, page, revision); err != nil {
 				return err
 			}
 

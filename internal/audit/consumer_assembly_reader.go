@@ -41,13 +41,13 @@ type assemblyPartReader struct {
 // It reads each part with one query in tx.
 func newAssemblyPartReader(
 	ctx context.Context,
-	tx pgx.Tx,
+	transaction pgx.Tx,
 	manifest transportMessage,
 ) *assemblyPartReader {
 	fetch := func(index uint32) (string, []byte, bool, error) {
 		var digest string
 		var payload []byte
-		err := tx.QueryRow(
+		err := transaction.QueryRow(
 			ctx,
 			`
 			SELECT digest, payload FROM audit.event_assembly_parts

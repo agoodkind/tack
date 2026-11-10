@@ -197,15 +197,7 @@ func backfillOrgDefaultChildren(
 			}
 		}
 
-		env.Log.DebugContext(
-			ctx,
-			"backfill.type",
-			slog.String("org_id", orgID.String()),
-			slog.String("type", nt.TypeKey),
-			slog.Int("parents", len(parents)),
-			slog.Int("children_created", created),
-			slog.Int("children_skipped_existing", skipped),
-		)
+		logDefaultChildCounts(ctx, env, orgID, nt.TypeKey, len(parents), created, skipped)
 	}
 
 	return failures

@@ -120,17 +120,7 @@ func (s *SearchQueryService) runEncodedStep(
 		audit.SearchSessionTarget(session.ID, session.PrincipalID),
 		session.AuthorityID,
 	)
-	target := audit.Target{
-		Kind:         audit.TargetKindExternal,
-		NodeType:     "",
-		Name:         "",
-		URI:          "",
-		RelationType: "",
-		Reference:    snapshotReferencePrefix + session.ID.String() + "/" + operation.action,
-		ID:           uuid.Nil,
-		SourceID:     uuid.Nil,
-		TargetID:     uuid.Nil,
-	}
+	target := snapshotStepTarget(session, operation)
 	step := audit.ExternalStep(target, encoded)
 	err = audit.RunExternalStep(
 		ctx,

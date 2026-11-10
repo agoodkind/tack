@@ -19,7 +19,7 @@ import (
 // after making their changes and do not write other outbox entries in that attempt.
 func AppendChanges(
 	ctx context.Context,
-	tr fdb.Transaction,
+	transaction fdb.Transaction,
 	operation audit.Event,
 	changes []audit.Change,
 ) error {
@@ -27,7 +27,7 @@ func AppendChanges(
 		return nil
 	}
 
-	outbox := NewOutboxWriter(tr)
+	outbox := NewOutboxWriter(transaction)
 	completedAt := clock.Now().UTC()
 
 	for _, change := range changes {

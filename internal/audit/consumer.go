@@ -725,13 +725,13 @@ type preparedEvent struct {
 // derived fields. Errors here are treated as malformed-payload signals so
 // the consumer can route the record to the dead-letter table.
 func unmarshalRecord(ctx context.Context, rec *kgo.Record) (preparedEvent, error) {
-	var ev Event
-	if err := json.Unmarshal(rec.Value, &ev); err != nil {
+	var event Event
+	if err := json.Unmarshal(rec.Value, &event); err != nil {
 		slog.WarnContext(ctx, "audit.consumer.malformed_json", slog.String("err", err.Error()))
 		return preparedEvent{}, fmt.Errorf("%w: %w", errMalformedPayload, err)
 	}
 
-	return prepareEvent(ctx, ev)
+	return prepareEvent(ctx, event)
 }
 
 // prepareEvent validates the decoded event, normalizes correlation fields,

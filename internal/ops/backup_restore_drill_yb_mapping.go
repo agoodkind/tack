@@ -155,14 +155,14 @@ const (
 // requireYBObjectIDs refuses a mapping row carrying an id that is not in the
 // engine's form, naming the row's fields and the id.
 func requireYBObjectIDs(row []string, ids ...string) error {
-	for _, id := range ids {
-		if !ybObjectIDPattern.MatchString(id) {
+	for _, objectID := range ids {
+		if !ybObjectIDPattern.MatchString(objectID) {
 			return ybMappingRowError(
 				row,
 				fmt.Sprintf(
 					"names %q, which is not a 32-character"+
 						" hexadecimal table or tablet id",
-					id,
+					objectID,
 				),
 			)
 		}

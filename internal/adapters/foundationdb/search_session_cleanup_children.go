@@ -100,7 +100,8 @@ func assembleSessionTokens(record searchSessionRecord, chunks []fdb.KeyValue) ([
 
 	if !contiguous || len(chunks) != record.TokenChunks || len(tokens) != record.TokenBytes {
 		operation := fmt.Sprintf(
-			"session %s has %d token chunks of %d bytes, contiguous from chunk 0 %t, and its header records %d chunks of %d bytes",
+			"session %s has %d token chunks of %d bytes, contiguous from "+
+				"chunk 0 %t, and its header records %d chunks of %d bytes",
 			record.ID,
 			len(chunks),
 			len(tokens),

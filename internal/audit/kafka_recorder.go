@@ -271,13 +271,13 @@ func SplitBrokers(s string) []string {
 	parts := strings.Split(s, ",")
 
 	out := make([]string, 0, len(parts))
-	for _, p := range parts {
-		p = strings.TrimSpace(p)
-		if p == "" {
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part == "" {
 			continue
 		}
 
-		out = append(out, p)
+		out = append(out, part)
 	}
 
 	return out

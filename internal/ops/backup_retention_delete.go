@@ -61,16 +61,9 @@ func deleteRetentionPrefix(
 			return deleted, fmt.Errorf("list expired ledger run %s: %w", run, err)
 		}
 
-		identifiers := make([]s3types.ObjectIdentifier, 0, len(page.Contents))
-		for _, object := range page.Contents {
-			if object.Key == nil || !strings.HasPrefix(*object.Key, prefix) {
-				return deleted, fmt.Errorf(
-					"retention refuses object outside ledger prefix %s",
-					prefix,
-				)
-			}
-
-			identifiers = append(identifiers, s3types.ObjectIdentifier{Key: object.Key})
+		identifiers, err := retentionObjectIdentifiers(page.Contents, prefix)
+		if err != nil {
+			return deleted, err
 		}
 
 		if len(identifiers) == 0 {
@@ -132,4 +125,20 @@ func deleteRetentionPrefix(
 	}
 
 	return deleted, nil
+}
+
+func retentionObjectIdentifiers(
+	contents []s3types.Object,
+	prefix string,
+) ([]s3types.ObjectIdentifier, error) {
+	identifiers := make([]s3types.ObjectIdentifier, 0, len(contents))
+	for _, object := range contents {
+		if object.Key == nil || !strings.HasPrefix(*object.Key, prefix) {
+			return nil, &retentionPrefixError{prefix: prefix}
+		}
+
+		identifiers = append(identifiers, s3types.ObjectIdentifier{Key: object.Key})
+	}
+
+	return identifiers, nil
 }

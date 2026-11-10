@@ -27,7 +27,11 @@ func redactionIdentities() Identities {
 			{
 				OrgID: uuid.Must(uuid.NewV7()),
 				Actors: []Actor{
-					{UserID: uuid.Must(uuid.NewV7()), Email: "qa@example.invalid", Token: "token"},
+					{
+						UserID: uuid.Must(uuid.NewV7()),
+						Email:  "qa@example.invalid",
+						Token:  "token",
+					},
 				},
 			},
 		},

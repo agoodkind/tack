@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"net/netip"
 	"os"
 	"strconv"
 
@@ -46,18 +47,7 @@ func provisionOpenSearch(
 	}
 
 	defer func() { _ = cli.Close() }()
-	holder, err := startEngine(
-		ctx,
-		cli,
-		engineSpec{
-			kind:       "opensearch-address",
-			image:      openSearchImage,
-			platform:   nil,
-			entrypoint: []string{"sleep"},
-			cmd:        []string{openSearchHolderSeconds},
-			env:        nil,
-		},
-	)
+	holder, err := startOpenSearchAddress(ctx, cli)
 	if err != nil {
 		return OpenSearchFixture{}, created, err
 	}
@@ -95,57 +85,17 @@ func provisionOpenSearch(
 		return OpenSearchFixture{}, created, err
 	}
 
-	_, err = cli.ContainerCreate(
-		ctx,
-		client.ContainerCreateOptions{
-			Config: &container.Config{
-				Image: openSearchImage,
-				Env: append(
-					[]string{
-						"discovery.type=single-node",
-						"OPENSEARCH_JAVA_OPTS=" + openSearchJavaOptions,
-						"DISABLE_INSTALL_DEMO_CONFIG=true",
-					},
-					settings.nodeSettings...,
-				),
-				Labels: ownerLabels(owner),
-			},
-			HostConfig:       openSearchHostConfig(holder.name, settings),
-			NetworkingConfig: &network.NetworkingConfig{EndpointsConfig: nil},
-			Name:             name,
-		},
-	)
+	err = createOpenSearchContainer(ctx, cli, holder.name, settings, owner, name)
 	if err != nil {
-		wrapped := fmt.Errorf("create OpenSearch fixture %s: %w", name, err)
-		telemetry.L(ctx).ErrorContext(
-			ctx,
-			"search.fixture_create_failed",
-			slog.String("err", wrapped.Error()),
-			slog.String("container", name),
-		)
-
-		return OpenSearchFixture{}, created, wrapped
+		return OpenSearchFixture{}, created, err
 	}
 
 	own(name)
 	created = append(created, name)
 
-	for path, contents := range map[string][]byte{
-		"/usr/share/opensearch/config/opensearch.yml":     []byte(openSearchConfig),
-		"/usr/share/opensearch/config/certs/ca.pem":       certificates.ca,
-		"/usr/share/opensearch/config/certs/node.pem":     certificates.node,
-		"/usr/share/opensearch/config/certs/node-key.pem": certificates.key,
-	} {
-		if err := writeContainerFileAs(
-			ctx,
-			cli,
-			name,
-			path,
-			contents,
-			openSearchOwner,
-		); err != nil {
-			return OpenSearchFixture{}, created, err
-		}
+	err = installOpenSearchCertificates(ctx, cli, name, certificates)
+	if err != nil {
+		return OpenSearchFixture{}, created, err
 	}
 
 	if err := installOpenSearchSecurity(ctx, cli, name, securityFiles); err != nil {
@@ -173,6 +123,99 @@ func provisionOpenSearch(
 	}
 	healthContext, stopWaiting := context.WithCancelCause(ctx)
 	defer stopWaiting(nil)
+	watchOpenSearchExit(ctx, healthContext, cli, name, stopWaiting)
+	if err := waitForOpenSearchHealth(healthContext, fixture); err != nil {
+		return OpenSearchFixture{}, created, engineStartFailure(
+			ctx,
+			cli,
+			name,
+			errors.Join(err, context.Cause(healthContext)),
+		)
+	}
+
+	logOpenSearchStarted(ctx, name, &settings)
+
+	return fixture, created, nil
+}
+
+func createOpenSearchContainer(
+	ctx context.Context,
+	cli *client.Client,
+	holderName string,
+	settings openSearchEngineSettings,
+	owner processOwner,
+	name string,
+) error {
+	_, err := cli.ContainerCreate(
+		ctx,
+		client.ContainerCreateOptions{
+			Config: &container.Config{
+				Image: openSearchImage,
+				Env: append(
+					[]string{
+						"discovery.type=single-node",
+						"OPENSEARCH_JAVA_OPTS=" + openSearchJavaOptions,
+						"DISABLE_INSTALL_DEMO_CONFIG=true",
+					},
+					settings.nodeSettings...,
+				),
+				Labels: ownerLabels(owner),
+			},
+			HostConfig:       openSearchHostConfig(holderName, settings),
+			NetworkingConfig: &network.NetworkingConfig{EndpointsConfig: nil},
+			Name:             name,
+		},
+	)
+	if err != nil {
+		wrapped := fmt.Errorf("create OpenSearch fixture %s: %w", name, err)
+		logger := telemetry.L(ctx)
+		logger.ErrorContext(
+			ctx,
+			"search.fixture_create_failed",
+			slog.String("err", wrapped.Error()),
+			slog.String("container", name),
+		)
+
+		return wrapped
+	}
+
+	return nil
+}
+
+func installOpenSearchCertificates(
+	ctx context.Context,
+	cli *client.Client,
+	name string,
+	certificates openSearchCertificates,
+) error {
+	for path, contents := range map[string][]byte{
+		"/usr/share/opensearch/config/opensearch.yml":     []byte(openSearchConfig),
+		"/usr/share/opensearch/config/certs/ca.pem":       certificates.ca,
+		"/usr/share/opensearch/config/certs/node.pem":     certificates.node,
+		"/usr/share/opensearch/config/certs/node-key.pem": certificates.key,
+	} {
+		if err := writeContainerFileAs(
+			ctx,
+			cli,
+			name,
+			path,
+			contents,
+			openSearchOwner,
+		); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func watchOpenSearchExit(
+	ctx context.Context,
+	healthContext context.Context,
+	cli *client.Client,
+	name string,
+	stopWaiting context.CancelCauseFunc,
+) {
 	go func() {
 		defer func() {
 			if recovered := recover(); recovered != nil {
@@ -185,15 +228,9 @@ func provisionOpenSearch(
 		}()
 		cancelOnExit(healthContext, cli, name, stopWaiting)
 	}()
-	if err := waitForOpenSearchHealth(healthContext, fixture); err != nil {
-		return OpenSearchFixture{}, created, engineStartFailure(
-			ctx,
-			cli,
-			name,
-			errors.Join(err, context.Cause(healthContext)),
-		)
-	}
+}
 
+func logOpenSearchStarted(ctx context.Context, name string, settings *openSearchEngineSettings) {
 	telemetry.L(ctx).InfoContext(
 		ctx,
 		"search.fixture_started",
@@ -201,6 +238,28 @@ func provisionOpenSearch(
 		slog.Int64("memory_bytes", settings.memoryBytes),
 		slog.String("data_volume", settings.dataVolume),
 	)
+}
 
-	return fixture, created, nil
+func startOpenSearchAddress(ctx context.Context, cli *client.Client) (engine, error) {
+	return startEngine(
+		ctx,
+		cli,
+		engineSpec{
+			kind:          "opensearch-address",
+			image:         openSearchImage,
+			platform:      nil,
+			entrypoint:    []string{engineSleepCommand},
+			cmd:           []string{openSearchHolderSeconds},
+			env:           nil,
+			files:         nil,
+			networkOf:     "",
+			name:          "",
+			healthcheck:   nil,
+			attachNetwork: "",
+			ipv4Address:   netip.Addr{},
+			extraHosts:    nil,
+			privileged:    false,
+			tmpfs:         nil,
+		},
+	)
 }

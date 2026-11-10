@@ -46,7 +46,10 @@ func (a *Adapter) readPageStates(
 			Index:      index,
 			BodyReader: bytes.NewReader(body),
 			Params: &opensearchapi.MGetParams{
-				SourceIncludes: []string{"retired", "search_generation"},
+				SourceIncludes: []string{
+					"retired",
+					"search_generation",
+				},
 			},
 		},
 	)

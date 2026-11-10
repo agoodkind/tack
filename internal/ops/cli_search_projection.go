@@ -68,18 +68,18 @@ func searchProjectionBackfillOp(f *cli.Factory) clispec.Operation[searchProjecti
 func runSearchProjectionBackfillCommand(
 	ctx context.Context,
 	f *cli.Factory,
-	in searchProjectionBackfillInput,
+	input searchProjectionBackfillInput,
 	sink clispec.ResultSink,
 	dryRun bool,
 ) error {
-	manifest, err := os.Open(in.Manifest)
+	manifest, err := os.Open(input.Manifest)
 	if err != nil {
-		wrapped := fmt.Errorf("open search projection manifest %q: %w", in.Manifest, err)
+		wrapped := fmt.Errorf("open search projection manifest %q: %w", input.Manifest, err)
 		telemetry.L(ctx).ErrorContext(
 			ctx,
 			"search.projection.open_failed",
 			slog.String("err", wrapped.Error()),
-			slog.String("manifest", in.Manifest),
+			slog.String("manifest", input.Manifest),
 		)
 
 		return wrapped

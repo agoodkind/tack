@@ -22,16 +22,19 @@ var fenceIncrement = []byte{1, 0, 0, 0, 0, 0, 0, 0}
 // reports whether strict validation is active.
 func fenceNodeMutation(
 	ctx context.Context,
-	tr fdb.Transaction,
+	transaction fdb.Transaction,
 	orgID uuid.UUID,
 	nodeID uuid.UUID,
 ) (bool, error) {
-	activation, err := readStrictActivation(ctx, tr)
+	activation, err := readStrictActivation(ctx, transaction)
 	if err != nil {
 		return false, err
 	}
 
-	tr.Add(fdb.Key(writeFenceBucketKey(node.WriteFenceBucket(orgID, nodeID))), fenceIncrement)
+	transaction.Add(
+		fdb.Key(writeFenceBucketKey(node.WriteFenceBucket(orgID, nodeID))),
+		fenceIncrement,
+	)
 
 	return activation.Active, nil
 }
@@ -40,7 +43,7 @@ func fenceNodeMutation(
 // record as inactive.
 func readStrictActivation(
 	ctx context.Context,
-	tr fdb.ReadTransaction,
+	transaction fdb.ReadTransaction,
 ) (node.StrictActivation, error) {
 	inactive := node.StrictActivation{
 		Active:           false,
@@ -48,7 +51,7 @@ func readStrictActivation(
 		ScanID:           uuid.Nil,
 		RecordsValidated: 0,
 	}
-	encoded, err := tr.Get(fdb.Key(strictActivationKey())).Get()
+	encoded, err := transaction.Get(fdb.Key(strictActivationKey())).Get()
 	if err != nil {
 		return inactive, searchReadFailure(ctx, "read the strict validation activation record", err)
 	}

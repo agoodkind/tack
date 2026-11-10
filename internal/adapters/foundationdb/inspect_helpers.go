@@ -1,19 +1,16 @@
 package foundationdb
 
 import (
-	"encoding/json"
-	"fmt"
 	"sort"
 	"strings"
 
 	"github.com/apple/foundationdb/bindings/go/src/fdb"
 	"github.com/apple/foundationdb/bindings/go/src/fdb/tuple"
 	"github.com/google/uuid"
-	"goodkind.io/tack/internal/domain/node"
 )
 
 func queryRelationshipRows(
-	tr fdb.ReadTransaction,
+	transaction fdb.ReadTransaction,
 	nodeID uuid.UUID,
 	orgIDs []uuid.UUID,
 ) ([]InspectRelationshipRow, []InspectRelationshipReverseRow, error) {
@@ -21,108 +18,18 @@ func queryRelationshipRows(
 	reverseRows := make([]InspectRelationshipReverseRow, 0)
 
 	for _, orgID := range orgIDs {
-		forwardPrefix := relationshipPrefixBySource(orgID, nodeID, "")
-		forwardRange, err := fdb.PrefixRange(forwardPrefix)
+		forward, err := queryForwardRelationshipRows(transaction, nodeID, orgID)
 		if err != nil {
-			return nil, nil, fmt.Errorf("prefix relationship source %s: %w", nodeID, err)
+			return nil, nil, err
 		}
 
-		forwardKVs, err := tr.GetRange(forwardRange, fdb.RangeOptions{}).GetSliceWithError()
+		forwardRows = append(forwardRows, forward...)
+		reverse, err := queryReverseRelationshipRows(transaction, nodeID, orgID)
 		if err != nil {
-			return nil, nil, fmt.Errorf("scan relationship source %s: %w", nodeID, err)
+			return nil, nil, err
 		}
 
-		for _, kv := range forwardKVs {
-			t, err := tuple.Unpack(stripPrefix(kv.Key))
-			if err != nil || len(t) != 5 {
-				continue
-			}
-
-			targetID, err := uuid.Parse(asString(t[4]))
-			if err != nil {
-				continue
-			}
-
-			reverseValue, err := tr.Get(
-				fdb.Key(relationshipReverseKey(orgID, targetID, asString(t[3]), nodeID)),
-			).Get()
-			if err != nil {
-				return nil, nil, fmt.Errorf(
-					"read relationship reverse companion %s -> %s: %w",
-					nodeID,
-					targetID,
-					err,
-				)
-			}
-
-			var rel node.Relationship
-			if err := json.Unmarshal(kv.Value, &rel); err != nil {
-				return nil, nil, fmt.Errorf(
-					"unmarshal relationship %s -> %s: %w",
-					nodeID,
-					targetID,
-					err,
-				)
-			}
-
-			forwardRows = append(
-				forwardRows,
-				InspectRelationshipRow{
-					OrgID:             orgID,
-					SourceID:          nodeID,
-					RelationType:      asString(t[3]),
-					TargetID:          targetID,
-					ReverseRowPresent: reverseValue != nil,
-					Value:             &rel,
-				},
-			)
-		}
-
-		reversePrefix := relationshipReversePrefixByTarget(orgID, nodeID, "")
-		reverseRange, err := fdb.PrefixRange(reversePrefix)
-		if err != nil {
-			return nil, nil, fmt.Errorf("prefix relationship_reverse target %s: %w", nodeID, err)
-		}
-
-		reverseKVs, err := tr.GetRange(reverseRange, fdb.RangeOptions{}).GetSliceWithError()
-		if err != nil {
-			return nil, nil, fmt.Errorf("scan relationship_reverse target %s: %w", nodeID, err)
-		}
-
-		for _, kv := range reverseKVs {
-			t, err := tuple.Unpack(stripPrefix(kv.Key))
-			if err != nil || len(t) != 5 {
-				continue
-			}
-
-			sourceID, err := uuid.Parse(asString(t[4]))
-			if err != nil {
-				continue
-			}
-
-			forwardValue, err := tr.Get(
-				fdb.Key(relationshipKey(orgID, sourceID, asString(t[3]), nodeID)),
-			).Get()
-			if err != nil {
-				return nil, nil, fmt.Errorf(
-					"read relationship forward companion %s -> %s: %w",
-					sourceID,
-					nodeID,
-					err,
-				)
-			}
-
-			reverseRows = append(
-				reverseRows,
-				InspectRelationshipReverseRow{
-					OrgID:             orgID,
-					TargetID:          nodeID,
-					RelationType:      asString(t[3]),
-					SourceID:          sourceID,
-					ForwardRowPresent: forwardValue != nil,
-				},
-			)
-		}
+		reverseRows = append(reverseRows, reverse...)
 	}
 
 	return forwardRows, reverseRows, nil
@@ -188,7 +95,7 @@ func sortInspectionReport(report *NodeInspectionReport) {
 	)
 	sort.Slice(
 		report.PropertyIndexRows,
-		func(i int, j int) bool {
+		func(i int, rightIndex int) bool {
 			left := rowKey(
 				report.PropertyIndexRows[i].OrgID.String(),
 				report.PropertyIndexRows[i].NodeType,
@@ -196,10 +103,10 @@ func sortInspectionReport(report *NodeInspectionReport) {
 				string(report.PropertyIndexRows[i].EncodedValue),
 			)
 			right := rowKey(
-				report.PropertyIndexRows[j].OrgID.String(),
-				report.PropertyIndexRows[j].NodeType,
-				report.PropertyIndexRows[j].PropertyName,
-				string(report.PropertyIndexRows[j].EncodedValue),
+				report.PropertyIndexRows[rightIndex].OrgID.String(),
+				report.PropertyIndexRows[rightIndex].NodeType,
+				report.PropertyIndexRows[rightIndex].PropertyName,
+				string(report.PropertyIndexRows[rightIndex].EncodedValue),
 			)
 
 			return left < right
@@ -207,16 +114,16 @@ func sortInspectionReport(report *NodeInspectionReport) {
 	)
 	sort.Slice(
 		report.Relationships,
-		func(i int, j int) bool {
+		func(i int, rightIndex int) bool {
 			left := rowKey(
 				report.Relationships[i].OrgID.String(),
 				report.Relationships[i].RelationType,
 				report.Relationships[i].TargetID.String(),
 			)
 			right := rowKey(
-				report.Relationships[j].OrgID.String(),
-				report.Relationships[j].RelationType,
-				report.Relationships[j].TargetID.String(),
+				report.Relationships[rightIndex].OrgID.String(),
+				report.Relationships[rightIndex].RelationType,
+				report.Relationships[rightIndex].TargetID.String(),
 			)
 
 			return left < right
@@ -224,16 +131,16 @@ func sortInspectionReport(report *NodeInspectionReport) {
 	)
 	sort.Slice(
 		report.RelationshipReverseRows,
-		func(i int, j int) bool {
+		func(i int, rightIndex int) bool {
 			left := rowKey(
 				report.RelationshipReverseRows[i].OrgID.String(),
 				report.RelationshipReverseRows[i].RelationType,
 				report.RelationshipReverseRows[i].SourceID.String(),
 			)
 			right := rowKey(
-				report.RelationshipReverseRows[j].OrgID.String(),
-				report.RelationshipReverseRows[j].RelationType,
-				report.RelationshipReverseRows[j].SourceID.String(),
+				report.RelationshipReverseRows[rightIndex].OrgID.String(),
+				report.RelationshipReverseRows[rightIndex].RelationType,
+				report.RelationshipReverseRows[rightIndex].SourceID.String(),
 			)
 
 			return left < right

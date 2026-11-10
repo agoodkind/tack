@@ -147,7 +147,7 @@ func provisionObjectStore(ctx context.Context) (string, error) {
 			kind:       "seaweedfs-address",
 			image:      objectStoreImage,
 			platform:   nil,
-			entrypoint: []string{"sleep"},
+			entrypoint: []string{engineSleepCommand},
 			cmd:        []string{objectStoreHolderSeconds},
 			env:        nil,
 		},

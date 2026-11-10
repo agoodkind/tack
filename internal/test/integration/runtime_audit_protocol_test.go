@@ -101,7 +101,10 @@ func refusalCases(t *testing.T, server *publicServer, foreignProjectID string) [
 			body: rpcBody(
 				t,
 				"tools/call",
-				map[string]any{"name": tool, "arguments": arguments},
+				map[string]any{
+					"name":      tool,
+					"arguments": arguments,
+				},
 			),
 			status:        http.StatusOK,
 			verb:          verb,

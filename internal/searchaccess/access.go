@@ -126,7 +126,8 @@ func (s *PolicySet) Index(
 			access.Keys,
 		) || access.Versions[0] != request.Version {
 		wrapped := fmt.Errorf(
-			"validate search access for resource %s: versions and keys must be nonempty, unique, sorted, and include the policy version",
+			"validate search access for resource %s: versions and keys must "+
+				"be nonempty, unique, sorted, and include the policy version",
 			request.ResourceID,
 		)
 		telemetry.L(ctx).ErrorContext(

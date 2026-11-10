@@ -72,7 +72,8 @@ func deployVerifyCommand(f *cli.Factory) *cobra.Command {
 		&in.Service,
 		"service",
 		"",
-		"Check only this Docker Compose service. The only accepted value is app. Omit the flag to check app and audit-consumer.",
+		"Check only this Docker Compose service. The only accepted value "+
+			"is app. Omit the flag to check app and audit-consumer.",
 	)
 	cmd.Flags().StringVar(
 		&in.ServerDigest,
@@ -84,7 +85,8 @@ func deployVerifyCommand(f *cli.Factory) *cobra.Command {
 		&in.ConsumerDigest,
 		"tack-audit-consumer-digest",
 		"",
-		"Require every audit-consumer replica to match this image index digest (sha256: followed by 64 lowercase hexadecimal digits).",
+		"Require every audit-consumer replica to match this image index "+
+			"digest (sha256: followed by 64 lowercase hexadecimal digits).",
 	)
 	input := func() (json.RawMessage, error) {
 		encoded, err := json.Marshal(in)

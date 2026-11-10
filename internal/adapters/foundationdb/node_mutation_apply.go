@@ -2,7 +2,6 @@ package foundationdb
 
 import (
 	"context"
-	"encoding/json"
 
 	"github.com/apple/foundationdb/bindings/go/src/fdb"
 	"goodkind.io/tack/internal/domain"
@@ -96,17 +95,8 @@ func (s *NodeStore) applyMutationAttempt(
 		return none, err
 	}
 
-	if plan.Parent != nil {
-		if err := checkParentChain(
-			ctx,
-			tr,
-			plan.OrgID,
-			plan.NodeID,
-			plan.Parent.TargetID,
-			records,
-		); err != nil {
-			return none, err
-		}
+	if err := checkExpectedParent(ctx, tr, plan, records); err != nil {
+		return none, err
 	}
 
 	result := mutationResult(plan, source, s.clock.Now().UTC())
@@ -132,12 +122,7 @@ func (s *NodeStore) applyMutationAttempt(
 		return none, err
 	}
 
-	planned, err := json.Marshal(&result)
-	if err != nil {
-		return none, nodeOperationFailure(ctx, "encode node "+plan.NodeID.String(), err)
-	}
-
-	if err := advanceMutationCheckpoint(ctx, tr, plan.Checkpoint, planned); err != nil {
+	if err := advancePlannedMutation(ctx, tr, plan, &result); err != nil {
 		return none, err
 	}
 
@@ -160,17 +145,7 @@ func (s *NodeStore) applyMutationAttempt(
 		return none, err
 	}
 
-	receipt := node.MutationReceipt{
-		OrgID:        plan.OrgID,
-		NodeID:       plan.NodeID,
-		SourceDigest: node.Digest{},
-		ResultDigest: node.PrimaryDigest(encoded),
-	}
-	if source.Exists {
-		receipt.SourceDigest = node.PrimaryDigest(source.Encoding)
-	}
-
-	return receipt, nil
+	return appliedMutationReceipt(plan, source, encoded), nil
 }
 
 // checkMutationSchema compares the stored metadata epoch with plan and returns

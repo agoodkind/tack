@@ -167,15 +167,7 @@ func runSearchRolloutRecorded(
 		return commandOutcome(audit.OutcomeFailed, commandFailedCode, err), err
 	}
 
-	planned := accessRolloutEvidence{
-		AuthorityID:        authorityID.String(),
-		CandidateVersion:   in.Candidate,
-		ExpectedGeneration: current.Generation,
-		ActiveVersion:      current.ActiveVersion,
-		Phase:              "",
-		WriteVersions:      nil,
-		Generation:         0,
-	}
+	planned := accessRolloutPlan(authorityID, in, current)
 	var begun searchdomain.AccessRollout
 	details, err := searchStep(
 		ctx,

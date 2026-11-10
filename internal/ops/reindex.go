@@ -116,13 +116,13 @@ func listOrgIDs(ctx context.Context, env *Env) (map[uuid.UUID]struct{}, error) {
 	orgIDs := map[uuid.UUID]struct{}{}
 
 	for rows.Next() {
-		var id uuid.UUID
-		if err := rows.Scan(&id); err != nil {
+		var orgID uuid.UUID
+		if err := rows.Scan(&orgID); err != nil {
 			env.Log.ErrorContext(ctx, "ops: scan org id", slog.String("err", err.Error()))
 			continue
 		}
 
-		orgIDs[id] = struct{}{}
+		orgIDs[orgID] = struct{}{}
 	}
 
 	return orgIDs, nil
@@ -133,13 +133,14 @@ func listOrgIDs(ctx context.Context, env *Env) (map[uuid.UUID]struct{}, error) {
 // backfill writes exactly the indexes a fresh create would.
 func indexedPropsFor(nt *node.NodeType, defs []*node.PropertyDef) []string {
 	out := make([]string, 0, len(defs))
-	for _, d := range defs {
-		if !d.Indexed {
+	for _, definition := range defs {
+		if !definition.Indexed {
 			continue
 		}
 
-		if len(d.AppliesToFeatures) == 0 || nt.Features.HasAny(d.AppliesToFeatures...) {
-			out = append(out, d.Name)
+		if len(definition.AppliesToFeatures) == 0 ||
+			nt.Features.HasAny(definition.AppliesToFeatures...) {
+			out = append(out, definition.Name)
 		}
 	}
 

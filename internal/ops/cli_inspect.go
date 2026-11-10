@@ -229,42 +229,7 @@ func inspectQueryOp(f *cli.Factory) clispec.Operation[inspectQueryInput] {
 		Long:     "",
 		Examples: nil,
 		Args:     nil,
-		Params: []clispec.Param[inspectQueryInput]{
-			clispec.StringParam(
-				"org",
-				"org UUID",
-				"",
-				true,
-				func(in *inspectQueryInput, v string) { in.OrgID = v },
-			),
-			clispec.StringParam(
-				"type",
-				"node type key",
-				"",
-				false,
-				func(in *inspectQueryInput, v string) { in.NodeType = v },
-			),
-			clispec.StringParam(
-				"property",
-				"property name",
-				"",
-				true,
-				func(in *inspectQueryInput, v string) { in.Property = v },
-			),
-			clispec.StringParam(
-				"value",
-				"property value as JSON",
-				"",
-				true,
-				func(in *inspectQueryInput, v string) { in.Value = v },
-			),
-			clispec.IntParam(
-				"limit",
-				"max rows",
-				50,
-				func(in *inspectQueryInput, v int) { in.Limit = v },
-			),
-		},
+		Params:   inspectQueryParams(),
 		New: func() inspectQueryInput {
 			return inspectQueryInput{
 				InputMarker: clispec.InputMarker{},

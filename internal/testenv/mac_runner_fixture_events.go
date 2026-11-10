@@ -103,27 +103,7 @@ func (execution *macRunnerExecution) recordFixtureCreate(
 		return false, nil
 	}
 
-	observed.Event.Actor.Attributes = map[string]string{
-		"name":       event.Actor.Attributes["name"],
-		runnerLabel:  event.Actor.Attributes[runnerLabel],
-		managedLabel: event.Actor.Attributes[managedLabel],
-		hostLabel:    event.Actor.Attributes[hostLabel],
-	}
-	encoded, err := json.Marshal(observed)
-	if err != nil {
-		return false, macRunnerFailure("encode fixture creation evidence", err)
-	}
-
-	execution.eventSnapshot.Lock()
-	defer execution.eventSnapshot.Unlock()
-	if execution.eventSnapshot.bytes+len(encoded) > macRunnerCreateEvidenceLimit {
-		return false, errors.New("fixture creation evidence exceeds 16 MiB")
-	}
-
-	execution.eventSnapshot.bytes += len(encoded)
-	execution.eventSnapshot.creates = append(execution.eventSnapshot.creates, observed)
-
-	return true, nil
+	return execution.appendFixtureCreate(event, observed)
 }
 
 func macRunnerMatchesObservedContainer(inspection container.InspectResponse, runnerID string) bool {
@@ -215,4 +195,31 @@ func (execution *macRunnerExecution) countFixtureInspection() error {
 	execution.eventSnapshot.inspections++
 
 	return nil
+}
+
+func (execution *macRunnerExecution) appendFixtureCreate(
+	event events.Message,
+	observed macRunnerObservedCreate,
+) (bool, error) {
+	observed.Event.Actor.Attributes = map[string]string{
+		"name":       event.Actor.Attributes["name"],
+		runnerLabel:  event.Actor.Attributes[runnerLabel],
+		managedLabel: event.Actor.Attributes[managedLabel],
+		hostLabel:    event.Actor.Attributes[hostLabel],
+	}
+	encoded, err := json.Marshal(observed)
+	if err != nil {
+		return false, macRunnerFailure("encode fixture creation evidence", err)
+	}
+
+	execution.eventSnapshot.Lock()
+	defer execution.eventSnapshot.Unlock()
+	if execution.eventSnapshot.bytes+len(encoded) > macRunnerCreateEvidenceLimit {
+		return false, errFixtureCreateEvidenceLimit
+	}
+
+	execution.eventSnapshot.bytes += len(encoded)
+	execution.eventSnapshot.creates = append(execution.eventSnapshot.creates, observed)
+
+	return true, nil
 }

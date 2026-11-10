@@ -20,33 +20,9 @@ const generatedSemanticField = "page_text_semantic_info"
 // metadata, and the shard topology with spec. It does not read the model
 // registration; VerifyModel checks that.
 func (a *Adapter) VerifyIndex(ctx context.Context, index string, spec IndexSpec) error {
-	if err := spec.Validate(ctx); err != nil {
-		wrapped := fmt.Errorf("verify OpenSearch index %s: %w", index, err)
-		if !isLoggedModelError(err) {
-			telemetry.L(ctx).ErrorContext(
-				ctx,
-				"search.index.verify_invalid",
-				slog.String("err", wrapped.Error()),
-				slog.String("index", index),
-			)
-		}
-
-		return wrapped
-	}
-
-	expected, err := spec.Mapping(ctx)
+	expected, err := expectedIndexMapping(ctx, index, &spec)
 	if err != nil {
-		wrapped := fmt.Errorf("build expected OpenSearch index %s mapping: %w", index, err)
-		if !isLoggedModelError(err) {
-			telemetry.L(ctx).ErrorContext(
-				ctx,
-				"search.index.mapping_encode_failed",
-				slog.String("err", wrapped.Error()),
-				slog.String("index", index),
-			)
-		}
-
-		return wrapped
+		return err
 	}
 
 	response, err := a.api.Indices.GetMapping(

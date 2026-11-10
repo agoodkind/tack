@@ -39,13 +39,13 @@ func verifyNodeSpec() audit.Spec {
 	return clispec.InputReadSpec(
 		audit.VerbOpsVerifyNode,
 		func(in verifyNodeInput) audit.Target { return nodeInputTarget(in.NodeID) },
-		func(in verifyNodeInput) verifyNodeInput {
+		func(input verifyNodeInput) verifyNodeInput {
 			return verifyNodeInput{
 				InputMarker: clispec.InputMarker{},
-				NodeID:      audit.CanonicalUUID(in.NodeID),
-				Class:       in.Class,
+				NodeID:      audit.CanonicalUUID(input.NodeID),
+				Class:       input.Class,
 				Profile:     "",
-				Records:     in.Records,
+				Records:     input.Records,
 			}
 		},
 	)
@@ -121,14 +121,14 @@ func inspectQuerySpec() audit.Spec {
 	return clispec.InputReadSpec(
 		audit.VerbOpsInspectQuery,
 		func(in inspectQueryInput) audit.Target { return orgInputTarget(in.OrgID) },
-		func(in inspectQueryInput) inspectQueryInput {
+		func(input inspectQueryInput) inspectQueryInput {
 			return inspectQueryInput{
 				InputMarker: clispec.InputMarker{},
-				OrgID:       audit.CanonicalUUID(in.OrgID),
-				NodeType:    in.NodeType,
-				Property:    in.Property,
+				OrgID:       audit.CanonicalUUID(input.OrgID),
+				NodeType:    input.NodeType,
+				Property:    input.Property,
 				Value:       "",
-				Limit:       in.Limit,
+				Limit:       input.Limit,
 			}
 		},
 	)

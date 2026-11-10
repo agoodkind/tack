@@ -225,13 +225,13 @@ func writeLedgerNodePrepareResult(
 
 // equalStringSets reports whether two sorted, deduplicated lists contain the
 // same entries.
-func equalStringSets(a, b []string) bool {
-	if len(a) != len(b) {
+func equalStringSets(left, right []string) bool {
+	if len(left) != len(right) {
 		return false
 	}
 
-	for i := range a {
-		if a[i] != b[i] {
+	for i := range left {
+		if left[i] != right[i] {
 			return false
 		}
 	}

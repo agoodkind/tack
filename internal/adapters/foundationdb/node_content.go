@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"slices"
 	"strconv"
 	"unicode/utf8"
 
@@ -60,39 +59,13 @@ func (s *NodeContentStore) Content(
 		)
 	}
 
-	if snapshot.revision <= 0 ||
-		request.ProjectionConfig != "" && request.ProjectionConfig != snapshot.projectionID {
-		return page, nodeContentContextError{
-			operation: "validate revision and projection for node " + request.NodeID.String(),
-			err:       node.ErrContentChanged,
-		}
+	if err := validateContentSnapshot(request, snapshot); err != nil {
+		return page, err
 	}
 
-	if request.SearchGeneration > 0 && request.SearchGeneration != snapshot.generation {
-		return page, searchdomain.ErrWorkChanged
-	}
-
-	if len(request.AccessVersions) > 0 &&
-		!slices.Equal(request.AccessVersions, snapshot.access.Versions) {
-		return page, searchdomain.ErrWorkChanged
-	}
-
-	render, err := node.RenderSearchText(
-		ctx,
-		node.SearchSource{
-			OrgID:       snapshot.node.OrgID,
-			NodeID:      request.NodeID,
-			NodeType:    snapshot.nodeType,
-			Name:        snapshot.node.Name,
-			Properties:  snapshot.node.Props,
-			Definitions: snapshot.definitions,
-		},
-	)
+	render, err := renderContentSnapshot(ctx, request.NodeID, snapshot)
 	if err != nil {
-		return page, nodeContentContextError{
-			operation: "render search text for node " + request.NodeID.String(),
-			err:       err,
-		}
+		return page, err
 	}
 
 	revision := strconv.FormatInt(snapshot.revision, 10)

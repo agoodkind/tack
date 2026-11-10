@@ -134,104 +134,17 @@ func verifySearchPhysical(
 	index string,
 ) error {
 	logger := telemetry.L(ctx)
-	info, err := adapter.IndexInfo(ctx, index)
+	modelID, err := verifySearchMetadata(ctx, adapter, logger, index)
 	if err != nil {
-		wrapped := fmt.Errorf("read search mapping %s: %w", index, err)
-		logger.ErrorContext(
-			ctx,
-			"search.verify.mapping_failed",
-			slog.String("err", wrapped.Error()),
-			slog.String("index", index),
-		)
-
-		return wrapped
-	}
-
-	if info.MappingVersion != search.MappingVersion {
-		wrapped := fmt.Errorf(
-			"search mapping version %q does not match %q",
-			info.MappingVersion,
-			search.MappingVersion,
-		)
-		logger.ErrorContext(
-			ctx,
-			"search.verify.mapping_mismatch",
-			slog.String("err", wrapped.Error()),
-			slog.String("index", index),
-		)
-
-		return wrapped
-	}
-
-	if info.TokenizerSHA256 != search.PinnedModel.TokenizerDigest {
-		wrapped := fmt.Errorf(
-			"search mapping tokenizer SHA-256 %q does not match %q",
-			info.TokenizerSHA256,
-			search.PinnedModel.TokenizerDigest,
-		)
-		logger.ErrorContext(
-			ctx,
-			"search.verify.tokenizer_mismatch",
-			slog.String("err", wrapped.Error()),
-			slog.String("index", index),
-		)
-
-		return wrapped
-	}
-
-	if err := adapter.VerifyModel(ctx, info.ModelID); err != nil {
-		wrapped := fmt.Errorf("verify search model %s: %w", info.ModelID, err)
-		logger.ErrorContext(
-			ctx,
-			"search.verify.model_failed",
-			slog.String("err", wrapped.Error()),
-			slog.String("model_id", info.ModelID),
-		)
-
-		return wrapped
-	}
-
-	if err := verifySearchModelLocal(ctx, adapter, info.ModelID); err != nil {
 		return err
 	}
 
-	settings, err := adapter.IndexSettings(ctx, index)
-	if err != nil {
-		wrapped := fmt.Errorf("read search index settings %s: %w", index, err)
-		logger.ErrorContext(
-			ctx,
-			"search.verify.settings_failed",
-			slog.String("err", wrapped.Error()),
-			slog.String("index", index),
-		)
-
-		return wrapped
-	}
-
-	if settings.Primaries != topology.Primaries ||
-		settings.RoutingShards != topology.RoutingShards ||
-		settings.Replicas != topology.Replicas {
-		wrapped := fmt.Errorf(
-			"search topology %d/%d/%d does not match %d/%d/%d",
-			settings.Primaries,
-			settings.RoutingShards,
-			settings.Replicas,
-			topology.Primaries,
-			topology.RoutingShards,
-			topology.Replicas,
-		)
-		logger.ErrorContext(
-			ctx,
-			"search.verify.topology_mismatch",
-			slog.String("err", wrapped.Error()),
-			slog.String("index", index),
-		)
-
-		return wrapped
+	if err := verifySearchTopology(ctx, adapter, logger, topology, index); err != nil {
+		return err
 	}
 
 	model := search.PinnedModel
-	model.ID = info.ModelID
+	model.ID = modelID
 	if err := adapter.VerifyIndex(
 		ctx,
 		index,
@@ -282,6 +195,111 @@ func verifySearchPhysical(
 		logger.ErrorContext(
 			ctx,
 			"search.verify.health_failed",
+			slog.String("err", wrapped.Error()),
+			slog.String("index", index),
+		)
+
+		return wrapped
+	}
+
+	return nil
+}
+
+func verifySearchMetadata(
+	ctx context.Context,
+	adapter *search.Adapter,
+	logger *slog.Logger,
+	index string,
+) (string, error) {
+	info, err := adapter.IndexInfo(ctx, index)
+	if err != nil {
+		wrapped := fmt.Errorf("read search mapping %s: %w", index, err)
+		logger.ErrorContext(
+			ctx,
+			"search.verify.mapping_failed",
+			slog.String("err", wrapped.Error()),
+			slog.String("index", index),
+		)
+
+		return "", wrapped
+	}
+
+	if info.MappingVersion != search.MappingVersion {
+		wrapped := &searchMappingVersionError{
+			actual:   info.MappingVersion,
+			expected: search.MappingVersion,
+		}
+		logger.ErrorContext(
+			ctx,
+			"search.verify.mapping_mismatch",
+			slog.String("err", wrapped.Error()),
+			slog.String("index", index),
+		)
+
+		return "", wrapped
+	}
+
+	if info.TokenizerSHA256 != search.PinnedModel.TokenizerDigest {
+		wrapped := &searchTokenizerDigestError{
+			actual:   info.TokenizerSHA256,
+			expected: search.PinnedModel.TokenizerDigest,
+		}
+		logger.ErrorContext(
+			ctx,
+			"search.verify.tokenizer_mismatch",
+			slog.String("err", wrapped.Error()),
+			slog.String("index", index),
+		)
+
+		return "", wrapped
+	}
+
+	if err := adapter.VerifyModel(ctx, info.ModelID); err != nil {
+		wrapped := fmt.Errorf("verify search model %s: %w", info.ModelID, err)
+		logger.ErrorContext(
+			ctx,
+			"search.verify.model_failed",
+			slog.String("err", wrapped.Error()),
+			slog.String("model_id", info.ModelID),
+		)
+
+		return "", wrapped
+	}
+
+	if err := verifySearchModelLocal(ctx, adapter, info.ModelID); err != nil {
+		return "", err
+	}
+
+	return info.ModelID, nil
+}
+
+func verifySearchTopology(
+	ctx context.Context,
+	adapter *search.Adapter,
+	logger *slog.Logger,
+	topology config.SearchTopology,
+	index string,
+) error {
+	settings, err := adapter.IndexSettings(ctx, index)
+	if err != nil {
+		wrapped := fmt.Errorf("read search index settings %s: %w", index, err)
+		logger.ErrorContext(
+			ctx,
+			"search.verify.settings_failed",
+			slog.String("err", wrapped.Error()),
+			slog.String("index", index),
+		)
+
+		return wrapped
+	}
+
+	if settings.Primaries != topology.Primaries ||
+		settings.RoutingShards != topology.RoutingShards ||
+		settings.Replicas != topology.Replicas {
+		wrapped := &searchTopologyMismatchError{actual: settings, expected: topology}
+		logger.ErrorContext(
+			ctx,
+			"search.verify.topology_mismatch",
 			slog.String("err", wrapped.Error()),
 			slog.String("index", index),
 		)

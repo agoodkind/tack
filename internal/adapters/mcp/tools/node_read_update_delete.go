@@ -126,7 +126,7 @@ func updateHandler(nt *node.NodeType, b NodeTypeBinding) mcpserver.ToolHandlerFu
 		audit.SetAuditEntity(
 			ctx,
 			audit.Entity{
-				Type:       "node",
+				Type:       audit.TargetKindNode,
 				NodeType:   existing.NodeType,
 				ID:         existing.ID,
 				Identifier: identifierFor(existing, rc),

@@ -29,7 +29,10 @@ func datagenRepairRequest(fixture datagen.RepairFixture, directory repairDirecto
 			RepairResult{
 				Props: parent(fixture.EpicID),
 				RemoveEdges: []RepairEdge{
-					{RelationType: node.RelChildOf, TargetID: fixture.ProjectID},
+					{
+						RelationType: node.RelChildOf,
+						TargetID:     fixture.ProjectID,
+					},
 				},
 			},
 			"multiple_child_of_edges",

@@ -199,43 +199,7 @@ func runOneShot(
 		return execResult{}, fmt.Errorf("wait one-shot container: %w", ctx.Err())
 	}
 
-	logsRdr, err := cli.ContainerLogs(
-		ctx,
-		created.ID,
-		client.ContainerLogsOptions{
-			ShowStdout: true,
-			ShowStderr: true,
-		},
-	)
-	if err != nil {
-		log.ErrorContext(
-			ctx,
-			"ops.docker.run_once.logs_failed",
-			slog.String("image", opts.Image),
-			slog.String("err", err.Error()),
-		)
-
-		return execResult{}, fmt.Errorf("logs one-shot container: %w", err)
-	}
-	defer logsRdr.Close()
-	var stdout, stderr bytes.Buffer
-	_, err = stdcopy.StdCopy(&stdout, &stderr, logsRdr)
-	if err != nil && !errors.Is(err, io.EOF) {
-		log.ErrorContext(
-			ctx,
-			"ops.docker.run_once.stream_failed",
-			slog.String("image", opts.Image),
-			slog.String("err", err.Error()),
-		)
-
-		return execResult{}, fmt.Errorf("read one-shot logs: %w", err)
-	}
-
-	return execResult{
-		Stdout:   stdout.String(),
-		Stderr:   stderr.String(),
-		ExitCode: exitCode,
-	}, nil
+	return readOneShotLogs(ctx, cli, log, opts.Image, created.ID, exitCode)
 }
 
 // containerExec runs cmd inside an existing container and returns the

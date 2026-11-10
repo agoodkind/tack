@@ -161,8 +161,10 @@ func createRepairComment(
 			ScopeID:     projectID,
 			NodeTypeKey: "comment",
 			Name:        name,
-			Props:       map[string]json.RawMessage{"description": textValue(name)},
-			ActorID:     uuid.New(),
+			Props: map[string]json.RawMessage{
+				"description": textValue(name),
+			},
+			ActorID: uuid.New(),
 		},
 	)
 }

@@ -92,7 +92,11 @@ func startDeployRegistry(
 				Labels:       map[string]string{deployTestenvLabel: "true"},
 			},
 			HostConfig: &container.HostConfig{
-				PortBindings: network.PortMap{apiPort: {{HostPort: ""}}},
+				PortBindings: network.PortMap{
+					apiPort: {
+						{HostPort: ""},
+					},
+				},
 			},
 			Name: name,
 		},

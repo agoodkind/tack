@@ -24,16 +24,16 @@ const SearchClusterVariable = "TACK_SEARCH_CLUSTER"
 // skipWithoutSearchCluster skips a cluster test unless both
 // [SearchIntegrationVariable] and [SearchClusterVariable] are "1". Outside a
 // test binary, cmd/testenv starts the cluster on request.
-func skipWithoutSearchCluster(t T) {
-	t.Helper()
-	skipWithoutSearchIntegration(t)
+func skipWithoutSearchCluster(test T) {
+	test.Helper()
+	skipWithoutSearchIntegration(test)
 	if testing.Testing() && os.Getenv(SearchClusterVariable) != "1" {
 		_, _ = fmt.Fprintf(
-			t.Output(),
+			test.Output(),
 			"testenv: OpenSearch cluster test skipped; set %s=1 to run it\n",
 			SearchClusterVariable,
 		)
-		t.SkipNow()
+		test.SkipNow()
 	}
 }
 

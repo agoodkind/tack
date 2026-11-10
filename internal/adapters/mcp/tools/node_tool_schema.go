@@ -21,7 +21,9 @@ func listTool(
 		schemaField{
 			Name: "filters",
 			Type: schemaObject,
-			Desc: "Optional exact property filters keyed by property name or reference alias, for example {\"state\": \"TACK::In Progress\"} or {\"priority\": \"high\"}.",
+			Desc: "Optional exact property filters keyed by property name or " +
+				"reference alias, for example {\"state\": \"TACK::In Progress\"} or " +
+				"{\"priority\": \"high\"}.",
 		},
 	)
 	fields = append(fields, pageSchemaFields()...)

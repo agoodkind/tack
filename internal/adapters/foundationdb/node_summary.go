@@ -64,31 +64,10 @@ func (s *NodeSummaryStore) Summaries(
 				return readErr
 			}
 
-			resources := make([]searchaccess.OrgNode, 0, len(nodeIDs))
-			for position, nodeID := range nodeIDs {
-				if views[position] != nil {
-					resources = append(
-						resources,
-						searchaccess.OrgNode{OrgID: views[position].OrgID, NodeID: nodeID},
-					)
-				}
-			}
-
 			var accessErr error
-			accesses, accessErr = s.policies.BatchResourceKeys(
-				ctx,
-				newSummaryHierarchy(tr),
-				resources,
-			)
-			if accessErr != nil {
-				return searchReadFailure(
-					ctx,
-					"compile current access of the summary batch",
-					accessErr,
-				)
-			}
+			accesses, accessErr = s.summaryAccesses(ctx, tr, nodeIDs, views)
 
-			return nil
+			return accessErr
 		},
 	)
 	if err != nil {

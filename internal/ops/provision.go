@@ -74,7 +74,8 @@ func provisionFDB(
 
 	if !allowFDBInit {
 		unconfigured := errors.New(
-			"provision: fdb is not configured and --allow-fdb-init was not passed; pass it ONLY on a truly fresh environment, NEVER on prod",
+			"provision: fdb is not configured and --allow-fdb-init was not " +
+				"passed; pass it ONLY on a truly fresh environment, NEVER on prod",
 		)
 		slog.ErrorContext(
 			ctx,

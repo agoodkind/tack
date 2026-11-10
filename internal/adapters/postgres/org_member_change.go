@@ -28,7 +28,7 @@ func lockMember(
 	orgID uuid.UUID,
 	userID uuid.UUID,
 ) (*memberValue, bool, error) {
-	const q = `
+	const query = `
 		SELECT id, org_id, user_id, role, created_at FROM org_members
 		WHERE org_id = $1 AND user_id = $2
 		FOR UPDATE`
@@ -39,7 +39,7 @@ func lockMember(
 		Role:      0,
 		CreatedAt: time.Time{},
 	}
-	err := tx.QueryRow(ctx, q, orgID, userID).Scan(
+	err := tx.QueryRow(ctx, query, orgID, userID).Scan(
 		&stored.ID,
 		&stored.OrgID,
 		&stored.UserID,

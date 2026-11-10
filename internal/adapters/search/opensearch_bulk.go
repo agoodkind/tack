@@ -144,20 +144,7 @@ func checkBulkItems(
 	operations []bulkOperation,
 	policy bulkItemPolicy,
 ) (int, error) {
-	items := make([]opensearchapi.BulkRespItem, 0, len(operations))
-
-	for _, operation := range response.Items {
-		for _, item := range []*opensearchapi.BulkRespItem{
-			operation.Create,
-			operation.Delete,
-			operation.Index,
-			operation.Update,
-		} {
-			if item != nil {
-				items = append(items, *item)
-			}
-		}
-	}
+	items := bulkResponseItems(response, len(operations))
 
 	if len(items) != len(operations) {
 		wrapped := fmt.Errorf(
@@ -224,13 +211,7 @@ func checkBulkItems(
 
 			return position, conflict
 		case bulkItemRejected:
-			reason := ""
-			if item.Error != nil {
-				reason = item.Error.Type
-				if item.Error.Reason != nil {
-					reason += ": " + *item.Error.Reason
-				}
-			}
+			reason := bulkFailureReason(item)
 
 			rejected := fmt.Errorf(
 				"bulk item %s for operation %s in %s returned status %d %s",

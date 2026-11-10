@@ -49,13 +49,13 @@ func (s *ViewStore) Get(ctx context.Context, nodeID uuid.UUID) (view *node.NodeV
 		return nil, fmt.Errorf("view get: %w", classifyStorageTimeout(err))
 	}
 
-	b, ok := val.([]byte)
-	if !ok || len(b) == 0 {
+	encodedView, ok := val.([]byte)
+	if !ok || len(encodedView) == 0 {
 		return nil, nil
 	}
 
 	var v node.NodeView
-	if err := json.Unmarshal(b, &v); err != nil {
+	if err := json.Unmarshal(encodedView, &v); err != nil {
 		return nil, fmt.Errorf("unmarshal view: %w", err)
 	}
 
@@ -71,13 +71,13 @@ func (s *ViewStore) Resolve(
 	key := fdb.Key(nodeResolveKey(nodeID))
 	var result *node.NodeResolve
 	_, err = s.db.ReadTransact(func(tr fdb.ReadTransaction) (any, error) {
-		b := tr.Get(key).MustGet()
-		if len(b) == 0 {
+		encodedResolve := tr.Get(key).MustGet()
+		if len(encodedResolve) == 0 {
 			return nil, domain.ErrNotFound
 		}
 
 		var r node.NodeResolve
-		if err := json.Unmarshal(b, &r); err != nil {
+		if err := json.Unmarshal(encodedResolve, &r); err != nil {
 			return nil, fmt.Errorf("unmarshal resolve: %w", err)
 		}
 
@@ -193,13 +193,13 @@ func (s *ViewStore) scanCandidates(
 
 	// Default: full range scan over (orgID, nodeType).
 	prefix := nodeViewPrefix(q.OrgID, q.NodeType)
-	pr, err := fdb.PrefixRange(prefix)
+	prefixRange, err := fdb.PrefixRange(prefix)
 	if err != nil {
 		return nil, err
 	}
 
 	vals, err := s.db.ReadTransact(func(tr fdb.ReadTransaction) (any, error) {
-		return tr.GetRange(pr, fdb.RangeOptions{}).GetSliceWithError()
+		return tr.GetRange(prefixRange, fdb.RangeOptions{}).GetSliceWithError()
 	})
 	if err != nil {
 		return nil, fmt.Errorf("fdb view range scan: %w", err)
@@ -214,7 +214,7 @@ func (s *ViewStore) scanByProperty(
 	propName string,
 	value json.RawMessage,
 ) ([]*node.NodeView, error) {
-	pr, err := fdb.PrefixRange(
+	prefixRange, err := fdb.PrefixRange(
 		nodeByPropertyValuePrefix(orgID, nodeType, propName, encodePropertyValue(value)),
 	)
 	if err != nil {
@@ -222,7 +222,7 @@ func (s *ViewStore) scanByProperty(
 	}
 
 	vals, err := s.db.ReadTransact(func(tr fdb.ReadTransaction) (any, error) {
-		indexKVs, err := tr.GetRange(pr, fdb.RangeOptions{}).GetSliceWithError()
+		indexKVs, err := tr.GetRange(prefixRange, fdb.RangeOptions{}).GetSliceWithError()
 		if err != nil {
 			return nil, err
 		}
@@ -240,13 +240,13 @@ func (s *ViewStore) scanByProperty(
 				continue
 			}
 
-			b, err := tr.Get(fdb.Key(nodeViewKey(orgID, nodeType, id))).Get()
-			if err != nil || len(b) == 0 {
+			encodedView, err := tr.Get(fdb.Key(nodeViewKey(orgID, nodeType, id))).Get()
+			if err != nil || len(encodedView) == 0 {
 				continue
 			}
 
 			var v node.NodeView
-			if err := json.Unmarshal(b, &v); err != nil {
+			if err := json.Unmarshal(encodedView, &v); err != nil {
 				continue
 			}
 
@@ -278,13 +278,13 @@ func (s *ViewStore) scanByRelation(
 		peerIdx = 4 // sourceID
 	}
 
-	pr, err := fdb.PrefixRange(prefix)
+	prefixRange, err := fdb.PrefixRange(prefix)
 	if err != nil {
 		return nil, err
 	}
 
 	vals, err := s.db.ReadTransact(func(tr fdb.ReadTransaction) (any, error) {
-		kvs, err := tr.GetRange(pr, fdb.RangeOptions{}).GetSliceWithError()
+		kvs, err := tr.GetRange(prefixRange, fdb.RangeOptions{}).GetSliceWithError()
 		if err != nil {
 			return nil, err
 		}
@@ -303,13 +303,13 @@ func (s *ViewStore) scanByRelation(
 			}
 
 			// Look up the peer via node_resolve since we don't know its NodeType.
-			rb, err := tr.Get(fdb.Key(nodeResolveKey(peerID))).Get()
-			if err != nil || len(rb) == 0 {
+			encodedResolve, err := tr.Get(fdb.Key(nodeResolveKey(peerID))).Get()
+			if err != nil || len(encodedResolve) == 0 {
 				continue
 			}
 
 			var r node.NodeResolve
-			if err := json.Unmarshal(rb, &r); err != nil {
+			if err := json.Unmarshal(encodedResolve, &r); err != nil {
 				continue
 			}
 
@@ -317,13 +317,13 @@ func (s *ViewStore) scanByRelation(
 				continue
 			}
 
-			b, err := tr.Get(fdb.Key(nodeViewKey(r.OrgID, r.NodeType, peerID))).Get()
-			if err != nil || len(b) == 0 {
+			encodedView, err := tr.Get(fdb.Key(nodeViewKey(r.OrgID, r.NodeType, peerID))).Get()
+			if err != nil || len(encodedView) == 0 {
 				continue
 			}
 
 			var v node.NodeView
-			if err := json.Unmarshal(b, &v); err != nil {
+			if err := json.Unmarshal(encodedView, &v); err != nil {
 				continue
 			}
 
@@ -341,13 +341,13 @@ func (s *ViewStore) scanByRelation(
 
 // matchPropFilters returns true when every PropFilter matches on v.Props.
 func matchPropFilters(v *node.NodeView, filters []node.PropertyMatch) bool {
-	for _, f := range filters {
-		got, ok := v.Props[f.PropName]
+	for _, filter := range filters {
+		got, ok := v.Props[filter.PropName]
 		if !ok {
 			return false
 		}
 
-		if !bytes.Equal(got, f.Value) {
+		if !bytes.Equal(got, filter.Value) {
 			return false
 		}
 	}

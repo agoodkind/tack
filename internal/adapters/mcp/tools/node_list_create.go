@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/google/uuid"
 	mcpmcp "github.com/mark3labs/mcp-go/v2/mcp"
 	mcpserver "github.com/mark3labs/mcp-go/v2/server"
 	"goodkind.io/tack/internal/audit"
@@ -90,6 +91,19 @@ func listHandler(nt *node.NodeType, route scopeRoute, b NodeTypeBinding) mcpserv
 	}
 }
 
+func setCreateAuditEntity(ctx context.Context, view *node.NodeView, renderContext *renderCtx) {
+	audit.SetAuditEntity(
+		ctx,
+		audit.Entity{
+			Type:       audit.TargetKindNode,
+			NodeType:   view.NodeType,
+			ID:         view.ID,
+			Identifier: identifierFor(view, renderContext),
+			Name:       view.Name,
+		},
+	)
+}
+
 // parseToolProps converts the properties argument to raw JSON, tolerating
 // payloads sent as a stringified JSON blob (see TACK-161). A parse failure
 // maps to the client-facing error result so the handler returns a nil Go
@@ -103,6 +117,23 @@ func parseToolProps(raw json.RawMessage) (map[string]json.RawMessage, *mcpmcp.Ca
 	return rawProps, nil
 }
 
+func requireCreateNameAndActor(
+	ctx context.Context,
+	args argMap,
+) (string, uuid.UUID, *mcpmcp.CallToolResult) {
+	name, isValid := requireString(args, "name")
+	if !isValid {
+		return "", uuid.Nil, recoverableError("name is required")
+	}
+
+	userID, err := mustUser(ctx)
+	if err != nil {
+		return "", uuid.Nil, unexpectedError(ctx, err)
+	}
+
+	return name, userID, nil
+}
+
 func createHandler(
 	nt *node.NodeType,
 	route scopeRoute,
@@ -114,19 +145,14 @@ func createHandler(
 			return recoverableError(err.Error()), nil
 		}
 
-		entryPointReference, ok := b.Resolver.entryPointReference(args)
-		if !ok {
+		entryPointReference, isValid := b.Resolver.entryPointReference(args)
+		if !isValid {
 			return recoverableError(b.Resolver.entryPointRequiredMessage()), nil
 		}
 
-		name, ok := requireString(args, "name")
-		if !ok {
-			return recoverableError("name is required"), nil
-		}
-
-		userID, err := mustUser(ctx)
-		if err != nil {
-			return unexpectedError(ctx, err), nil
+		name, userID, early := requireCreateNameAndActor(ctx, args)
+		if early != nil {
+			return early, nil
 		}
 
 		ws, err := b.Resolver.Workspace(ctx, entryPointReference)
@@ -208,48 +234,6 @@ func createHandler(
 			return classifyError(ctx, err), nil
 		}
 
-		instr := ""
-		if result.Existed {
-			instr = "This create matched an existing operation. No new write was performed."
-			target := nodeTarget(result.View.NodeType, result.View.ID)
-			noteToolResult(
-				ctx,
-				audit.OutcomeDetails{
-					Outcome:        audit.OutcomeCompleted,
-					FailureCode:    "",
-					FailureMessage: "",
-					CommittedSteps: nil,
-				},
-				idempotentMatchReason,
-				&target,
-			)
-		}
-
-		rc := newRenderCtxWithTypes(ctx, b.Reader, b.Users, b.Resolver.typeIndex)
-		audit.SetAuditEntity(
-			ctx,
-			audit.Entity{
-				Type:       "node",
-				NodeType:   result.View.NodeType,
-				ID:         result.View.ID,
-				Identifier: identifierFor(result.View, rc),
-				Name:       result.View.Name,
-			},
-		)
-		changes := fieldChanges{Shown: nil, Total: 0}
-		if !result.Existed {
-			changes = describeFieldChanges(
-				rc,
-				writeChanges{
-					Before:        nil,
-					After:         result.View,
-					Name:          &name,
-					Props:         rawProps,
-					ReferenceKeys: referenceKeysOf(defs),
-				},
-			)
-		}
-
-		return successText(renderWriteConfirmation(rc, "Created", result.View, changes), instr), nil
+		return renderCreateResult(ctx, b, result, name, rawProps, defs), nil
 	}
 }

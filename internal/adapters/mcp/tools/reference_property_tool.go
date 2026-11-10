@@ -163,13 +163,13 @@ func referencePropertyHandler(
 		}
 
 		nodeParam := typeReferenceParamName(nt.Slug)
-		nodeRef, ok := requireString(args, nodeParam)
-		if !ok {
+		nodeRef, isValid := requireString(args, nodeParam)
+		if !isValid {
 			return recoverableError(nodeParam + " is required"), nil
 		}
 
-		valueRef, ok := requireString(args, alias)
-		if !ok {
+		valueRef, isValid := requireString(args, alias)
+		if !isValid {
 			return recoverableError(alias + " is required"), nil
 		}
 
@@ -191,7 +191,7 @@ func referencePropertyHandler(
 		audit.SetAuditEntity(
 			ctx,
 			audit.Entity{
-				Type:       "node",
+				Type:       audit.TargetKindNode,
 				NodeType:   existing.NodeType,
 				ID:         existing.ID,
 				Identifier: identifierFor(existing, rc),

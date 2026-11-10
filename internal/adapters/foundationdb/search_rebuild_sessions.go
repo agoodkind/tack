@@ -163,20 +163,8 @@ func (s *SearchRebuildStore) retireSession(
 		return true, nil
 	}
 
-	if !record.Closing {
-		err := s.retireStep(
-			ctx,
-			index,
-			sessionID,
-			record,
-			searchdomain.CleanupClose,
-			func(stepContext context.Context, fence fdb.Key) error {
-				return s.sessions.beginCleanup(stepContext, sessionID, fence)
-			},
-		)
-		if err != nil {
-			return true, err
-		}
+	if err := s.beginRetireCleanup(ctx, index, sessionID, record); err != nil {
+		return true, err
 	}
 
 	deleted := false

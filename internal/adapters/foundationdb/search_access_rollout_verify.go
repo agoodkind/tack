@@ -203,15 +203,7 @@ func (s *SearchAccessRolloutStore) CompleteVerify(
 			}
 
 			if !done {
-				last := documents[len(documents)-1]
-				key := searchIssuedKey(
-					work.OrgID,
-					last.NodeID,
-					last.Document.Revision,
-					last.Document.Ordinal,
-					last.Document.Projection,
-				)
-				record.VerifyCursor = base64.RawURLEncoding.EncodeToString(key)
+				record.VerifyCursor = verificationCursor(work.OrgID, documents)
 
 				return nil
 			}
@@ -248,16 +240,7 @@ func (s *SearchAccessRolloutStore) CompleteVerify(
 		)
 	}
 
-	if progress.ran {
-		telemetry.L(ctx).InfoContext(
-			ctx,
-			"search.rollout.affected_progress",
-			slog.String("authority_id", work.OrgID.String()),
-			slog.Int64("generation", read.Generation),
-			slog.Int("remaining_nodes", progress.remaining),
-			slog.Bool("remaining_at_least", progress.capped),
-		)
-	}
+	logAffectedVerification(ctx, work.OrgID, read.Generation, progress)
 
 	telemetry.L(ctx).DebugContext(
 		ctx,

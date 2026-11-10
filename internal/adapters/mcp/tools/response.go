@@ -77,7 +77,8 @@ func permissionDenied() *mcp.CallToolResult {
 		Content: []mcp.Content{
 			mcp.TextContent{
 				Type: "text",
-				Text: "#### Permission denied\n\nThe caller is not a member of the org that holds this data.\n\nNext step: Yield to the user.",
+				Text: "#### Permission denied\n\nThe caller is not a member of the org " +
+					"that holds this data.\n\nNext step: Yield to the user.",
 			},
 		},
 	}
@@ -97,7 +98,8 @@ func unexpectedError(ctx context.Context, err error) *mcp.CallToolResult {
 		Content: []mcp.Content{
 			mcp.TextContent{
 				Type: "text",
-				Text: "#### Unexpected server error\n\nThe server could not complete the request safely.\n\nNext step: Yield to the user.",
+				Text: "#### Unexpected server error\n\nThe server could not complete the " +
+					"request safely.\n\nNext step: Yield to the user.",
 			},
 		},
 	}
@@ -111,7 +113,9 @@ func classifyError(ctx context.Context, err error) *mcp.CallToolResult {
 	case errors.Is(err, domain.ErrNotFound):
 		return recoverableError(
 			err.Error() +
-				". Check tack_list_workspaces for workspace_reference, tack_describe_workspace for scope references, and list calls for node references.",
+				". Check tack_list_workspaces for workspace_reference, " +
+				"tack_describe_workspace for scope references, and list calls for " +
+				"node references.",
 		)
 	case errors.Is(err, domain.ErrInvalidArgument):
 		return recoverableError(err.Error() + ". Fix the parameter value and retry.")

@@ -90,13 +90,13 @@ func (a *sessionAttempts) attributes() []slog.Attr {
 // error codes.
 func transactSession(
 	ctx context.Context,
-	db fdb.Database,
+	database fdb.Database,
 	source clock.Clock,
 	operation string,
 	sessionID uuid.UUID,
 	apply func(fdb.Transaction) error,
 ) error {
-	transaction, err := db.CreateTransaction()
+	transaction, err := database.CreateTransaction()
 	if err != nil {
 		return sessionFailure(ctx, operation, sessionID, err)
 	}

@@ -26,13 +26,13 @@ func loadEd25519Key(path string) (ed25519.PrivateKey, string, error) {
 		return nil, "", fmt.Errorf("audit signing key: %w", err)
 	}
 
-	priv, ok := parsed.(ed25519.PrivateKey)
-	if !ok {
+	priv, isValid := parsed.(ed25519.PrivateKey)
+	if !isValid {
 		return nil, "", errors.New("audit signing key: not ed25519")
 	}
 
-	pub, ok := priv.Public().(ed25519.PublicKey)
-	if !ok {
+	pub, isValid := priv.Public().(ed25519.PublicKey)
+	if !isValid {
 		return nil, "", errors.New("audit signing key: public half is not ed25519")
 	}
 

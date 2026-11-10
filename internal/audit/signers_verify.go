@@ -46,27 +46,10 @@ func (r *Reader) VerifySigners(ctx context.Context, check SignerCheck) (*SignerR
 
 	localSigner := KeyIdentifier(check.LocalPub)
 	if !check.Set.Allows(localSigner) {
-		return nil, fmt.Errorf(
-			"%w: local %s, set %s",
-			ErrLocalKeyNotInSet,
-			localSigner,
-			strings.Join(check.Set.Identifiers(), ","),
-		)
+		return nil, localSignerMismatch(ctx, localSigner, check.Set)
 	}
 
-	report := &SignerReport{
-		Since:                  check.Since,
-		SignerSet:              check.Set.Identifiers(),
-		LocalSigner:            localSigner,
-		RowsScanned:            0,
-		Accepted:               0,
-		SignatureVerified:      0,
-		AllowedUnverifiedHere:  0,
-		RejectedUnknownSigner:  0,
-		SignatureFailed:        0,
-		UnknownSigners:         []UnknownSigner{},
-		UnverifiedAcknowledged: check.AcknowledgeUnverified,
-	}
+	report := newSignerReport(check, localSigner)
 	rows, err := r.pool.Rows(
 		r.pool.unsanitized.Query(
 			ctx,

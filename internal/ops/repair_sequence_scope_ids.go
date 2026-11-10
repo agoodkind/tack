@@ -6,6 +6,7 @@ import (
 	"errors"
 	"log/slog"
 	"maps"
+	"strconv"
 
 	"github.com/google/uuid"
 	"goodkind.io/tack/internal/audit"
@@ -142,32 +143,7 @@ func repairTypeScopeIDs(
 		}
 
 		oldProps := maps.Clone(currentNode.Props)
-		newProps := maps.Clone(currentNode.Props)
-		scopeRaw, _ := json.Marshal(canonicalScopeID.String())
-		newProps["scope_id"] = scopeRaw
-
-		updatedNode := &node.Node{
-			ID:        currentNode.ID,
-			OrgID:     currentNode.OrgID,
-			NodeType:  currentNode.NodeType,
-			Name:      currentNode.Name,
-			Props:     newProps,
-			CreatedBy: currentNode.CreatedBy,
-			UpdatedBy: currentNode.UpdatedBy,
-			CreatedAt: currentNode.CreatedAt,
-			UpdatedAt: currentNode.UpdatedAt,
-		}
-		updatedView := &node.NodeView{
-			ID:        currentNode.ID,
-			OrgID:     currentNode.OrgID,
-			NodeType:  currentNode.NodeType,
-			Name:      currentNode.Name,
-			Props:     maps.Clone(newProps),
-			CreatedBy: currentNode.CreatedBy,
-			UpdatedBy: currentNode.UpdatedBy,
-			CreatedAt: currentNode.CreatedAt,
-			UpdatedAt: currentNode.UpdatedAt,
-		}
+		updatedNode, updatedView := scopeRepairRecords(currentNode, canonicalScopeID)
 		// Moving the scope changes what the node's reference renders to, so
 		// claim the keys the new scope produces. Passing none would leave the
 		// node holding its old value while nothing holds the new one, which is
@@ -251,4 +227,38 @@ func deriveScopeID(ctx context.Context, env *Env, currentNode *node.Node) uuid.U
 	}
 
 	return uuid.Nil
+}
+
+func scopeRepairRecords(
+	currentNode *node.Node,
+	canonicalScopeID uuid.UUID,
+) (*node.Node, *node.NodeView) {
+	newProps := maps.Clone(currentNode.Props)
+	scopeRaw := json.RawMessage(strconv.Quote(canonicalScopeID.String()))
+	newProps["scope_id"] = scopeRaw
+
+	updatedNode := &node.Node{
+		ID:        currentNode.ID,
+		OrgID:     currentNode.OrgID,
+		NodeType:  currentNode.NodeType,
+		Name:      currentNode.Name,
+		Props:     newProps,
+		CreatedBy: currentNode.CreatedBy,
+		UpdatedBy: currentNode.UpdatedBy,
+		CreatedAt: currentNode.CreatedAt,
+		UpdatedAt: currentNode.UpdatedAt,
+	}
+	updatedView := &node.NodeView{
+		ID:        currentNode.ID,
+		OrgID:     currentNode.OrgID,
+		NodeType:  currentNode.NodeType,
+		Name:      currentNode.Name,
+		Props:     maps.Clone(newProps),
+		CreatedBy: currentNode.CreatedBy,
+		UpdatedBy: currentNode.UpdatedBy,
+		CreatedAt: currentNode.CreatedAt,
+		UpdatedAt: currentNode.UpdatedAt,
+	}
+
+	return updatedNode, updatedView
 }

@@ -78,7 +78,9 @@ func sharedDir(ctx context.Context) (string, error) {
 	if !seen {
 		return "", fmt.Errorf(
 			"the Docker daemon cannot see %s at that path, so a bind mount of it would name a different directory; "+
-				"a test running in a container must mount the repository at its host path, as `make test-unit` does through docker-compose.test.yml",
+				"a test running in a container must mount the repository at its "+
+				"host path, as `make test-unit` does through "+
+				"docker-compose.test.yml",
 			directory,
 		)
 	}
