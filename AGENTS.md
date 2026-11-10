@@ -1,378 +1,200 @@
-# Tack
+# Tack project contract
 
-Tack is a horizontally scalable, multi-tenant project management platform: a
-replacement for Plane CE, Linear, and Jira with a better architecture. It is not
-a personal tool or a prototype. Decide every feature for a real multi-tenant
-product with real users; never frame a decision as "for now, since it's just
-you." `CLAUDE.md` is a symlink to this file.
+Design Tack as a production project management platform for many tenants and horizontal scale. Tack replaces Plane CE, Linear, and Jira. Do not design features as personal tools or prototypes, or defer required scale support because current use is small. Keep [CLAUDE.md](CLAUDE.md) as a symlink to this file.
 
-## How to read this file
+## Contract and current sources
 
-This file holds durable rules and settled decisions only. It does not restate
-values that live in code or config, because copies drift. For anything concrete
-(keys, schema, env vars, services, hosts), read the source of truth named in
-[Where the truth lives](#where-the-truth-lives). Use code and configuration for
-current values. Correct descriptive statements in this file when they conflict
-with verified code or configuration. Correct code that violates a binding rule;
-an existing violation does not override the rule.
+Keep durable rules and settled decisions in this contract. Correct descriptive claims when verified sources contradict them. Correct implementation defects without weakening a binding rule. Follow [Find current sources](docs/runbooks/find-current-sources.md) when checking current values.
 
-## The seam: configs repo vs tack repo
+## Repository ownership and deployment
 
-One boundary, drawn at the LXC.
+- Keep Proxmox in Configs.
+- Keep Linux containers (LXCs) in Configs.
+- Keep host networking in Configs.
+- Keep the rendered environment in Configs.
+- Keep secret files in Configs.
+- Keep audit signing keys in Configs.
+- Keep the FoundationDB cluster directory in Configs.
+- Keep the SeaweedFS object-store LXC in Configs.
+- Keep application code inside the guest in Tack.
+- Keep the Compose stack inside the guest in Tack.
+- Keep container overlays inside the guest in Tack.
+- Keep `./server ops` inside the guest in Tack.
 
-- **Up to and including the LXC is the configs repo**
-  (`github.com/agoodkind/configs`). Proxmox, the LXC itself, host networking, the
-  rendered `.env`, the audit signing key, the FoundationDB cluster directory, and
-  the SeaweedFS object-store LXC. Everything around the container runtime.
-- **Inside the LXC is this repo.** Everything Docker runs: `docker-compose.yml`
-  (the stack source of truth), the overlays (`fdb-overlay/fdb.bash`,
-  `yugabyte-overlay/yugabyted`), the application code, and `./server ops`.
+Commit configuration changes to Configs before applying them. Do not edit live host configuration by hand. Treat a live value that lacks a Configs declaration as configuration drift and an incident.
 
-Any live value absent from the configs repo is drift, and drift is an incident.
-Config goes to the configs repo first and is never hand-edited on the host;
-Ansible re-renders `.env` from
-[`tack.env.j2`](https://github.com/agoodkind/configs/blob/main/tack/tack.env.j2)
-on every deploy.
+Use the reviewed Configs deployment path. The [release module](https://github.com/agoodkind/configs/blob/main/opentofu/modules/tack-release/main.tf) updates app and audit-consumer images and runs audited checks against an existing installation. It does not prepare a fresh guest, install stack configuration or credentials, or apply migrations. Require those prerequisites separately. Do not build, push, or replace release images from a laptop.
 
-One deploy path:
+The [image workflow](.github/workflows/build-push.yml) builds and publishes `tack-server` and `tack-audit-consumer` images for commits on `main`. Require `./server ops deploy verify` on the guest after an image update. Verify expected tags and digests for the services that the release changes; a guest that runs only `app` requires that service's verification. Image verification does not establish provisioning or public behavior.
 
-- The repository's build workflow builds and pushes the `tack-server` and
-  `tack-audit-consumer` images for every commit on `main`.
-- **Ansible
-  [`deploy-tack.yml`](https://github.com/agoodkind/configs/blob/main/ansible/playbooks/deploy-tack.yml)**
-  does first boot and every change: it prepares the LXC, renders `.env` with
-  the image tag, fetches the stack from this repo at the deployed ref, and runs
-  `docker compose up -d` for every service.
-- **`./server ops deploy verify`** runs on the guest afterwards and asserts
-  the `app` and `audit-consumer` containers run the images the deploy named.
-  Nothing in this repo builds, pushes, or rolls images from a laptop.
+Keep SeaweedFS in its Configs-owned LXC. Run its `weed` service under systemd and use its S3 endpoint from Tack. Do not add SeaweedFS to the Tack Compose stack. Read the Configs declaration for its current endpoint and port.
 
-## Settled decisions (do not re-litigate)
+## Architecture
 
-- **SeaweedFS is a configs-owned LXC, not a tack service.** The object store runs
-  as its own Proxmox LXC (the `weed` binary under systemd, S3 on port 8333),
-  reached over S3 from inside the tack LXC. `docker-compose.yml` has no
-  `seaweedfs` service. Its provisioning and config live in the configs repo.
-- **QA (`tack_qa`) is disposable.** Destroy and recreate it freely to match prod.
-  Validate every migration, seed, backfill, and restore on QA before prod; QA is
-  a fresh host with vault-sourced secrets and no live state to protect.
-- **The audit ledger keeps one `audit.events` table.** The Kafka cutover makes
-  the `audit-consumer` the single writer and continues the existing
-  per-`(org, shard)` hash chain through `audit.chain_heads`: no rename, no archive
-  table, no `events_v2`. Design of record:
-  [`docs/plans/audit-kafka-cutover.md`](docs/plans/audit-kafka-cutover.md).
-- **Migrations run via `./server migrate` only**, never on HTTP startup.
-- **Build with `make build`.** It runs the go-makefile pipeline (vet, golangci,
-  staticcheck-extra, govulncheck) baseline-gated. Do not call `go build`
-  directly.
+Represent every product entity as a FoundationDB node. Store each node's required records atomically.
 
-## Where the truth lives
+Required records:
 
-Find current state here; do not memorize or copy it into this file.
-
-| For | Read |
+| Record | Current Go type |
 | --- | --- |
-| FDB key families | `internal/adapters/foundationdb/keys.go` |
-| SQL schema (auth + audit only) | `migrations/*.sql` |
-| Server config and every env var | `internal/config/config.go` |
-| The running stack and its services | `docker-compose.yml` |
-| Ops commands | `./server ops help` (`internal/ops`) |
-| Deploy-time values and `.env` | configs [`tack.env.j2`](https://github.com/agoodkind/configs/blob/main/tack/tack.env.j2) |
-| Hosts, networking, the LXC | configs [`deploy-tack.yml`](https://github.com/agoodkind/configs/blob/main/ansible/playbooks/deploy-tack.yml) and `service_mapping.yml` |
-| Roadmap and ticket state | TACK issues via the MCP tools |
-| Cross-session context | the memory handoff under the session memory directory |
-| Local test stack and targets | `docker-compose.test.yml`, `Makefile` (`test-unit`, `test-integration`) |
+| Primary record | `Node` |
+| Materialized read row | `NodeView` |
+| Global resolution record | `NodeResolve` |
 
-## Local testing
+Represent edges as `Relationship` records. Derive behavior from `NodeType` metadata rather than hardcoded type names. Add new entity types through metadata and data without changing application code.
 
-Run tests in QA or Docker containers. Run tests against production only with
-explicit operator authorization. Use `docker-compose.test.yml` for local container
-tests. `make test-unit` and `make test-integration` build and run the test runner
-with their package selections. Tests start required stores through
-[internal/testenv](internal/testenv) and remove their owned engines when the test binary exits.
-After an interrupted runner leaves engines behind, `make test-env-down` removes
-engines of exited test processes and preserves engines of running tests.
+Use FoundationDB for all product data.
 
-Tests connect to FoundationDB on the Docker network because Docker Desktop on
-macOS drops FoundationDB's connect-packet exchange through its TCP port
-forwarder. Local FoundationDB tests use a single node rather than the production
-IPv6-only bridge. `make test` excludes the integration package, which CI runs
-separately through `make test-store-host-shard`.
+Use YugabyteDB SQL only for authentication and compliance auditing.
 
-## Architecture (binding)
+Permitted SQL records:
 
-### Everything is a node in FoundationDB
+- Store users in `users`.
+- Store API tokens in `api_tokens`.
+- Store organization memberships in `org_members`.
+- Store the compliance ledger in `audit.*`.
 
-Every entity (org, workspace, project, state, label, issue, epic, cycle, module,
-comment, activity, custom type) is one node. Each follows the same pattern:
-NodeValue (primary record) plus NodeListView (materialized read row) plus
-NodeResolve (global resolution record). Every entity is addressable by its UUID
-alone, with no org context from the caller. Edges are Relationship records.
-Behavior follows NodeType metadata, never hardcoded type names.
+Do not store product entities, configuration, relationships, or product read models in SQL. Preserve authentication records and the audit ledger during every recovery; treat YugabyteDB backups as compliance artifacts.
 
-### SQL is auth plus compliance audit only
+Use `NodeReader` for service reads rather than reading storage repositories directly. Create and update nodes through the checked atomic mutation interface, `node.Mutator.ApplyMutation`.
 
-YugabyteDB holds `users`, `api_tokens`, `org_members`, and the `audit.*` ledger.
-No product entity, config, relationship, or read-model table lives in SQL. Treat
-YugabyteDB backups as compliance artifacts: auth gates and the audit ledger must
-survive every recovery.
+Commit all parts of a node change in one FoundationDB transaction:
 
-### FoundationDB holds all product data
+- Commit the primary record.
+- Commit property values.
+- Commit the resolution record.
+- Commit the read row.
+- Commit indexes.
+- Commit reference claims.
+- Commit relationships, including assignments and labels.
+- Commit required audit evidence.
 
-All entity storage, all relationships, all NodeListView read rows, all
-NodeResolve records, plus activity, comments, properties, sequences, and
-automation rules.
+Do not use a cross-database transaction or a multi-step entity create. Do not substitute `NodeRepository.Set` for a user-facing update that requires index reconciliation.
 
-### Data access
+Address every entity by its UUID without requiring an organization parameter from the caller. Derive `orgID` from `reader.Resolve` for an entity operation or from the workspace node for a workspace operation. Keep organization selection inside storage and authorization; do not expose `orgID` as a caller-controlled API or service input. The service may use the derived organization internally. Derive containing scopes from relationships rather than adding scope positions to `NodeResolve`.
 
-Every read goes through `NodeReader`; the service layer never calls
-`EntityRepository`, `PropertyRepository`, `AssignmentRepository`, or
-`LabelRepository` directly for reads. Every write goes through
-`EntityRepository.CreateAtomic` or `EntityRepository.Set`, which write NodeValue,
-property values, NodeResolve, NodeListView, assignments, and labels in one FDB
-transaction. No cross-database transactions, no multi-step creates.
+Authenticate `Authorization: Bearer <token>` by looking up its SHA-256 hash in `api_tokens` and obtaining `userID`. Only `ENV=development` accepts a raw user UUID without the token-table lookup. Resolve each entity's organization and require the user's membership in `org_members` before allowing the operation.
 
-`orgID` is never a caller parameter. Derive it: entity-scoped ops resolve the
-entity (`reader.Resolve`) to its `OrgID`; workspace-scoped ops read the workspace
-node. The storage layer uses `orgID` internally for key locality and never
-surfaces it to the API or service layer.
+Use MCP Streamable HTTP at `/mcp` as the primary interface. Register each user's tools from `NodeType` metadata. Treat human-readable workspace and project inputs as metadata-declared address values; do not accept `orgID` as an input. Use Connect-RPC at `/tack.v1.*` as the typed interface for frontend and terminal clients. Entity operations accept UUIDs; collection operations accept `workspace_id` or `project_id`.
 
-### Auth
+Apply these data requirements:
 
-`Authorization: Bearer <token>` hashes to SHA-256, looks up `api_tokens`, and
-yields a `userID`. In `ENV=development` the bearer is the raw user UUID with no
-DB lookup. Per-entity auth resolves the entity to its `orgID` and checks
-`org_members`.
+- Create new entities with UUIDv7. Its time-ordered identifiers support range scans without a shared identifier allocator.
+- Keep the UUID as canonical identity. Declare human-readable references in metadata and distinguish tool, type, and display names from node identity and address values.
+- Use `CanLiveUnder` metadata to define a directed acyclic graph of permissible parent types. Require one canonical direct parent for each node that needs a parent. Keep the node's [reference and numbering scope](docs/reference/nodes/2026-10-16-node-integrity.md#scope-containment-and-deletion) independent of its containment parent. Resolve scope chains without assuming a fixed depth.
+- Add a field to `Node` or `NodeView` only when a different product using this architecture would also need it. Represent other data as properties or relationships.
+- Store descriptions as Markdown text. Do not store HTML descriptions.
+- Change only supplied fields during updates.
+- Declare optional MCP string inputs as `*string` with `json:",omitempty"` for `google/jsonschema-go`. Use `jsonschema:"..."` tags for descriptions; they do not enforce validation constraints.
+- Require scale support before shipping a design. Do not defer it as future technical debt.
 
-### API layer
+Apply the universal-field test to these fields:
 
-- **MCP Streamable HTTP** (`/mcp`) is the primary interface: per-user tool
-  registration driven by NodeType metadata. Human-readable workspace and project
-  inputs are address values declared by metadata. `orgID` never appears as an
-  input field.
-- **Connect-RPC** (`/tack.v1.*`) is the typed API for the future frontend and
-  TUI. Entity-scoped ops take a UUID; collection ops take `workspace_id` or
-  `project_id`.
+- Use `ID` for node identity.
+- Use `OrgID` for organization identity.
+- Use `NodeType` for the metadata-defined type.
+- Use `Name` for the node name.
+- Use timestamps for creation and update times.
+- Use `CreatedBy` for the creating actor.
+- Use `UpdatedBy` for the updating actor.
+- Use `Props` for property values.
 
-### Durable invariants
+## Networking and engine updates
 
-- UUIDv7 for all new entities (k-sortable, coordination-free range scans).
-- Human-readable references are declared metadata; the UUID is canonical
-  identity. Tool, type, and display names are separate from node identity and
-  from address values.
-- Hierarchy is a DAG defined by `CanLiveUnder`; the resolver walks the scope
-  chain for N levels with no depth assumption.
-- Universal-field test: a field belongs on NodeValue/NodeListView only if it
-  would exist on a node in a completely different product on the same
-  architecture (`ID`, `OrgID`, `NodeType`, `Name`, timestamps, `CreatedBy`,
-  `UpdatedBy`, `Props`). Everything else is a property, a NodeResolve scope
-  position, or a relationship.
-- Descriptions are Markdown TEXT, never HTML.
-- Updates are partial everywhere: only provided fields change.
-- Optional MCP input fields are `*string` with `json:",omitempty"` (required by
-  `google/jsonschema-go`); `jsonschema:"..."` tags are descriptions, not
-  validation constraints.
-- No tech debt disguised as "we can fix this later for scale." If it won't scale,
-  don't ship it.
+Keep the default Docker network IPv6-only. Do not enable IPv4 or dual-stack networking. Require service hostnames, including `fdb` and `yugabyte`, to resolve only to IPv6 addresses. Read the [YugabyteDB networking contract](docs/reference/deployment/yugabyte-networking.md) before changing service networking.
 
-## YugabyteDB on the IPv6-only bridge
+Use the stable Docker DNS name `yugabyte` for the base database identity, advertised address, and listen address. Do not derive that identity with `getent` or pin a container's global IPv6 address. Preserve stable identities in deployment overrides.
 
-The `default` Docker network is IPv6-only (`enable_ipv4: false`,
-`gateway_mode_v6: routed`). Do not flip it to IPv4 or dual-stack; v4 lets
-services silently fall back. Service hostnames (`fdb`, `yugabyte`) resolve to v6
-only.
+Refresh the patched `yugabyted` overlay after every image change. Fetch the launcher for the new image tag, reapply the required IPv6 port-check patch, and verify on QA before production. Follow [Update the YugabyteDB image](docs/runbooks/deployment/update-yugabyte-image.md) for the required image, overlay, and restore checks.
 
-YugabyteDB's database identity must be the stable Docker DNS name `yugabyte`, not
-a container GUA. The `yugabyted` command advertises and listens on `yugabyte`
-(`--advertise_address=yugabyte --listen=yugabyte`); never derive it from
-`getent` or pin a literal GUA, because stale persisted addresses wedge YSQL.
+Read [YugabyteDB port checks](docs/explanation/deployment/yugabyte-overlay.md) before changing the launcher's address-family selection.
 
-The image's `is_port_available` opens an IPv4 socket and fails on this bridge, so
-`yugabyte-overlay/yugabyted` carries the upstream `bin/yugabyted` with the
-AF_UNSPEC fix from upstream PR
-[#23158](https://github.com/yugabyte/yugabyte-db/pull/23158), bind-mounted `:ro`.
-On any image bump, refresh the overlay (re-fetch upstream `bin/yugabyted` for the
-new tag, re-apply the `is_port_available` patch), verify on QA first, then prod.
-The overlay is allowlisted in `.gitleaks.toml` and `.gitguardian.yaml`.
+## Tests and provisioning
 
-## Recovery and backups
+Run tests in QA or Docker containers. Run production tests only with explicit operator authorization. Follow [Run tests](docs/runbooks/run-tests.md) for container test selection, engine cleanup, and required QA data-generator runs.
 
-Disaster recovery is quorum replication across fault domains, which loses no data
-on node or zone failure. Point-in-time recovery and backups are the slower,
-separate layer for corruption and accidental deletion, the failure class
-replication copies everywhere. Object storage is a backup destination, not a DR
-mechanism. On any audit recovery, preserve `audit.chain_heads` so the hash chain
-continues. Procedures: [`docs/runbooks/recovery.md`](docs/runbooks/recovery.md).
+Treat QA as disposable. Destroy and recreate it as needed to match production, using vault-sourced secrets. Validate every migration, seed, backfill, and restore on QA before production.
 
-## First boot on a fresh environment
+Follow [Provision an environment](docs/runbooks/deployment/provision-environment.md) for a fresh guest, QA recreation, or recovery. Require a verified empty FoundationDB cluster before initial configuration. A failed status query does not prove emptiness. Never run `configure new` against an existing cluster or pass `--allow-fdb-init` on production.
 
-A fresh environment (QA recreate, a new server, a DR restore) is not ready after
-`deploy-tack` alone. The deploy runs `docker compose up -d` and health-gates on
-fdb, but several one-time initialization steps are not yet automated, and fdb is
-not even healthy until the first of them runs. Until the provisioning layer lands
-(TACK-303, "deploy is not provision"), run these in order on a fresh environment:
+Preserve this provisioning order:
 
-1. **FoundationDB.** A fresh `tack_fdb-data` volume has no configured database, so
-   `tack-fdb-1` stays unhealthy and the deploy aborts. Initialize it once:
-   `docker exec tack-fdb-1 fdbcli --exec 'configure new single ssd'`, then re-run
-   `deploy-tack`. The fdb overlay writes the client cluster file at
-   `/etc/foundationdb/fdb.cluster` as `docker:docker@fdb:4500` (the DNS name) on
-   start, so clients survive container IP changes. TACK-290 automates the
-   configure step. NEVER run `configure new` against an already-configured
-   cluster (prod): it is the one destructive step in this list.
-2. **Migrations.** `docker compose run --rm tack-ops migrate --execute`.
-3. **Audit roles.** `docker compose run --rm tack-ops ops audit seed-roles`. The
-   app and the audit-consumer cannot authenticate to YugabyteDB until this runs.
-   The audit-consumer waits on its own: it pings Yugabyte until the roles exist,
-   then ensures the Kafka topic and starts (TACK-301, TACK-305), so it needs no
-   restart. The app holds no ledger read or redaction connection: every audit
-   read and redaction is a host command (`audit query`, `audit get`,
-   `audit export`, `audit redact-actor`) that opens its own reader and
-   redactor pools, never an MCP tool (TACK-456, TACK-458). The audit queue
-   commands (`ops audit consumer-offsets`, `ops audit dlq inspect`,
-   `ops audit dlq replay`) run in the `audit-ops` service, which mounts the
-   reader DSN and sets the Kafka brokers on the bridge network. tack-ops is
-   host-networked and cannot resolve the broker (TACK-610).
-   Run the recorded break-glass command (`ops db sql`) in `tack-ops`. The
-   `tack-ops` environment has the alarm mail settings the command needs; the
-   `app` service connects as `tack_app`, which cannot read the ledger
-   (TACK-327). The command runs one statement in a read-only session.
-   `tack-ops` connects as `tack_migrator`, which owns the schema and is not a
-   superuser. Only a from-empty rebuild uses the engine superuser. The deploy
-   passes that credential for that run and does not render it into `.env`.
-   Write to the database only with a migration or a reviewed ops command. The
-   schema guard of migration 019 refuses a hand-written schema change on the
-   `audit` and `partman` schemas (TACK-552).
-   Migration 011 must be applied before an audit-consumer image that carries
-   it: the full deploy runs `ops provision --execute`, whose ordered steps
-   include the pending migrations, before the app and consumer start
-   (TACK-453); `./server ops deploy` swaps images only, so on a host whose
-   database sits below migration 011 run step 2 above first (TACK-336).
-4. **Kafka topic.** No manual step: the audit-consumer ensures `audit.events.v1`
-   with 256 partitions on startup once Yugabyte is reachable (TACK-305). On a
-   fresh broker it appears automatically after step 3.
-5. **Product seed.** `docker compose exec -T app /server seed` for the initial
-   user, org, workspace, and API token. Run it through the app container, not
-   `tack-ops`: tack-ops is `network_mode: host` and its FDB cluster file names
-   `fdb`, which does not resolve on host networking, so a tack-ops seed cannot
-   write FoundationDB nodes (TACK-318). migrate and seed-roles still use tack-ops
-   because they are SQL-only.
+1. Check or initialize FoundationDB.
+2. Apply migrations.
+3. Prepare audit roles.
+4. Start continuous FoundationDB backup when configured.
+5. Seed product data.
 
-This ordered sequence is the provisioning layer Tack is missing; the design is
-tracked in TACK-303. QA lifecycle (keep running vs hard-recreate each time) is
-TACK-304.
+Require pending migrations, including migration 011, before starting app or consumer images that require them. Run migrations through `./server migrate` or the ordered provisioning command, never during HTTP startup. An image-only release does not apply migrations.
 
-## Binding rules for code in this repo
+Treat `seed_deferred` as incomplete and rerun provisioning after the app starts.
 
-1. **Everything is a node** (see Architecture). Behavior follows NodeType
-   metadata, never hardcoded type names.
-2. **No shell-outs in tack Go.** No shell scripts and no `os/exec` of CLIs.
-   Engine CLIs (`fdbbackup`, `yb-admin`, `ysql_dump`, `tar`) run inside one-shot
-   containers through the Docker Go SDK helpers in `internal/ops/dockerctl.go`.
-   Do not create or use non-Go scripts, including temporary and standalone
-   helpers, without explicit operator approval. Go implementations must pass
-   this repository's canonical lint and quality checks.
-3. **Ops audit choke-point.** Every `./server ops` command records through the one
-   `clispec` audit choke-point; do not weaken it, do not bypass it per command, and
-   keep operator identity pluggable via `audit.OperatorIdentitySource`. See
-   [`docs/operator-identity-and-audit.md`](docs/operator-identity-and-audit.md).
-4. **QA data-generator coverage.** Any new node type, property type,
-   relationship shape, audit verb, or user-visible code path must add coverage
-   to `ops qa datagen` in the same change. Run it through the `app` service,
-   which has FoundationDB reachability and the audit DSNs that the
-   host-networked `tack-ops` container lacks:
+Complete the provisioning runbook's direct initial seed procedure when an environment needs initial data but lacks seed settings.
 
-   ```bash
-   docker compose run --rm app ops qa datagen seed --scale small --commit
-   docker compose run --rm app ops qa datagen soak --duration 60s --rate 3 --commit
-   ```
+Keep normal provisioning and migration credentials on the nonsuperuser `tack_migrator` role that owns the schema. Use the engine superuser only for a from-empty bootstrap, supply that credential only for the run, and keep it out of the rendered environment file. Permit database writes only through a migration or reviewed ops command. Preserve the audit and partman schema guard.
 
-   Writing requires `TACK_DATAGEN_ALLOW_TARGET` to be exactly `qa` or `local`;
-   tack-qa sets it and production leaves it empty, so the generator refuses
-   there. Dry run is the default and needs no marker.
+Keep ledger reader and redactor connections out of the running application and MCP tools. Use these host commands with their reader or redactor connections:
 
-5. **Backfills expire.** A one-time command declares
-   `Lifetime: clispec.Lifetime{Ticket: "TACK-nnn", RemoveBy: time.Date(...)}`.
-   It renders under a `backfill` group with the `once-` prefix, and
-   `make build` fails once the removal day has passed. Every other command
-   declares `clispec.Permanent`.
-   No package outside `internal/service` reads the seed sample data (TACK-512).
+- Use `audit query`.
+- Use `audit get`.
+- Use `audit export`.
+- Use `audit redact-actor`.
+
+Run audit queue commands through `audit-ops`, which has the ledger reader and broker connection. Use `tack-ops` for the recorded `ops db sql` diagnostic command. Require its reason, delivered alarm mail, recorded intent, and single statement in a read-only session. Do not use the app's `tack_app` login to read the ledger.
+
+## Recovery
+
+Require quorum replication across fault domains to preserve committed data after a node or zone failure. Use point-in-time recovery and backups for corruption or accidental deletion that replication also copies. Treat object storage as a backup destination rather than a substitute for replication. Preserve `audit.chain_heads` during audit recovery to continue each hash chain. Follow [Recover stores](docs/runbooks/recovery/restore-data.md) for the recovery procedure.
+
+## Implementation requirements
+
+Build with `make build`. Use the go-makefile pipeline and its baseline checks for vet, golangci, staticcheck-extra, and govulncheck. Do not call `go build` directly. Run the repository's canonical lint and quality checks for Go implementations.
+
+Do not invoke command-line tools through `os/exec` or add shell scripts to Tack Go implementations. Run engine tools such as `fdbbackup`, `yb-admin`, `ysql_dump`, and `tar` inside one-shot containers through the Docker Go SDK in [dockerctl.go](internal/ops/dockerctl.go). Do not create or use non-Go scripts, including temporary or standalone helpers, without explicit operator approval.
+
+Record every `./server ops` command through the shared `clispec` audit entry point. Do not weaken or bypass recording for a command. Keep operator identity replaceable through `audit.OperatorIdentitySource` and follow the [operator identity contract](docs/reference/audit/operator-identity.md).
+
+Add `ops qa datagen` coverage in the same change for every new or changed node type, property type, relationship shape, audit verb, or user-visible code path.
+
+Declare `Lifetime: clispec.Lifetime{Ticket: "TACK-nnn", RemoveBy: time.Date(...)}` for every one-time command. Register it under `backfill` with the `once-` prefix and require `make build` to fail after its removal day. Declare `clispec.Permanent` for every other command. Keep seed sample-data reads inside `internal/service`.
+
+Load server configuration from environment variables through `caarlos0/env`. Do not add TOML, YAML, JSON, or another file-based configuration loader. Preserve existing secret-file references without introducing a configuration format.
+
+Use `log/slog`. Initialize the global logger with `telemetry.Setup` and obtain the context logger with `telemetry.L(ctx)` in handlers. Log these significant events:
+
+- Log entity lifecycle events.
+- Log background jobs.
+- Log authentication failures.
+- Log startup.
+- Log shutdown.
+
+Use named `slog.Attr` fields rather than positional fields and use `noun.verb` messages such as `issue.created` or `worker.started`. Use only the level required by the event condition.
+
+Logging levels:
+
+| Level | Required condition |
+| --- | --- |
+| `Info` | Use for normal events. |
+| `Debug` | Use for trace details. |
+| `Error` | Use for actual failures. |
+
+Limit each file to 200 lines, excluding comment-only lines, and split it by responsibility when necessary. Use one conversion file per entity. Separate bulk operations from basic create, read, update, and delete operations. Prefer responsibility-based filenames; reserve `utils.go` and `helpers.go` for genuinely shared code.
+
+Use complete domain terms, such as `workspaceID` rather than `wsID`. Include context and the relevant identifier in every error, as in `fmt.Errorf("get issue %s: %w", id, err)`. Add a `// Package X` comment to every package and document every exported type and non-obvious field.
+
+Do not add error handling for impossible conditions, compatibility shims, unused exports, re-exports, or unrequested features. Do not add comments to unchanged code. Do not copy current values from owning sources into this contract.
 
 ## Auditability gate
 
-Require complete audit evidence before merging or releasing any new or changed
-operation that reads, lists, searches, exports, creates, updates, deletes, or
-otherwise processes user data. Apply this gate to public APIs, generated tools,
-operator commands, background jobs, provider hooks, and storage writers.
+Require complete audit evidence before merging or releasing any new or changed operation that processes user data, including reads, lists, searches, exports, creates, updates, and deletes. Apply the gate to public APIs, generated tools, operator commands, background jobs, provider hooks, storage writers, custom node types, and relationships.
 
-Follow the [complete audit recording contract](docs/superpowers/specs/2026-10-21-audit-completeness-design.md)
-through the existing shared operation definitions, transactional outboxes, and
-permanent ledger. Apply it to custom node types and relationships.
+Follow the [complete audit recording contract](docs/reference/audit/2026-10-21-audit-completeness-design.md) through shared operation definitions, transactional outboxes, and the permanent ledger. Keep `audit.events` as the single ledger table and `audit-consumer` as its single writer. Continue each `(org, shard)` hash chain through `audit.chain_heads`. Do not rename or archive the table, or introduce `events_v2`. Read the [Kafka audit design](docs/explanation/audit/audit-kafka-cutover.md) before changing that contract.
 
-1. Record the verified actor or explicit unauthenticated identity, operation,
-   complete targets, original time, committed order, and outcome. Record the
-   initiating identity during background work, retries, and recovery. Record
-   refusals, failures, partial work, and interruptions.
-2. Record actual old and new values for every changed field and relationship,
-   including removals. Commit change evidence atomically with database changes.
-   Record complete relationship identities and apply existing protected-value
-   storage and redaction rules.
-3. Admit reads durably and finalize their evidence before returning data,
-   including each streaming page or chunk. Record returned identities, result
-   counts, selection criteria, and payload fingerprints through the shared read
-   contract. A fingerprint does not reconstruct the returned content.
-4. Refuse unaudited operations when required identity or recording fails. Do not
-   release a read result or commit a database change without its required audit
-   evidence. Record external-operation intent before effects and verify actual
-   state during recovery.
-5. Add regression coverage through the affected public operation with real
-   dependencies. Inspect permanent audit records for the actual actor, targets,
-   outcomes, change values, and read manifests and fingerprints. Exercise
-   authorization refusals and recording failures; declarations and log messages
-   alone do not prove coverage.
-6. Include the audit evidence and test results in the PR. Require the existing
-   `runtime audit coverage` check and applicable integration checks to pass before
-   merge. Verify the accepted behavior on QA before production release.
+1. Record the verified actor or explicit unauthenticated identity, operation, complete targets, original time, committed order, and outcome. Preserve the initiating identity during background work, retries, and recovery. Record refusals, failures, partial work, and interruptions.
+2. Record actual old and new values for every changed field and relationship, including removals. Commit change evidence atomically with database changes. Record complete relationship identities and apply protected-value storage and redaction rules.
+3. Admit reads durably and finalize evidence before returning data, including each streaming page or chunk. Record returned identities, result counts, selection criteria, and payload fingerprints through the shared read contract. A fingerprint cannot reconstruct returned content.
+4. Refuse an operation when required identity or recording fails. Do not release read results or commit changes without required audit evidence. Record external-operation intent before effects and verify actual state during recovery.
+5. Add regression coverage through the affected public operation with real dependencies. Inspect permanent audit records for the actual actor, targets, outcomes, change values, read manifests, and fingerprints. Exercise authorization refusals and recording failures. Declarations and log messages do not prove coverage.
+6. Include audit evidence and test results in the PR. Require `runtime audit coverage` and applicable integration checks before merge. Verify accepted behavior on QA before a production release.
 
-Do not add recording opt-outs, exclude new operations from coverage, weaken audit
-assertions, bypass required checks, or defer recording to a follow-up ticket.
-Treat an unaudited existing implementation as a defect, not an exception to this
-gate. A healthy deployment or a passing unrelated test does not satisfy it.
-
-## No config files
-
-Server configuration is environment variables only, through `caarlos0/env`.
-There is no config file. Do not introduce TOML, YAML, JSON, or any file-based
-config loading.
-
-## Logging
-
-Use `log/slog` throughout; `telemetry.Setup` initializes the global logger and
-handlers retrieve the context logger via `telemetry.L(ctx)`. Log every
-significant event: entity lifecycle, background jobs, auth failures, startup, and
-shutdown. Use named `slog.Attr` fields, never positional. Message names use
-`noun.verb` (`issue.created`, `worker.started`). Three levels, used strictly:
-`Info` for normal flow, `Debug` for trace detail, `Error` for actual failures.
-
-## File size and concern separation
-
-No file exceeds 200 lines; split by concern when it does (one file per entity for
-conversions, bulk ops separate from CRUD). Name a file after its responsibility;
-`utils.go` and `helpers.go` are last resorts for genuinely shared code.
-
-## Readability over conciseness
-
-Use the full domain term, not abbreviations (`workspaceID`, not `wsID`). Every
-error includes context and the relevant identifier
-(`fmt.Errorf("get issue %s: %w", id, err)`). Every package has a `// Package X`
-doc comment; every exported type and non-obvious field has a doc comment.
-
-## What not to do
-
-- Do not add a config file format (TOML, YAML, JSON).
-- Do not add error handling for scenarios that provably cannot happen.
-- Do not add backwards-compatibility shims, unused exports, or re-exports.
-- Do not add docstrings or comments to code you did not change.
-- Do not add features not explicitly requested.
-- Do not restate in this file values that live in the source-of-truth files
-  above; point to them instead.
+Do not add recording opt-outs, exclude operations from coverage, weaken audit assertions, bypass required checks, or defer recording to another ticket. Treat an unaudited implementation as a defect. A healthy deployment or unrelated passing test does not satisfy this gate.

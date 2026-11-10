@@ -113,10 +113,10 @@ func writeCanonical(buf *bytes.Buffer, v any) error {
 //   - ShardCount must be a power of two. shardOf masks a checksum with
 //     ShardCount - 1.
 //
-// Follow the forward-only count-change procedure in
-// [docs/runbooks/audit/shards.md] (TACK-306).
+// Follow the [shard]-count requirements for a forward-only change
+// (TACK-306).
 //
-// [docs/runbooks/audit/shards.md]: ../../docs/runbooks/audit/shards.md
+// [shard]: https://github.com/agoodkind/tack/blob/main/docs/reference/audit/horizontal-design.md#storage-and-delivery
 const ShardCount = 256
 
 // shardMask limits each checksum to a shard in [0, ShardCount).
