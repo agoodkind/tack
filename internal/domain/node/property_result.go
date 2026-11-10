@@ -96,7 +96,7 @@ func (e PropertyResultError) Error() string {
 // Unwrap returns [ErrSchemaRead] when the result contains a read failure and
 // [domain.ErrInvalidArgument] otherwise.
 //
-// The returned error supports errors.Is without requiring message parsing.
+// The returned error supports [errors.Is] without requiring message parsing.
 //
 //   - An empty PropertyResultError also unwraps to domain.ErrInvalidArgument.
 func (e PropertyResultError) Unwrap() error {
