@@ -6,6 +6,10 @@ var managedProperties = map[string]bool{"parent_id": true, "scope_id": true, "se
 
 // IsManagedProperty reports whether the node service writes the property
 // name on every node type.
+//
+// The lookup checks managedProperties rather than per-type property metadata.
+//
+//   - An unlisted name returns false.
 func IsManagedProperty(name string) bool {
 	return managedProperties[name]
 }

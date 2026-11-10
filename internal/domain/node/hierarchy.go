@@ -10,8 +10,8 @@ import (
 )
 
 // ErrReservedParentRelation reports a request to add a child_of edge
-// directly. Only child_of edges define a hierarchy parent, and the parent_id
-// property is the one way to set a parent. It matches
+// directly. Only child_of edges define a hierarchy parent. The parent_id
+// property provides the only way to set a parent. The error matches
 // [domain.ErrInvalidArgument].
 var ErrReservedParentRelation = fmt.Errorf("the %s relation type is reserved for the parent that parent_id sets: %w",
 	RelChildOf, domain.ErrInvalidArgument)
@@ -21,11 +21,14 @@ var ErrReservedParentRelation = fmt.Errorf("the %s relation type is reserved for
 // CanLiveUnder types.
 var ErrNoHierarchyParent = errors.New("node requires exactly one hierarchy parent")
 
-// HierarchyParent returns the hierarchy parent of nodeID, of type kind, from
-// its child_of edges. One distinct target is the parent, regardless of its
-// type. If the node does not have a child_of edge and kind does not list
-// CanLiveUnder types, HierarchyParent returns [uuid.Nil] for a hierarchy
-// root. Every other case returns an error that wraps ErrNoHierarchyParent.
+// HierarchyParent returns the hierarchy parent of nodeID from its child_of
+// edges, using kind as the node type. One distinct target supplies the parent
+// regardless of its type.
+//
+// A node without a child_of edge is a hierarchy root when kind does not list
+// CanLiveUnder types. HierarchyParent returns [uuid.Nil] for that root.
+//
+//   - Every other case returns an error that wraps ErrNoHierarchyParent.
 func HierarchyParent(nodeID uuid.UUID, kind *NodeType, childOfTargets []uuid.UUID) (uuid.UUID, error) {
 	parentID := uuid.Nil
 	for _, targetID := range childOfTargets {
@@ -51,10 +54,12 @@ func (e hierarchyParentError) Error() string { return e.message + ": " + ErrNoHi
 func (e hierarchyParentError) Unwrap() error { return ErrNoHierarchyParent }
 
 // LivesUnder reports whether the child's CanLiveUnder list or the parent's
-// CanContain list declares the child and parent type pair. Subtree deletion
-// uses this rule to decide whether a direct child moves to the deleted
-// node's parent or is deleted with the node. LivesUnder does not determine
-// the hierarchy parent of a stored node.
+// CanContain list permits the child and parent type pair.
+//
+// Subtree deletion uses this rule to decide whether to assign a direct child
+// to the deleted node's parent or delete that child with the node.
+//
+//   - LivesUnder does not determine the hierarchy parent of a stored node.
 func LivesUnder(child, parent *NodeType) bool {
 	if child == nil || parent == nil {
 		return false

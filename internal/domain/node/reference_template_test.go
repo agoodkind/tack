@@ -14,9 +14,10 @@ func rawJSON(t *testing.T, v any) json.RawMessage {
 	return b
 }
 
-// issueTemplate is the shape seeded for work-item types: the enclosing scope's
-// reference, a hyphen, then the generated sequence property. The node type is
-// deliberately absent, so an epic and an issue cannot both hold "FAN-1".
+// issueTemplate matches the seeded work-item template: the enclosing scope's
+// reference, a hyphen, then the generated sequence property. The template
+// omits the node type. An epic and an issue therefore render the same
+// "FAN-1" string, which the uniqueness constraint forbids them to share.
 func issueTemplate() ReferenceTemplate {
 	return ReferenceTemplate{
 		Name:      "reference",

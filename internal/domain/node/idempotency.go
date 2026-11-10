@@ -7,7 +7,8 @@ import (
 )
 
 // IdempotencyRecord stores the durable result for one create operation key.
-// Fingerprint is empty only for legacy records written before fingerprinting.
+// Legacy records from before fingerprinting omit Fingerprint. The writer also
+// accepts an empty fingerprint for new records.
 type IdempotencyRecord struct {
 	Key         string    `json:"-"`
 	NodeID      uuid.UUID `json:"node_id"`

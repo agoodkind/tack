@@ -5,19 +5,27 @@ import (
 	"strings"
 )
 
-// ReferenceParseResult holds the values recovered from a rendered reference.
+// ReferenceParseResult contains the values that parsing recovers from a
+// rendered reference.
 type ReferenceParseResult struct {
 	// ScopeRefs maps feature names to their parsed scope references.
 	ScopeRefs map[string]string
 	// Props maps property names to their parsed values.
 	Props map[string]string
-	// NodeTypeKey is the parsed node type when the template declares one.
+	// NodeTypeKey contains the parsed node type when the template declares one.
 	NodeTypeKey string
 }
 
-// Parse recovers a template's variable parts from input. A parse miss is an
-// expected outcome for user-typed references, so failures carry context as
-// text and are not logged here; callers decide what a miss means.
+// Parse recovers a template's variable parts from input. User-typed references
+// can fail to match the template.
+//
+// Errors include the input, template, and failure context as text. Parse does
+// not log failures; callers decide how to handle a reference that does not
+// match.
+//
+//   - Scope reference parts populate ScopeRefs.
+//   - Property parts populate Props.
+//   - Node type parts populate NodeTypeKey.
 func (t ReferenceTemplate) Parse(input string) (ReferenceParseResult, error) {
 	result := ReferenceParseResult{
 		ScopeRefs:   map[string]string{},
@@ -53,13 +61,13 @@ func (t ReferenceTemplate) Parse(input string) (ReferenceParseResult, error) {
 	return result, nil
 }
 
-// consumeReferenceSegment takes the text belonging to the variable part at
-// index and returns it with the text left after the following delimiter.
+// consumeReferenceSegment returns the variable part at index and the text
+// after its following delimiter.
 //
-// The cut leaves exactly enough delimiter occurrences for the template parts
-// still to come. Later variable parts may themselves contain the delimiter, so
-// the earliest variable part keeps every surplus occurrence: parsing
-// "FAN-QA-13" against scope "-" sequence yields scope "FAN-QA", while parsing
+// The cut reserves enough delimiter occurrences for the remaining template
+// parts. Later variable parts may contain the delimiter themselves. The
+// earliest variable part includes every surplus occurrence. Parsing
+// "FAN-QA-13" against scope "-" sequence yields scope "FAN-QA". Parsing
 // "FAN-epic-1" against scope "-" type "-" sequence yields scope "FAN", type
 // "epic", and sequence "1".
 func consumeReferenceSegment(parts []ReferencePart, index int, remaining string) (string, string, error) {

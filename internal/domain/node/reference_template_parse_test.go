@@ -34,10 +34,10 @@ func TestReferenceTemplateParseRejectsMissingSeparator(t *testing.T) {
 	}
 }
 
-// TestReferenceTemplateParsesNodeTypePart covers a template whose delimiter
-// repeats: scope, hyphen, node type, hyphen, sequence. The scope must take
-// only its own segment, not swallow the type's, and a hyphenated scope must
-// still keep its surplus separators.
+// TestReferenceTemplateParsesNodeTypePart checks a template that repeats its
+// hyphen delimiter between scope, node type, and sequence. The scope must
+// exclude the node type segment and retain any extra hyphens within the
+// scope.
 func TestReferenceTemplateParsesNodeTypePart(t *testing.T) {
 	template := ReferenceTemplate{Parts: []ReferencePart{
 		{Kind: ReferencePartScopeRef, Value: FeatureIsScope},

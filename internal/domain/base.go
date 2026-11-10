@@ -6,7 +6,7 @@ import (
 	"github.com/google/uuid"
 )
 
-// Base fields embedded by every core entity.
+// Base provides the fields that every core entity embeds.
 type Base struct {
 	ID        uuid.UUID  `json:"id"`
 	CreatedAt time.Time  `json:"created_at"`

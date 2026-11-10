@@ -10,17 +10,19 @@ import (
 	"github.com/google/uuid"
 )
 
-// ErrContentChanged reports that a continuation no longer matches its source revision.
+// ErrContentChanged reports that a continuation does not match its source
+// revision anymore.
 var ErrContentChanged = errors.New("search content changed")
 
-// SearchAccess contains opaque values used to filter indexed pages.
+// SearchAccess contains opaque values that filter indexed pages.
 type SearchAccess struct {
 	Versions   []string `json:"versions"`
 	Keys       []string `json:"keys"`
 	Generation int64    `json:"generation"`
 }
 
-// ContentPage is one bounded page of searchable text from a committed revision.
+// ContentPage contains one bounded page of searchable text from a committed
+// revision.
 type ContentPage struct {
 	NodeID            uuid.UUID
 	NodeType          string

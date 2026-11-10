@@ -10,18 +10,18 @@ import (
 )
 
 const (
-	// PropertyIssueRequired marks an applicable required property without a
+	// PropertyIssueRequired reports an applicable required property without a
 	// value.
 	PropertyIssueRequired PropertyIssueCode = "missing_required"
-	// PropertyIssueReference marks a reference property with a target that
-	// does not exist in the organization or has a different node type.
+	// PropertyIssueReference reports a reference target that does not exist in
+	// the organization or has a different node type.
 	PropertyIssueReference PropertyIssueCode = "invalid_reference"
-	// PropertyIssueParent marks a missing or invalid parent or a mismatch
+	// PropertyIssueParent reports a missing or invalid parent or a mismatch
 	// between parent_id and child_of edges.
 	PropertyIssueParent PropertyIssueCode = "invalid_parent"
 )
 
-// parentIDName is the name of the property that stores a node's parent ID.
+// parentIDName identifies the property that stores a node's parent ID.
 const parentIDName = "parent_id"
 
 // ResultTarget records whether a node has a resolution record, along with
@@ -44,10 +44,14 @@ type ResultGraph struct {
 
 // ValidateResult runs Interpret on the complete properties of a node of
 // typeKey, then checks required properties, references, and parent rules.
-// A node requires a parent when its type lists CanLiveUnder types. When a
-// parent exists, parent_id must match exactly one child_of target in the
-// same organization, Types must contain the parent's node type, and
-// [LivesUnder] must accept the child and parent types.
+//
+// A node requires a parent when its type lists CanLiveUnder types. An
+// existing parent must satisfy every parent rule:
+//
+//   - parent_id must match exactly one child_of target.
+//   - The parent must belong to the same organization.
+//   - Types must contain the parent's node type.
+//   - [LivesUnder] must accept the child and parent types.
 func (s Schema) ValidateResult(typeKey string, props map[string]json.RawMessage, graph ResultGraph) PropertyResult {
 	result := s.Interpret(typeKey, props)
 	nodeType := s.Types[typeKey]
@@ -118,9 +122,9 @@ func referenceReason(definition *PropertyDef, raw json.RawMessage, graph ResultG
 }
 
 // parentReason returns the reason that raw and the child_of targets in graph
-// do not form a valid parent for a node of nodeType, or "" for a valid
-// parent. It returns a read failure when Types does not contain the parent's
-// node type.
+// do not form a valid parent for a node of nodeType. It returns an empty
+// string for a valid parent and a read failure when Types does not contain
+// the parent's node type.
 func (s Schema) parentReason(nodeType *NodeType, raw json.RawMessage, graph ResultGraph) (string, *ReadFailure) {
 	if len(raw) == 0 {
 		if len(graph.ChildOf) > 0 {
@@ -152,8 +156,9 @@ func (s Schema) parentReason(nodeType *NodeType, raw json.RawMessage, graph Resu
 	return "", nil
 }
 
-// resultReferenceID decodes one raw property value that stores a node ID as a
-// JSON string. It returns [uuid.Nil] for any other value.
+// resultReferenceID decodes a raw property value that stores a node ID as a
+// JSON string. It returns [uuid.Nil] when the value does not contain a valid
+// UUID string.
 func resultReferenceID(raw json.RawMessage) uuid.UUID {
 	var text string
 	if json.Unmarshal(raw, &text) != nil {

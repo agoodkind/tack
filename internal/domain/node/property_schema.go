@@ -7,17 +7,19 @@ import (
 	"github.com/google/uuid"
 )
 
-// Schema contains one organization's node types by type key and property
-// definitions.
+// Schema contains one organization's property definitions and node types,
+// with the node types indexed by type key.
 type Schema struct {
 	OrgID       uuid.UUID
 	Types       map[string]*NodeType
 	Definitions []*PropertyDef
 }
 
-// PropertyAppliesTo reports whether definition applies to nodeType. A
-// definition without features applies to every node type. Otherwise,
-// nodeType must declare one of the features that definition lists.
+// PropertyAppliesTo reports whether definition applies to nodeType.
+//
+// A definition without features applies to every node type.
+//
+//   - Otherwise, nodeType must declare at least one feature in the definition.
 func PropertyAppliesTo(definition *PropertyDef, nodeType *NodeType) bool {
 	if len(definition.AppliesToFeatures) == 0 {
 		return true
@@ -25,9 +27,14 @@ func PropertyAppliesTo(definition *PropertyDef, nodeType *NodeType) bool {
 	return nodeType.Features.HasAny(definition.AppliesToFeatures...)
 }
 
-// Interpret checks names, applicability, JSON shapes, formats, and option
-// keys in props against the definitions for typeKey. It does not check
-// required presence or reference targets.
+// Interpret checks property names, applicability, JSON shapes, formats, and
+// option keys in props against the definitions for typeKey.
+//
+// Interpret does not check required presence or reference targets.
+//
+//   - Missing schema records produce read failures.
+//   - Rejected values produce property issues.
+//   - Accepted property names and raw values appear in Valid.
 func (s Schema) Interpret(typeKey string, props map[string]json.RawMessage) PropertyResult {
 	result := PropertyResult{
 		NodeType: typeKey, Valid: make(map[string]json.RawMessage, len(props)),
