@@ -23,7 +23,7 @@ func planRetentionLedger(ctx context.Context, cfg *config.Config, client *s3.Cli
 			return nil, fmt.Errorf("retention refuses invalid ledger run identifier %q", run)
 		}
 		if stamp.Before(cutoff) {
-			// A present manifest must validate even when its export is incomplete.
+			// Validate a present manifest even when its export is incomplete.
 			if _, err := fetchYBSnapshotManifest(ctx, client, cfg.BackupS3BucketMain, run); err != nil && !isObjectNotFound(err) {
 				return nil, err
 			}

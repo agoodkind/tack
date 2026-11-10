@@ -12,26 +12,26 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// smallObjectMaxBytes bounds what getObjectBytes will hold in memory. Its
-// callers read status markers, which are a few hundred bytes of JSON, so this
-// is generous by four orders of magnitude and still small enough that a
-// corrupted or hostile object cannot exhaust the process. A record with a
-// larger known bound reads through getObjectBytesUpTo with that bound; use
-// [getObjectToFile] for artifacts that are legitimately large.
+// smallObjectMaxBytes limits the memory that getObjectBytes uses for a body.
+// Status markers contain a few hundred bytes of JSON. The limit leaves room
+// for these markers while bounding memory use for corrupt or hostile bodies.
+// Records with a larger known bound use getObjectBytesUpTo with that bound.
+// Large artifacts use
+// [goodkind.io/tack/internal/ops/objectstage.GetObjectToFile].
 const smallObjectMaxBytes = 64 * 1024
 
-// getObjectBytes downloads a small bucket/key into memory. A missing key comes
-// back as a NotFound-wrapped error without an error log, because callers probe
-// for optional objects and treat absence as a state rather than a failure. A
-// body past smallObjectMaxBytes is refused rather than read: the staleness
-// check is the mechanism that reports silence, so it must not be the thing an
-// oversized object takes down.
+// getObjectBytes downloads a small object at bucket/key into memory. It wraps
+// a missing-key error without logging an error. Callers probe optional
+// objects and treat absence as a state. The helper rejects bodies larger
+// than smallObjectMaxBytes after a bounded read. This limit protects the
+// staleness check from oversized objects while it checks for missing success
+// records.
 func getObjectBytes(ctx context.Context, client *s3.Client, bucket, key string) ([]byte, error) {
 	return getObjectBytesUpTo(ctx, client, bucket, key, smallObjectMaxBytes)
 }
 
-// getObjectBytesUpTo is getObjectBytes with the in-memory limit set to
-// maxBytes.
+// getObjectBytesUpTo reads an object like getObjectBytes, with maxBytes as
+// the in-memory body limit.
 func getObjectBytesUpTo(ctx context.Context, client *s3.Client, bucket, key string, maxBytes int) ([]byte, error) {
 	logger := telemetry.L(ctx)
 	out, err := client.GetObject(ctx, &s3.GetObjectInput{
@@ -46,8 +46,9 @@ func getObjectBytesUpTo(ctx context.Context, client *s3.Client, bucket, key stri
 		return nil, wrapped
 	}
 	defer out.Body.Close()
-	// Read one byte past the limit so an object sitting exactly at it still
-	// reads cleanly while anything larger is detectable without buffering it.
+	// Read at most one byte beyond the limit. A body exactly at the limit
+	// remains valid, and the extra byte identifies an oversized body without
+	// reading the rest.
 	body, err := io.ReadAll(io.LimitReader(out.Body, int64(maxBytes)+1))
 	if err != nil {
 		wrapped := fmt.Errorf("read object %s/%s: %w", bucket, key, err)

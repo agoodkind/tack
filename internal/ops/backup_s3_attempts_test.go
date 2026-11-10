@@ -2,7 +2,8 @@ package ops
 
 import "testing"
 
-// backupS3Attempts bounds clients built after it, until the test ends.
+// backupS3Attempts sets the attempt limit for clients built afterward. Test
+// cleanup restores the previous limit.
 func backupS3Attempts(t *testing.T, attempts int) {
 	t.Helper()
 	previous := backupS3MaxAttempts

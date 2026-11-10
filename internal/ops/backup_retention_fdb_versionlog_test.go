@@ -32,9 +32,9 @@ type retentionFDBTestVersionLog struct {
 	Points []retentionFDBTestReading `json:"points"`
 }
 
-// retentionFDBTestRecordReading waits until fdbbackup status reports a
-// restorable point stamped after after, and appends that point to the version
-// log the way the staleness check does in production.
+// retentionFDBTestRecordReading waits for fdbbackup status to report a
+// restorable point with a timestamp later than after. It appends that point
+// to the version log, matching the production staleness check.
 func retentionFDBTestRecordReading(t *testing.T, fixture *retentionCommandFixture, cluster string, after time.Time) retentionFDBTestReading {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(t.Context(), 4*time.Minute)
@@ -77,10 +77,10 @@ func retentionFDBTestStatusReading(status string) (retentionFDBTestReading, bool
 	return retentionFDBTestReading{}, false
 }
 
-// retentionFDBTestRecordMoment converts at to a version with the native
-// conversion of fdbrestore and appends that pair to the version log. The dry
-// run prints the conversion first, and it may then refuse because backup name
-// cannot restore at the requested time.
+// retentionFDBTestRecordMoment uses fdbrestore's native conversion to convert
+// at to a version and append the pair to the version log. The dry run prints
+// the conversion before it checks restorability. Backup name may not support
+// the requested time, and the dry run may then refuse the restore.
 func retentionFDBTestRecordMoment(t *testing.T, fixture *retentionCommandFixture, cluster, name string, at time.Time) retentionFDBTestReading {
 	t.Helper()
 	timestamp := at.UTC().Format(retentionFDBTimestampLayout)

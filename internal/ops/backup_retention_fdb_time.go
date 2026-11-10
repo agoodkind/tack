@@ -13,8 +13,9 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// retentionFDBRetainedVersion uses the native timestamp conversion and verifies
-// restorability without configuring a destination database or submitting a restore.
+// retentionFDBRetainedVersion uses the native timestamp conversion to check
+// restorability. It does not configure a destination database or submit a
+// restore.
 func retentionFDBRetainedVersion(ctx context.Context, cfg *config.Config, destination string, cutoff time.Time) (int64, error) {
 	timestamp, err := fdbRestoreTimestampArg(cutoff.UTC())
 	if err != nil {
@@ -49,23 +50,25 @@ func retentionFDBRetainedVersion(ctx context.Context, cfg *config.Config, destin
 	return resolved, nil
 }
 
-// fdbStatusTimestampPrecision is the resolution of the moment fdbbackup status
-// prints beside a version. The status truncates that moment to the second.
+// fdbStatusTimestampPrecision records the timestamp resolution in fdbbackup
+// status. The status truncates the time beside each version to the second.
 const fdbStatusTimestampPrecision = time.Second
 
 // retentionFDBCutoffVersion converts the cutoff to a version from the version
-// log (TACK-468), which the object store keeps and which needs no cluster. The
-// plan compares every restorable window against this one version.
+// log (TACK-468). The object store stores the log, and conversion does not
+// require a running cluster. The plan compares every restorable window with
+// this version.
 //
-// The log version is safe because it is at or before the true cutoff version.
-// Each reading pairs a version with its moment truncated to the second. The
-// cluster committed the version of a reading stamped at least one second
-// before the cutoff before the cutoff itself. A version at or below the true
-// cutoff version can keep a backup that the true version would expire or
-// delete, and it cannot select a backup that the true version would keep. The
-// native guards still check the exact cutoff timestamp: the `fdbrestore
-// --dryrun --timestamp` conversion before each expiration and survivor, and
-// `--restorable-after-timestamp` on the expiration itself.
+// Each log reading pairs a version with a timestamp truncated to the second.
+// The function selects a reading stamped at least one second before the
+// cutoff. The cluster committed that version before the cutoff. This version
+// cannot exceed the true cutoff version. It can retain a backup that the true
+// version would expire or delete, but it cannot select a backup for deletion
+// that the true version would retain.
+//
+// The native guards check the exact cutoff timestamp. Each expiration and
+// survivor check uses the fdbrestore --dryrun --timestamp conversion.
+// Expiration also uses --restorable-after-timestamp.
 func retentionFDBCutoffVersion(ctx context.Context, cfg *config.Config, cutoff time.Time) (int64, error) {
 	logger := telemetry.L(ctx)
 	versionLog, err := readFDBVersionLog(ctx, fdbVersionLogGetter(ctx, newBackupS3Client(cfg), cfg.BackupS3BucketMain))

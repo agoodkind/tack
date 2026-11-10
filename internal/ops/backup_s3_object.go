@@ -13,11 +13,11 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// putObjectFromFile uploads a local file to bucket under key. The file is
-// streamed rather than read into memory, and [os.File] is seekable so the S3
-// client can set Content-Length and retry the body. Reuses the client built by
-// newBackupS3Client; used by the backup family to land artifacts in the
-// SeaweedFS object store.
+// putObjectFromFile uploads a local file to bucket under key. It passes the
+// open file to the S3 client instead of reading the whole file into memory.
+// The seekable [os.File] supports retries, and the file size supplies
+// Content-Length. Backup operations use the client from newBackupS3Client to
+// upload artifacts to the SeaweedFS object store.
 func putObjectFromFile(ctx context.Context, client *s3.Client, bucket, key, path string) error {
 	logger := telemetry.L(ctx)
 	f, err := os.Open(path)
@@ -55,9 +55,9 @@ func putObjectFromFile(ctx context.Context, client *s3.Client, bucket, key, path
 	return nil
 }
 
-// putObjectBytes uploads an in-memory body to bucket under key. Used for the
-// backup-status success markers, which are a few hundred bytes; anything large
-// enough to stage on disk goes through putObjectFromFile instead.
+// putObjectBytes uploads an in-memory body to bucket under key. Backup-status
+// success markers use this helper for their few hundred bytes. Larger
+// artifacts that require disk staging use putObjectFromFile.
 func putObjectBytes(ctx context.Context, client *s3.Client, bucket, key string, body []byte) error {
 	logger := telemetry.L(ctx)
 	_, err := client.PutObject(ctx, &s3.PutObjectInput{
@@ -79,9 +79,9 @@ func putObjectBytes(ctx context.Context, client *s3.Client, bucket, key string, 
 	return nil
 }
 
-// listImmediatePrefixes returns the immediate child prefixes under prefix using
-// the delimiter, for example the per-run folders under "yugabyte-snapshot/" or
-// the backup names under "backups/". The returned values include the trailing
+// listImmediatePrefixes returns immediate child prefixes using the /
+// delimiter. Examples include per-run folders under "yugabyte-snapshot/" and
+// backup names under "backups/". Each returned value includes the trailing
 // delimiter, matching S3 CommonPrefixes.
 func listImmediatePrefixes(ctx context.Context, client *s3.Client, bucket, prefix string) ([]string, error) {
 	logger := telemetry.L(ctx)
@@ -107,13 +107,14 @@ func listImmediatePrefixes(ctx context.Context, client *s3.Client, bucket, prefi
 	return out, nil
 }
 
-// listImmediateObjects returns the keys of objects that sit directly under
-// prefix, using the delimiter so keys nested in subfolders are excluded, and
-// skipping a directory-placeholder object equal to prefix itself. The
-// FoundationDB blobstore registers each backup as a zero-byte marker object at
-// backups/<name> and keeps the backup's data in its own internal layout, so the
-// restore drill discovers the backup name from these markers;
-// listImmediatePrefixes would instead return the engine's internal data folder.
+// listImmediateObjects returns object keys directly under prefix. The /
+// delimiter excludes nested keys. The helper skips a directory placeholder
+// with a key equal to prefix.
+//
+// The FoundationDB blobstore registers each backup with a zero-byte marker
+// at backups/<name>. It stores backup data in a separate internal layout.
+// The restore drill discovers backup names from these markers.
+// listImmediatePrefixes would return the engine's internal data folder.
 func listImmediateObjects(ctx context.Context, client *s3.Client, bucket, prefix string) ([]string, error) {
 	logger := telemetry.L(ctx)
 	var out []string
