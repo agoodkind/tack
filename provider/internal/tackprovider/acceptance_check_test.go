@@ -36,8 +36,6 @@ func (check secretAbsentFromPlan) CheckPlan(
 	}
 }
 
-// secretAbsentFromState fails when the JSON state, including outputs,
-// contains the token secret.
 type secretAbsentFromState struct {
 	secret string
 }
