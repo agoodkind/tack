@@ -45,8 +45,14 @@ type bulkOperation struct {
 // documents and 5 MiB. One operation of 5 MiB or more forms a request by
 // itself. It stops at the first rejected item and returns the length of the
 // accepted contiguous prefix.
-func (a *Adapter) submitBulk(ctx context.Context, index string, operations []bulkOperation, policy bulkItemPolicy) (int, error) {
+func (a *Adapter) submitBulk(
+	ctx context.Context,
+	index string,
+	operations []bulkOperation,
+	policy bulkItemPolicy,
+) (int, error) {
 	accepted := 0
+
 	for start := 0; start < len(operations); {
 		end, body := nextBulkRequest(operations, start)
 		count, err := a.sendBulk(ctx, index, body, operations[start:end], policy)
@@ -54,8 +60,10 @@ func (a *Adapter) submitBulk(ctx context.Context, index string, operations []bul
 		if err != nil {
 			return accepted, err
 		}
+
 		start = end
 	}
+
 	return accepted, nil
 }
 
@@ -64,94 +72,168 @@ func (a *Adapter) submitBulk(ctx context.Context, index string, operations []bul
 // 5 MiB or more forms a request by itself.
 func nextBulkRequest(operations []bulkOperation, start int) (int, []byte) {
 	var body bytes.Buffer
+
 	end := start
 	for end < len(operations) && end-start < maxBulkDocuments-1 {
 		if end > start && body.Len()+len(operations[end].encoded) >= maxBulkBytes {
 			break
 		}
+
 		body.Write(operations[end].encoded)
 		end++
 	}
+
 	return end, body.Bytes()
 }
 
 // sendBulk sends one bulk request and measures its round trip.
 // After policy accepts every item, sendBulk logs search.bulk.completed
 // at Debug. On failure, it returns a bulkRequestError with the measurement.
-func (a *Adapter) sendBulk(ctx context.Context, index string, body []byte, operations []bulkOperation, policy bulkItemPolicy) (int, error) {
+func (a *Adapter) sendBulk(
+	ctx context.Context,
+	index string,
+	body []byte,
+	operations []bulkOperation,
+	policy bulkItemPolicy,
+) (int, error) {
 	started := clock.Now()
-	response, err := a.api.Bulk(ctx, opensearchapi.BulkReq{Index: index, Body: bytes.NewReader(body)})
-	measured := bulkMeasurement{duration: clock.Since(started), pages: len(operations), bytes: len(body)}
+	response, err := a.api.Bulk(
+		ctx,
+		opensearchapi.BulkReq{Index: index, Body: bytes.NewReader(body)},
+	)
+	measured := bulkMeasurement{
+		duration: clock.Since(started),
+		pages:    len(operations),
+		bytes:    len(body),
+	}
 	if err != nil && (!opensearchapi.IsPartialFailure(err) || response == nil) {
 		wrapped := fmt.Errorf("send OpenSearch bulk request to %s: %w", index, err)
-		telemetry.L(ctx).ErrorContext(ctx, "search.bulk.request_failed", slog.String("err", wrapped.Error()), slog.String("index", index),
-			measured.attr())
+		telemetry.L(ctx).ErrorContext(
+			ctx,
+			"search.bulk.request_failed",
+			slog.String("err", wrapped.Error()),
+			slog.String("index", index),
+			measured.attr(),
+		)
+
 		return 0, bulkRequestError{err: wrapped, measured: measured}
 	}
+
 	accepted, err := checkBulkItems(ctx, index, response, operations, policy)
 	if err != nil {
 		return accepted, bulkRequestError{err: err, measured: measured}
 	}
-	telemetry.L(ctx).DebugContext(ctx, "search.bulk.completed", slog.String("index", index), measured.attr())
+
+	telemetry.L(ctx).DebugContext(
+		ctx,
+		"search.bulk.completed",
+		slog.String("index", index),
+		measured.attr(),
+	)
+
 	return accepted, nil
 }
 
 // checkBulkItems matches each item result in response with its operation.
 // It returns the length of the accepted prefix and the error of the first
 // item that policy does not accept.
-func checkBulkItems(ctx context.Context, index string, response *opensearchapi.BulkResp, operations []bulkOperation,
+func checkBulkItems(
+	ctx context.Context,
+	index string,
+	response *opensearchapi.BulkResp,
+	operations []bulkOperation,
 	policy bulkItemPolicy,
 ) (int, error) {
-	items := make([]opensearchapi.BulkRespItem, 0, len(operations))
-	for _, operation := range response.Items {
-		for _, item := range []*opensearchapi.BulkRespItem{operation.Create, operation.Delete, operation.Index, operation.Update} {
-			if item != nil {
-				items = append(items, *item)
-			}
-		}
-	}
+	items := bulkResponseItems(response, len(operations))
+
 	if len(items) != len(operations) {
-		wrapped := fmt.Errorf("OpenSearch bulk request to %s returned %d items for %d operations", index, len(items), len(operations))
-		telemetry.L(ctx).ErrorContext(ctx, "search.bulk.items_invalid", slog.String("err", wrapped.Error()), slog.String("index", index))
+		wrapped := fmt.Errorf(
+			"OpenSearch bulk request to %s returned %d items for %d operations",
+			index,
+			len(items),
+			len(operations),
+		)
+		telemetry.L(ctx).ErrorContext(
+			ctx,
+			"search.bulk.items_invalid",
+			slog.String("err", wrapped.Error()),
+			slog.String("index", index),
+		)
+
 		return 0, wrapped
 	}
+
 	for position, operation := range operations {
 		if position >= len(items) {
 			break
 		}
+
 		item := items[position]
 		itemID := ""
 		if item.ID != nil {
 			itemID = *item.ID
 		}
+
 		outcome := bulkItemOutcomeFor(item, operation.documentID, policy)
 		switch outcome {
 		case bulkItemAccepted:
 			continue
 		case bulkItemObsolete:
-			obsolete := fmt.Errorf("document %s in %s has a higher generation: %w", itemID, index, searchdomain.ErrObsoleteWrite)
-			telemetry.L(ctx).InfoContext(ctx, "search.bulk.item_obsolete", slog.String("err", obsolete.Error()),
-				slog.String("document_id", itemID), slog.String("index", index))
+			obsolete := fmt.Errorf(
+				"document %s in %s has a higher generation: %w",
+				itemID,
+				index,
+				searchdomain.ErrObsoleteWrite,
+			)
+			telemetry.L(ctx).InfoContext(
+				ctx,
+				"search.bulk.item_obsolete",
+				slog.String("err", obsolete.Error()),
+				slog.String("document_id", itemID),
+				slog.String("index", index),
+			)
+
 			return position, obsolete
 		case bulkItemConflict:
-			conflict := fmt.Errorf("document %s in %s: %w", itemID, index, searchdomain.ErrConcurrentWrite)
-			telemetry.L(ctx).InfoContext(ctx, "search.bulk.item_conflict", slog.String("err", conflict.Error()),
-				slog.String("document_id", itemID), slog.String("index", index))
+			conflict := fmt.Errorf(
+				"document %s in %s: %w",
+				itemID,
+				index,
+				searchdomain.ErrConcurrentWrite,
+			)
+			telemetry.L(ctx).InfoContext(
+				ctx,
+				"search.bulk.item_conflict",
+				slog.String("err", conflict.Error()),
+				slog.String("document_id", itemID),
+				slog.String("index", index),
+			)
+
 			return position, conflict
 		case bulkItemRejected:
-			reason := ""
-			if item.Error != nil {
-				reason = item.Error.Type
-				if item.Error.Reason != nil {
-					reason += ": " + *item.Error.Reason
-				}
-			}
-			rejected := fmt.Errorf("bulk item %s for operation %s in %s returned status %d %s", itemID, operation.documentID, index, item.Status, reason)
-			telemetry.L(ctx).ErrorContext(ctx, "search.bulk.item_failed", slog.String("err", rejected.Error()),
-				slog.String("document_id", operation.documentID), slog.String("index", index), slog.Int("accepted", position))
+			reason := bulkFailureReason(item)
+
+			rejected := fmt.Errorf(
+				"bulk item %s for operation %s in %s returned status %d %s",
+				itemID,
+				operation.documentID,
+				index,
+				item.Status,
+				reason,
+			)
+			telemetry.L(ctx).ErrorContext(
+				ctx,
+				"search.bulk.item_failed",
+				slog.String("err", rejected.Error()),
+				slog.String("document_id", operation.documentID),
+				slog.String("index", index),
+				slog.Int("accepted", position),
+			)
+
 			return position, rejected
 		}
 	}
+
 	return len(operations), nil
 }
 
@@ -165,7 +247,11 @@ const (
 	bulkItemRejected
 )
 
-func bulkItemOutcomeFor(item opensearchapi.BulkRespItem, documentID string, policy bulkItemPolicy) bulkItemOutcome {
+func bulkItemOutcomeFor(
+	item opensearchapi.BulkRespItem,
+	documentID string,
+	policy bulkItemPolicy,
+) bulkItemOutcome {
 	switch {
 	case item.ID == nil || *item.ID != documentID:
 		return bulkItemRejected
@@ -191,5 +277,6 @@ func hasStaleGenerationMarker(item opensearchapi.BulkRespItem) bool {
 			return true
 		}
 	}
+
 	return false
 }

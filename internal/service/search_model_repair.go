@@ -44,7 +44,12 @@ type SearchModelRepairGates struct {
 }
 
 // NewSearchModelRepair constructs the model repair check.
-func NewSearchModelRepair(ports SearchModelRepairPorts, source clock.Clock, settings config.SearchModelRepairSettings, gates SearchModelRepairGates) *SearchModelRepair {
+func NewSearchModelRepair(
+	ports SearchModelRepairPorts,
+	source clock.Clock,
+	settings config.SearchModelRepairSettings,
+	gates SearchModelRepairGates,
+) *SearchModelRepair {
 	return &SearchModelRepair{ports: ports, clock: source, settings: settings, gates: gates}
 }
 
@@ -64,47 +69,84 @@ func (r *SearchModelRepair) Check(ctx context.Context) error {
 		telemetry.L(ctx).DebugContext(ctx, "search.model_repair.public_disabled")
 		return nil
 	}
+
 	index, err := r.ports.Index.ServingSearchIndex(ctx)
 	if errors.Is(err, searchdomain.ErrNoServingIndex) {
 		return nil
 	}
+
 	if err != nil {
 		return modelRepairFailure(ctx, "read serving search index", err)
 	}
+
 	deployment, err := r.ports.Engine.ModelDeployment(ctx, index, r.clock.Now())
 	if err != nil {
 		return modelRepairFailure(ctx, "read model deployment of index "+index, err)
 	}
+
 	if deployment.State == searchdomain.ModelStateDeployed {
 		return r.reset(ctx, deployment.ModelID)
 	}
+
 	stuckFor := r.clock.Since(deployment.LastUpdated)
 	if !deployment.Stuck() || stuckFor < r.settings.StuckAfter {
-		telemetry.L(ctx).DebugContext(ctx, "search.model_repair.waiting", slog.String("model_id", deployment.ModelID),
-			slog.String("state", deployment.State), slog.Int("active_tasks", deployment.ActiveTasks), slog.Duration("stuck_for", stuckFor))
+		telemetry.L(ctx).DebugContext(
+			ctx,
+			"search.model_repair.waiting",
+			slog.String("model_id", deployment.ModelID),
+			slog.String("state", deployment.State),
+			slog.Int("active_tasks", deployment.ActiveTasks),
+			slog.Duration("stuck_for", stuckFor),
+		)
+
 		return nil
 	}
-	claim, err := r.ports.Records.ClaimModelRepair(ctx, searchdomain.ModelRepairRequest{
-		ModelID: deployment.ModelID, Now: r.clock.Now().UTC(), Spacing: r.settings.AttemptSpacing, MaxAttempts: r.settings.MaxAttempts,
-	})
+
+	claim, err := r.ports.Records.ClaimModelRepair(
+		ctx,
+		searchdomain.ModelRepairRequest{
+			ModelID:     deployment.ModelID,
+			Now:         r.clock.Now().UTC(),
+			Spacing:     r.settings.AttemptSpacing,
+			MaxAttempts: r.settings.MaxAttempts,
+		},
+	)
 	if err != nil {
 		return modelRepairFailure(ctx, "claim repair of model "+deployment.ModelID, err)
 	}
+
 	if claim.Replaced != "" {
-		telemetry.L(ctx).InfoContext(ctx, "search.model_repair.record_replaced", slog.String("old_model_id", claim.Replaced),
-			slog.String("model_id", deployment.ModelID))
+		telemetry.L(ctx).InfoContext(
+			ctx,
+			"search.model_repair.record_replaced",
+			slog.String("old_model_id", claim.Replaced),
+			slog.String("model_id", deployment.ModelID),
+		)
 	}
+
 	if !claim.Granted {
-		telemetry.L(ctx).DebugContext(ctx, "search.model_repair.claim_refused", slog.String("model_id", deployment.ModelID),
-			slog.Int("attempts", claim.Record.Attempts), slog.Duration("last_attempt_age", r.clock.Since(claim.Record.LastAttempt)))
+		telemetry.L(ctx).DebugContext(
+			ctx,
+			"search.model_repair.claim_refused",
+			slog.String("model_id", deployment.ModelID),
+			slog.Int("attempts", claim.Record.Attempts),
+			slog.Duration("last_attempt_age", r.clock.Since(claim.Record.LastAttempt)),
+		)
+
 		return nil
 	}
+
 	return r.attempt(ctx, index, claim, stuckFor)
 }
 
 // attempt reads the deployment again and sends one deploy when the model is
 // still stuck. Otherwise it releases the claim without counting it.
-func (r *SearchModelRepair) attempt(ctx context.Context, index string, claim searchdomain.ModelRepairClaim, stuckFor time.Duration) error {
+func (r *SearchModelRepair) attempt(
+	ctx context.Context,
+	index string,
+	claim searchdomain.ModelRepairClaim,
+	stuckFor time.Duration,
+) error {
 	modelID := claim.Record.ModelID
 	again, err := r.ports.Engine.ModelDeployment(ctx, index, r.clock.Now())
 	if err != nil {
@@ -112,37 +154,74 @@ func (r *SearchModelRepair) attempt(ctx context.Context, index string, claim sea
 		if releaseErr := r.release(ctx, claim); releaseErr != nil {
 			return releaseErr
 		}
+
 		return failure
 	}
+
 	if !again.Stuck() || again.ModelID != modelID {
 		if releaseErr := r.release(ctx, claim); releaseErr != nil {
 			return releaseErr
 		}
-		telemetry.L(ctx).InfoContext(ctx, "search.model_repair.attempt_aborted", slog.String("model_id", modelID),
-			slog.String("state", again.State), slog.Int("active_tasks", again.ActiveTasks))
+
+		telemetry.L(ctx).InfoContext(
+			ctx,
+			"search.model_repair.attempt_aborted",
+			slog.String("model_id", modelID),
+			slog.String("state", again.State),
+			slog.Int("active_tasks", again.ActiveTasks),
+		)
+
 		return nil
 	}
+
 	return r.deploy(ctx, index, claim, again.State, stuckFor)
 }
 
 // deployFailed logs one failed attempt. The attempt stays counted. The last
 // allowed attempt also logs that the episode is exhausted.
-func (r *SearchModelRepair) deployFailed(ctx context.Context, claim searchdomain.ModelRepairClaim, taskID string, err error) error {
+func (r *SearchModelRepair) deployFailed(
+	ctx context.Context,
+	claim searchdomain.ModelRepairClaim,
+	taskID string,
+	err error,
+) error {
 	record := claim.Record
-	wrapped := fmt.Errorf("repair deploy %d of model %s, task %q: %w", record.Attempts, record.ModelID, taskID, err)
-	telemetry.L(ctx).ErrorContext(ctx, "search.model_repair.deploy_failed", slog.String("model_id", record.ModelID),
-		slog.String("task_id", taskID), slog.Int("attempt", record.Attempts), slog.String("err", wrapped.Error()))
+	wrapped := fmt.Errorf(
+		"repair deploy %d of model %s, task %q: %w",
+		record.Attempts,
+		record.ModelID,
+		taskID,
+		err,
+	)
+	telemetry.L(ctx).ErrorContext(
+		ctx,
+		"search.model_repair.deploy_failed",
+		slog.String("model_id", record.ModelID),
+		slog.String("task_id", taskID),
+		slog.Int("attempt", record.Attempts),
+		slog.String("err", wrapped.Error()),
+	)
 	if record.Attempts >= r.settings.MaxAttempts {
-		telemetry.L(ctx).ErrorContext(ctx, "search.model_repair.attempts_exhausted", slog.String("model_id", record.ModelID),
-			slog.Int("attempts", record.Attempts), slog.Time("episode_started", record.EpisodeStarted))
+		telemetry.L(ctx).ErrorContext(
+			ctx,
+			"search.model_repair.attempts_exhausted",
+			slog.String("model_id", record.ModelID),
+			slog.Int("attempts", record.Attempts),
+			slog.Time("episode_started", record.EpisodeStarted),
+		)
 	}
+
 	return wrapped
 }
 
-func (r *SearchModelRepair) release(ctx context.Context, claim searchdomain.ModelRepairClaim) error {
+func (r *SearchModelRepair) release(
+	ctx context.Context,
+	claim searchdomain.ModelRepairClaim,
+) error {
 	if err := r.ports.Records.ReleaseModelRepair(ctx, claim); err != nil {
 		return modelRepairFailure(ctx, "release repair of model "+claim.Record.ModelID, err)
 	}
+
 	return nil
 }
 
@@ -153,16 +232,31 @@ func (r *SearchModelRepair) reset(ctx context.Context, modelID string) error {
 	if err != nil {
 		return modelRepairFailure(ctx, "reset repair of model "+modelID, err)
 	}
+
 	if !found {
 		return nil
 	}
+
 	if record.ModelID != modelID {
-		telemetry.L(ctx).InfoContext(ctx, "search.model_repair.record_replaced", slog.String("old_model_id", record.ModelID),
-			slog.String("model_id", modelID), slog.Int("attempts", record.Attempts))
+		telemetry.L(ctx).InfoContext(
+			ctx,
+			"search.model_repair.record_replaced",
+			slog.String("old_model_id", record.ModelID),
+			slog.String("model_id", modelID),
+			slog.Int("attempts", record.Attempts),
+		)
+
 		return nil
 	}
-	telemetry.L(ctx).InfoContext(ctx, "search.model_repair.episode_reset", slog.String("model_id", modelID),
-		slog.Int("attempts", record.Attempts), slog.Duration("episode_duration", r.clock.Since(record.EpisodeStarted)))
+
+	telemetry.L(ctx).InfoContext(
+		ctx,
+		"search.model_repair.episode_reset",
+		slog.String("model_id", modelID),
+		slog.Int("attempts", record.Attempts),
+		slog.Duration("episode_duration", r.clock.Since(record.EpisodeStarted)),
+	)
+
 	return nil
 }
 
@@ -170,6 +264,11 @@ func (r *SearchModelRepair) reset(ctx context.Context, modelID string) error {
 // wrapped.
 func modelRepairFailure(ctx context.Context, operation string, err error) error {
 	wrapped := fmt.Errorf("search model repair: %s: %w", operation, err)
-	telemetry.L(ctx).ErrorContext(ctx, "search.model_repair.check_failed", slog.String("err", wrapped.Error()))
+	telemetry.L(ctx).ErrorContext(
+		ctx,
+		"search.model_repair.check_failed",
+		slog.String("err", wrapped.Error()),
+	)
+
 	return wrapped
 }

@@ -52,24 +52,33 @@ func FoundationDBCluster(t *testing.T, processes int) FoundationDBProcesses {
 	if processes < 1 {
 		t.Fatalf("FoundationDBCluster needs at least one process, got %d", processes)
 	}
+
 	ctx, cancel := context.WithTimeout(t.Context(), provisionTimeout)
 	defer cancel()
 	image, err := serviceImage(ctx, foundationDBService)
 	if err != nil {
 		t.Fatalf("read the FoundationDB image: %v", err)
 	}
+
 	cli, err := dockerClient(ctx)
 	if err != nil {
 		t.Fatalf("create a Docker client for the FoundationDB cluster: %v", err)
 	}
+
 	defer func() { _ = cli.Close() }()
 	cluster, names, err := startFoundationDBProcesses(ctx, cli, image, processes)
 	removeFoundationDBClusterAfterTest(t, names, cluster.ClusterFile)
 	if err != nil {
 		t.Fatalf("start the FoundationDB cluster: %v", err)
 	}
-	slog.InfoContext(ctx, "testenv.foundationdb_cluster.ready",
-		slog.String("container", names[0]), slog.Int("processes", processes))
+
+	slog.InfoContext(
+		ctx,
+		"testenv.foundationdb_cluster.ready",
+		slog.String("container", names[0]),
+		slog.Int("processes", processes),
+	)
+
 	return cluster
 }
 
@@ -77,45 +86,84 @@ func FoundationDBCluster(t *testing.T, processes int) FoundationDBProcesses {
 // with the coordinator's cluster file, and configures the database. It returns
 // the names of every container it started, also on failure.
 func startFoundationDBProcesses(
-	ctx context.Context, cli *client.Client, image string, processes int,
+	ctx context.Context,
+	cli *client.Client,
+	image string,
+	processes int,
 ) (FoundationDBProcesses, []string, error) {
 	cluster := FoundationDBProcesses{ClusterFile: "", Addresses: nil}
 	environment := []string{"FDB_NETWORKING_MODE=container", "FDB_PORT=" + foundationDBProcessPort}
 	dataMount := map[string]string{foundationDBDataDirectory: foundationDBDataMount}
-	coordinator, err := startEngine(ctx, cli, engineSpec{
-		kind: "foundationdb", image: image, platform: nil, cmd: nil, env: environment, tmpfs: dataMount,
-	})
+	coordinator, err := startEngine(
+		ctx,
+		cli,
+		engineSpec{
+			kind:     "foundationdb",
+			image:    image,
+			platform: nil,
+			cmd:      nil,
+			env:      environment,
+			tmpfs:    dataMount,
+		},
+	)
 	if err != nil {
 		return cluster, nil, err
 	}
+
 	names := []string{coordinator.name}
-	cluster.Addresses = append(cluster.Addresses, net.JoinHostPort(coordinator.address, foundationDBProcessPort))
+	cluster.Addresses = append(
+		cluster.Addresses,
+		net.JoinHostPort(coordinator.address, foundationDBProcessPort),
+	)
 	contents, err := waitForClusterFile(ctx, cli, coordinator.name)
 	if err != nil {
 		return cluster, names, err
 	}
+
 	// Each joining process takes the storage class. The coordinator keeps
 	// every other role, so excluding a joining process moves only data.
-	joining := slices.Concat(environment, []string{
-		"FDB_CLUSTER_FILE_CONTENTS=" + strings.TrimSpace(string(contents)), "FDB_PROCESS_CLASS=" + foundationDBJoiningClass,
-	})
+	joining := slices.Concat(
+		environment,
+		[]string{
+			"FDB_CLUSTER_FILE_CONTENTS=" + strings.TrimSpace(string(contents)),
+			"FDB_PROCESS_CLASS=" + foundationDBJoiningClass,
+		},
+	)
+
 	for range processes - 1 {
-		started, err := startEngine(ctx, cli, engineSpec{
-			kind: "foundationdb", image: image, platform: nil, cmd: nil, env: joining, tmpfs: dataMount,
-		})
+		started, err := startEngine(
+			ctx,
+			cli,
+			engineSpec{
+				kind:     "foundationdb",
+				image:    image,
+				platform: nil,
+				cmd:      nil,
+				env:      joining,
+				tmpfs:    dataMount,
+			},
+		)
 		if err != nil {
 			return cluster, names, err
 		}
+
 		names = append(names, started.name)
-		cluster.Addresses = append(cluster.Addresses, net.JoinHostPort(started.address, foundationDBProcessPort))
+		cluster.Addresses = append(
+			cluster.Addresses,
+			net.JoinHostPort(started.address, foundationDBProcessPort),
+		)
 	}
+
 	if err := ensureConfigured(ctx, cli, coordinator.name); err != nil {
 		return cluster, names, err
 	}
+
 	if err := waitForHealthyCluster(ctx, cli, coordinator.name, processes); err != nil {
 		return cluster, names, err
 	}
+
 	cluster.ClusterFile, err = writeClusterFile(ctx, coordinator.name, contents)
+
 	return cluster, names, err
 }
 
@@ -136,29 +184,48 @@ type foundationDBStatus struct {
 // waitForHealthyCluster polls `status json` until the cluster reports want
 // processes and healthy data, so data distribution is running before a test
 // moves data.
-func waitForHealthyCluster(ctx context.Context, cli *client.Client, containerName string, want int) error {
+func waitForHealthyCluster(
+	ctx context.Context,
+	cli *client.Client,
+	containerName string,
+	want int,
+) error {
 	reported, state := 0, ""
+
 	for {
 		output, exitCode, err := fdbcli(ctx, cli, containerName, "status json")
 		if err != nil {
 			return err
 		}
+
 		var status foundationDBStatus
 		healthy := false
 		if exitCode == 0 {
 			if err := json.Unmarshal([]byte(output), &status); err != nil {
-				slog.ErrorContext(ctx, "testenv.foundationdb_cluster.status_unreadable", slog.String("err", err.Error()))
+				slog.ErrorContext(
+					ctx,
+					"testenv.foundationdb_cluster.status_unreadable",
+					slog.String("err", err.Error()),
+				)
+
 				return fmt.Errorf("parse the status json of %s: %w", containerName, err)
 			}
+
 			reported, state = len(status.Cluster.Processes), status.Cluster.Data.State.Name
 			healthy = status.Cluster.Data.State.Healthy
 		}
+
 		if reported == want && healthy {
 			return nil
 		}
+
 		if !sleepOrDone(ctx) {
-			return fmt.Errorf("the FoundationDB cluster reported %d of %d processes and data state %q before the deadline",
-				reported, want, state)
+			return fmt.Errorf(
+				"the FoundationDB cluster reported %d of %d processes and data state %q before the deadline",
+				reported,
+				want,
+				state,
+			)
 		}
 	}
 }
@@ -167,16 +234,22 @@ func waitForHealthyCluster(ctx context.Context, cli *client.Client, containerNam
 // directory of its cluster file when the test ends.
 func removeFoundationDBClusterAfterTest(t *testing.T, names []string, clusterFile string) {
 	t.Helper()
-	slog.InfoContext(t.Context(), "testenv.foundationdb_cluster.removal_registered", slog.String("containers", strings.Join(names, ",")))
+	slog.InfoContext(
+		t.Context(),
+		"testenv.foundationdb_cluster.removal_registered",
+		slog.String("containers", strings.Join(names, ",")),
+	)
 	t.Cleanup(func() {
 		cleanup, cancel := context.WithTimeout(context.Background(), provisionTimeout)
 		defer cancel()
 		if err := removeContainers(cleanup, names); err != nil {
 			t.Errorf("remove FoundationDB cluster containers %v: %v", names, err)
 		}
+
 		if clusterFile == "" {
 			return
 		}
+
 		if err := os.RemoveAll(filepath.Dir(clusterFile)); err != nil {
 			t.Errorf("remove FoundationDB cluster file %s: %v", clusterFile, err)
 		}

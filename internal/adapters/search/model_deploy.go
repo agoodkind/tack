@@ -51,26 +51,47 @@ func (a *Adapter) deployModel(ctx context.Context, modelID string) error {
 	if err != nil {
 		return err
 	}
+
 	if model.State == deployedModelState {
 		return nil
 	}
+
 	window, cancel := context.WithTimeout(ctx, deployBreakerWindow)
 	defer cancel()
+
 	for {
 		err := a.deployOnce(ctx, modelID)
 		if err == nil {
 			return a.waitDeployedRecord(ctx, modelID)
 		}
+
 		if !breakerOpen(err) {
 			return err
 		}
-		telemetry.L(ctx).InfoContext(ctx, "search.model.deploy_breaker_open", slog.String("model_id", modelID), slog.String("reason", err.Error()))
+
+		telemetry.L(ctx).InfoContext(
+			ctx,
+			"search.model.deploy_breaker_open",
+			slog.String("model_id", modelID),
+			slog.String("reason", err.Error()),
+		)
 		wait := time.NewTimer(deployBreakerInterval)
 		select {
 		case <-window.Done():
 			wait.Stop()
-			wrapped := fmt.Errorf("deploy OpenSearch model %s while the memory circuit breaker stayed open for %s: %w", modelID, deployBreakerWindow, err)
-			telemetry.L(ctx).ErrorContext(ctx, "search.model.deploy_breaker_timeout", slog.String("err", wrapped.Error()), slog.String("model_id", modelID))
+			wrapped := fmt.Errorf(
+				"deploy OpenSearch model %s while the memory circuit breaker stayed open for %s: %w",
+				modelID,
+				deployBreakerWindow,
+				err,
+			)
+			telemetry.L(ctx).ErrorContext(
+				ctx,
+				"search.model.deploy_breaker_timeout",
+				slog.String("err", wrapped.Error()),
+				slog.String("model_id", modelID),
+			)
+
 			return loggedModelError{err: wrapped}
 		case <-wait.C:
 		}

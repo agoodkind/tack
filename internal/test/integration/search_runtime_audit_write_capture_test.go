@@ -25,10 +25,19 @@ type sessionWriteCapture struct {
 
 func installSessionWriteCapture(message string) *sessionWriteCapture {
 	capture := &sessionWriteCapture{
-		message: message, mutex: sync.Mutex{}, captured: false, sessionID: uuid.Nil,
-		operation: audit.Event{}, err: errors.New("the log record did not appear"),
+		message:   message,
+		mutex:     sync.Mutex{},
+		captured:  false,
+		sessionID: uuid.Nil,
+		operation: audit.Event{},
+		err:       errors.New("the log record did not appear"),
 	}
-	slog.SetDefault(slog.New(sessionWriteHandler{Handler: slog.Default().Handler(), capture: capture}))
+	slog.SetDefault(
+		slog.New(sessionWriteHandler{
+			Handler: slog.Default().Handler(),
+			capture: capture,
+		}),
+	)
 	return capture
 }
 

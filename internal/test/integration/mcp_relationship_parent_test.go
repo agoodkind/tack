@@ -10,9 +10,20 @@ import (
 // relationshipToolArguments returns tool arguments for one relationship tool call.
 func relationshipToolArguments(sourceID, relationType, targetID string) datagen.ToolArguments {
 	return datagen.ToolArguments{
-		WorkspaceReference: "", ProjectReference: "", IssueReference: "", Name: "", Properties: nil,
-		NodeID: "", Query: "", NodeType: "", Direction: "", SourceID: sourceID, RelationType: relationType,
-		TargetID: targetID, Limit: 0, Cursor: "",
+		WorkspaceReference: "",
+		ProjectReference:   "",
+		IssueReference:     "",
+		Name:               "",
+		Properties:         nil,
+		NodeID:             "",
+		Query:              "",
+		NodeType:           "",
+		Direction:          "",
+		SourceID:           sourceID,
+		RelationType:       relationType,
+		TargetID:           targetID,
+		Limit:              0,
+		Cursor:             "",
 	}
 }
 
@@ -22,6 +33,7 @@ func (h *MCPHarness) outgoingRelationships(t *testing.T, nodeID, relationType st
 	arguments := relationshipToolArguments("", relationType, "")
 	arguments.NodeID = nodeID
 	arguments.Direction = "out"
+
 	return h.Call(t, "tack_list_relationships", arguments).Text()
 }
 
@@ -36,6 +48,7 @@ func (h *MCPHarness) rawID(t *testing.T, toolName, reference string) string {
 	if identifier == "" {
 		t.Fatalf("%s %s printed no raw id", toolName, reference)
 	}
+
 	return identifier
 }
 
@@ -51,24 +64,61 @@ func TestRemoveRelationshipRefusesOnlyParent(t *testing.T) {
 	issueID := harness.rawID(t, "tack_get_issue", issue)
 	projectID := harness.rawID(t, "tack_get_project", harness.Project)
 
-	refusal := harness.CallExpectError(t, "tack_remove_relationship", relationshipToolArguments(issue, "child_of", projectID))
+	refusal := harness.CallExpectError(
+		t,
+		"tack_remove_relationship",
+		relationshipToolArguments(issue, "child_of", projectID),
+	)
 
 	if !strings.Contains(refusal, issueID) || !strings.Contains(refusal, projectID) {
-		t.Fatalf("refusal does not contain issue %s and project %s:\n%s", issueID, projectID, refusal)
+		t.Fatalf(
+			"refusal does not contain issue %s and project %s:\n%s",
+			issueID,
+			projectID,
+			refusal,
+		)
 	}
+
 	parents := harness.outgoingRelationships(t, issue, "child_of")
 	if !strings.Contains(parents, "- Target: `"+harness.Project+"`") {
-		t.Fatalf("issue %s lost its child_of edge to %s after a refused removal:\n%s", issue, harness.Project, parents)
+		t.Fatalf(
+			"issue %s lost its child_of edge to %s after a refused removal:\n%s",
+			issue,
+			harness.Project,
+			parents,
+		)
 	}
 
 	blockerTarget := "- Target: `" + blocker + "`"
-	harness.Call(t, "tack_add_relationship", relationshipToolArguments(issue, "blocked_by", blocker))
-	if blockers := harness.outgoingRelationships(t, issue, "blocked_by"); !strings.Contains(blockers, blockerTarget) {
-		t.Fatalf("issue %s has no blocked_by edge to %s after adding it:\n%s", issue, blocker, blockers)
+	harness.Call(
+		t,
+		"tack_add_relationship",
+		relationshipToolArguments(issue, "blocked_by", blocker),
+	)
+	if blockers := harness.outgoingRelationships(t, issue, "blocked_by"); !strings.Contains(
+		blockers,
+		blockerTarget,
+	) {
+		t.Fatalf(
+			"issue %s has no blocked_by edge to %s after adding it:\n%s",
+			issue,
+			blocker,
+			blockers,
+		)
 	}
-	harness.Call(t, "tack_remove_relationship", relationshipToolArguments(issue, "blocked_by", blocker))
+
+	harness.Call(
+		t,
+		"tack_remove_relationship",
+		relationshipToolArguments(issue, "blocked_by", blocker),
+	)
 	blockers := harness.outgoingRelationships(t, issue, "blocked_by")
 	if strings.Contains(blockers, blockerTarget) {
-		t.Fatalf("issue %s still has a blocked_by edge to %s after its removal:\n%s", issue, blocker, blockers)
+		t.Fatalf(
+			"issue %s still has a blocked_by edge to %s after its removal:\n%s",
+			issue,
+			blocker,
+			blockers,
+		)
 	}
 }

@@ -29,9 +29,18 @@ func (m *searchMixed) issueArguments(tenant *searchMixedTenant, nodeID, project,
 	properties := newProperties()
 	properties.setString("description", "Revision marker "+marker+" run "+m.runKey)
 	return ToolArguments{
-		WorkspaceReference: tenant.entry(), ProjectReference: project, IssueReference: "",
-		Name: "Mixed load " + marker, Properties: properties, NodeID: nodeID, Query: "", NodeType: "",
-		Direction: "", SourceID: "", RelationType: "", TargetID: "",
+		WorkspaceReference: tenant.entry(),
+		ProjectReference:   project,
+		IssueReference:     "",
+		Name:               "Mixed load " + marker,
+		Properties:         properties,
+		NodeID:             nodeID,
+		Query:              "",
+		NodeType:           "",
+		Direction:          "",
+		SourceID:           "",
+		RelationType:       "",
+		TargetID:           "",
 	}
 }
 
@@ -67,10 +76,18 @@ func (m *searchMixed) writeFailed(ctx context.Context, event string, err error) 
 func (m *searchMixed) committedAt(ctx context.Context, nodeID uuid.UUID) (time.Time, error) {
 	view, err := m.stores.Views.Get(ctx, nodeID)
 	if err != nil {
-		return time.Time{}, loggedError(ctx, "qa datagen search-mixed: the command could not read issue "+nodeID.String(), err)
+		return time.Time{}, loggedError(
+			ctx,
+			"qa datagen search-mixed: the command could not read issue "+nodeID.String(),
+			err,
+		)
 	}
 	if view == nil {
-		return time.Time{}, loggedError(ctx, "qa datagen search-mixed: the command could not read issue "+nodeID.String(), errMissing(nil))
+		return time.Time{}, loggedError(
+			ctx,
+			"qa datagen search-mixed: the command could not read issue "+nodeID.String(),
+			errMissing(nil),
+		)
 	}
 	return view.UpdatedAt, nil
 }
@@ -81,7 +98,12 @@ func (m *searchMixed) createScheduledIssue(callContext context.Context, index in
 	tenantIndex := ordinal % len(m.tenants)
 	tenant := m.tenants[tenantIndex]
 	marker := newSearchMixedMarker()
-	arguments, metadata := m.issueArguments(tenant, "", tenant.project, marker), m.metadataValues(tenantIndex)
+	arguments, metadata := m.issueArguments(
+		tenant,
+		"",
+		tenant.project,
+		marker,
+	), m.metadataValues(tenantIndex)
 	for name, value := range metadata {
 		arguments.Properties.setString(name, value)
 	}
@@ -105,7 +127,13 @@ func (m *searchMixed) createScheduledIssue(callContext context.Context, index in
 		return
 	}
 	node := &searchMixedNode{
-		id: nodeID, tenant: tenantIndex, ordinal: ordinal, revision: 1, marker: marker, settled: false, metadata: metadata,
+		id:       nodeID,
+		tenant:   tenantIndex,
+		ordinal:  ordinal,
+		revision: 1,
+		marker:   marker,
+		settled:  false,
+		metadata: metadata,
 	}
 	m.nodeMutex.Lock()
 	m.nodes = append(m.nodes, node)
@@ -118,7 +146,12 @@ func (m *searchMixed) editIssue(callContext context.Context, index int, node *se
 	revision := node.revision + 1
 	marker := newSearchMixedMarker()
 	tenant := m.tenants[node.tenant]
-	_, err := m.driver(index).Call(callContext, tenant.token(), "tack_update_issue", m.issueArguments(tenant, node.id.String(), "", marker))
+	_, err := m.driver(index).Call(
+		callContext,
+		tenant.token(),
+		"tack_update_issue",
+		m.issueArguments(tenant, node.id.String(), "", marker),
+	)
 	if err != nil {
 		m.writeFailed(callContext, "qa.datagen.search_mixed_edit_failed", err)
 		m.forgetAbsent(callContext, node)
@@ -147,7 +180,10 @@ func (m *searchMixed) deleteIssue(callContext context.Context, index int, node *
 
 func (m *searchMixed) recordDeleted(node *searchMixedNode) {
 	m.nodeMutex.Lock()
-	m.nodes = slices.DeleteFunc(m.nodes, func(candidate *searchMixedNode) bool { return candidate == node })
+	m.nodes = slices.DeleteFunc(
+		m.nodes,
+		func(candidate *searchMixedNode) bool { return candidate == node },
+	)
 	marker := node.marker
 	m.nodeMutex.Unlock()
 	m.stats.count(&m.stats.deletes)
@@ -158,7 +194,12 @@ func (m *searchMixed) recordDeleted(node *searchMixedNode) {
 func (m *searchMixed) forgetAbsent(ctx context.Context, node *searchMixedNode) {
 	view, err := m.stores.Views.Get(ctx, node.id)
 	if err != nil {
-		slog.ErrorContext(ctx, "qa.datagen.search_mixed_node_unread", slog.String("node_id", node.id.String()), slog.String("err", err.Error()))
+		slog.ErrorContext(
+			ctx,
+			"qa.datagen.search_mixed_node_unread",
+			slog.String("node_id", node.id.String()),
+			slog.String("err", err.Error()),
+		)
 		return
 	}
 	if view == nil {
@@ -169,10 +210,25 @@ func (m *searchMixed) forgetAbsent(ctx context.Context, node *searchMixedNode) {
 // deleteNode deletes one issue of one tenant through a public call and records its ID.
 func (m *searchMixed) deleteNode(ctx context.Context, index, tenant int, nodeID uuid.UUID) error {
 	owner := m.tenants[tenant]
-	_, err := m.driver(index).Call(ctx, owner.token(), "tack_delete_issue", ToolArguments{
-		WorkspaceReference: owner.entry(), ProjectReference: "", IssueReference: "", Name: "", Properties: nil,
-		NodeID: nodeID.String(), Query: "", NodeType: "", Direction: "", SourceID: "", RelationType: "", TargetID: "",
-	})
+	_, err := m.driver(index).Call(
+		ctx,
+		owner.token(),
+		"tack_delete_issue",
+		ToolArguments{
+			WorkspaceReference: owner.entry(),
+			ProjectReference:   "",
+			IssueReference:     "",
+			Name:               "",
+			Properties:         nil,
+			NodeID:             nodeID.String(),
+			Query:              "",
+			NodeType:           "",
+			Direction:          "",
+			SourceID:           "",
+			RelationType:       "",
+			TargetID:           "",
+		},
+	)
 	if err != nil {
 		return err
 	}

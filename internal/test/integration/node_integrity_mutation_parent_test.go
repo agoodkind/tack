@@ -21,16 +21,34 @@ func TestNodeIntegrityMutationRefusesCycles(t *testing.T) {
 	projectID := createSchemaProject(t, env)
 	top := createSchemaNode(t, env, projectID, projectID, "epic", nil)
 	child := createSchemaNode(t, env, top.ID, projectID, "issue", nil)
-	grandchild := createSchemaNode(t, env, child.ID, projectID, "comment", schemaProps("description", quoted("Grandchild")))
+	grandchild := createSchemaNode(
+		t,
+		env,
+		child.ID,
+		projectID,
+		"comment",
+		schemaProps("description", quoted("Grandchild")),
+	)
 	before, schema := mutationSnapshot(t, env, top.ID)
 
 	for _, parentID := range []uuid.UUID{top.ID, grandchild.ID} {
 		_, err := env.NodeSvc.Update(env.Ctx, moveUpdate(top.ID, parentID))
-		requireError(t, err, domain.ErrInvalidArgument, "Update that moves epic "+top.ID.String()+" under "+parentID.String())
+		requireError(
+			t,
+			err,
+			domain.ErrInvalidArgument,
+			"Update that moves epic "+top.ID.String()+" under "+parentID.String(),
+		)
 	}
+
 	plan := movePlan(t, env, before, schema, child.ID)
 	_, err := env.Stores.Nodes.ApplyMutation(env.Ctx, plan)
-	requireError(t, err, domain.ErrInvalidArgument, "ApplyMutation that moves an epic under its child")
+	requireError(
+		t,
+		err,
+		domain.ErrInvalidArgument,
+		"ApplyMutation that moves an epic under its child",
+	)
 	requireUnchanged(t, env, before)
 }
 
@@ -51,6 +69,7 @@ func TestNodeIntegrityMutationSerializesConcurrentMoves(t *testing.T) {
 	if _, err := env.Stores.Nodes.ApplyMutation(env.Ctx, firstMove); err != nil {
 		t.Fatalf("move epic %s under %s: %v", first.ID, second.ID, err)
 	}
+
 	_, err := env.Stores.Nodes.ApplyMutation(env.Ctx, secondMove)
 	requireError(t, err, domain.ErrConflict, "ApplyMutation prepared before the opposite move")
 	requireUnchanged(t, env, secondSnapshot)
@@ -59,27 +78,40 @@ func TestNodeIntegrityMutationSerializesConcurrentMoves(t *testing.T) {
 	right := createSchemaNode(t, env, projectID, projectID, "epic", nil)
 	results := make([]error, 2)
 	var group sync.WaitGroup
+
 	for position, pair := range [][2]uuid.UUID{{left.ID, right.ID}, {right.ID, left.ID}} {
 		group.Go(func() {
 			_, results[position] = env.NodeSvc.Update(env.Ctx, moveUpdate(pair[0], pair[1]))
 		})
 	}
+
 	group.Wait()
 	moved := 0
+
 	for _, result := range results {
 		switch {
 		case result == nil:
 			moved++
 		case errors.Is(result, domain.ErrConflict), errors.Is(result, domain.ErrInvalidArgument):
 		default:
-			t.Fatalf("concurrent move returned %v, want success, a conflict, or an invalid argument", result)
+			t.Fatalf(
+				"concurrent move returned %v, want success, a conflict, or an invalid argument",
+				result,
+			)
 		}
 	}
+
 	leftParent, _ := mutationSnapshot(t, env, left.ID)
 	rightParent, _ := mutationSnapshot(t, env, right.ID)
 	if moved > 1 || (leftParent.ParentID == right.ID && rightParent.ParentID == left.ID) {
-		t.Fatalf("concurrent moves committed %d moves; parents %s and %s", moved, leftParent.ParentID, rightParent.ParentID)
+		t.Fatalf(
+			"concurrent moves committed %d moves; parents %s and %s",
+			moved,
+			leftParent.ParentID,
+			rightParent.ParentID,
+		)
 	}
+
 	requireSingleParentEdge(t, env, left.ID, leftParent.ParentID)
 	requireSingleParentEdge(t, env, right.ID, rightParent.ParentID)
 }

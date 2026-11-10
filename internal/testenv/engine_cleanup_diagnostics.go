@@ -18,16 +18,30 @@ func logFailedEngine(ctx context.Context, cli *client.Client, name string) {
 	if cerrdefs.IsNotFound(err) {
 		return
 	}
+
 	if err != nil {
-		slog.ErrorContext(ctx, "testenv.engine.cleanup_observation_failed", slog.String("container", name), slog.String("err", err.Error()))
+		slog.ErrorContext(
+			ctx,
+			"testenv.engine.cleanup_observation_failed",
+			slog.String("container", name),
+			slog.String("err", err.Error()),
+		)
+
 		return
 	}
+
 	if state.Status != container.StateExited && state.Status != container.StateDead {
 		return
 	}
+
 	if state.ExitCode == 0 && !state.OOMKilled && state.Error == "" {
 		return
 	}
-	slog.ErrorContext(ctx, "testenv.engine.exited", slog.String("container", name),
-		slog.String("err", describeEngine(observation, cli, name, state)))
+
+	slog.ErrorContext(
+		ctx,
+		"testenv.engine.exited",
+		slog.String("container", name),
+		slog.String("err", describeEngine(observation, cli, name, state)),
+	)
 }

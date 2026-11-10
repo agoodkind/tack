@@ -46,29 +46,61 @@ func TestSearchSweepRemovesPartlyCleanedSession(t *testing.T) {
 	workspace := fixture.Workspaces[0]
 	kind := integration.PutOpaqueKind(t, fixture, workspace.OrgID)
 	entryID := integration.EntryPoint(t, fixture, workspace)
+
 	for number := range partialCleanupNodes {
-		integration.PutOpaqueNode(t, fixture, kind, entryID, fmt.Sprintf("Partial cleanup node %d", number), partialCleanupQuery, "excluded")
+		integration.PutOpaqueNode(
+			t,
+			fixture,
+			kind,
+			entryID,
+			fmt.Sprintf("Partial cleanup node %d", number),
+			partialCleanupQuery,
+			"excluded",
+		)
 	}
+
 	integration.DrainSearchWork(t, fixture.Worker, 10*partialCleanupNodes+100)
 
 	first := integration.CallSearch(t, fixture.Harness, partialCleanupQuery, "")
 	session := integration.CursorSession(t, fixture, first.Cursor)
 	stopCleanupAfterOneSlice(t, fixture, session, len(first.IDs))
 
-	if _, err := integration.TrySearch(fixture.Harness, partialCleanupQuery, first.Cursor); err == nil || !strings.Contains(err.Error(), expiredCursorMessage) {
-		t.Errorf("the cursor of the partly deleted session returned error %v, want %q", err, expiredCursorMessage)
+	if _, err := integration.TrySearch(
+		fixture.Harness,
+		partialCleanupQuery,
+		first.Cursor,
+	); err == nil ||
+		!strings.Contains(err.Error(), expiredCursorMessage) {
+		t.Errorf(
+			"the cursor of the partly deleted session returned error %v, want %q",
+			err,
+			expiredCursorMessage,
+		)
 	}
+
 	waitForTime(t, session.IdleDeadline.Truncate(time.Minute).Add(time.Minute+partialCleanupMargin))
 	store := fixture.Stores.SearchSessions(clock.Wall{}, partialCleanupIdle)
+
 	for attempt := range partialCleanupSweeps {
-		integration.CallSearch(t, fixture.Harness, fmt.Sprintf("%s sweep %d", partialCleanupQuery, attempt), "")
+		integration.CallSearch(
+			t,
+			fixture.Harness,
+			fmt.Sprintf("%s sweep %d", partialCleanupQuery, attempt),
+			"",
+		)
 		_, err := store.Load(integration.WithTestOperation(t, t.Context()), session.ID)
 		if errors.Is(err, searchdomain.ErrSessionNotFound) {
 			return
 		}
+
 		t.Logf("sweep search %d left session %s: %v", attempt+1, session.ID, err)
 	}
-	t.Fatalf("%d sweep searches did not delete the partly cleaned session %s", partialCleanupSweeps, session.ID)
+
+	t.Fatalf(
+		"%d sweep searches did not delete the partly cleaned session %s",
+		partialCleanupSweeps,
+		session.ID,
+	)
 }
 
 // stopCleanupAfterOneSlice closes the point in time of session, marks the
@@ -76,20 +108,36 @@ func TestSearchSweepRemovesPartlyCleanedSession(t *testing.T) {
 // sweep does before it stops between slices. The first page stores one
 // visited marker for each of its limit results. The slice reads limit
 // records and keeps the header.
-func stopCleanupAfterOneSlice(t *testing.T, fixture integration.QueryFixture, session searchdomain.Session, limit int) {
+func stopCleanupAfterOneSlice(
+	t *testing.T,
+	fixture integration.QueryFixture,
+	session searchdomain.Session,
+	limit int,
+) {
 	t.Helper()
 	ctx := integration.WithTestOperation(t, t.Context())
-	ranker := fixture.Adapter.Ranker(search.RankerSettings{KeepAlive: time.Hour, TokenBytes: 64 << 10, BatchSize: 100})
+	ranker := fixture.Adapter.Ranker(search.RankerSettings{
+		KeepAlive:  time.Hour,
+		TokenBytes: 64 << 10,
+		BatchSize:  100,
+	})
 	if err := ranker.Close(ctx, session.Snapshot); err != nil {
 		t.Fatalf("close the point in time of session %s: %v", session.ID, err)
 	}
+
 	store := fixture.Stores.SearchSessions(clock.Wall{}, partialCleanupIdle)
 	if err := store.BeginCleanup(ctx, session.ID); err != nil {
 		t.Fatalf("mark session %s closing: %v", session.ID, err)
 	}
+
 	done, err := store.CleanupSlice(ctx, session.ID, limit)
 	if err != nil || done {
-		t.Fatalf("one cleanup slice of session %s returned done %t and error %v, want a partly deleted session", session.ID, done, err)
+		t.Fatalf(
+			"one cleanup slice of session %s returned done %t and error %v, want a partly deleted session",
+			session.ID,
+			done,
+			err,
+		)
 	}
 }
 

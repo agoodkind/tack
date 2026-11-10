@@ -49,7 +49,13 @@ type Compiler interface {
 	Version() string
 	Index(context.Context, IndexAccessRequest) (node.SearchAccess, error)
 	GrantKey(orgID, entryPointID uuid.UUID) (string, error)
-	Dependents(ctx context.Context, orgID, resourceID uuid.UUID, cursor string, limit int) (node.IDPage, error)
+	Dependents(
+		ctx context.Context,
+		orgID uuid.UUID,
+		resourceID uuid.UUID,
+		cursor string,
+		limit int,
+	) (node.IDPage, error)
 	EntryAuthority(context.Context, uuid.UUID) (uuid.UUID, error)
 	Query(context.Context, AccessRequest) ([]string, error)
 }
@@ -61,11 +67,17 @@ type PolicySet struct {
 
 // NewPolicySet registers the production organization-scope policy under
 // both of its key namespaces.
-func NewPolicySet(reader node.NodeReader, types TypeReader, relationships RelationshipReader) *PolicySet {
+func NewPolicySet(
+	reader node.NodeReader,
+	types TypeReader,
+	relationships RelationshipReader,
+) *PolicySet {
 	compilers := make(map[string]Compiler, 2)
+
 	for _, version := range []string{StableVersion, RotatedVersion} {
 		compilers[version] = NewOrgScopeCompiler(version, reader, types, relationships)
 	}
+
 	return &PolicySet{compilers: compilers}
 }
 
@@ -76,57 +88,102 @@ func (s *PolicySet) Supports(version string) bool {
 }
 
 // Index returns sorted opaque versions and keys for one resource.
-func (s *PolicySet) Index(ctx context.Context, request IndexAccessRequest) (node.SearchAccess, error) {
+func (s *PolicySet) Index(
+	ctx context.Context,
+	request IndexAccessRequest,
+) (node.SearchAccess, error) {
 	compiler, err := s.compiler(ctx, request.Version, request.ResourceID)
 	if err != nil {
 		return node.SearchAccess{}, err
 	}
+
 	access, err := compiler.Index(ctx, request)
 	if err != nil {
 		var logged loggedAccessError
 		if errors.As(err, &logged) {
-			return node.SearchAccess{}, WithContext("compile search access for resource "+request.ResourceID.String(), err)
+			return node.SearchAccess{}, WithContext(
+				"compile search access for resource "+request.ResourceID.String(),
+				err,
+			)
 		}
+
 		wrapped := fmt.Errorf("compile search access for resource %s: %w", request.ResourceID, err)
-		telemetry.L(ctx).ErrorContext(ctx, "search.access.compile_failed",
-			slog.String("err", wrapped.Error()), slog.String("resource_id", request.ResourceID.String()))
+		telemetry.L(ctx).ErrorContext(
+			ctx,
+			"search.access.compile_failed",
+			slog.String("err", wrapped.Error()),
+			slog.String("resource_id", request.ResourceID.String()),
+		)
+
 		return node.SearchAccess{}, loggedAccessError{err: wrapped}
 	}
+
 	if len(access.Versions) == 0 || len(access.Keys) == 0 || access.Generation < 0 ||
 		!slices.IsSorted(access.Versions) || !slices.IsSorted(access.Keys) ||
 		slices.Contains(access.Versions, "") || slices.Contains(access.Keys, "") ||
 		len(slices.Compact(slices.Clone(access.Versions))) != len(access.Versions) ||
-		len(slices.Compact(slices.Clone(access.Keys))) != len(access.Keys) || access.Versions[0] != request.Version {
-		wrapped := fmt.Errorf("validate search access for resource %s: versions and keys must be nonempty, unique, sorted, and include the policy version", request.ResourceID)
-		telemetry.L(ctx).ErrorContext(ctx, "search.access.invalid",
-			slog.String("err", wrapped.Error()), slog.String("resource_id", request.ResourceID.String()))
+		len(slices.Compact(slices.Clone(access.Keys))) != len(
+			access.Keys,
+		) || access.Versions[0] != request.Version {
+		wrapped := fmt.Errorf(
+			"validate search access for resource %s: versions and keys must "+
+				"be nonempty, unique, sorted, and include the policy version",
+			request.ResourceID,
+		)
+		telemetry.L(ctx).ErrorContext(
+			ctx,
+			"search.access.invalid",
+			slog.String("err", wrapped.Error()),
+			slog.String("resource_id", request.ResourceID.String()),
+		)
+
 		return node.SearchAccess{}, loggedAccessError{err: wrapped}
 	}
+
 	return access, nil
 }
 
 // Dependents reads one bounded page of the resources that derive their
 // access from resourceID. It reads each version of versions in order. The
 // cursor records the version position and that compiler's cursor.
-func (s *PolicySet) Dependents(ctx context.Context, versions []string, orgID, resourceID uuid.UUID, cursor string, limit int) (node.IDPage, error) {
+func (s *PolicySet) Dependents(
+	ctx context.Context,
+	versions []string,
+	orgID uuid.UUID,
+	resourceID uuid.UUID,
+	cursor string,
+	limit int,
+) (node.IDPage, error) {
 	position, inner, err := parseDependentCursor(cursor)
 	if err != nil {
 		wrapped := fmt.Errorf("parse dependent cursor of resource %s: %w", resourceID, err)
-		telemetry.L(ctx).ErrorContext(ctx, "search.access.dependent_cursor_invalid",
-			slog.String("err", wrapped.Error()), slog.String("resource_id", resourceID.String()))
+		telemetry.L(ctx).ErrorContext(
+			ctx,
+			"search.access.dependent_cursor_invalid",
+			slog.String("err", wrapped.Error()),
+			slog.String("resource_id", resourceID.String()),
+		)
+
 		return node.IDPage{}, loggedAccessError{err: wrapped}
 	}
+
 	if position >= len(versions) {
 		return node.IDPage{IDs: []uuid.UUID{}, NextCursor: "", Done: true}, nil
 	}
+
 	compiler, err := s.compiler(ctx, versions[position], resourceID)
 	if err != nil {
 		return node.IDPage{}, err
 	}
+
 	page, err := compiler.Dependents(ctx, orgID, resourceID, inner, limit)
 	if err != nil {
-		return node.IDPage{}, WithContext("list search access dependents under "+versions[position], err)
+		return node.IDPage{}, WithContext(
+			"list search access dependents under "+versions[position],
+			err,
+		)
 	}
+
 	switch {
 	case !page.Done:
 		page.NextCursor = formatDependentCursor(position, page.NextCursor)
@@ -136,6 +193,7 @@ func (s *PolicySet) Dependents(ctx context.Context, versions []string, orgID, re
 	default:
 		page.NextCursor = ""
 	}
+
 	return page, nil
 }
 
@@ -147,25 +205,42 @@ func parseDependentCursor(cursor string) (int, string, error) {
 	if cursor == "" {
 		return 0, "", nil
 	}
+
 	positionText, inner, found := strings.Cut(cursor, ":")
 	if !found {
 		return 0, "", errors.New("dependent cursor has no version position")
 	}
+
 	position, err := strconv.Atoi(positionText)
 	if err != nil || position < 0 {
 		return 0, "", fmt.Errorf("dependent cursor version position %q is invalid", positionText)
 	}
+
 	return position, inner, nil
 }
 
-func (s *PolicySet) compiler(ctx context.Context, version string, resourceID uuid.UUID) (Compiler, error) {
+func (s *PolicySet) compiler(
+	ctx context.Context,
+	version string,
+	resourceID uuid.UUID,
+) (Compiler, error) {
 	compiler := s.compilers[version]
 	if compiler == nil {
-		wrapped := fmt.Errorf("compile search access version %q for resource %s: unsupported policy", version, resourceID)
-		telemetry.L(ctx).ErrorContext(ctx, "search.access.policy_unsupported",
-			slog.String("err", wrapped.Error()), slog.String("version", version))
+		wrapped := fmt.Errorf(
+			"compile search access version %q for resource %s: unsupported policy",
+			version,
+			resourceID,
+		)
+		telemetry.L(ctx).ErrorContext(
+			ctx,
+			"search.access.policy_unsupported",
+			slog.String("err", wrapped.Error()),
+			slog.String("version", version),
+		)
+
 		return nil, loggedAccessError{err: wrapped}
 	}
+
 	return compiler, nil
 }
 

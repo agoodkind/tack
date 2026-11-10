@@ -36,7 +36,13 @@ func TestDatagenRerunReusesPublicNodeIDs(t *testing.T) {
 	}
 	after := generatedProjectID(t, cfg, seed)
 	if first.Created == 0 || second.Created != 0 || second.Reused != first.Created+first.Reused || before != after {
-		t.Fatalf("rerun changed corpus: first=%+v second=%+v project_before=%s project_after=%s", first, second, before, after)
+		t.Fatalf(
+			"rerun changed corpus: first=%+v second=%+v project_before=%s project_after=%s",
+			first,
+			second,
+			before,
+			after,
+		)
 	}
 	t.Logf("rerun reused=%d project=%s", second.Reused, after)
 }
@@ -44,9 +50,20 @@ func TestDatagenRerunReusesPublicNodeIDs(t *testing.T) {
 func TestDatagenSoakSeedsFreshPublicCorpus(t *testing.T) {
 	cfg := auditedDatagenConfig(t)
 	seed := nextHarnessSeed()
-	result, err := datagen.RunSoak(WithTestOperation(t, t.Context()), WithTestOperation(t, t.Context()), cfg, datagen.SoakOptions{
-		Duration: time.Minute, Rate: 60, MaxOps: 1, Scale: "small", Seed: seed, Commit: true,
-	}, nil)
+	result, err := datagen.RunSoak(
+		WithTestOperation(t, t.Context()),
+		WithTestOperation(t, t.Context()),
+		cfg,
+		datagen.SoakOptions{
+			Duration: time.Minute,
+			Rate:     60,
+			MaxOps:   1,
+			Scale:    "small",
+			Seed:     seed,
+			Commit:   true,
+		},
+		nil,
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -54,14 +71,23 @@ func TestDatagenSoakSeedsFreshPublicCorpus(t *testing.T) {
 		t.Fatalf("fresh soak did not execute its public operation: %+v", result)
 	}
 	project := generatedProjectID(t, cfg, seed)
-	reused, err := datagen.RunSeed(WithTestOperation(t, t.Context()), cfg, datagen.SeedRunOptions{Scale: "small", Seed: seed, Commit: true})
+	reused, err := datagen.RunSeed(
+		WithTestOperation(t, t.Context()),
+		cfg,
+		datagen.SeedRunOptions{Scale: "small", Seed: seed, Commit: true},
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if reused.Created != 0 || reused.Reused == 0 || reused.Issues != 6 {
 		t.Fatalf("fresh soak did not store a reusable complete corpus: %+v", reused)
 	}
-	t.Logf("fresh soak operations=%d reused=%d project=%s", result.Operations, reused.Reused, project)
+	t.Logf(
+		"fresh soak operations=%d reused=%d project=%s",
+		result.Operations,
+		reused.Reused,
+		project,
+	)
 }
 
 func generatedProjectID(t *testing.T, cfg *config.Config, seed int64) string {
@@ -70,7 +96,12 @@ func generatedProjectID(t *testing.T, cfg *config.Config, seed int64) string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	identities, err := datagen.BootstrapIdentities(WithTestOperation(t, t.Context()), cfg, seed, scale)
+	identities, err := datagen.BootstrapIdentities(
+		WithTestOperation(t, t.Context()),
+		cfg,
+		seed,
+		scale,
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -80,9 +111,15 @@ func generatedProjectID(t *testing.T, cfg *config.Config, seed int64) string {
 	}
 	defer graph.Close()
 	workspace := identities.Workspaces[0]
-	result, err := datagen.NewDriver(graph, false, seed).Call(WithTestOperation(t, t.Context()), workspace.Actors[0].Token, "tack_get_project", datagen.ToolArguments{
-		WorkspaceReference: workspace.Slug, NodeID: "Q0101",
-	})
+	result, err := datagen.NewDriver(graph, false, seed).Call(
+		WithTestOperation(t, t.Context()),
+		workspace.Actors[0].Token,
+		"tack_get_project",
+		datagen.ToolArguments{
+			WorkspaceReference: workspace.Slug,
+			NodeID:             "Q0101",
+		},
+	)
 	if err != nil {
 		t.Fatal(err)
 	}

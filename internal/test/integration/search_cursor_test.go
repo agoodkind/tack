@@ -40,11 +40,25 @@ func putCursorCorpus(t *testing.T, fixture queryFixture, query string, count int
 	workspace := fixture.Workspaces[0]
 	kind := putOpaqueKind(t, fixture, workspace.OrgID)
 	entryID := entryPoint(t, fixture, workspace)
+
 	nodes := make([]uuid.UUID, 0, count)
 	for number := range count {
-		nodes = append(nodes, putOpaqueNode(t, fixture, kind, entryID, fmt.Sprintf("Cursor node %d", number), query, "excluded"))
+		nodes = append(
+			nodes,
+			putOpaqueNode(
+				t,
+				fixture,
+				kind,
+				entryID,
+				fmt.Sprintf("Cursor node %d", number),
+				query,
+				"excluded",
+			),
+		)
 	}
+
 	drainSearchWork(t, fixture.Worker, cursorSlicesPerNode*count+cursorFixtureSlices)
+
 	return nodes
 }
 
@@ -56,14 +70,23 @@ func cursorSession(t *testing.T, fixture queryFixture, cursor string) searchdoma
 	if err != nil {
 		t.Fatalf("decode cursor key: %v", err)
 	}
+
 	sessionID, _, err := tools.NewSearchCursorCodec(key).Decode(cursor)
 	if err != nil {
 		t.Fatalf("decode cursor: %v", err)
 	}
-	session, err := fixture.Stores.SearchSessions(clock.Wall{}, 15*time.Minute).Load(WithTestOperation(t, t.Context()), sessionID)
+
+	session, err := fixture.Stores.SearchSessions(
+		clock.Wall{},
+		15*time.Minute,
+	).Load(
+		WithTestOperation(t, t.Context()),
+		sessionID,
+	)
 	if err != nil {
 		t.Fatalf("load session %s: %v", sessionID, err)
 	}
+
 	return session
 }
 
@@ -79,27 +102,56 @@ func TestSearchCursorExactSortValues(t *testing.T) {
 	nodes := putCursorCorpus(t, fixture, "amber lattice", 150)
 	putTiedPages(t, fixture, nodes[0], cursorTiedPages)
 	session := cursorSession(t, fixture, callSearch(t, fixture.Harness, "amber lattice", "").Cursor)
-	ranker := fixture.Adapter.Ranker(search.RankerSettings{KeepAlive: time.Minute, TokenBytes: 64 << 10, BatchSize: 100})
-	batch, err := ranker.Read(WithTestOperation(t, t.Context()), session.Query, session.Snapshot, nil)
+	ranker := fixture.Adapter.Ranker(search.RankerSettings{
+		KeepAlive:  time.Minute,
+		TokenBytes: 64 << 10,
+		BatchSize:  100,
+	})
+	batch, err := ranker.Read(
+		WithTestOperation(t, t.Context()),
+		session.Query,
+		session.Snapshot,
+		nil,
+	)
 	if err != nil {
 		t.Fatalf("read batch: %v", err)
 	}
+
 	if len(batch.Hits) != 100 {
 		t.Fatalf("batch returned %d matches, want 100", len(batch.Hits))
 	}
+
 	previousScore := math.Inf(1)
+
 	for _, hit := range batch.Hits {
 		previousScore = requireSortValues(t, hit, previousScore)
 	}
-	next, err := ranker.Read(WithTestOperation(t, t.Context()), session.Query, searchdomain.Snapshot{PITID: batch.PITID, Index: session.Snapshot.Index, QueryTokens: session.Snapshot.QueryTokens}, batch.Hits[99].Sort)
+
+	next, err := ranker.Read(
+		WithTestOperation(t, t.Context()),
+		session.Query,
+		searchdomain.Snapshot{
+			PITID:       batch.PITID,
+			Index:       session.Snapshot.Index,
+			QueryTokens: session.Snapshot.QueryTokens,
+		},
+		batch.Hits[99].Sort,
+	)
 	if err != nil {
 		t.Fatalf("read next batch: %v", err)
 	}
+
 	for _, hit := range next.Hits {
-		if slices.ContainsFunc(batch.Hits, func(previous searchdomain.RankHit) bool { return bytes.Equal(previous.Sort, hit.Sort) }) {
+		if slices.ContainsFunc(
+			batch.Hits,
+			func(previous searchdomain.RankHit) bool {
+				return bytes.Equal(previous.Sort, hit.Sort)
+			},
+		) {
 			t.Fatalf("search_after repeated sort position %s", hit.Sort)
 		}
 	}
+
 	requireTiedPagesOnce(t, fixture, ranker, session, nodes[0])
 }
 
@@ -112,20 +164,36 @@ func requireSortValues(t *testing.T, hit searchdomain.RankHit, previousScore flo
 	if err := json.Unmarshal(hit.Sort, &values); err != nil || len(values) != 3 {
 		t.Fatalf("sort values %s are not score, node ID, and shard document", hit.Sort)
 	}
+
 	var score float64
-	if err := json.Unmarshal(values[0], &score); err != nil || math.IsNaN(score) || math.IsInf(score, 0) {
+	if err := json.Unmarshal(values[0], &score); err != nil || math.IsNaN(score) ||
+		math.IsInf(score, 0) {
 		t.Fatalf("sort score %s of node %s is not a finite number: %v", values[0], hit.NodeID, err)
 	}
+
 	if score > previousScore {
-		t.Fatalf("sort score %v of node %s exceeds the previous score %v", score, hit.NodeID, previousScore)
+		t.Fatalf(
+			"sort score %v of node %s exceeds the previous score %v",
+			score,
+			hit.NodeID,
+			previousScore,
+		)
 	}
+
 	if string(values[1]) != `"`+hit.NodeID.String()+`"` {
 		t.Fatalf("sort node ID %s differs from match node %s", values[1], hit.NodeID)
 	}
+
 	var shardDocument int64
 	if err := json.Unmarshal(values[2], &shardDocument); err != nil || shardDocument < 0 {
-		t.Fatalf("sort shard document %s of node %s is not a nonnegative integer: %v", values[2], hit.NodeID, err)
+		t.Fatalf(
+			"sort shard document %s of node %s is not a nonnegative integer: %v",
+			values[2],
+			hit.NodeID,
+			err,
+		)
 	}
+
 	return score
 }
 
@@ -139,7 +207,12 @@ func TestSearchCursorOnePredictionPerSession(t *testing.T) {
 	opened := cursorSession(t, fixture, first.Cursor)
 	second := callSearch(t, fixture.Harness, "velvet harbor", first.Cursor)
 	continued := cursorSession(t, fixture, second.Cursor)
-	if !bytes.Equal(opened.Snapshot.QueryTokens, continued.Snapshot.QueryTokens) || continued.Version != opened.Version+1 {
-		t.Fatalf("continuation changed the query tokens or skipped a version: %d to %d", opened.Version, continued.Version)
+	if !bytes.Equal(opened.Snapshot.QueryTokens, continued.Snapshot.QueryTokens) ||
+		continued.Version != opened.Version+1 {
+		t.Fatalf(
+			"continuation changed the query tokens or skipped a version: %d to %d",
+			opened.Version,
+			continued.Version,
+		)
 	}
 }

@@ -13,7 +13,11 @@ import (
 
 func verifyGeneratedSearchHashes(t *testing.T, directory string) {
 	t.Helper()
-	for _, name := range []string{"OPENSEARCH_PASSWORD", "OPENSEARCH_MAINTENANCE_PASSWORD", "OPENSEARCH_HEALTH_PASSWORD"} {
+	for _, name := range []string{
+		"OPENSEARCH_PASSWORD",
+		"OPENSEARCH_MAINTENANCE_PASSWORD",
+		"OPENSEARCH_HEALTH_PASSWORD",
+	} {
 		password, err := os.ReadFile(filepath.Join(directory, name))
 		if err != nil {
 			t.Fatal(err)
@@ -28,7 +32,10 @@ func verifyGeneratedSearchHashes(t *testing.T, directory string) {
 		}
 		normalized := strings.TrimRight(string(password), "\r\n")
 		if err := bcrypt.CompareHashAndPassword([]byte(value), []byte(normalized)); err != nil {
-			t.Fatalf("the generated %s hash does not authenticate the runtime-normalized credential", name)
+			t.Fatalf(
+				"the generated %s hash does not authenticate the runtime-normalized credential",
+				name,
+			)
 		}
 	}
 	t.Log("All three generated search role hashes authenticate the runtime-normalized credentials.")

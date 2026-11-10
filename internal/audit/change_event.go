@@ -27,6 +27,9 @@ const (
 	// TargetSearchSessionVisited is the Target.NodeType value of a resource
 	// target for one search session visited record.
 	TargetSearchSessionVisited = "search_session_visited"
+	// TargetAuditEventPart is the Target.NodeType value for a resource target
+	// that identifies one audit.event_parts row.
+	TargetAuditEventPart = "audit_event_part"
 )
 
 const searchSessionURIPrefix = "tack:search-session/"
@@ -36,9 +39,16 @@ const searchSessionURIPrefix = "tack:search-session/"
 // values of the session. [uuid.Nil] does not set an owner.
 func SearchSessionTarget(sessionID, ownerID uuid.UUID) Target {
 	return Target{
-		Kind: TargetKindResource, NodeType: TargetSearchSession, Reference: "", Name: "",
-		URI: searchSessionURIPrefix + sessionID.String(), RelationType: "",
-		ID: sessionID, SourceID: uuid.Nil, TargetID: uuid.Nil, OwnerID: ownerID,
+		Kind:         TargetKindResource,
+		NodeType:     TargetSearchSession,
+		Reference:    "",
+		Name:         "",
+		URI:          searchSessionURIPrefix + sessionID.String(),
+		RelationType: "",
+		ID:           sessionID,
+		SourceID:     uuid.Nil,
+		TargetID:     uuid.Nil,
+		OwnerID:      ownerID,
 	}
 }
 
@@ -52,6 +62,7 @@ func ChangeEvent(operation Event, change Change, completedAt time.Time) (Event, 
 	if err := ValidateChange(change); err != nil {
 		return Event{}, changeEventFailure(change, err)
 	}
+
 	target := change.Target
 	eventContext := operation.Context
 	eventContext.AuditFormatVersion = AuditFormatComplete
@@ -62,16 +73,29 @@ func ChangeEvent(operation Event, change Change, completedAt time.Time) (Event, 
 	eventContext.Read = nil
 	eventContext.CommitVersion = ""
 	event := Event{
-		Verb: string(changeVerb(change)), EventID: change.EventID, Actor: operation.Actor,
-		Entity:  Entity{Type: target.Kind, NodeType: target.NodeType, ID: target.ID, Identifier: target.Reference, Name: target.Name},
-		Context: eventContext,
-		Delta:   &Delta{Before: change.Before, After: change.After, Changed: change.Changed},
-		Outcome: OutcomeCompleted, Error: nil, IdempotencyKey: "",
-		OccurredAt: completedAt.UTC(), Extra: operation.Extra, Protected: change.Protected,
+		Verb:    string(changeVerb(change)),
+		EventID: change.EventID,
+		Actor:   operation.Actor,
+		Entity: Entity{
+			Type:       target.Kind,
+			NodeType:   target.NodeType,
+			ID:         target.ID,
+			Identifier: target.Reference,
+			Name:       target.Name,
+		},
+		Context:        eventContext,
+		Delta:          &Delta{Before: change.Before, After: change.After, Changed: change.Changed},
+		Outcome:        OutcomeCompleted,
+		Error:          nil,
+		IdempotencyKey: "",
+		OccurredAt:     completedAt.UTC(),
+		Extra:          operation.Extra,
+		Protected:      change.Protected,
 	}
 	if err := ValidateEvent(event); err != nil {
 		return Event{}, changeEventFailure(change, err)
 	}
+
 	return event, nil
 }
 
@@ -80,18 +104,31 @@ func ChangeEvent(operation Event, change Change, completedAt time.Time) (Event, 
 // system organization when operation does not state an organization.
 //
 // ChangeFailureEvent returns an error if the event fails validation.
-func ChangeFailureEvent(operation Event, target Target, verb Verb, details OutcomeDetails) (Event, error) {
+func ChangeFailureEvent(
+	operation Event,
+	target Target,
+	verb Verb,
+	details OutcomeDetails,
+) (Event, error) {
 	completedAt := clock.Now().UTC()
 	if completedAt.Before(operation.Context.StartedAt) {
 		completedAt = operation.Context.StartedAt
 	}
+
 	eventTarget := target
 	event := operation
 	event.Verb, event.EventID, event.OccurredAt = string(verb), uuid.Must(uuid.NewV7()), completedAt
-	event.Entity = Entity{Type: target.Kind, NodeType: target.NodeType, ID: target.ID, Identifier: target.Reference, Name: target.Name}
+	event.Entity = Entity{
+		Type:       target.Kind,
+		NodeType:   target.NodeType,
+		ID:         target.ID,
+		Identifier: target.Reference,
+		Name:       target.Name,
+	}
 	if event.Context.OrgID == uuid.Nil {
 		event.Context.OrgID = systemOrgID
 	}
+
 	event.Context.AuditFormatVersion = AuditFormatComplete
 	event.Context.OperationClass, event.Context.Phase = OperationDatabaseChange, PhaseResult
 	event.Context.CompletedAt, event.Context.Target = completedAt, &eventTarget
@@ -101,10 +138,17 @@ func ChangeFailureEvent(operation Event, target Target, verb Verb, details Outco
 	if details.Outcome != OutcomeCompleted {
 		event.Error = &EventError{Code: details.FailureCode, Message: details.FailureMessage}
 	}
+
 	if err := ValidateEvent(event); err != nil {
-		slog.Error("audit.change_failure_event_failed", slog.String("event_id", event.EventID.String()), slog.String("err", err.Error()))
+		slog.Error(
+			"audit.change_failure_event_failed",
+			slog.String("event_id", event.EventID.String()),
+			slog.String("err", err.Error()),
+		)
+
 		return Event{}, fmt.Errorf("build the change failure event %s: %w", event.EventID, err)
 	}
+
 	return event, nil
 }
 
@@ -113,19 +157,53 @@ func ChangeFailureEvent(operation Event, target Target, verb Verb, details Outco
 func changeVerb(change Change) Verb {
 	created, deleted := len(change.Before) == 0, len(change.After) == 0
 	if change.Target.Kind == TargetKindRelationship {
-		return pickVerb(created, deleted, VerbRelationshipAdd, VerbRelationshipUpdate, VerbRelationshipRemove)
+		return pickVerb(
+			created,
+			deleted,
+			VerbRelationshipAdd,
+			VerbRelationshipUpdate,
+			VerbRelationshipRemove,
+		)
 	}
+
 	if change.Target.Kind == TargetKindResource && change.Target.NodeType == TargetSequenceCounter {
 		// The store never deletes a sequence counter.
-		return pickVerb(created, deleted, VerbSequenceCreate, VerbSequenceUpdate, VerbSequenceUpdate)
+		return pickVerb(
+			created,
+			deleted,
+			VerbSequenceCreate,
+			VerbSequenceUpdate,
+			VerbSequenceUpdate,
+		)
 	}
+
 	switch change.Target.NodeType {
+	case TargetAuditEventPart:
+		return VerbAuditEventPartCreate
 	case TargetNodeTypeDefinition:
-		return pickVerb(created, deleted, VerbNodeTypeCreate, VerbNodeTypeUpdate, VerbNodeTypeDelete)
+		return pickVerb(
+			created,
+			deleted,
+			VerbNodeTypeCreate,
+			VerbNodeTypeUpdate,
+			VerbNodeTypeDelete,
+		)
 	case TargetNodeTypePropertyDefinition:
-		return pickVerb(created, deleted, VerbPropertyDefCreate, VerbPropertyDefUpdate, VerbPropertyDefDelete)
+		return pickVerb(
+			created,
+			deleted,
+			VerbPropertyDefCreate,
+			VerbPropertyDefUpdate,
+			VerbPropertyDefDelete,
+		)
 	case TargetSearchSession, TargetSearchSessionReplay, TargetSearchSessionVisited:
-		return pickVerb(created, deleted, VerbSearchSessionCreate, VerbSearchSessionUpdate, VerbSearchSessionDelete)
+		return pickVerb(
+			created,
+			deleted,
+			VerbSearchSessionCreate,
+			VerbSearchSessionUpdate,
+			VerbSearchSessionDelete,
+		)
 	default:
 		return pickVerb(created, deleted, VerbNodeCreate, VerbNodeUpdate, VerbNodeDelete)
 	}
@@ -143,6 +221,11 @@ func pickVerb(created, deleted bool, create, update, remove Verb) Verb {
 }
 
 func changeEventFailure(change Change, err error) error {
-	slog.Error("audit.change_event_failed", slog.String("event_id", change.EventID.String()), slog.String("err", err.Error()))
+	slog.Error(
+		"audit.change_event_failed",
+		slog.String("event_id", change.EventID.String()),
+		slog.String("err", err.Error()),
+	)
+
 	return fmt.Errorf("build the change event %s: %w", change.EventID, err)
 }

@@ -40,6 +40,7 @@ func (w *OutboxWriter) WriteEncodedEvent(ctx context.Context, encoded audit.Enco
 	if err != nil {
 		return err
 	}
+
 	return w.write(ctx, records)
 }
 
@@ -53,19 +54,27 @@ func (w *OutboxWriter) WriteEventJSON(ctx context.Context, event json.RawMessage
 // FoundationDB fills each key's transaction version at commit.
 func (w *OutboxWriter) write(ctx context.Context, values [][]byte) error {
 	if w.written+len(values) > outboxEntriesPerTransaction {
-		err := fmt.Errorf("ops outbox transaction would contain %d entries, more than %d", w.written+len(values), outboxEntriesPerTransaction)
+		err := fmt.Errorf(
+			"ops outbox transaction would contain %d entries, more than %d",
+			w.written+len(values),
+			outboxEntriesPerTransaction,
+		)
 		slog.ErrorContext(ctx, "ops_outbox.entry_limit_exceeded", slog.String("err", err.Error()))
+
 		return err
 	}
+
 	for _, value := range values {
 		key, err := marshalOpsOutboxEntryKey(w.next)
 		if err != nil {
 			slog.ErrorContext(ctx, "ops_outbox.intent_key_failed", slog.String("err", err.Error()))
 			return fmt.Errorf("create ops outbox intent key: %w", err)
 		}
+
 		w.tr.SetVersionstampedKey(key, value)
 		w.next++
 		w.written++
 	}
+
 	return nil
 }

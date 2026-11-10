@@ -18,13 +18,17 @@ func TestUniqueMatchReportsSortedCandidates(t *testing.T) {
 	if firstErr == nil {
 		t.Fatal("uniqueMatch: got nil error")
 	}
+
 	if firstErr.Error() != secondErr.Error() {
 		t.Fatalf("errors differ: %q and %q", firstErr, secondErr)
 	}
+
 	if !errors.Is(firstErr, domain.ErrInvalidArgument) {
 		t.Fatalf("uniqueMatch error = %v, want ErrInvalidArgument", firstErr)
 	}
-	if !strings.Contains(firstErr.Error(), firstID.String()) || !strings.Contains(firstErr.Error(), secondID.String()) {
+
+	if !strings.Contains(firstErr.Error(), firstID.String()) ||
+		!strings.Contains(firstErr.Error(), secondID.String()) {
 		t.Fatalf("uniqueMatch error = %v, want both UUIDs", firstErr)
 	}
 }
@@ -34,11 +38,13 @@ func TestUniqueMatchZeroAndOne(t *testing.T) {
 	if !errors.Is(err, domain.ErrNotFound) {
 		t.Fatalf("zero matches error = %v, want ErrNotFound", err)
 	}
+
 	wantID := uuid.New()
 	gotID, err := uniqueMatch(map[uuid.UUID]struct{}{wantID: {}}, "reference", "FAN-13")
 	if err != nil {
 		t.Fatalf("one match: %v", err)
 	}
+
 	if gotID != wantID {
 		t.Fatalf("one match = %s, want %s", gotID, wantID)
 	}

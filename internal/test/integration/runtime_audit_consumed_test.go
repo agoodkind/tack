@@ -16,18 +16,23 @@ func topicConsumed(t *testing.T, reader *audit.Reader, brokers, topic, group str
 	if err != nil {
 		t.Fatalf("read the high-water marks of %s: %v", topic, err)
 	}
+
 	offsets, err := reader.ConsumerOffsets(t.Context())
 	if err != nil {
 		t.Fatalf("read the consumer offsets: %v", err)
 	}
+
 	var produced, consumed int64
+
 	for _, mark := range marks {
 		produced += mark
 	}
+
 	for _, offset := range offsets {
 		if offset.Group == group && offset.Topic == topic {
 			consumed += offset.Offset
 		}
 	}
+
 	return produced > 0 && produced == consumed
 }

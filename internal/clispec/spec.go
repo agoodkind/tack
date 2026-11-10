@@ -41,6 +41,7 @@ func (n Name) CLI() string {
 	if n.CLIOverride != "" {
 		return n.CLIOverride
 	}
+
 	return strings.ReplaceAll(n.Canonical, "_", "-")
 }
 
@@ -102,10 +103,13 @@ type Registry struct {
 
 // HandwrittenCommand wraps a constructor so a bespoke command lives in the
 // same registry as the spec operations. Group attaches it under a parent; a
-// nil Group renders it at the top level.
+// nil Group renders it at the top level. A Lifetime with a ticket makes the
+// command a backfill. It renders under its parent's backfill group with the
+// once- prefix, like an Operation with that Lifetime.
 type HandwrittenCommand struct {
-	Group *Group
-	Build func(f *cli.Factory) *cobra.Command
+	Group    *Group
+	Lifetime Lifetime
+	Build    func(f *cli.Factory) *cobra.Command
 }
 
 // NewRegistry returns an empty registry.

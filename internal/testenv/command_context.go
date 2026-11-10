@@ -18,8 +18,15 @@ func CommandContext(t *testing.T) context.Context {
 	var spanID oteltrace.SpanID
 	copy(spanID[:], spanSource[:len(spanID)])
 	spanContext := oteltrace.NewSpanContext(oteltrace.SpanContextConfig{
-		TraceID: oteltrace.TraceID(traceSource), SpanID: spanID, TraceFlags: oteltrace.FlagsSampled,
-		TraceState: oteltrace.TraceState{}, Remote: false,
+		TraceID:    oteltrace.TraceID(traceSource),
+		SpanID:     spanID,
+		TraceFlags: oteltrace.FlagsSampled,
+		TraceState: oteltrace.TraceState{},
+		Remote:     false,
 	})
-	return telemetry.WithRequestMetadata(oteltrace.ContextWithSpanContext(t.Context(), spanContext), uuid.NewString())
+
+	return telemetry.WithRequestMetadata(
+		oteltrace.ContextWithSpanContext(t.Context(), spanContext),
+		uuid.NewString(),
+	)
 }

@@ -28,7 +28,8 @@ func TestSearchRuntimeAuditMissingSnapshotDeleteRecordsAlreadyClosed(t *testing.
 	session := integration.CursorSession(t, fixture.QueryFixture, page.Cursor)
 	responses := make(chan snapshotResponse, 1)
 	capture.engine.ModifyResponse = func(response *http.Response) error {
-		if response.Request.Method != http.MethodDelete || !strings.HasSuffix(response.Request.URL.Path, pointInTimePathSuffix) {
+		if response.Request.Method != http.MethodDelete ||
+			!strings.HasSuffix(response.Request.URL.Path, pointInTimePathSuffix) {
 			return capture.record(response)
 		}
 		observed, err := replaceSnapshotErrorResponse(response, missingSnapshotResponse)
@@ -41,18 +42,39 @@ func TestSearchRuntimeAuditMissingSnapshotDeleteRecordsAlreadyClosed(t *testing.
 	}
 	result := callSnapshotSearch(t.Context(), fixture, harness, page.Cursor)
 	if result.err != nil || result.status != http.StatusOK {
-		t.Fatalf("the MCP continuation returned HTTP %d with error %v: %s", result.status, result.err, result.text)
+		t.Fatalf(
+			"the MCP continuation returned HTTP %d with error %v: %s",
+			result.status,
+			result.err,
+			result.text,
+		)
 	}
 	observed := waitSnapshotResponse(t, responses)
-	rows := fixture.audited.waitForRows(t, fixture.Workspaces[0].OrgID, func(current []audit.Row) bool {
-		return len(stepRows(current, session.ID, audit.VerbSearchPointInTimeDelete, "delete")) == 2
-	})
+	rows := fixture.audited.waitForRows(
+		t,
+		fixture.Workspaces[0].OrgID,
+		func(current []audit.Row) bool {
+			return len(
+				stepRows(current, session.ID, audit.VerbSearchPointInTimeDelete, "delete"),
+			) == 2
+		},
+	)
 	step := finishedStep(t, stepRows(rows, session.ID, audit.VerbSearchPointInTimeDelete, "delete"))
 	var evidence struct {
 		PITID         string `json:"pit_id"`
 		AlreadyClosed bool   `json:"already_closed"`
 	}
-	if err := json.Unmarshal(step.Extra, &evidence); err != nil || !evidence.AlreadyClosed || evidence.PITID != observed.id || step.Outcome != audit.OutcomeCompleted {
-		t.Fatalf("delete step = %s with outcome %s: %v, want a completed delete of %s with already_closed true", step.Extra, step.Outcome, err, observed.id)
+	if err := json.Unmarshal(
+		step.Extra,
+		&evidence,
+	); err != nil || !evidence.AlreadyClosed || evidence.PITID != observed.id ||
+		step.Outcome != audit.OutcomeCompleted {
+		t.Fatalf(
+			"delete step = %s with outcome %s: %v, want a completed delete of %s with already_closed true",
+			step.Extra,
+			step.Outcome,
+			err,
+			observed.id,
+		)
 	}
 }

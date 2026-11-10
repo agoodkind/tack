@@ -56,25 +56,47 @@ type sliceLogRecord struct {
 // both endpoints. It deletes the remaining indexed nodes, scheduling
 // cleanup to retire their pages. It then stores liveNodes nodes with
 // liveText, scheduling live work.
-func buildFairnessBacklog(t *testing.T, env *migrationEnv, accessNodes, deletedNodes, liveNodes int, liveText string) {
+func buildFairnessBacklog(
+	t *testing.T,
+	env *migrationEnv,
+	accessNodes int,
+	deletedNodes int,
+	liveNodes int,
+	liveText string,
+) {
 	t.Helper()
 	indexed := env.putNodes(t, accessNodes+deletedNodes, fairnessShortText)
 	env.runIdle(t)
+
 	hub := indexed[0]
 	for _, spoke := range indexed[1:accessNodes] {
 		relationship := &node.Relationship{
-			OrgID: env.OrgID, SourceID: hub, RelationType: uniqueKey("r"), TargetID: spoke,
-			CreatedBy: uuid.Nil, CreatedAt: clock.Now().UTC(), Props: nil,
+			OrgID:        env.OrgID,
+			SourceID:     hub,
+			RelationType: uniqueKey("r"),
+			TargetID:     spoke,
+			CreatedBy:    uuid.Nil,
+			CreatedAt:    clock.Now().UTC(),
+			Props:        nil,
 		}
-		if err := env.Stores.Relationships.Add(integration.WithTestOperation(t, t.Context()), relationship); err != nil {
+		if err := env.Stores.Relationships.Add(
+			integration.WithTestOperation(t, t.Context()),
+			relationship,
+		); err != nil {
 			t.Fatalf("link hub %s to node %s: %v", hub, spoke, err)
 		}
 	}
+
 	for _, nodeID := range indexed[accessNodes:] {
-		if err := env.Stores.Nodes.Delete(integration.WithTestOperation(t, t.Context()), env.OrgID, nodeID); err != nil {
+		if err := env.Stores.Nodes.Delete(
+			integration.WithTestOperation(t, t.Context()),
+			env.OrgID,
+			nodeID,
+		); err != nil {
 			t.Fatalf("delete node %s: %v", nodeID, err)
 		}
 	}
+
 	env.putNodes(t, liveNodes, liveText)
 }
 
@@ -84,24 +106,40 @@ func buildFairnessBacklog(t *testing.T, env *migrationEnv, accessNodes, deletedN
 // class and duration and reads access, cleanup, and live age keys. It logs
 // slice errors and continues. It waits idleClaimPause when a slice does
 // not claim work.
-func runFairnessSlices(t *testing.T, worker *service.SearchWorker, limit int, deadline time.Duration) []fairnessSlice {
+func runFairnessSlices(
+	t *testing.T,
+	worker *service.SearchWorker,
+	limit int,
+	deadline time.Duration,
+) []fairnessSlice {
 	t.Helper()
 	database := openPrefixedDatabase(t)
 	started := clock.Now()
+
 	slices := make([]fairnessSlice, 0, limit)
 	for len(slices) < limit && clock.Since(started) < deadline {
 		var logged bytes.Buffer
-		logger := slog.New(slog.NewJSONHandler(&logged, &slog.HandlerOptions{Level: slog.LevelDebug}))
-		claimed, err := worker.RunSlice(telemetry.WithLogger(integration.WithTestOperation(t, t.Context()), logger))
+		logger := slog.New(
+			slog.NewJSONHandler(&logged, &slog.HandlerOptions{Level: slog.LevelDebug}),
+		)
+		claimed, err := worker.RunSlice(
+			telemetry.WithLogger(integration.WithTestOperation(t, t.Context()), logger),
+		)
 		if err != nil {
 			t.Logf("run a fairness slice: %v", err)
 		}
+
 		if !claimed {
 			waitUntilTime(t, clock.Now().Add(idleClaimPause))
 			continue
 		}
+
 		slice := completedSlice(t, &logged)
-		slice.accessAge, slice.accessPending = oldestPendingAge(t, database, searchdomain.WorkClassAccess)
+		slice.accessAge, slice.accessPending = oldestPendingAge(
+			t,
+			database,
+			searchdomain.WorkClassAccess,
+		)
 		_, slice.cleanupPending = oldestPendingAge(t, database, searchdomain.WorkClassCleanup)
 		_, slice.livePending = oldestPendingAge(t, database, searchdomain.WorkClassLive)
 		slices = append(slices, slice)
@@ -109,6 +147,7 @@ func runFairnessSlices(t *testing.T, worker *service.SearchWorker, limit int, de
 			return slices
 		}
 	}
+
 	return slices
 }
 
@@ -116,57 +155,81 @@ func runFairnessSlices(t *testing.T, worker *service.SearchWorker, limit int, de
 // record in logged. It fails the test if logged omits that record.
 func completedSlice(t *testing.T, logged *bytes.Buffer) fairnessSlice {
 	t.Helper()
+
 	decoder := json.NewDecoder(logged)
 	for decoder.More() {
 		var record sliceLogRecord
 		if err := decoder.Decode(&record); err != nil {
 			t.Fatalf("decode a worker log record: %v", err)
 		}
+
 		if record.Message == sliceCompletedRecord {
 			return fairnessSlice{
-				class: record.Class, duration: time.Duration(record.Duration),
-				accessPending: false, cleanupPending: false, livePending: false, accessAge: 0,
+				class:          record.Class,
+				duration:       time.Duration(record.Duration),
+				accessPending:  false,
+				cleanupPending: false,
+				livePending:    false,
+				accessAge:      0,
 			}
 		}
 	}
+
 	t.Fatalf("the claimed slice did not log %s", sliceCompletedRecord)
+
 	return fairnessSlice{}
 }
 
 // oldestPendingAge reads every age key of class under the test prefix and
 // returns the oldest pending age and whether any age key exists. It returns
 // zero and false when the class does not have age keys.
-func oldestPendingAge(t *testing.T, database fdb.Database, class searchdomain.WorkClass) (time.Duration, bool) {
+func oldestPendingAge(
+	t *testing.T,
+	database fdb.Database,
+	class searchdomain.WorkClass,
+) (time.Duration, bool) {
 	t.Helper()
 	prefix := fdbadapter.TestPrefixRange()
 	keyRange, err := fdb.PrefixRange(prefixedKey(prefix, tuple.Tuple{"search_age", string(class)}))
 	if err != nil {
 		t.Fatalf("create the age key range of class %s: %v", class, err)
 	}
+
 	read, err := database.ReadTransact(func(tr fdb.ReadTransaction) (any, error) {
 		return tr.GetRange(keyRange, fdb.RangeOptions{}).GetSliceWithError()
 	})
 	if err != nil {
 		t.Fatalf("read the age keys of class %s: %v", class, err)
 	}
+
 	entries, _ := read.([]fdb.KeyValue)
 	if len(entries) == 0 {
 		return 0, false
 	}
+
 	oldest := int64(0)
+
 	for position, entry := range entries {
 		elements, err := tuple.Unpack(entry.Key[len(prefix):])
 		if err != nil || len(elements) <= ageEnqueuedPosition {
 			t.Fatalf("decode age key %x of class %s: %v", entry.Key, class, err)
 		}
+
 		enqueued, isInteger := elements[ageEnqueuedPosition].(int64)
 		if !isInteger {
-			t.Fatalf("age key %v of class %s has enqueue time %T, want an integer", elements, class, elements[ageEnqueuedPosition])
+			t.Fatalf(
+				"age key %v of class %s has enqueue time %T, want an integer",
+				elements,
+				class,
+				elements[ageEnqueuedPosition],
+			)
 		}
+
 		if position == 0 || enqueued < oldest {
 			oldest = enqueued
 		}
 	}
+
 	return clock.Since(time.Unix(0, oldest)), true
 }
 
@@ -178,13 +241,22 @@ func requireAccessCaughtUp(t *testing.T, slices []fairnessSlice) {
 	if len(slices) == 0 {
 		t.Fatal("the fairness worker did not claim any work")
 	}
+
 	largestAge := time.Duration(0)
+
 	for _, slice := range slices {
 		largestAge = max(largestAge, slice.accessAge)
 	}
+
 	last := slices[len(slices)-1]
 	if last.accessPending || last.cleanupPending || !last.livePending {
-		t.Fatalf("after %d slices access pending %t, cleanup pending %t, live pending %t, and the oldest access age rose to %s; want access and cleanup finished while live work remains",
-			len(slices), last.accessPending, last.cleanupPending, last.livePending, largestAge)
+		t.Fatalf(
+			"after %d slices access pending %t, cleanup pending %t, live pending %t, and the oldest access age rose to %s; want access and cleanup finished while live work remains",
+			len(slices),
+			last.accessPending,
+			last.cleanupPending,
+			last.livePending,
+			largestAge,
+		)
 	}
 }

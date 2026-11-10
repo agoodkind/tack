@@ -26,16 +26,23 @@ func auditSeedRolesCommand(f *cli.Factory) *cobra.Command {
 			"commands (TACK-554).",
 		Args: cobra.NoArgs,
 	}
-	clispec.AttachExternal(cmd, f, externalSpec(audit.VerbAuditRolesSeed, "yugabyte/roles"), emptyCommandInput,
+	clispec.AttachExternal(
+		cmd,
+		f,
+		externalSpec(audit.VerbAuditRolesSeed, "yugabyte/roles"),
+		emptyCommandInput,
 		func(ctx context.Context, steps audit.StepRecorder) (audit.OutcomeDetails, error) {
 			return runAuditSeedRolesRecorded(ctx, f.Cfg, steps)
-		})
+		},
+	)
 	cmd.PreRunE = func(cmd *cobra.Command, _ []string) error {
 		if !f.Execute() {
 			return nil
 		}
+
 		return prepareSeedRolesAuditOutbox(cmd.Context(), f)
 	}
+
 	return cmd
 }
 
@@ -66,6 +73,7 @@ func auditConsumerOffsetsOp(f *cli.Factory) clispec.Operation[noInput] {
 			if err != nil {
 				return err
 			}
+
 			return clispec.WriteJSONValue(ctx, sink, report)
 		},
 	}

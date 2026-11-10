@@ -69,6 +69,7 @@ func Setup(cfg LogConfig) (io.Closer, error) {
 	if err := ensureDir(jsonFile); err != nil {
 		return nil, err
 	}
+
 	if err := ensureDir(textFile); err != nil {
 		return nil, err
 	}
@@ -83,15 +84,19 @@ func Setup(cfg LogConfig) (io.Closer, error) {
 	if !cfg.DisableStdout {
 		handlers = append(handlers, gklog.StdoutJSON(level))
 	}
+
 	if jsonFile != "" {
 		handlers = append(handlers, gklog.FileJSON(jsonFile, level, rotation))
 	}
+
 	if textFile != "" {
 		handlers = append(handlers, gklog.FileText(textFile, "tack", rotation))
 	}
+
 	if len(handlers) == 0 {
 		return nil, errors.New("logging requires stdout or at least one log file")
 	}
+
 	logger, closer := gklog.New(gklog.Config{
 		BuildVersion: buildVersion(),
 		Handlers:     handlers,
@@ -109,6 +114,7 @@ func Setup(cfg LogConfig) (io.Closer, error) {
 		if closer != nil {
 			_ = closer.Close()
 		}
+
 		return nil, err
 	}
 
@@ -119,10 +125,12 @@ func ensureDir(path string) error {
 	if path == "" {
 		return nil
 	}
+
 	dir := filepath.Dir(path)
 	if dir == "" || dir == "." {
 		return nil
 	}
+
 	return os.MkdirAll(dir, 0o755)
 }
 
@@ -146,12 +154,15 @@ func buildVersion() string {
 	if commit != "dev" && len(commit) > 12 {
 		commit = commit[:12]
 	}
+
 	if version.Dirty() {
 		commit += "+dirty"
 	}
+
 	if buildTime := version.BuildTime(); buildTime != "unknown" {
 		return fmt.Sprintf("%s built %s", commit, buildTime)
 	}
+
 	return commit
 }
 
@@ -174,13 +185,16 @@ type multiCloser struct {
 
 func (m multiCloser) Close() error {
 	var errs []error
+
 	for _, closer := range slices.Backward(m.closers) {
 		if closer == nil {
 			continue
 		}
+
 		if err := closer.Close(); err != nil {
 			errs = append(errs, err)
 		}
 	}
+
 	return errors.Join(errs...)
 }

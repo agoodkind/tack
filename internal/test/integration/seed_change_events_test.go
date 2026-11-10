@@ -36,12 +36,16 @@ const (
 // contain a node.create event.
 func TestSeedRecordsChangeEventsOnAnEmptyLedger(t *testing.T) {
 	if len(fdbadapter.TestPrefixRange()) != 0 {
-		t.Fatal("a FoundationDB test prefix is active; this test reads the fresh cluster without a prefix")
+		t.Fatal(
+			"a FoundationDB test prefix is active; this test reads the fresh cluster without a prefix",
+		)
 	}
+
 	dsn := emptyLedgerDatabase(t)
 	if err := migration.Migrate(t.Context(), dsn, migrations.FS); err != nil {
 		t.Fatalf("migrate the empty ledger database: %v", err)
 	}
+
 	clusterFile := testenv.FreshFoundationDB(t)
 	operatorID := uuid.Must(uuid.NewV7())
 	runSeedCommand(t, buildMigrateServer(t), dsn, clusterFile, operatorID)
@@ -50,17 +54,20 @@ func TestSeedRecordsChangeEventsOnAnEmptyLedger(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open the ledger pool: %v", err)
 	}
+
 	t.Cleanup(pool.Close)
 	sqlEvents := seedSQLOutboxEvents(t, pool)
 	operationID := seedOperationID(t, sqlEvents)
 	requireSeedChanges(t, "YugabyteDB", sqlEvents, operationID, operatorID)
 	fdbEvents := seedFoundationDBOutboxEvents(t, clusterFile)
 	requireSeedChanges(t, "FoundationDB", fdbEvents, operationID, operatorID)
+
 	for _, event := range fdbEvents {
 		if event.Verb == string(audit.VerbNodeCreate) {
 			return
 		}
 	}
+
 	t.Fatalf("the FoundationDB outbox does not contain a node.create event: %+v", fdbEvents)
 }
 
@@ -71,13 +78,28 @@ func runSeedCommand(t *testing.T, binary, dsn, clusterFile string, operatorID uu
 	t.Helper()
 	suffix := uuid.NewString()[:8]
 	logDir := t.TempDir()
-	process := exec.CommandContext(t.Context(), binary, "--execute", "--operator-id", operatorID.String(),
-		"--operator-email", "operator@example.com", "seed")
-	process.Env = append(os.Environ(),
-		"DATABASE_URL="+dsn, "AUDIT_OPERATOR_DSN="+dsn, "FDB_CLUSTER_FILE="+clusterFile,
-		"SEED_EMAIL=seed-audit-"+suffix+"@example.test", "SEED_NAME=Seed Audit Test", "SEED_ORG_SLUG=seed-audit-"+suffix,
-		"LOG_DISABLE_STDOUT=true", "LOG_JSON_FILE="+filepath.Join(logDir, "tack.json"),
-		"LOG_TEXT_FILE="+filepath.Join(logDir, "tack.log"))
+	process := exec.CommandContext(
+		t.Context(),
+		binary,
+		"--execute",
+		"--operator-id",
+		operatorID.String(),
+		"--operator-email",
+		"operator@example.com",
+		"seed",
+	)
+	process.Env = append(
+		os.Environ(),
+		"DATABASE_URL="+dsn,
+		"AUDIT_OPERATOR_DSN="+dsn,
+		"FDB_CLUSTER_FILE="+clusterFile,
+		"SEED_EMAIL=seed-audit-"+suffix+"@example.test",
+		"SEED_NAME=Seed Audit Test",
+		"SEED_ORG_SLUG=seed-audit-"+suffix,
+		"LOG_DISABLE_STDOUT=true",
+		"LOG_JSON_FILE="+filepath.Join(logDir, "tack.json"),
+		"LOG_TEXT_FILE="+filepath.Join(logDir, "tack.log"),
+	)
 	stderr := &bytes.Buffer{}
 	process.Stdout, process.Stderr = nil, stderr
 	if err := process.Run(); err != nil {
@@ -92,12 +114,14 @@ func seedSQLOutboxEvents(t *testing.T, pool *pgxpool.Pool) []audit.Event {
 	if err != nil {
 		t.Fatalf("read the YugabyteDB outbox: %v", err)
 	}
+
 	events := make([]audit.Event, 0, len(rows))
 	for _, row := range rows {
 		if len(row.Messages) == 0 {
 			events = append(events, row.Event)
 		}
 	}
+
 	return events
 }
 
@@ -109,10 +133,12 @@ func seedFoundationDBOutboxEvents(t *testing.T, clusterFile string) []audit.Even
 	if err != nil {
 		t.Fatalf("open the stores: %v", err)
 	}
+
 	entries, err := stores.OpsOutbox.ReadOutboxFrom(t.Context(), nil, seedOutboxReadLimit)
 	if err != nil {
 		t.Fatalf("read the FoundationDB outbox: %v", err)
 	}
+
 	events := make([]audit.Event, 0, len(entries))
 	for _, entry := range entries {
 		var event audit.Event
@@ -120,6 +146,7 @@ func seedFoundationDBOutboxEvents(t *testing.T, clusterFile string) []audit.Even
 			events = append(events, event)
 		}
 	}
+
 	return events
 }
 
@@ -128,41 +155,67 @@ func seedFoundationDBOutboxEvents(t *testing.T, clusterFile string) []audit.Even
 func seedOperationID(t *testing.T, events []audit.Event) uuid.UUID {
 	t.Helper()
 	var intents []audit.Event
+
 	for _, event := range events {
 		if event.Verb == string(audit.VerbBootstrapSeed) && event.Outcome == audit.OutcomePending {
 			intents = append(intents, event)
 		}
 	}
+
 	if len(intents) != 1 {
 		t.Fatalf("the YugabyteDB outbox has %d seed intents, want 1", len(intents))
 	}
+
 	var extra struct {
 		OpID uuid.UUID `json:"op_id"`
 	}
 	if err := json.Unmarshal(intents[0].Extra, &extra); err != nil || extra.OpID == uuid.Nil {
-		t.Fatalf("seed intent %s extra = %s, %v, want an operation ID", intents[0].EventID, intents[0].Extra, err)
+		t.Fatalf(
+			"seed intent %s extra = %s, %v, want an operation ID",
+			intents[0].EventID,
+			intents[0].Extra,
+			err,
+		)
 	}
+
 	return extra.OpID
 }
 
 // requireSeedChanges requires at least one change event in events and
 // requires every change event to be valid with operationID and actorID.
-func requireSeedChanges(t *testing.T, store string, events []audit.Event, operationID, actorID uuid.UUID) {
+func requireSeedChanges(
+	t *testing.T,
+	store string,
+	events []audit.Event,
+	operationID uuid.UUID,
+	actorID uuid.UUID,
+) {
 	t.Helper()
 	changes := 0
+
 	for _, event := range events {
 		if event.Context.Phase != audit.PhaseChange {
 			continue
 		}
+
 		changes++
 		if err := audit.ValidateEvent(event); err != nil {
 			t.Fatalf("%s change event %s is invalid: %v", store, event.EventID, err)
 		}
+
 		if event.Context.OperationID != operationID || event.Actor.ID != actorID {
-			t.Fatalf("%s change event %s operation %s actor %s, want operation %s actor %s",
-				store, event.EventID, event.Context.OperationID, event.Actor.ID, operationID, actorID)
+			t.Fatalf(
+				"%s change event %s operation %s actor %s, want operation %s actor %s",
+				store,
+				event.EventID,
+				event.Context.OperationID,
+				event.Actor.ID,
+				operationID,
+				actorID,
+			)
 		}
 	}
+
 	if changes == 0 {
 		t.Fatalf("the %s outbox does not contain a change event of the seed", store)
 	}

@@ -31,6 +31,7 @@ func semanticCorpus(t *testing.T) []semanticCorpusNode {
 	if err := json.Unmarshal(semanticCorpusJSON, &corpus); err != nil {
 		t.Fatalf("decode approved semantic corpus: %v", err)
 	}
+
 	return corpus
 }
 
@@ -38,16 +39,23 @@ func semanticPairs(t *testing.T) []semanticPair {
 	t.Helper()
 	queries := []string{"db", "signin", "lag", "invoice", "crash", "remove user"}
 	pairs := make([]semanticPair, 0, 12)
+
 	for _, item := range semanticCorpus(t) {
 		if !strings.HasPrefix(item.Identifier, "t-") {
 			continue
 		}
+
 		position := int(item.Identifier[2] - '0')
 		if position >= len(queries) {
 			t.Fatalf("unknown target %q", item.Identifier)
 		}
-		pairs = append(pairs, semanticPair{Query: queries[position], Target: item.Text, Identifier: item.Identifier})
+
+		pairs = append(
+			pairs,
+			semanticPair{Query: queries[position], Target: item.Text, Identifier: item.Identifier},
+		)
 	}
+
 	return pairs
 }
 
@@ -68,7 +76,12 @@ type lexicalMatch struct {
 
 // lexicalTopNodes runs the lexical-only control with the same access and
 // retirement filters and returns the node IDs of the first 25 page matches.
-func lexicalTopNodes(t *testing.T, fixture queryFixture, filter searchdomain.AccessFilter, query string) []uuid.UUID {
+func lexicalTopNodes(
+	t *testing.T,
+	fixture queryFixture,
+	filter searchdomain.AccessFilter,
+	query string,
+) []uuid.UUID {
 	t.Helper()
 	var match lexicalMatch
 	match.MultiMatch.Query = query
@@ -78,14 +91,29 @@ func lexicalTopNodes(t *testing.T, fixture queryFixture, filter searchdomain.Acc
 		encodeLexical(t, lexicalTerms{Terms: map[string][]string{"access.keys": filter.Keys}}),
 		json.RawMessage(`{"term":{"retired":false}}`),
 	}
-	body := encodeLexical(t, map[string]json.RawMessage{
-		"size":  json.RawMessage(`25`),
-		"query": encodeLexical(t, map[string]map[string][]json.RawMessage{"bool": {"filter": filters, "must": {encodeLexical(t, match)}}}),
-	})
-	response, err := fixture.Client.Search(WithTestOperation(t, t.Context()), &opensearchapi.SearchReq{Indices: []string{fixture.Index}, BodyReader: strings.NewReader(string(body))})
+	body := encodeLexical(
+		t,
+		map[string]json.RawMessage{
+			"size": json.RawMessage(`25`),
+			"query": encodeLexical(
+				t,
+				map[string]map[string][]json.RawMessage{
+					"bool": {"filter": filters, "must": {encodeLexical(t, match)}},
+				},
+			),
+		},
+	)
+	response, err := fixture.Client.Search(
+		WithTestOperation(t, t.Context()),
+		&opensearchapi.SearchReq{
+			Indices:    []string{fixture.Index},
+			BodyReader: strings.NewReader(string(body)),
+		},
+	)
 	if err != nil {
 		t.Fatalf("lexical control %q: %v", query, err)
 	}
+
 	nodes := make([]uuid.UUID, 0, len(response.Hits.Hits))
 	for _, hit := range response.Hits.Hits {
 		var source struct {
@@ -94,8 +122,10 @@ func lexicalTopNodes(t *testing.T, fixture queryFixture, filter searchdomain.Acc
 		if err := json.Unmarshal(hit.Source, &source); err != nil {
 			t.Fatalf("decode lexical hit: %v", err)
 		}
+
 		nodes = append(nodes, uuid.MustParse(source.NodeID))
 	}
+
 	return nodes
 }
 
@@ -109,6 +139,7 @@ func encodeLexical[Value lexicalValue](t *testing.T, value Value) json.RawMessag
 	if err != nil {
 		t.Fatalf("encode lexical control: %v", err)
 	}
+
 	return encoded
 }
 
@@ -146,9 +177,11 @@ func pageEnd(ordinal int) int {
 // pageFiller returns count numbered filler sentences starting at first.
 func pageFiller(first, count int) string {
 	var filler strings.Builder
+
 	for number := first; number < first+count; number++ {
 		_, _ = fmt.Fprintf(&filler, "routine filler line %03d. ", number)
 	}
+
 	return filler.String()
 }
 
@@ -158,6 +191,7 @@ func padToOffset(t *testing.T, text string, offset int) string {
 	if len(text) > offset {
 		t.Fatalf("page target text has %d bytes, beyond the planned offset %d", len(text), offset)
 	}
+
 	return text + strings.Repeat(" ", offset-len(text))
 }
 
@@ -166,19 +200,42 @@ func padToOffset(t *testing.T, text string, offset int) string {
 // also contains pageTargetSemantic. The function creates a second node with
 // a name and a value that each span more than three pages and end with a
 // target.
-func putPagePositionNodes(t *testing.T, fixture queryFixture, kind opaqueKind, entryID uuid.UUID) (uuid.UUID, []pageTarget) {
+func putPagePositionNodes(
+	t *testing.T,
+	fixture queryFixture,
+	kind opaqueKind,
+	entryID uuid.UUID,
+) (uuid.UUID, []pageTarget) {
 	t.Helper()
 	projected := pageTargetName + "\n" + "kestrelbegin " + pageFiller(1, 10)
 	projected += " kestrelmiddle " + pageFiller(11, 10)
-	projected = padToOffset(t, projected, pageEnd(5)-len(pageTargetBoundaryPrefix)) + pageTargetBoundary + " " + pageFiller(21, 10)
+	projected = padToOffset(
+		t,
+		projected,
+		pageEnd(5)-len(pageTargetBoundaryPrefix),
+	) + pageTargetBoundary + " " + pageFiller(21, 10)
 	projected = padToOffset(t, projected, pageEnd(9)) + "kestrelfinal " + pageTargetSemantic
-	positions := putOpaqueNode(t, fixture, kind, entryID, pageTargetName, projected[len(pageTargetName)+1:], "excluded")
+	positions := putOpaqueNode(
+		t,
+		fixture,
+		kind,
+		entryID,
+		pageTargetName,
+		projected[len(pageTargetName)+1:],
+		"excluded",
+	)
 
 	longName := "kestrelname " + pageFiller(31, 16) + "kestrelnameend"
 	longValue := pageFiller(47, 16) + "kestrelvalueend"
 	if len(longName) <= 3*runtimePageBytes || len(longValue) <= 3*runtimePageBytes {
-		t.Fatalf("long name has %d bytes and value %d bytes, want each above %d", len(longName), len(longValue), 3*runtimePageBytes)
+		t.Fatalf(
+			"long name has %d bytes and value %d bytes, want each above %d",
+			len(longName),
+			len(longValue),
+			3*runtimePageBytes,
+		)
 	}
+
 	long := putOpaqueNode(t, fixture, kind, entryID, longName, longValue, "excluded")
 	targets := []pageTarget{
 		{Query: "kestrelbegin", NodeID: positions},
@@ -189,5 +246,6 @@ func putPagePositionNodes(t *testing.T, fixture queryFixture, kind opaqueKind, e
 		{Query: "kestrelnameend", NodeID: long},
 		{Query: "kestrelvalueend", NodeID: long},
 	}
+
 	return positions, targets
 }

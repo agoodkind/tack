@@ -53,6 +53,7 @@ func TestBackupStalenessClassification(t *testing.T) {
 	ctx := context.Background()
 	now := time.Date(2026, 8, 29, 12, 0, 0, 0, time.UTC)
 	threshold := 36 * time.Hour
+
 	tests := []struct {
 		name      string
 		at        time.Time
@@ -64,20 +65,37 @@ func TestBackupStalenessClassification(t *testing.T) {
 		{name: "long past threshold", at: now.Add(-30 * 24 * time.Hour), wantStale: true},
 	}
 	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			metric := knownBackupStalenessMetric(ctx, "ledger-export", now, test.at, threshold, "run")
-			if metric.stale() != test.wantStale {
-				t.Fatalf("stale() = %v for age %s against threshold %s, want %v",
-					metric.stale(), metric.Age, threshold, test.wantStale)
-			}
-			wantVerdict := "FRESH"
-			if test.wantStale {
-				wantVerdict = "STALE"
-			}
-			if metric.verdict() != wantVerdict {
-				t.Fatalf("verdict() = %q, want %q", metric.verdict(), wantVerdict)
-			}
-		})
+		t.Run(
+			test.name,
+			func(t *testing.T) {
+				metric := knownBackupStalenessMetric(
+					ctx,
+					"ledger-export",
+					now,
+					test.at,
+					threshold,
+					"run",
+				)
+				if metric.stale() != test.wantStale {
+					t.Fatalf(
+						"stale() = %v for age %s against threshold %s, want %v",
+						metric.stale(),
+						metric.Age,
+						threshold,
+						test.wantStale,
+					)
+				}
+
+				wantVerdict := "FRESH"
+				if test.wantStale {
+					wantVerdict = "STALE"
+				}
+
+				if metric.verdict() != wantVerdict {
+					t.Fatalf("verdict() = %q, want %q", metric.verdict(), wantVerdict)
+				}
+			},
+		)
 	}
 }
 
@@ -86,14 +104,20 @@ func TestBackupStalenessClassification(t *testing.T) {
 // incident this check exists to catch, so an absent marker must never read as
 // a success.
 func TestUnknownAgeIsStale(t *testing.T) {
-	metric := unknownBackupStalenessMetric("rehearsal", 8*24*time.Hour,
-		backupStalenessNeverRecorded, "no marker in tack-backups")
+	metric := unknownBackupStalenessMetric(
+		"rehearsal",
+		8*24*time.Hour,
+		backupStalenessNeverRecorded,
+		"no marker in tack-backups",
+	)
 	if !metric.stale() {
 		t.Fatal("a metric with no known age must be stale")
 	}
+
 	if metric.verdict() != "STALE" {
 		t.Fatalf("verdict() = %q, want STALE", metric.verdict())
 	}
+
 	if got := backupStalenessAgeField(metric); got != "unknown" {
 		t.Fatalf("age field = %q, want unknown", got)
 	}
@@ -107,6 +131,7 @@ func TestBackupStalenessAgeFloorsAtZero(t *testing.T) {
 	if got := backupStalenessAge(now, now.Add(-90*time.Second)); got != 90*time.Second {
 		t.Fatalf("age = %s, want 90s", got)
 	}
+
 	if got := backupStalenessAge(now, now.Add(backupStalenessFutureTolerance)); got != 0 {
 		t.Fatalf("age of a tolerated future timestamp = %s, want 0", got)
 	}
@@ -122,6 +147,7 @@ func TestMarkerStalenessMetricRefusesAFutureMarker(t *testing.T) {
 	ctx := context.Background()
 	now := time.Date(2026, 8, 29, 12, 0, 0, 0, time.UTC)
 	threshold := 30 * time.Minute
+
 	tests := []struct {
 		name         string
 		at           time.Time
@@ -129,56 +155,89 @@ func TestMarkerStalenessMetricRefusesAFutureMarker(t *testing.T) {
 		wantAgeKnown bool
 	}{
 		{
-			name: "observed ten minutes ago", at: now.Add(-10 * time.Minute),
-			wantStale: false, wantAgeKnown: true,
+			name:         "observed ten minutes ago",
+			at:           now.Add(-10 * time.Minute),
+			wantStale:    false,
+			wantAgeKnown: true,
 		},
 		{
-			name: "at the skew tolerance", at: now.Add(backupStalenessFutureTolerance),
-			wantStale: false, wantAgeKnown: true,
+			name:         "at the skew tolerance",
+			at:           now.Add(backupStalenessFutureTolerance),
+			wantStale:    false,
+			wantAgeKnown: true,
 		},
 		{
-			name: "one second past the skew tolerance", at: now.Add(backupStalenessFutureTolerance + time.Second),
-			wantStale: true, wantAgeKnown: false,
+			name:         "one second past the skew tolerance",
+			at:           now.Add(backupStalenessFutureTolerance + time.Second),
+			wantStale:    true,
+			wantAgeKnown: false,
 		},
 		{
-			name: "clock jumped to 2099", at: time.Date(2099, 12, 31, 23, 59, 59, 0, time.UTC),
-			wantStale: true, wantAgeKnown: false,
+			name:         "clock jumped to 2099",
+			at:           time.Date(2099, 12, 31, 23, 59, 59, 0, time.UTC),
+			wantStale:    true,
+			wantAgeKnown: false,
 		},
 	}
 	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			body, err := json.Marshal(backupStatusMarker{
-				At:     test.at,
-				Detail: "0 dead nodes, 0 under-replicated tablets",
-			})
-			if err != nil {
-				t.Fatalf("marshal marker: %v", err)
-			}
-			store := newBackupTestStore(t, map[string][]byte{
-				backupStatusKey(backupStalenessReplicationName): body,
-			})
-			s3Client, cfg := store.client, store.config()
+		t.Run(
+			test.name,
+			func(t *testing.T) {
+				body, err := json.Marshal(backupStatusMarker{
+					At:     test.at,
+					Detail: "0 dead nodes, 0 under-replicated tablets",
+				})
+				if err != nil {
+					t.Fatalf("marshal marker: %v", err)
+				}
 
-			metric := markerStalenessMetric(ctx, cfg, s3Client,
-				backupStalenessReplicationName, now, threshold)
+				store := newBackupTestStore(
+					t,
+					map[string][]byte{
+						backupStatusKey(backupStalenessReplicationName): body,
+					},
+				)
+				s3Client, cfg := store.client, store.config()
 
-			if metric.stale() != test.wantStale {
-				t.Fatalf("stale() = %v, want %v (age field %q, detail %q)",
-					metric.stale(), test.wantStale, backupStalenessAgeField(metric), metric.Detail)
-			}
-			if metric.AgeKnown != test.wantAgeKnown {
-				t.Fatalf("AgeKnown = %v, want %v", metric.AgeKnown, test.wantAgeKnown)
-			}
-			if test.wantAgeKnown {
-				return
-			}
-			if got := backupStalenessAgeField(metric); got != "unknown" {
-				t.Fatalf("age field = %q, want unknown", got)
-			}
-			if !strings.Contains(metric.Detail, "in the future, past the") {
-				t.Fatalf("the report must say why the timestamp was refused, got %q", metric.Detail)
-			}
-		})
+				metric := markerStalenessMetric(
+					ctx,
+					cfg,
+					s3Client,
+					backupStalenessReplicationName,
+					now,
+					threshold,
+				)
+
+				if metric.stale() != test.wantStale {
+					t.Fatalf(
+						"stale() = %v, want %v (age field %q, detail %q)",
+						metric.stale(),
+						test.wantStale,
+						backupStalenessAgeField(metric),
+						metric.Detail,
+					)
+				}
+
+				if metric.AgeKnown != test.wantAgeKnown {
+					t.Fatalf("AgeKnown = %v, want %v", metric.AgeKnown, test.wantAgeKnown)
+				}
+
+				if test.wantAgeKnown {
+					return
+				}
+
+				if got := backupStalenessAgeField(metric); got != "unknown" {
+					t.Fatalf("age field = %q, want unknown", got)
+				}
+
+				if !strings.Contains(metric.Detail, "in the future, past the") {
+					t.Fatalf(
+						"the report must say why the timestamp was refused, got %q",
+						metric.Detail,
+					)
+				}
+			},
+		)
 	}
 }
 
@@ -191,6 +250,7 @@ func TestMarkerStalenessMetricRefusesAFutureMarker(t *testing.T) {
 func TestExportStalenessMetricRefusesAnUndatableRun(t *testing.T) {
 	ctx := context.Background()
 	now := time.Date(2026, 8, 29, 12, 0, 0, 0, time.UTC)
+
 	tests := []struct {
 		name          string
 		prefixRunID   string
@@ -200,48 +260,81 @@ func TestExportStalenessMetricRefusesAnUndatableRun(t *testing.T) {
 		wantDetail    string
 	}{
 		{
-			name:        "complete run from two hours ago",
-			prefixRunID: "20260829T100000Z", manifestRunID: "20260829T100000Z",
-			wantStale: false, wantAgeKnown: true,
-			wantDetail: "newest complete run 20260829T100000Z",
+			name:          "complete run from two hours ago",
+			prefixRunID:   "20260829T100000Z",
+			manifestRunID: "20260829T100000Z",
+			wantStale:     false,
+			wantAgeKnown:  true,
+			wantDetail:    "newest complete run 20260829T100000Z",
 		},
 		{
-			name:        "run key dated 2099",
-			prefixRunID: "20991231T235959Z", manifestRunID: "20991231T235959Z",
-			wantStale: true, wantAgeKnown: false,
-			wantDetail: "in the future, past the",
+			name:          "run key dated 2099",
+			prefixRunID:   "20991231T235959Z",
+			manifestRunID: "20991231T235959Z",
+			wantStale:     true,
+			wantAgeKnown:  false,
+			wantDetail:    "in the future, past the",
 		},
 		{
-			name:        "manifest declaring another run",
-			prefixRunID: "20260829T100000Z", manifestRunID: "20991231T235959Z",
-			wantStale: true, wantAgeKnown: false,
-			wantDetail: "is not the run",
+			name:          "manifest declaring another run",
+			prefixRunID:   "20260829T100000Z",
+			manifestRunID: "20991231T235959Z",
+			wantStale:     true,
+			wantAgeKnown:  false,
+			wantDetail:    "is not the run",
 		},
 	}
 	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			store := newBackupTestStore(t, ybExportRunObjects(t, test.prefixRunID,
-				newYBSnapshotManifest(test.manifestRunID, "snap-1", "tack",
-					[]string{"yb1"}, ybTestArtifactNames())))
-			s3Client, cfg := store.client, store.config()
-			cfg.BackupStalenessExportMaxSeconds = 129600
+		t.Run(
+			test.name,
+			func(t *testing.T) {
+				store := newBackupTestStore(
+					t,
+					ybExportRunObjects(
+						t,
+						test.prefixRunID,
+						newYBSnapshotManifest(
+							test.manifestRunID,
+							"snap-1",
+							"tack",
+							[]string{"yb1"},
+							ybTestArtifactNames(),
+						),
+					),
+				)
+				s3Client, cfg := store.client, store.config()
+				cfg.BackupStalenessExportMaxSeconds = 129600
 
-			metric := exportStalenessMetric(ctx, cfg, s3Client, now)
+				metric := exportStalenessMetric(ctx, cfg, s3Client, now)
 
-			if metric.stale() != test.wantStale {
-				t.Fatalf("stale() = %v, want %v (age field %q, detail %q)",
-					metric.stale(), test.wantStale, backupStalenessAgeField(metric), metric.Detail)
-			}
-			if metric.AgeKnown != test.wantAgeKnown {
-				t.Fatalf("AgeKnown = %v, want %v (detail %q)", metric.AgeKnown, test.wantAgeKnown, metric.Detail)
-			}
-			if !strings.Contains(metric.Detail, test.wantDetail) {
-				t.Fatalf("detail = %q, want it to name %q", metric.Detail, test.wantDetail)
-			}
-			if test.wantAgeKnown && metric.Age != 2*time.Hour {
-				t.Fatalf("age = %s, want the run key's own age of 2h", metric.Age)
-			}
-		})
+				if metric.stale() != test.wantStale {
+					t.Fatalf(
+						"stale() = %v, want %v (age field %q, detail %q)",
+						metric.stale(),
+						test.wantStale,
+						backupStalenessAgeField(metric),
+						metric.Detail,
+					)
+				}
+
+				if metric.AgeKnown != test.wantAgeKnown {
+					t.Fatalf(
+						"AgeKnown = %v, want %v (detail %q)",
+						metric.AgeKnown,
+						test.wantAgeKnown,
+						metric.Detail,
+					)
+				}
+
+				if !strings.Contains(metric.Detail, test.wantDetail) {
+					t.Fatalf("detail = %q, want it to name %q", metric.Detail, test.wantDetail)
+				}
+
+				if test.wantAgeKnown && metric.Age != 2*time.Hour {
+					t.Fatalf("age = %s, want the run key's own age of 2h", metric.Age)
+				}
+			},
+		)
 	}
 }
 
@@ -250,10 +343,20 @@ func TestExportStalenessMetricRefusesAnUndatableRun(t *testing.T) {
 func TestBackupStalenessReport(t *testing.T) {
 	now := time.Date(2026, 8, 29, 12, 0, 0, 0, time.UTC)
 	report := backupStalenessReport([]backupStalenessMetric{
-		knownBackupStalenessMetric(context.Background(), backupStalenessExportName, now, now.Add(-2*time.Hour),
-			36*time.Hour, "newest complete run 20260829T100000Z"),
-		unknownBackupStalenessMetric(backupStalenessRehearsalName, 8*24*time.Hour,
-			backupStalenessNeverRecorded, "no backup-status/rehearsal.json in tack-backups"),
+		knownBackupStalenessMetric(
+			context.Background(),
+			backupStalenessExportName,
+			now,
+			now.Add(-2*time.Hour),
+			36*time.Hour,
+			"newest complete run 20260829T100000Z",
+		),
+		unknownBackupStalenessMetric(
+			backupStalenessRehearsalName,
+			8*24*time.Hour,
+			backupStalenessNeverRecorded,
+			"no backup-status/rehearsal.json in tack-backups",
+		),
 	})
 	want := "ledger-export age=7200s threshold=129600s FRESH newest complete run 20260829T100000Z\n" +
 		"rehearsal     age=unknown threshold=691200s STALE no backup-status/rehearsal.json in tack-backups\n"
@@ -267,12 +370,17 @@ func TestBackupStalenessReport(t *testing.T) {
 // alert mail is read one line per mechanism.
 func TestBackupStalenessReportKeepsOneLinePerMetric(t *testing.T) {
 	report := backupStalenessReport([]backupStalenessMetric{
-		unknownBackupStalenessMetric(backupStalenessExportName, time.Hour, backupStalenessUnreadable,
-			"listing export runs failed: operation error S3: ListObjectsV2,\n\texceeded maximum number of attempts"),
+		unknownBackupStalenessMetric(
+			backupStalenessExportName,
+			time.Hour,
+			backupStalenessUnreadable,
+			"listing export runs failed: operation error S3: ListObjectsV2,\n\texceeded maximum number of attempts",
+		),
 	})
 	if strings.Count(report, "\n") != 1 {
 		t.Fatalf("report must be one line:\n%q", report)
 	}
+
 	if !strings.HasSuffix(report, "exceeded maximum number of attempts\n") {
 		t.Fatalf("report lost the detail:\n%q", report)
 	}
@@ -302,13 +410,16 @@ func TestExportRunKeyIsDatable(t *testing.T) {
 	if runID != "20260829T010203Z" {
 		t.Fatalf("run key = %q, want 20260829T010203Z", runID)
 	}
+
 	if !ybRunIDPattern.MatchString(runID) {
 		t.Fatalf("run key %q does not match the manifest's run-id pattern", runID)
 	}
+
 	at, err := time.Parse(ybSnapshotRunIDLayout, runID)
 	if err != nil {
 		t.Fatalf("parse run key: %v", err)
 	}
+
 	if !at.Equal(generated) {
 		t.Fatalf("run key parsed to %s, want %s", at, generated)
 	}
@@ -323,35 +434,54 @@ func TestFDBRestorablePointFromStatus(t *testing.T) {
 	if err != nil {
 		t.Fatalf("fdbRestorablePointFromStatus: %v", err)
 	}
+
 	want := time.Date(2026, 8, 30, 1, 7, 23, 0, time.UTC)
 	if !point.At.Equal(want) {
 		t.Fatalf("restorable point = %s, want %s", point.At.UTC(), want)
 	}
+
 	// The version is read beside the timestamp, because a restore after a
 	// total loss names the version and nothing else can convert the moment.
 	if point.Version != 100720665 {
 		t.Fatalf("version = %d, want 100720665", point.Version)
 	}
 
-	if _, err := fdbRestorablePointFromStatus(ctx,
-		"The backup is restorable but continuing\n Last complete log version and timestamp - not-a-version, 2026/08/30.01:07:23+0000\n"); err == nil {
+	if _, err := fdbRestorablePointFromStatus(
+		ctx,
+		"The backup is restorable but continuing\n Last complete log version and timestamp - not-a-version, 2026/08/30.01:07:23+0000\n",
+	); err == nil {
 		t.Fatal("an unparseable version must be an error, not a silent zero")
 	}
 
 	// A status that vouches for no restorable point is told apart from one
 	// that could not be parsed, because the mail says different things about
 	// each: nothing exists to restore from, versus nothing could be read.
-	if _, err := fdbRestorablePointFromStatus(ctx, fdbStatusNotYetRestorable); !errors.Is(err, errFDBNoRestorablePoint) {
-		t.Fatalf("a backup whose first snapshot has not finished has no restorable point, got %v", err)
+	if _, err := fdbRestorablePointFromStatus(ctx, fdbStatusNotYetRestorable); !errors.Is(
+		err,
+		errFDBNoRestorablePoint,
+	) {
+		t.Fatalf(
+			"a backup whose first snapshot has not finished has no restorable point, got %v",
+			err,
+		)
 	}
-	if _, err := fdbRestorablePointFromStatus(ctx,
-		"The backup on tag `default' is not restorable.\n"); !errors.Is(err, errFDBNoRestorablePoint) {
+
+	if _, err := fdbRestorablePointFromStatus(
+		ctx,
+		"The backup on tag `default' is not restorable.\n",
+	); !errors.Is(err, errFDBNoRestorablePoint) {
 		t.Fatalf("a status that denies restorability must not be read as restorable, got %v", err)
 	}
-	if _, err := fdbRestorablePointFromStatus(ctx,
-		"The backup is restorable but continuing\n Last complete log version and timestamp - 5, not-a-timestamp\n"); err == nil ||
+
+	if _, err := fdbRestorablePointFromStatus(
+		ctx,
+		"The backup is restorable but continuing\n Last complete log version and timestamp - 5, not-a-timestamp\n",
+	); err == nil ||
 		errors.Is(err, errFDBNoRestorablePoint) {
-		t.Fatalf("an unparseable timestamp must be an error of its own, not a silent success, got %v", err)
+		t.Fatalf(
+			"an unparseable timestamp must be an error of its own, not a silent success, got %v",
+			err,
+		)
 	}
 
 	// The word alone appears in destination URLs and tag names, so a backup
@@ -371,6 +501,7 @@ func TestFDBRestorablePointFromStatus(t *testing.T) {
 // list vouches for nothing.
 func TestYBClusterHealthFromBody(t *testing.T) {
 	ctx := context.Background()
+
 	tests := []struct {
 		name        string
 		body        string
@@ -397,18 +528,23 @@ func TestYBClusterHealthFromBody(t *testing.T) {
 		},
 	}
 	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			healthy, detail, err := ybClusterHealthFromBody(ctx, []byte(test.body))
-			if err != nil {
-				t.Fatalf("ybClusterHealthFromBody: %v", err)
-			}
-			if healthy != test.wantHealthy {
-				t.Fatalf("healthy = %v, want %v", healthy, test.wantHealthy)
-			}
-			if detail != test.wantDetail {
-				t.Fatalf("detail = %q, want %q", detail, test.wantDetail)
-			}
-		})
+		t.Run(
+			test.name,
+			func(t *testing.T) {
+				healthy, detail, err := ybClusterHealthFromBody(ctx, []byte(test.body))
+				if err != nil {
+					t.Fatalf("ybClusterHealthFromBody: %v", err)
+				}
+
+				if healthy != test.wantHealthy {
+					t.Fatalf("healthy = %v, want %v", healthy, test.wantHealthy)
+				}
+
+				if detail != test.wantDetail {
+					t.Fatalf("detail = %q, want %q", detail, test.wantDetail)
+				}
+			},
+		)
 	}
 
 	for _, body := range []string{`{"most_recent_uptime":0}`, `{"dead_nodes":[]}`, "not json"} {
@@ -458,9 +594,11 @@ func TestRunBackupStalenessCheckRequiresObjectStoreConfig(t *testing.T) {
 	if err == nil {
 		t.Fatal("staleness-check must refuse to run without object-store credentials")
 	}
+
 	if !strings.Contains(err.Error(), "TACK_BACKUP_S3_ENDPOINT") {
 		t.Fatalf("error must name the missing settings, got: %v", err)
 	}
+
 	if out.Len() != 0 {
 		t.Fatalf("no report may be printed when the check cannot run: %q", out.String())
 	}
@@ -494,7 +632,9 @@ func TestRunBackupStalenessCheckReportsUnreachableStoreAsStale(t *testing.T) {
 	if err == nil {
 		t.Fatal("unmeasurable backups must exit nonzero")
 	}
+
 	report := out.String()
+
 	for _, name := range []string{
 		backupStalenessExportName,
 		backupStalenessRehearsalName,
@@ -503,16 +643,23 @@ func TestRunBackupStalenessCheckReportsUnreachableStoreAsStale(t *testing.T) {
 		if !strings.Contains(report, name) {
 			t.Errorf("report is missing the %s line:\n%s", name, report)
 		}
+
 		if !strings.Contains(err.Error(), name) {
 			t.Errorf("error is missing the stale mechanism %s: %v", name, err)
 		}
 	}
+
 	if strings.Contains(report, backupStalenessFDBName) {
-		t.Errorf("the FoundationDB metric must be skipped when continuous backup is off:\n%s", report)
+		t.Errorf(
+			"the FoundationDB metric must be skipped when continuous backup is off:\n%s",
+			report,
+		)
 	}
+
 	if strings.Count(report, "STALE") != 3 || strings.Contains(report, "FRESH") {
 		t.Errorf("every unmeasurable mechanism must read STALE:\n%s", report)
 	}
+
 	if strings.Count(report, "age=unknown") != 3 {
 		t.Errorf("every unmeasurable mechanism must report an unknown age:\n%s", report)
 	}

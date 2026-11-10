@@ -10,14 +10,20 @@ import (
 
 func TestListToolDescribesProjectScopedQueue(t *testing.T) {
 	projectType := &node.NodeType{
-		TypeKey:   "project",
-		Slug:      "project",
-		Reference: node.ReferenceConfig{Strategy: node.ReferenceDirectProperty, Property: "identifier"},
+		TypeKey: "project",
+		Slug:    "project",
+		Reference: node.ReferenceConfig{
+			Strategy: node.ReferenceDirectProperty,
+			Property: "identifier",
+		},
 	}
 	issueType := &node.NodeType{
-		TypeKey:   "issue",
-		Slug:      "issue",
-		Reference: node.ReferenceConfig{Strategy: node.ReferenceScopedSequence, Property: "sequence"},
+		TypeKey: "issue",
+		Slug:    "issue",
+		Reference: node.ReferenceConfig{
+			Strategy: node.ReferenceScopedSequence,
+			Property: "sequence",
+		},
 	}
 	resolver := &Resolver{
 		entryPointSlug: "workspace",
@@ -26,7 +32,11 @@ func TestListToolDescribesProjectScopedQueue(t *testing.T) {
 	tool := listTool(
 		issueType,
 		"issues",
-		scopeRoute{Chain: []ScopeLevel{{TypeKey: "project", Slug: "project", ParamName: "project_reference"}}},
+		scopeRoute{
+			Chain: []ScopeLevel{
+				{TypeKey: "project", Slug: "project", ParamName: "project_reference"},
+			},
+		},
 		"workspace_reference",
 		resolver,
 	)
@@ -45,16 +55,26 @@ func TestListToolDescribesProjectScopedQueue(t *testing.T) {
 
 	workspaceDescription := schemaDescription(t, tool, "workspace_reference")
 	if !strings.Contains(workspaceDescription, "workspace reference") {
-		t.Fatalf("workspace_reference description = %q, want workspace reference guidance", workspaceDescription)
+		t.Fatalf(
+			"workspace_reference description = %q, want workspace reference guidance",
+			workspaceDescription,
+		)
 	}
+
 	projectDescription := schemaDescription(t, tool, "project_reference")
-	if !strings.Contains(projectDescription, "project reference") || !strings.Contains(projectDescription, "TACK") {
-		t.Fatalf("project_reference description = %q, want project reference guidance", projectDescription)
+	if !strings.Contains(projectDescription, "project reference") ||
+		!strings.Contains(projectDescription, "TACK") {
+		t.Fatalf(
+			"project_reference description = %q, want project reference guidance",
+			projectDescription,
+		)
 	}
+
 	filterDescription := schemaDescription(t, tool, "filters")
 	if !strings.Contains(filterDescription, "Optional exact property filters") {
 		t.Fatalf("filters description = %q, want exact property filter guidance", filterDescription)
 	}
+
 	assertSchemaOmits(t, tool, "workspace_slug")
 	assertSchemaOmits(t, tool, "project_identifier")
 }
@@ -87,7 +107,10 @@ func TestCreateToolDescribesScopeDiscovery(t *testing.T) {
 		TypeKey:    "project",
 		Slug:       "project",
 		PluralSlug: "projects",
-		Reference:  node.ReferenceConfig{Strategy: node.ReferenceDirectProperty, Property: "identifier"},
+		Reference: node.ReferenceConfig{
+			Strategy: node.ReferenceDirectProperty,
+			Property: "identifier",
+		},
 	}
 	issueType := &node.NodeType{TypeKey: "issue", Slug: "issue", Name: "Issue"}
 	resolver := &Resolver{
@@ -97,7 +120,11 @@ func TestCreateToolDescribesScopeDiscovery(t *testing.T) {
 	tool := createTool(
 		issueType,
 		"issue",
-		scopeRoute{Chain: []ScopeLevel{{TypeKey: "project", Slug: "project", ParamName: "project_reference"}}},
+		scopeRoute{
+			Chain: []ScopeLevel{
+				{TypeKey: "project", Slug: "project", ParamName: "project_reference"},
+			},
+		},
 		"workspace_reference",
 		resolver,
 	)
@@ -112,18 +139,37 @@ func TestCreateToolDescribesScopeDiscovery(t *testing.T) {
 			t.Fatalf("create description should contain %q:\n%s", want, tool.Description)
 		}
 	}
+
 	if !strings.Contains(schemaDescription(t, tool, "workspace_reference"), "workspace reference") {
 		t.Fatalf("workspace_reference should explain workspace reference discovery")
 	}
+
 	if !strings.Contains(schemaDescription(t, tool, "project_reference"), "project reference") {
 		t.Fatalf("project_reference should explain project reference discovery")
 	}
 }
 
 func TestGettingStartedRejectsRepoNameGuessingForCreateScopes(t *testing.T) {
-	workspaceType := &node.NodeType{TypeKey: "workspace", Slug: "workspace", Features: node.Features{node.FeatureIsEntryPoint}}
-	projectType := &node.NodeType{TypeKey: "project", Slug: "project", CanLiveUnder: []string{"workspace"}, Reference: node.ReferenceConfig{Strategy: node.ReferenceDirectProperty, Property: "identifier"}}
-	issueType := &node.NodeType{TypeKey: "issue", Slug: "issue", CanLiveUnder: []string{"project"}, AllowedOps: []node.Op{node.OpCreate}}
+	workspaceType := &node.NodeType{
+		TypeKey:  "workspace",
+		Slug:     "workspace",
+		Features: node.Features{node.FeatureIsEntryPoint},
+	}
+	projectType := &node.NodeType{
+		TypeKey:      "project",
+		Slug:         "project",
+		CanLiveUnder: []string{"workspace"},
+		Reference: node.ReferenceConfig{
+			Strategy: node.ReferenceDirectProperty,
+			Property: "identifier",
+		},
+	}
+	issueType := &node.NodeType{
+		TypeKey:      "issue",
+		Slug:         "issue",
+		CanLiveUnder: []string{"project"},
+		AllowedOps:   []node.Op{node.OpCreate},
+	}
 	nodeTypes := []*node.NodeType{workspaceType, projectType, issueType}
 	resolver := NewResolver(nil, nil, nil, nodeTypes)
 	body := buildGettingStartedText(resolver, nodeTypes, nil)
@@ -152,13 +198,16 @@ func schemaDescription(t *testing.T, tool mcpmcp.Tool, name string) string {
 	if !ok {
 		t.Fatalf("schema should include %s", name)
 	}
+
 	property, ok := rawProperty.(map[string]any)
 	if !ok {
 		t.Fatalf("schema property %s has type %T, want map[string]any", name, rawProperty)
 	}
+
 	description, ok := property["description"].(string)
 	if !ok {
 		t.Fatalf("schema property %s should have a description", name)
 	}
+
 	return description
 }

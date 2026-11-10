@@ -35,6 +35,7 @@ func searchArguments(harness *MCPHarness, query, cursor string) map[string]any {
 	if cursor != "" {
 		arguments["cursor"] = cursor
 	}
+
 	return arguments
 }
 
@@ -46,6 +47,7 @@ func callSearch(t *testing.T, harness *MCPHarness, query, cursor string) searchP
 	if err != nil {
 		t.Fatalf("search %q: %v", query, err)
 	}
+
 	return page
 }
 
@@ -57,23 +59,33 @@ func trySearch(harness *MCPHarness, query, cursor string) (searchPage, error) {
 	if err != nil {
 		return searchPage{}, err
 	}
+
 	if isError {
 		return searchPage{}, errors.New(text)
 	}
+
 	return parseSearchPage(context.Background(), text, harness.searchIdentities())
 }
 
 func rawSearchCall(harness *MCPHarness, arguments map[string]any) (string, bool, error) {
 	requestID := uuid.NewString()
 	body, err := json.Marshal(map[string]any{
-		"jsonrpc": "2.0", "id": requestID, "method": "tools/call",
-		"params": map[string]any{"name": "tack_search", "arguments": arguments},
+		"jsonrpc": "2.0",
+		"id":      requestID,
+		"method":  "tools/call",
+		"params":  map[string]any{"name": "tack_search", "arguments": arguments},
 	})
 	if err != nil {
 		return "", false, fmt.Errorf("encode search request: %w", err)
 	}
+
 	requestContext := telemetry.WithRequestMetadata(context.Background(), requestID)
-	request := httptest.NewRequestWithContext(requestContext, http.MethodPost, "/mcp", bytes.NewReader(body))
+	request := httptest.NewRequestWithContext(
+		requestContext,
+		http.MethodPost,
+		"/mcp",
+		bytes.NewReader(body),
+	)
 	request.Header.Set(telemetry.RequestIDHeader, requestID)
 	request.Header.Set("Authorization", "Bearer "+harness.token)
 	request.Header.Set("Content-Type", "application/json")
@@ -86,6 +98,7 @@ func rawSearchCall(harness *MCPHarness, arguments map[string]any) (string, bool,
 	if err != nil || response.StatusCode != http.StatusOK {
 		return "", false, fmt.Errorf("search HTTP status %d: %s", response.StatusCode, payload)
 	}
+
 	if strings.Contains(response.Header.Get("Content-Type"), "text/event-stream") {
 		for _, line := range bytes.Split(payload, []byte("\n")) {
 			if bytes.HasPrefix(line, []byte("data: ")) {
@@ -93,36 +106,44 @@ func rawSearchCall(harness *MCPHarness, arguments map[string]any) (string, bool,
 			}
 		}
 	}
+
 	var decoded struct {
 		Result rawToolResult `json:"result"`
 	}
 	if err := json.Unmarshal(payload, &decoded); err != nil {
 		return "", false, fmt.Errorf("decode search response: %w", err)
 	}
+
 	if !decoded.Result.IsError {
 		if err := requireSearchAuditInvocation(requestContext, harness, requestID); err != nil {
 			return "", false, err
 		}
 	}
+
 	return toolResultText(decoded.Result), decoded.Result.IsError, nil
 }
 
 func rawCallStatus(t *testing.T, harness *MCPHarness, tool string, arguments map[string]any) int {
 	t.Helper()
 	body, err := json.Marshal(map[string]any{
-		"jsonrpc": "2.0", "id": uuid.NewString(), "method": "tools/call",
-		"params": map[string]any{"name": tool, "arguments": arguments},
+		"jsonrpc": "2.0",
+		"id":      uuid.NewString(),
+		"method":  "tools/call",
+		"params":  map[string]any{"name": tool, "arguments": arguments},
 	})
 	if err != nil {
 		t.Fatalf("encode request: %v", err)
 	}
+
 	request := httptest.NewRequest(http.MethodPost, "/mcp", bytes.NewReader(body))
 	if harness.token != "" {
 		request.Header.Set("Authorization", "Bearer "+harness.token)
 	}
+
 	request.Header.Set("Content-Type", "application/json")
 	recorder := httptest.NewRecorder()
 	harness.handler.ServeHTTP(recorder, request)
+
 	return recorder.Code
 }
 
@@ -133,23 +154,35 @@ const searchCursorMarker = "Next cursor: `"
 // parseSearchPage resolves result node IDs through identities, reads the
 // continuation cursor, and checks the printed result count. It marks the page
 // complete when the response omits the cursor.
-func parseSearchPage(ctx context.Context, text string, identities datagen.SearchIdentities) (searchPage, error) {
+func parseSearchPage(
+	ctx context.Context,
+	text string,
+	identities datagen.SearchIdentities,
+) (searchPage, error) {
 	items := datagen.SearchResultItems(text)
 	nodeIDs, err := identities.IDs(ctx, items)
 	if err != nil {
 		return searchPage{}, fmt.Errorf("%w:\n%s", err, text)
 	}
+
 	page := searchPage{IDs: nodeIDs, Cursor: "", Complete: false}
+
 	for _, line := range strings.Split(text, "\n") {
 		if marker := strings.Index(line, searchCursorMarker); marker >= 0 {
 			page.Cursor = strings.TrimSuffix(line[marker+len(searchCursorMarker):], "`")
 		}
 	}
+
 	page.Complete = page.Cursor == ""
 	countLine := fmt.Sprintf("\n%d results shown.\n", len(items))
 	if !strings.Contains(text, countLine) {
-		return searchPage{}, fmt.Errorf("page has %d result items but no matching count line:\n%s", len(items), text)
+		return searchPage{}, fmt.Errorf(
+			"page has %d result items but no matching count line:\n%s",
+			len(items),
+			text,
+		)
 	}
+
 	return page, nil
 }
 
@@ -170,31 +203,38 @@ func callEverySearchPage(t *testing.T, query string, harnesses ...*MCPHarness) s
 	t.Helper()
 	pages := searchPages{IDs: []uuid.UUID{}, Cursors: []string{}}
 	cursor := ""
+
 	for number := range 10_000 {
 		page := callSearch(t, harnesses[number%len(harnesses)], query, cursor)
 		pages.IDs = append(pages.IDs, page.IDs...)
 		if page.Complete {
 			return pages
 		}
+
 		pages.Cursors = append(pages.Cursors, page.Cursor)
 		cursor = page.Cursor
 	}
+
 	t.Fatalf("search %q did not complete within 10000 pages", query)
+
 	return pages
 }
 
 // requireExactlyOnce requires every expected ID once and no other ID.
 func requireExactlyOnce(t *testing.T, got, expected []uuid.UUID) {
 	t.Helper()
+
 	seen := make(map[uuid.UUID]int, len(got))
 	for _, id := range got {
 		seen[id]++
 	}
+
 	for _, id := range expected {
 		if seen[id] != 1 {
 			t.Fatalf("node %s returned %d times, want once", id, seen[id])
 		}
 	}
+
 	if len(got) != len(expected) {
 		t.Fatalf("search returned %d results, want %d", len(got), len(expected))
 	}
@@ -205,14 +245,17 @@ func requireExactlyOnce(t *testing.T, got, expected []uuid.UUID) {
 // because semantic ranking can return that searchable node for any query.
 func requireCorpusOnce(t *testing.T, got, expected []uuid.UUID, entryID uuid.UUID) {
 	t.Helper()
+
 	corpus := make([]uuid.UUID, 0, len(got))
 	for _, id := range got {
 		if id != entryID {
 			corpus = append(corpus, id)
 		}
 	}
+
 	if entryCount := len(got) - len(corpus); entryCount > 1 {
 		t.Fatalf("entry-point node %s returned %d times, want at most once", entryID, entryCount)
 	}
+
 	requireExactlyOnce(t, corpus, expected)
 }

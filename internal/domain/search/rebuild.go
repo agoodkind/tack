@@ -77,6 +77,7 @@ func (r Rebuild) Mirror() string {
 		return r.TargetIndex
 	case RebuildCreating, RebuildRetiring, RebuildFailed:
 	}
+
 	return ""
 }
 
@@ -96,15 +97,28 @@ func (r BeginRebuild) Validate() error {
 	if r.Mode != ReplacementFull && r.Mode != ReplacementSplit {
 		return fmt.Errorf("replacement mode %q is not full or split", r.Mode)
 	}
+
 	if r.PrimaryShards < 1 || r.RoutingShards < r.PrimaryShards || r.Replicas < 0 {
-		return fmt.Errorf("replacement topology %d/%d/%d is invalid", r.PrimaryShards, r.RoutingShards, r.Replicas)
+		return fmt.Errorf(
+			"replacement topology %d/%d/%d is invalid",
+			r.PrimaryShards,
+			r.RoutingShards,
+			r.Replicas,
+		)
 	}
+
 	if r.RoutingShards%r.PrimaryShards != 0 {
-		return fmt.Errorf("replacement routing shards %d must be divisible by primaries %d", r.RoutingShards, r.PrimaryShards)
+		return fmt.Errorf(
+			"replacement routing shards %d must be divisible by primaries %d",
+			r.RoutingShards,
+			r.PrimaryShards,
+		)
 	}
+
 	if r.Restored && r.Mode != ReplacementFull {
 		return errors.New("a restored replacement must rebuild from FoundationDB")
 	}
+
 	return nil
 }
 
@@ -141,7 +155,13 @@ type RebuildProgress interface {
 	CopyNextNodes(context.Context, Work, Rebuild) error
 	CopiesPending(context.Context) (bool, error)
 	VerifyRebuildDocuments(context.Context, Work, Rebuild, int) (RebuildBatch, error)
-	CompleteRebuildVerify(context.Context, Work, Rebuild, RebuildBatch, map[string]DocumentAccess) (bool, error)
+	CompleteRebuildVerify(
+		context.Context,
+		Work,
+		Rebuild,
+		RebuildBatch,
+		map[string]DocumentAccess,
+	) (bool, error)
 	RetireIndexSessions(context.Context, string, int) (bool, error)
 }
 

@@ -32,23 +32,36 @@ const (
 // Each abort rolls back the attempt's writes, including outbox events.
 func runChangeTx(ctx context.Context, pool *pgxpool.Pool, work func(pgx.Tx) error) error {
 	backoff := changeTxFirstBackoff
+
 	for attempt := 1; ; attempt++ {
 		err := pgx.BeginFunc(ctx, pool, work)
 		if err == nil {
 			return nil
 		}
+
 		if !retryableChangeErr(err) || attempt == changeTxAttempts {
 			return fmt.Errorf("change transaction attempt %d: %w", attempt, err)
 		}
+
 		timer := time.NewTimer(backoff)
 		select {
 		case <-ctx.Done():
 			timer.Stop()
-			return errors.Join(err, fmt.Errorf("wait to retry the change transaction: %w", ctx.Err()))
+
+			return errors.Join(
+				err,
+				fmt.Errorf("wait to retry the change transaction: %w", ctx.Err()),
+			)
 		case <-timer.C:
 		}
-		slog.WarnContext(ctx, "audit.change.transaction_retrying",
-			slog.Int("attempt", attempt), slog.String("wait", backoff.String()), slog.String("err", err.Error()))
+
+		slog.WarnContext(
+			ctx,
+			"audit.change.transaction_retrying",
+			slog.Int("attempt", attempt),
+			slog.String("wait", backoff.String()),
+			slog.String("err", err.Error()),
+		)
 		backoff *= 2
 	}
 }
@@ -60,5 +73,7 @@ func retryableChangeErr(err error) bool {
 	if !errors.As(err, &postgresError) {
 		return false
 	}
-	return postgresError.Code == serializationFailureSQLState || postgresError.Code == deadlockDetectedSQLState
+
+	return postgresError.Code == serializationFailureSQLState ||
+		postgresError.Code == deadlockDetectedSQLState
 }

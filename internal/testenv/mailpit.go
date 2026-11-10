@@ -105,10 +105,15 @@ func Mailpit(t T) MailpitFixture {
 		_, _ = fmt.Fprintf(t.Output(), "testenv: %v\n", mailpitState.err)
 		t.FailNow()
 	}
+
 	if !mailpitState.trusted {
-		_, _ = fmt.Fprintln(t.Output(), "testenv: no Mailpit server is trusted; TestMain must call testenv.TrustMailpit with this test's name")
+		_, _ = fmt.Fprintln(
+			t.Output(),
+			"testenv: no Mailpit server is trusted; TestMain must call testenv.TrustMailpit with this test's name",
+		)
 		t.FailNow()
 	}
+
 	return mailpitState.fixture
 }
 
@@ -121,73 +126,139 @@ func provisionMailpit(ctx context.Context) (MailpitFixture, error) {
 	if err != nil {
 		return MailpitFixture{}, err
 	}
+
 	defer func() { _ = cli.Close() }()
-	holder, err := startEngine(ctx, cli, engineSpec{
-		kind: "mailpit-address", image: mailpitImage, platform: nil,
-		entrypoint: []string{"sleep"}, cmd: []string{mailpitHolderSeconds}, env: nil,
-	})
+	holder, err := startEngine(
+		ctx,
+		cli,
+		engineSpec{
+			kind:       "mailpit-address",
+			image:      mailpitImage,
+			platform:   nil,
+			entrypoint: []string{engineSleepCommand},
+			cmd:        []string{mailpitHolderSeconds},
+			env:        nil,
+		},
+	)
 	if err != nil {
 		return MailpitFixture{}, err
 	}
+
 	authority, err := newClusterAuthority(ctx)
 	if err != nil {
 		return MailpitFixture{}, err
 	}
+
 	certificate, err := authority.issue(ctx, holder.name, []string{holder.name, holder.address})
 	if err != nil {
 		return MailpitFixture{}, err
 	}
-	started, err := startEngine(ctx, cli, engineSpec{
-		kind: "mailpit", image: mailpitImage, platform: nil, cmd: nil, env: mailpitEnvironment,
-		files:     map[string][]byte{mailpitCertificatePath: certificate.certificate, mailpitKeyPath: certificate.key},
-		networkOf: holder.name,
-	})
+
+	started, err := startEngine(
+		ctx,
+		cli,
+		engineSpec{
+			kind:     "mailpit",
+			image:    mailpitImage,
+			platform: nil,
+			cmd:      nil,
+			env:      mailpitEnvironment,
+			files: map[string][]byte{
+				mailpitCertificatePath: certificate.certificate,
+				mailpitKeyPath:         certificate.key,
+			},
+			networkOf: holder.name,
+		},
+	)
 	if err != nil {
 		return MailpitFixture{}, err
 	}
+
 	password, err := randomHex(ctx, mailpitPasswordBytes)
 	if err != nil {
 		return MailpitFixture{}, err
 	}
-	msmtprc := fmt.Appendf(nil, mailpitMsmtprcFormat, holder.address, mailpitSMTPPort, mailpitSender, mailpitUser, password)
+
+	msmtprc := fmt.Appendf(
+		nil,
+		mailpitMsmtprcFormat,
+		holder.address,
+		mailpitSMTPPort,
+		mailpitSender,
+		mailpitUser,
+		password,
+	)
 	directory, err := writeMailpitClientFiles(ctx, holder.name, msmtprc, authority.pem)
 	if err != nil {
 		return MailpitFixture{}, err
 	}
+
 	fixture := MailpitFixture{
-		SMTPHost: holder.address, SMTPPort: mailpitSMTPPort,
-		Msmtprc: filepath.Join(directory, "msmtprc"), CA: filepath.Join(directory, "ca.pem"),
+		SMTPHost:    holder.address,
+		SMTPPort:    mailpitSMTPPort,
+		Msmtprc:     filepath.Join(directory, "msmtprc"),
+		CA:          filepath.Join(directory, "ca.pem"),
 		TrustBundle: filepath.Join(directory, "trust-bundle.pem"),
 		APIBaseURL:  "http://" + net.JoinHostPort(holder.address, mailpitAPIPort),
 	}
 	if err := waitForMailpit(ctx, fixture); err != nil {
 		return MailpitFixture{}, engineStartFailure(ctx, cli, started.name, err)
 	}
-	slog.InfoContext(ctx, "testenv.mailpit.ready", slog.String("container", started.name), slog.String("smtp_host", holder.address))
+
+	slog.InfoContext(
+		ctx,
+		"testenv.mailpit.ready",
+		slog.String("container", started.name),
+		slog.String("smtp_host", holder.address),
+	)
+
 	return fixture, nil
 }
 
 // writeMailpitClientFiles writes the msmtp account file, the CA certificate,
 // and the trust bundle, each mode 0600, to a directory of their own under the
 // user cache directory, and records the directory for [Release].
-func writeMailpitClientFiles(ctx context.Context, containerName string, msmtprc, caPEM []byte) (string, error) {
+func writeMailpitClientFiles(
+	ctx context.Context,
+	containerName string,
+	msmtprc []byte,
+	caPEM []byte,
+) (string, error) {
 	cacheRoot, err := os.UserCacheDir()
 	if err != nil {
 		cacheRoot = os.TempDir()
 	}
+
 	directory := filepath.Join(cacheRoot, "tack-testenv", containerName)
 	if err := os.MkdirAll(directory, 0o700); err != nil {
-		slog.ErrorContext(ctx, "testenv.mailpit.client_files_failed", slog.String("err", err.Error()))
+		slog.ErrorContext(
+			ctx,
+			"testenv.mailpit.client_files_failed",
+			slog.String("err", err.Error()),
+		)
+
 		return "", fmt.Errorf("create %s: %w", directory, err)
 	}
+
 	ownDirectory(directory)
+
 	trustBundle := slices.Concat(systemRoots(), caPEM)
-	for name, contents := range map[string][]byte{"msmtprc": msmtprc, "ca.pem": caPEM, "trust-bundle.pem": trustBundle} {
+	for name, contents := range map[string][]byte{
+		"msmtprc":          msmtprc,
+		"ca.pem":           caPEM,
+		"trust-bundle.pem": trustBundle,
+	} {
 		path := filepath.Join(directory, name)
 		if err := os.WriteFile(path, contents, 0o600); err != nil {
-			slog.ErrorContext(ctx, "testenv.mailpit.client_files_failed", slog.String("err", err.Error()))
+			slog.ErrorContext(
+				ctx,
+				"testenv.mailpit.client_files_failed",
+				slog.String("err", err.Error()),
+			)
+
 			return "", fmt.Errorf("write %s: %w", path, err)
 		}
 	}
+
 	return directory, nil
 }

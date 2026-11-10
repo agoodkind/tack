@@ -36,25 +36,49 @@ type searchRebuildRecord struct {
 
 func rebuildRecordFor(rebuild searchdomain.Rebuild) searchRebuildRecord {
 	return searchRebuildRecord{
-		ID: rebuild.ID, Mode: string(rebuild.Mode), State: string(rebuild.State),
-		SourceIndex: rebuild.SourceIndex, TargetIndex: rebuild.TargetIndex,
-		ScanCursor: rebuild.ScanCursor, VerifyCursor: rebuild.VerifyCursor, Failure: rebuild.Failure,
-		PrimaryShards: rebuild.PrimaryShards, RoutingShards: rebuild.RoutingShards, Replicas: rebuild.Replicas,
-		ScanComplete: rebuild.ScanComplete, Paused: rebuild.Paused, Restored: rebuild.Restored,
-		PausedAt: rebuild.PausedAt, Generation: rebuild.Generation,
-		InitiatedOperationID: rebuild.Initiation.OperationID, InitiatedActorID: rebuild.Initiation.ActorID,
+		ID:                   rebuild.ID,
+		Mode:                 string(rebuild.Mode),
+		State:                string(rebuild.State),
+		SourceIndex:          rebuild.SourceIndex,
+		TargetIndex:          rebuild.TargetIndex,
+		ScanCursor:           rebuild.ScanCursor,
+		VerifyCursor:         rebuild.VerifyCursor,
+		Failure:              rebuild.Failure,
+		PrimaryShards:        rebuild.PrimaryShards,
+		RoutingShards:        rebuild.RoutingShards,
+		Replicas:             rebuild.Replicas,
+		ScanComplete:         rebuild.ScanComplete,
+		Paused:               rebuild.Paused,
+		Restored:             rebuild.Restored,
+		PausedAt:             rebuild.PausedAt,
+		Generation:           rebuild.Generation,
+		InitiatedOperationID: rebuild.Initiation.OperationID,
+		InitiatedActorID:     rebuild.Initiation.ActorID,
 	}
 }
 
 func (r searchRebuildRecord) rebuild() searchdomain.Rebuild {
 	return searchdomain.Rebuild{
-		ID: r.ID, Mode: searchdomain.ReplacementMode(r.Mode), State: searchdomain.RebuildState(r.State),
-		SourceIndex: r.SourceIndex, TargetIndex: r.TargetIndex,
-		ScanCursor: r.ScanCursor, VerifyCursor: r.VerifyCursor, Failure: r.Failure,
-		PrimaryShards: r.PrimaryShards, RoutingShards: r.RoutingShards, Replicas: r.Replicas,
-		ScanComplete: r.ScanComplete, Paused: r.Paused, Restored: r.Restored,
-		PausedAt: r.PausedAt, Generation: r.Generation,
-		Initiation: searchdomain.Initiation{OperationID: r.InitiatedOperationID, ActorID: r.InitiatedActorID},
+		ID:            r.ID,
+		Mode:          searchdomain.ReplacementMode(r.Mode),
+		State:         searchdomain.RebuildState(r.State),
+		SourceIndex:   r.SourceIndex,
+		TargetIndex:   r.TargetIndex,
+		ScanCursor:    r.ScanCursor,
+		VerifyCursor:  r.VerifyCursor,
+		Failure:       r.Failure,
+		PrimaryShards: r.PrimaryShards,
+		RoutingShards: r.RoutingShards,
+		Replicas:      r.Replicas,
+		ScanComplete:  r.ScanComplete,
+		Paused:        r.Paused,
+		Restored:      r.Restored,
+		PausedAt:      r.PausedAt,
+		Generation:    r.Generation,
+		Initiation: searchdomain.Initiation{
+			OperationID: r.InitiatedOperationID,
+			ActorID:     r.InitiatedActorID,
+		},
 	}
 }
 
@@ -65,6 +89,7 @@ func readRebuild(ctx context.Context, tr fdb.Transaction) (searchdomain.Rebuild,
 	if err != nil || !found {
 		return searchdomain.Rebuild{}, found, err
 	}
+
 	return record.rebuild(), true, nil
 }
 
@@ -83,13 +108,16 @@ func readClaimScope(ctx context.Context, tr fdb.Transaction) (claimScope, error)
 	if err != nil {
 		return claimScope{}, searchReadFailure(ctx, "read serving search index", err)
 	}
+
 	if len(serving) == 0 {
 		return claimScope{}, searchdomain.ErrNoServingIndex
 	}
+
 	rebuild, rebuilding, err := readRebuild(ctx, tr)
 	if err != nil {
 		return claimScope{}, err
 	}
+
 	return claimScope{serving: string(serving), rebuild: rebuild, rebuilding: rebuilding}, nil
 }
 
@@ -103,10 +131,13 @@ func (s claimScope) targets(class searchdomain.WorkClass) (string, string, bool)
 		if !s.rebuilding || s.rebuild.Mirror() == "" {
 			return "", "", false
 		}
+
 		return s.rebuild.TargetIndex, "", true
 	}
+
 	if class == searchdomain.WorkClassRebuild || !s.rebuilding {
 		return s.serving, "", true
 	}
+
 	return s.serving, s.rebuild.Mirror(), true
 }

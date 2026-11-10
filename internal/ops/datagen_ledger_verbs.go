@@ -27,6 +27,8 @@ var datagenLedgerVerbs = []string{
 	string(audit.VerbSearchModelRepair),
 	string(audit.VerbAuditPartitionMaintain),
 	string(audit.VerbNodeSubtreeDeleteResume),
+	string(audit.VerbOpsBackfillRestoreManifestPart),
+	string(audit.VerbAuditEventPartCreate),
 }
 
 // datagenLedgerVerb is the row count and newest event time of one verb in one
@@ -75,49 +77,98 @@ var datagenSearchSessionVerbs = []string{
 // readDatagenLedgerVerbs reads the presence of each host-only ledger verb
 // through AUDIT_READER_DSN. It records nothing of its own.
 func readDatagenLedgerVerbs(ctx context.Context, f *cli.Factory) (datagenLedgerVerbsReport, error) {
-	return readDatagenVerbPresence(ctx, f, audit.SystemOrgID(), "ops.qa.datagen.ledger_verbs", datagenLedgerVerbs)
+	return readDatagenVerbPresence(
+		ctx,
+		f,
+		audit.SystemOrgID(),
+		"ops.qa.datagen.ledger_verbs",
+		datagenLedgerVerbs,
+	)
 }
 
 // readDatagenSearchSessionVerbs reads the presence of each search session
 // verb in orgID through AUDIT_READER_DSN. It does not record events of its
 // own.
-func readDatagenSearchSessionVerbs(ctx context.Context, f *cli.Factory, orgID uuid.UUID) (datagenLedgerVerbsReport, error) {
-	return readDatagenVerbPresence(ctx, f, orgID, "ops.qa.datagen.search_session_verbs", datagenSearchSessionVerbs)
+func readDatagenSearchSessionVerbs(ctx context.Context, f *cli.Factory, orgID uuid.UUID) (
+	datagenLedgerVerbsReport,
+	error,
+) {
+	return readDatagenVerbPresence(
+		ctx,
+		f,
+		orgID,
+		"ops.qa.datagen.search_session_verbs",
+		datagenSearchSessionVerbs,
+	)
 }
 
 // readDatagenSearchAccessVerbs reads the presence of each access rollout
 // and rollback verb through AUDIT_READER_DSN. It does not record events
 // of its own.
-func readDatagenSearchAccessVerbs(ctx context.Context, f *cli.Factory) (datagenLedgerVerbsReport, error) {
-	return readDatagenVerbPresence(ctx, f, audit.SystemOrgID(), "ops.qa.datagen.search_access_verbs", datagenSearchAccessVerbs)
+func readDatagenSearchAccessVerbs(ctx context.Context, f *cli.Factory) (
+	datagenLedgerVerbsReport,
+	error,
+) {
+	return readDatagenVerbPresence(
+		ctx,
+		f,
+		audit.SystemOrgID(),
+		"ops.qa.datagen.search_access_verbs",
+		datagenSearchAccessVerbs,
+	)
 }
 
 // readDatagenSearchSettingsVerbs reads the presence of the ops search
 // settings verb through AUDIT_READER_DSN. It does not record events of its
 // own.
-func readDatagenSearchSettingsVerbs(ctx context.Context, f *cli.Factory) (datagenLedgerVerbsReport, error) {
-	return readDatagenVerbPresence(ctx, f, audit.SystemOrgID(), "ops.qa.datagen.search_settings_verbs", datagenSearchSettingsVerbs)
+func readDatagenSearchSettingsVerbs(ctx context.Context, f *cli.Factory) (
+	datagenLedgerVerbsReport,
+	error,
+) {
+	return readDatagenVerbPresence(
+		ctx,
+		f,
+		audit.SystemOrgID(),
+		"ops.qa.datagen.search_settings_verbs",
+		datagenSearchSettingsVerbs,
+	)
 }
 
 // readDatagenVerbPresence reads the row count and newest event time of
 // each verb in verbs in orgID. It uses command as the report label.
-func readDatagenVerbPresence(ctx context.Context, f *cli.Factory, orgID uuid.UUID, command string, verbs []string) (datagenLedgerVerbsReport, error) {
+func readDatagenVerbPresence(
+	ctx context.Context,
+	f *cli.Factory,
+	orgID uuid.UUID,
+	command string,
+	verbs []string,
+) (datagenLedgerVerbsReport, error) {
 	report := datagenLedgerVerbsReport{
-		Command: command, ReadAt: clock.Now().UTC().Format(time.RFC3339Nano), Verbs: nil,
+		Command: command,
+		ReadAt:  clock.Now().UTC().Format(time.RFC3339Nano),
+		Verbs:   nil,
 	}
 	if err := requireDatagenLedgerReader(ctx, f); err != nil {
 		return report, err
 	}
 	reader, err := audit.NewReader(ctx, f.Cfg.AuditReaderDSN)
 	if err != nil {
-		slog.ErrorContext(ctx, "qa.datagen.ledger_verbs_reader_failed", slog.String("err", err.Error()))
+		slog.ErrorContext(
+			ctx,
+			"qa.datagen.ledger_verbs_reader_failed",
+			slog.String("err", err.Error()),
+		)
 		return report, fmt.Errorf("open the ledger reader from AUDIT_READER_DSN: %w", err)
 	}
 	defer reader.Close()
 	presence, err := reader.VerbPresence(ctx, orgID, verbs)
 	if err != nil {
 		wrapped := fmt.Errorf("read the ledger verb presence: %w", err)
-		slog.ErrorContext(ctx, "qa.datagen.ledger_verbs_failed", slog.String("err", wrapped.Error()))
+		slog.ErrorContext(
+			ctx,
+			"qa.datagen.ledger_verbs_failed",
+			slog.String("err", wrapped.Error()),
+		)
 		return report, wrapped
 	}
 	for _, verb := range presence {
@@ -135,6 +186,10 @@ func requireDatagenLedgerReader(ctx context.Context, factory *cli.Factory) error
 		return nil
 	}
 	err := errors.New("the ledger verb report needs AUDIT_READER_DSN")
-	slog.ErrorContext(ctx, "qa.datagen.ledger_verbs_config_missing", slog.String("err", err.Error()))
+	slog.ErrorContext(
+		ctx,
+		"qa.datagen.ledger_verbs_config_missing",
+		slog.String("err", err.Error()),
+	)
 	return err
 }

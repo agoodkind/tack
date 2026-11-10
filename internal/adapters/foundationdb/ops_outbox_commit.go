@@ -19,16 +19,26 @@ func outboxCommitVersion(ctx context.Context, key []byte) (string, error) {
 	if err != nil {
 		return "", outboxCommitVersionFailure(ctx, err)
 	}
+
 	if len(values) != 2 {
-		return "", outboxCommitVersionFailure(ctx, fmt.Errorf("the key has %d tuple values", len(values)))
+		return "", outboxCommitVersionFailure(
+			ctx,
+			fmt.Errorf("the key has %d tuple values", len(values)),
+		)
 	}
+
 	stamp, ok := values[1].(tuple.Versionstamp)
 	if !ok {
-		return "", outboxCommitVersionFailure(ctx, errors.New("the key does not end with a versionstamp"))
+		return "", outboxCommitVersionFailure(
+			ctx,
+			errors.New("the key does not end with a versionstamp"),
+		)
 	}
+
 	encoded := make([]byte, 0, len(stamp.TransactionVersion)+2)
 	encoded = append(encoded, stamp.TransactionVersion[:]...)
 	encoded = binary.BigEndian.AppendUint16(encoded, stamp.UserVersion)
+
 	return hex.EncodeToString(encoded), nil
 }
 
@@ -37,5 +47,6 @@ func outboxCommitVersion(ctx context.Context, key []byte) (string, error) {
 func outboxCommitVersionFailure(ctx context.Context, err error) error {
 	wrapped := fmt.Errorf("decode the commit version of an ops outbox key: %w", err)
 	slog.ErrorContext(ctx, "ops_outbox.commit_version_failed", slog.String("err", wrapped.Error()))
+
 	return wrapped
 }

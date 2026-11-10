@@ -27,9 +27,15 @@ func hostTable(host resourcesummary.HostSummary, guestID string) string {
 	rows := []tableRow{
 		{label: "Hypervisor samples", value: strconv.Itoa(host.Samples)},
 		{label: "Failed hypervisor samples", value: strconv.Itoa(host.FailedSamples)},
-		{label: "First and last sample", value: fmt.Sprintf("%s to %s (%.0f s)",
-			host.First.Format("15:04:05Z"), host.Last.Format("15:04:05Z"),
-			host.Elapsed().Seconds())},
+		{
+			label: "First and last sample",
+			value: fmt.Sprintf(
+				"%s to %s (%.0f s)",
+				host.First.Format("15:04:05Z"),
+				host.Last.Format("15:04:05Z"),
+				host.Elapsed().Seconds(),
+			),
+		},
 		{label: "Host MemAvailable min", value: fmt.Sprintf("%.3f GiB", host.MemAvailableMinGiB)},
 		{label: "Host memory PSI some avg10 max", value: percent(host.MemoryPressure.SomeAvg10Max)},
 		{label: "Host memory PSI full avg10 max", value: percent(host.MemoryPressure.FullAvg10Max)},
@@ -38,10 +44,22 @@ func hostTable(host resourcesummary.HostSummary, guestID string) string {
 		{label: "Host IO PSI some avg10 max", value: percent(host.IOPressure.SomeAvg10Max)},
 		{label: "Host IO PSI full avg10 max", value: percent(host.IOPressure.FullAvg10Max)},
 		{label: guest + " average CPU", value: fmt.Sprintf("%.3f cores", host.GuestCPUCores)},
-		{label: guest + " CPU PSI some avg10 max", value: percent(host.GuestCPUPressure.SomeAvg10Max)},
-		{label: guest + " CPU PSI full avg10 max", value: percent(host.GuestCPUPressure.FullAvg10Max)},
-		{label: guest + " IO PSI some avg10 max", value: percent(host.GuestIOPressure.SomeAvg10Max)},
-		{label: guest + " IO PSI full avg10 max", value: percent(host.GuestIOPressure.FullAvg10Max)},
+		{
+			label: guest + " CPU PSI some avg10 max",
+			value: percent(host.GuestCPUPressure.SomeAvg10Max),
+		},
+		{
+			label: guest + " CPU PSI full avg10 max",
+			value: percent(host.GuestCPUPressure.FullAvg10Max),
+		},
+		{
+			label: guest + " IO PSI some avg10 max",
+			value: percent(host.GuestIOPressure.SomeAvg10Max),
+		},
+		{
+			label: guest + " IO PSI full avg10 max",
+			value: percent(host.GuestIOPressure.FullAvg10Max),
+		},
 		{label: guest + " read", value: fmt.Sprintf("%.1f MiB", host.GuestReadMiB)},
 		{label: guest + " write", value: fmt.Sprintf("%.1f MiB", host.GuestWriteMiB)},
 	}
@@ -58,11 +76,19 @@ func nodeTable(workload resourcesummary.RunSummary) string {
 	fmt.Fprintf(&builder, "Workload samples: %d\n", workload.Samples)
 	builder.WriteString(nodeHeader)
 	for _, node := range workload.Nodes {
-		fmt.Fprintf(&builder, "| %s | %d | %d%% | %d%% | %s | %s | %s | %s | %s |\n",
-			node.Name, node.Readings, node.CPUPercentMax, node.ProcessCPUPercentMax,
-			gibibytes(node.HeapUsedMaxBytes), percent(node.HeapUsedMaxFraction*percentScale),
+		fmt.Fprintf(
+			&builder,
+			"| %s | %d | %d%% | %d%% | %s | %s | %s | %s | %s |\n",
+			node.Name,
+			node.Readings,
+			node.CPUPercentMax,
+			node.ProcessCPUPercentMax,
+			gibibytes(node.HeapUsedMaxBytes),
+			percent(node.HeapUsedMaxFraction*percentScale),
 			percent(node.MemoryUsedMaxFraction*percentScale),
-			gibibytes(node.DiskAvailableMinBytes), gibibytes(node.DiskTotalBytes))
+			gibibytes(node.DiskAvailableMinBytes),
+			gibibytes(node.DiskTotalBytes),
+		)
 	}
 	return builder.String()
 }

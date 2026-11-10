@@ -68,13 +68,22 @@ type ExportManifest struct {
 // beside the rows it was signed for. A re-export that fails partway leaves the
 // bundle already in the directory exactly as it was, because nothing published
 // is written in place.
-func Export(ctx context.Context, reader RowSource, signer ed25519.PrivateKey, keyID string, filter QueryFilter, dir string) (*ExportManifest, error) {
+func Export(
+	ctx context.Context,
+	reader RowSource,
+	signer ed25519.PrivateKey,
+	keyID string,
+	filter QueryFilter,
+	dir string,
+) (*ExportManifest, error) {
 	if reader == nil {
 		return nil, errors.New("audit export: reader required")
 	}
+
 	if signer == nil || keyID == "" {
 		return nil, errors.New("audit export: signing key required")
 	}
+
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, fmt.Errorf("audit export mkdir: %w", err)
 	}
@@ -109,6 +118,7 @@ func Export(ctx context.Context, reader RowSource, signer ed25519.PrivateKey, ke
 		_ = os.Remove(eventsPath)
 		return nil, err
 	}
+
 	// The rename that published this manifest is a change to the directory, so
 	// it is not on disk until the directory is synced. The reclaim below unlinks
 	// the rows the previous bundle named, and a power loss between an unlink
@@ -125,6 +135,7 @@ func Export(ctx context.Context, reader RowSource, signer ed25519.PrivateKey, ke
 	// superseded or died before it could publish.
 	activity.end()
 	reclaimAbandonedExportFiles(ctx, dir)
+
 	return manifest, nil
 }
 
@@ -140,25 +151,43 @@ func Export(ctx context.Context, reader RowSource, signer ed25519.PrivateKey, ke
 // publishes a name, not the bytes behind it, so publishing over contents that
 // had not landed yet would let a power loss leave a signed compliance artifact
 // that is empty or torn.
-func publishExportManifest(ctx context.Context, dir string, exportID uuid.UUID, manifest *ExportManifest) error {
+func publishExportManifest(
+	ctx context.Context,
+	dir string,
+	exportID uuid.UUID,
+	manifest *ExportManifest,
+) error {
 	manifestBytes, err := json.MarshalIndent(manifest, "", "  ")
 	if err != nil {
 		return fmt.Errorf("audit export marshal manifest: %w", err)
 	}
+
 	published := filepath.Join(dir, exportManifestFile)
 	staged := stagedExportPath(published, exportID)
 	if err := writeSyncedFile(staged, manifestBytes, 0o600); err != nil {
 		_ = os.Remove(staged)
-		slog.ErrorContext(ctx, "audit.export.publish_failed",
-			slog.String("path", staged), slog.String("err", err.Error()))
+		slog.ErrorContext(
+			ctx,
+			"audit.export.publish_failed",
+			slog.String("path", staged),
+			slog.String("err", err.Error()),
+		)
+
 		return fmt.Errorf("audit export write manifest: %w", err)
 	}
+
 	if err := os.Rename(staged, published); err != nil {
 		_ = os.Remove(staged)
-		slog.ErrorContext(ctx, "audit.export.publish_failed",
-			slog.String("path", published), slog.String("err", err.Error()))
+		slog.ErrorContext(
+			ctx,
+			"audit.export.publish_failed",
+			slog.String("path", published),
+			slog.String("err", err.Error()),
+		)
+
 		return fmt.Errorf("audit export publish manifest: %w", err)
 	}
+
 	return nil
 }
 
@@ -171,24 +200,27 @@ func publishExportManifest(ctx context.Context, dir string, exportID uuid.UUID, 
 // field existed renders exactly the bytes it was signed over and still
 // verifies, while every manifest that names its rows signs that name.
 func exportSignableManifest(manifest *ExportManifest) []byte {
-	signable, _ := json.Marshal(struct {
-		ExportID    uuid.UUID `json:"export_id"`
-		OrgID       uuid.UUID `json:"org_id"`
-		Oldest      time.Time `json:"oldest"`
-		Latest      time.Time `json:"latest"`
-		RowCount    int       `json:"row_count"`
-		FileSHA256  string    `json:"file_sha256"`
-		SignatureBy string    `json:"signing_key_id"`
-		EventsFile  string    `json:"events_file,omitempty"`
-	}{
-		ExportID:    manifest.ExportID,
-		OrgID:       manifest.OrgID,
-		Oldest:      manifest.Oldest,
-		Latest:      manifest.Latest,
-		RowCount:    manifest.RowCount,
-		FileSHA256:  manifest.FileSHA256,
-		SignatureBy: manifest.SignatureBy,
-		EventsFile:  manifest.EventsFile,
-	})
+	signable, _ := json.Marshal(
+		struct {
+			ExportID    uuid.UUID `json:"export_id"`
+			OrgID       uuid.UUID `json:"org_id"`
+			Oldest      time.Time `json:"oldest"`
+			Latest      time.Time `json:"latest"`
+			RowCount    int       `json:"row_count"`
+			FileSHA256  string    `json:"file_sha256"`
+			SignatureBy string    `json:"signing_key_id"`
+			EventsFile  string    `json:"events_file,omitempty"`
+		}{
+			ExportID:    manifest.ExportID,
+			OrgID:       manifest.OrgID,
+			Oldest:      manifest.Oldest,
+			Latest:      manifest.Latest,
+			RowCount:    manifest.RowCount,
+			FileSHA256:  manifest.FileSHA256,
+			SignatureBy: manifest.SignatureBy,
+			EventsFile:  manifest.EventsFile,
+		},
+	)
+
 	return signable
 }

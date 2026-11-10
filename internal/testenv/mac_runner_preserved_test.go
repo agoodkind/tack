@@ -21,18 +21,34 @@ import (
 // macBaselineRemoval starts the signal fixture, removes a baseline container
 // after fixture readiness, and cancels the run. It returns the container ID,
 // run error, and evidence directory.
-func macBaselineRemoval(t *testing.T, labels func(project string) map[string]string) (string, error, string) {
+func macBaselineRemoval(
+	t *testing.T,
+	labels func(project string) map[string]string,
+) (string, error, string) {
 	t.Helper()
 	options, docker, project := macDockerFixture(t)
-	options.TestArguments = []string{"-run=^TestMacRunnerSignal$", "-count=1", "-timeout=3m", "-tags=macrunnerfixture,runtimeaudit"}
-	marker, err := docker.ContainerCreate(t.Context(), client.ContainerCreateOptions{
-		Name: project + "-removed-baseline", Config: &container.Config{Image: options.Image, Labels: labels(project)},
-	})
+	options.TestArguments = []string{
+		"-run=^TestMacRunnerSignal$",
+		"-count=1",
+		"-timeout=3m",
+		"-tags=macrunnerfixture,runtimeaudit",
+	}
+	marker, err := docker.ContainerCreate(
+		t.Context(),
+		client.ContainerCreateOptions{
+			Name:   project + "-removed-baseline",
+			Config: &container.Config{Image: options.Image, Labels: labels(project)},
+		},
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
-		_, _ = docker.ContainerRemove(context.Background(), marker.ID, client.ContainerRemoveOptions{Force: true})
+		_, _ = docker.ContainerRemove(
+			context.Background(),
+			marker.ID,
+			client.ContainerRemoveOptions{Force: true},
+		)
 	})
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Minute)
 	defer cancel()
@@ -50,7 +66,11 @@ func macBaselineRemoval(t *testing.T, labels func(project string) map[string]str
 		}
 	})
 	macWaitFixtureReady(t, options.EvidenceDirectory)
-	if _, err := docker.ContainerRemove(t.Context(), marker.ID, client.ContainerRemoveOptions{Force: true}); err != nil {
+	if _, err := docker.ContainerRemove(
+		t.Context(),
+		marker.ID,
+		client.ContainerRemoveOptions{Force: true},
+	); err != nil {
 		t.Fatal(err)
 	}
 	cancel()
@@ -63,9 +83,12 @@ func macBaselineRemoval(t *testing.T, labels func(project string) map[string]str
 // a baseline container removed outside the project and that the removal does
 // not produce a disappeared identity error.
 func TestMacRunnerDockerBaselineRemovedElsewhere(t *testing.T) {
-	id, runErr, directory := macBaselineRemoval(t, func(project string) map[string]string {
-		return map[string]string{"tack.mac-runner-fixture": project}
-	})
+	id, runErr, directory := macBaselineRemoval(
+		t,
+		func(project string) map[string]string {
+			return map[string]string{"tack.mac-runner-fixture": project}
+		},
+	)
 	if runErr != nil && strings.Contains(runErr.Error(), "disappeared during invocation") {
 		t.Errorf("a removal outside the project failed the run: %v", runErr)
 	}
@@ -87,10 +110,21 @@ func TestMacRunnerDockerBaselineRemovedElsewhere(t *testing.T) {
 // TestMacRunnerDockerBaselineRemovedInProject checks that removing a baseline
 // container in the project produces an error identifying the container.
 func TestMacRunnerDockerBaselineRemovedInProject(t *testing.T) {
-	id, runErr, _ := macBaselineRemoval(t, func(project string) map[string]string {
-		return map[string]string{"tack.mac-runner-fixture": project, "com.docker.compose.project": project, "com.docker.compose.service": "other"}
-	})
-	if runErr == nil || !strings.Contains(runErr.Error(), "baseline container "+id+" disappeared during invocation") {
+	id, runErr, _ := macBaselineRemoval(
+		t,
+		func(project string) map[string]string {
+			return map[string]string{
+				"tack.mac-runner-fixture":    project,
+				"com.docker.compose.project": project,
+				"com.docker.compose.service": "other",
+			}
+		},
+	)
+	if runErr == nil ||
+		!strings.Contains(
+			runErr.Error(),
+			"baseline container "+id+" disappeared during invocation",
+		) {
 		t.Errorf("a removal in the project returned %v", runErr)
 	}
 }

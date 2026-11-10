@@ -29,10 +29,22 @@ func main() {
 		Debug:           debug,
 		ProtocolVersion: protocolVersion6,
 	}
-	slog.Info("provider.starting", slog.String("address", providerAddress), slog.String("version", version.Version),
-		slog.Bool("debug", debug))
-	if err := providerserver.Serve(context.Background(), tackprovider.New(version.Version), options); err != nil {
-		slog.Error("provider.stopped", slog.String("address", providerAddress), slog.String("err", err.Error()))
+	slog.Info(
+		"provider.starting",
+		slog.String("address", providerAddress),
+		slog.String("version", version.Version),
+		slog.Bool("debug", debug),
+	)
+	if err := providerserver.Serve(
+		context.Background(),
+		tackprovider.New(version.Version),
+		options,
+	); err != nil {
+		slog.Error(
+			"provider.stopped",
+			slog.String("address", providerAddress),
+			slog.String("err", err.Error()),
+		)
 		os.Exit(1)
 	}
 }

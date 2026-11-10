@@ -56,8 +56,10 @@ func (proxy *predictHoldProxy) ServeHTTP(writer http.ResponseWriter, request *ht
 			return
 		}
 	}
+
 	proxy.engine.ServeHTTP(writer, request)
-	if request.Method == http.MethodPost && strings.HasSuffix(request.URL.Path, pointInTimePathSuffix) {
+	if request.Method == http.MethodPost &&
+		strings.HasSuffix(request.URL.Path, pointInTimePathSuffix) {
 		proxy.notePointInTime()
 	}
 }
@@ -70,6 +72,7 @@ func (proxy *predictHoldProxy) notePointInTime() {
 	if !proxy.armed || proxy.pitSeen {
 		return
 	}
+
 	proxy.pitSeen = true
 	close(proxy.pitCreated)
 }
@@ -80,11 +83,14 @@ func (proxy *predictHoldProxy) matches(request *http.Request) bool {
 	if proxy.marker == "" {
 		return true
 	}
+
 	body, err := io.ReadAll(request.Body)
 	if err != nil {
 		return false
 	}
+
 	request.Body = io.NopCloser(bytes.NewReader(body))
+
 	return bytes.Contains(body, []byte(proxy.marker))
 }
 
@@ -96,12 +102,15 @@ func (proxy *predictHoldProxy) hold(matching bool) bool {
 	if !proxy.armed {
 		return false
 	}
+
 	proxy.predicts++
 	if proxy.holding || !matching {
 		return false
 	}
+
 	proxy.holding = true
 	close(proxy.held)
+
 	return true
 }
 
@@ -129,6 +138,7 @@ func (proxy *predictHoldProxy) release() {
 func (proxy *predictHoldProxy) predictCount() int {
 	proxy.mutex.Lock()
 	defer proxy.mutex.Unlock()
+
 	return proxy.predicts
 }
 
@@ -136,13 +146,17 @@ func (proxy *predictHoldProxy) predictCount() int {
 // a second production graph that sends every engine request through it. The
 // graph reads the search query settings from the environment at build time.
 // It returns an MCP harness with the fixture's bearer token and the proxy.
-func newPredictHoldHarness(t *testing.T, fixture integration.QueryFixture) (*integration.MCPHarness, *predictHoldProxy) {
+func newPredictHoldHarness(
+	t *testing.T,
+	fixture integration.QueryFixture,
+) (*integration.MCPHarness, *predictHoldProxy) {
 	t.Helper()
 	engine := testenv.OpenSearchWithMemory(t, integration.NativeSearchMemoryBytes)
 	proxy, endpoint, caPath := startPredictHoldProxy(t, engine.Endpoint, engine.CA, "")
 	cfg := integration.QueryConfig(t)
 	cfg.SearchEndpoint = endpoint
 	cfg.SearchCA = caPath
+
 	return integration.ProcessHarness(t, fixture.Harness, cfg), proxy
 }
 
@@ -150,37 +164,59 @@ func newPredictHoldHarness(t *testing.T, fixture integration.QueryFixture) (*int
 // of the engine at engineEndpoint, which presents a certificate from the PEM
 // CA engineCAPEM. It returns the proxy, its HTTPS endpoint, and the path of a
 // file with the proxy CA.
-func startPredictHoldProxy(t *testing.T, engineEndpoint, engineCAPEM, marker string) (*predictHoldProxy, string, string) {
+func startPredictHoldProxy(
+	t *testing.T,
+	engineEndpoint string,
+	engineCAPEM string,
+	marker string,
+) (*predictHoldProxy, string, string) {
 	t.Helper()
 	target, err := url.Parse(engineEndpoint)
 	if err != nil {
 		t.Fatalf("parse engine endpoint: %v", err)
 	}
+
 	engineCA := x509.NewCertPool()
 	if !engineCA.AppendCertsFromPEM([]byte(engineCAPEM)) {
 		t.Fatal("engine CA is invalid")
 	}
+
 	proxy := &predictHoldProxy{
 		engine: &httputil.ReverseProxy{
-			Rewrite:   func(outbound *httputil.ProxyRequest) { outbound.SetURL(target) },
-			Transport: &http.Transport{TLSClientConfig: &tls.Config{RootCAs: engineCA, MinVersion: tls.VersionTLS12}},
+			Rewrite: func(outbound *httputil.ProxyRequest) { outbound.SetURL(target) },
+			Transport: &http.Transport{
+				TLSClientConfig: &tls.Config{RootCAs: engineCA, MinVersion: tls.VersionTLS12},
+			},
 		},
-		marker: marker, held: make(chan struct{}), released: make(chan struct{}), pitCreated: make(chan struct{}),
-		mutex: sync.Mutex{}, armed: false, deleteArmed: false, holding: false, pitSeen: false, predicts: 0,
+		marker:      marker,
+		held:        make(chan struct{}),
+		released:    make(chan struct{}),
+		pitCreated:  make(chan struct{}),
+		mutex:       sync.Mutex{},
+		armed:       false,
+		deleteArmed: false,
+		holding:     false,
+		pitSeen:     false,
+		predicts:    0,
 	}
 	listener, err := net.Listen("tcp6", "[::1]:0")
 	if err != nil {
 		t.Fatalf("listen for the predict hold proxy: %v", err)
 	}
+
 	server := httptest.NewUnstartedServer(proxy)
 	server.Listener = listener
 	server.StartTLS()
 	t.Cleanup(server.Close)
 	t.Cleanup(proxy.release)
 	caPath := filepath.Join(t.TempDir(), "predict-hold-ca.pem")
-	proxyCA := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: server.Certificate().Raw})
+	proxyCA := pem.EncodeToMemory(&pem.Block{
+		Type:  "CERTIFICATE",
+		Bytes: server.Certificate().Raw,
+	})
 	if err := os.WriteFile(caPath, proxyCA, 0o600); err != nil {
 		t.Fatalf("write predict hold proxy CA: %v", err)
 	}
+
 	return proxy, server.URL, caPath
 }

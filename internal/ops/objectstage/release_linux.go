@@ -25,8 +25,13 @@ func releaseCachedPages(ctx context.Context, file *os.File, offset, length int64
 			err = controlErr
 		}
 	}
+
 	if err != nil {
-		slog.InfoContext(ctx, "backup.s3.stage_release_refused",
-			slog.String("path", file.Name()), slog.String("reason", err.Error()))
+		slog.InfoContext(
+			ctx,
+			"backup.s3.stage_release_refused",
+			slog.String("path", file.Name()),
+			slog.String("reason", err.Error()),
+		)
 	}
 }
