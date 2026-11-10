@@ -27,24 +27,42 @@ var errParentAdded = errors.New("tack_add_relationship added a child_of edge")
 // relation type from issueReference to parentReference. Only parent_id sets
 // a parent, and the server must refuse the call. A dry run plans the call and
 // skips the check.
-func (g *Generator) probeParentAddRefused(ctx context.Context, token, issueReference, parentReference string) error {
-	_, err := g.driver.Call(ctx, token, "tack_add_relationship", ToolArguments{
-		SourceID:     issueReference,
-		RelationType: "child_of",
-		TargetID:     parentReference,
-	})
+func (g *Generator) probeParentAddRefused(
+	ctx context.Context,
+	token string,
+	issueReference string,
+	parentReference string,
+) error {
+	_, err := g.driver.Call(
+		ctx,
+		token,
+		"tack_add_relationship",
+		ToolArguments{
+			SourceID:     issueReference,
+			RelationType: "child_of",
+			TargetID:     parentReference,
+		},
+	)
 	if g.dryRun {
 		return nil
 	}
-	message := fmt.Sprintf("qa datagen: parent add probe for issue %s and parent %s", issueReference, parentReference)
+	message := fmt.Sprintf(
+		"qa datagen: parent add probe for issue %s and parent %s",
+		issueReference,
+		parentReference,
+	)
 	if err == nil {
 		return loggedError(ctx, message, errParentAdded)
 	}
 	if !strings.Contains(err.Error(), parentAddRefusalText) {
 		return loggedError(ctx, message, err)
 	}
-	slog.InfoContext(ctx, "qa.datagen.parent_add_refused",
-		slog.String("issue", issueReference), slog.String("parent", parentReference))
+	slog.InfoContext(
+		ctx,
+		"qa.datagen.parent_add_refused",
+		slog.String("issue", issueReference),
+		slog.String("parent", parentReference),
+	)
 	return nil
 }
 
@@ -52,23 +70,41 @@ func (g *Generator) probeParentAddRefused(ctx context.Context, token, issueRefer
 // edge from issueReference to parentReference, which is the issue's only
 // hierarchy parent. The server must refuse the call. A dry run plans the
 // call and skips the check.
-func (g *Generator) probeParentRemovalRefused(ctx context.Context, token, issueReference, parentReference string) error {
-	_, err := g.driver.Call(ctx, token, "tack_remove_relationship", ToolArguments{
-		SourceID:     issueReference,
-		RelationType: "child_of",
-		TargetID:     parentReference,
-	})
+func (g *Generator) probeParentRemovalRefused(
+	ctx context.Context,
+	token string,
+	issueReference string,
+	parentReference string,
+) error {
+	_, err := g.driver.Call(
+		ctx,
+		token,
+		"tack_remove_relationship",
+		ToolArguments{
+			SourceID:     issueReference,
+			RelationType: "child_of",
+			TargetID:     parentReference,
+		},
+	)
 	if g.dryRun {
 		return nil
 	}
-	message := fmt.Sprintf("qa datagen: parent removal probe for issue %s and parent %s", issueReference, parentReference)
+	message := fmt.Sprintf(
+		"qa datagen: parent removal probe for issue %s and parent %s",
+		issueReference,
+		parentReference,
+	)
 	if err == nil {
 		return loggedError(ctx, message, errParentRemoved)
 	}
 	if !strings.Contains(err.Error(), parentRefusalText) {
 		return loggedError(ctx, message, err)
 	}
-	slog.InfoContext(ctx, "qa.datagen.parent_removal_refused",
-		slog.String("issue", issueReference), slog.String("parent", parentReference))
+	slog.InfoContext(
+		ctx,
+		"qa.datagen.parent_removal_refused",
+		slog.String("issue", issueReference),
+		slog.String("parent", parentReference),
+	)
 	return nil
 }

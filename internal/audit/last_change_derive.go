@@ -9,8 +9,13 @@ import (
 // legacyChangeVerbs lists the verbs of legacy rows that can change a node or
 // one of its relationships.
 var legacyChangeVerbs = []Verb{
-	VerbNodeCreate, VerbNodeUpdate, VerbNodeDelete, VerbNodeReferenceRename,
-	VerbRelationshipAdd, VerbRelationshipUpdate, VerbRelationshipRemove,
+	VerbNodeCreate,
+	VerbNodeUpdate,
+	VerbNodeDelete,
+	VerbNodeReferenceRename,
+	VerbRelationshipAdd,
+	VerbRelationshipUpdate,
+	VerbRelationshipRemove,
 }
 
 // legacyFailedOutcomes lists the outcomes of legacy rows that did not change
@@ -60,10 +65,15 @@ type LastChangeDeriver struct {
 //	// Output: 0
 func NewLastChangeDeriver(nodeID uuid.UUID, path string) *LastChangeDeriver {
 	return &LastChangeDeriver{
-		nodeID: nodeID, path: path, historyStart: false,
-		fields: map[string]*changeCandidates{}, recordPaths: map[string]bool{},
-		relationships: map[relationshipIdentity]*changeCandidates{}, seenTargets: map[relationshipIdentity]bool{},
-		legacy: nil, legacyRelationships: nil,
+		nodeID:              nodeID,
+		path:                path,
+		historyStart:        false,
+		fields:              map[string]*changeCandidates{},
+		recordPaths:         map[string]bool{},
+		relationships:       map[relationshipIdentity]*changeCandidates{},
+		seenTargets:         map[relationshipIdentity]bool{},
+		legacy:              nil,
+		legacyRelationships: nil,
 	}
 }
 
@@ -86,21 +96,31 @@ func (deriver *LastChangeDeriver) Add(row Row) error {
 		deriver.addLegacy(row)
 		return nil
 	}
+
 	target := row.Context.Target
 	if row.Context.AuditFormatVersion != AuditFormatComplete || target == nil {
 		return nil
 	}
-	if target.Kind == TargetKindRelationship && (target.SourceID == deriver.nodeID || target.TargetID == deriver.nodeID) {
-		identity := relationshipIdentity{sourceID: target.SourceID, relationType: target.RelationType, targetID: target.TargetID}
+
+	if target.Kind == TargetKindRelationship &&
+		(target.SourceID == deriver.nodeID || target.TargetID == deriver.nodeID) {
+		identity := relationshipIdentity{
+			sourceID:     target.SourceID,
+			relationType: target.RelationType,
+			targetID:     target.TargetID,
+		}
 		deriver.seenTargets[identity] = true
 		if successfulChange(row) {
 			deriver.addRelationshipChange(identity, row)
 		}
+
 		return nil
 	}
+
 	if target.Kind == TargetKindNode && target.ID == deriver.nodeID && successfulChange(row) {
 		return deriver.addNodeChange(row)
 	}
+
 	return nil
 }
 
@@ -111,20 +131,25 @@ func successfulChange(row Row) bool {
 }
 
 func (deriver *LastChangeDeriver) addLegacy(row Row) {
-	if !slices.Contains(legacyChangeVerbs, Verb(row.Action)) || slices.Contains(legacyFailedOutcomes, row.Outcome) {
+	if !slices.Contains(legacyChangeVerbs, Verb(row.Action)) ||
+		slices.Contains(legacyFailedOutcomes, row.Outcome) {
 		return
 	}
+
 	if row.EntityID != deriver.nodeID {
 		return
 	}
+
 	evidence := legacyEvidence{change: rowChange(row, LastChangeSet)}
 	if row.EntityKind == legacyRelationshipEntityKind {
 		deriver.legacyRelationships = append(deriver.legacyRelationships, evidence)
 		return
 	}
+
 	if Verb(row.Action) == VerbNodeCreate {
 		deriver.historyStart = true
 	}
+
 	deriver.legacy = append(deriver.legacy, evidence)
 }
 
@@ -133,11 +158,13 @@ func (deriver *LastChangeDeriver) addRelationshipChange(identity relationshipIde
 	if len(row.Delta.After) == 0 {
 		effect = LastChangeRemoved
 	}
+
 	candidates, ok := deriver.relationships[identity]
 	if !ok {
 		candidates = &changeCandidates{versioned: nil, unversioned: nil}
 		deriver.relationships[identity] = candidates
 	}
+
 	candidates.add(rowChange(row, effect))
 }
 
@@ -145,32 +172,40 @@ func (deriver *LastChangeDeriver) addNodeChange(row Row) error {
 	if len(row.Delta.Before) == 0 {
 		deriver.historyStart = true
 	}
+
 	before, err := recordPointers(row.Delta.Before)
 	if err != nil {
 		return err
 	}
+
 	after, err := recordPointers(row.Delta.After)
 	if err != nil {
 		return err
 	}
+
 	for path := range before {
 		deriver.recordPaths[path] = true
 	}
+
 	for path := range after {
 		deriver.recordPaths[path] = true
 	}
+
 	for _, path := range row.Delta.Changed {
 		effect := LastChangeSet
 		if before[path] && !after[path] {
 			effect = LastChangeRemoved
 		}
+
 		candidates, ok := deriver.fields[path]
 		if !ok {
 			candidates = &changeCandidates{versioned: nil, unversioned: nil}
 			deriver.fields[path] = candidates
 		}
+
 		candidates.add(rowChange(row, effect))
 	}
+
 	return nil
 }
 
@@ -180,16 +215,24 @@ func recordPointers(encoding []byte) (map[string]bool, error) {
 	if err != nil {
 		return nil, err
 	}
+
 	pointers := make(map[string]bool, len(fields))
 	for field := range fields {
 		pointers[field.pointer()] = true
 	}
+
 	return pointers, nil
 }
 
 func rowChange(row Row, effect LastChangeEffect) LastChange {
 	return LastChange{
-		EventID: row.EventID, Action: row.Action, Outcome: row.Outcome, ActorID: row.ActorID,
-		ActorKind: row.ActorKind, EventTime: row.EventTime, CommitVersion: row.Context.CommitVersion, Effect: effect,
+		EventID:       row.EventID,
+		Action:        row.Action,
+		Outcome:       row.Outcome,
+		ActorID:       row.ActorID,
+		ActorKind:     row.ActorKind,
+		EventTime:     row.EventTime,
+		CommitVersion: row.Context.CommitVersion,
+		Effect:        effect,
 	}
 }

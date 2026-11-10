@@ -40,11 +40,17 @@ func (l *soakLatencies) summary() []SoakOperationLatency {
 	for _, kind := range kinds {
 		sorted := slices.Clone(l.samples[kind])
 		slices.Sort(sorted)
-		latencies = append(latencies, SoakOperationLatency{
-			Kind: kind, Calls: len(sorted), Min: sorted[0],
-			P50: nearestRank(sorted, 50), P95: nearestRank(sorted, 95),
+		latencies = append(
+			latencies,
+			SoakOperationLatency{
+				Kind:  kind,
+				Calls: len(sorted),
+				Min:   sorted[0],
+				P50:   nearestRank(sorted, 50),
+				P95:   nearestRank(sorted, 95),
 			Max: sorted[len(sorted)-1],
-		})
+			},
+		)
 	}
 	return latencies
 }

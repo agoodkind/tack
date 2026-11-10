@@ -43,9 +43,12 @@ func TestFDBRestoreCommandRestoresLatestByDefault(t *testing.T) {
 	}
 
 	want := []string{
-		"fdbrestore", "start",
-		"--dest-cluster-file", "/var/fdb/fdb.cluster",
-		"-r", drillDestURL,
+		"fdbrestore",
+		"start",
+		"--dest-cluster-file",
+		"/var/fdb/fdb.cluster",
+		"-r",
+		drillDestURL,
 		"--waitfordone",
 	}
 	if !slices.Equal(got, want) {
@@ -60,15 +63,19 @@ func TestFDBRestoreCommandRestoresLatestByDefault(t *testing.T) {
 func TestFDBRestoreCommandBoundsNoTotalRunTime(t *testing.T) {
 	target := time.Date(2026, 8, 30, 1, 5, 0, 0, time.UTC)
 	for name, targetTime := range map[string]*time.Time{"latest": nil, "targeted": &target} {
-		t.Run(name, func(t *testing.T) {
-			got, err := fdbRestoreCommand(drillDestURL, targetTime)
-			if err != nil {
-				t.Fatalf("fdbRestoreCommand: %v", err)
-			}
-			if slices.Contains(got, "timeout") {
-				t.Fatalf("the restore must not carry a total-work budget: %q", got)
-			}
-		})
+		t.Run(
+			name,
+			func(t *testing.T) {
+				got, err := fdbRestoreCommand(drillDestURL, targetTime)
+				if err != nil {
+					t.Fatalf("fdbRestoreCommand: %v", err)
+				}
+
+				if slices.Contains(got, "timeout") {
+					t.Fatalf("the restore must not carry a total-work budget: %q", got)
+				}
+			},
+		)
 	}
 }
 
@@ -85,21 +92,30 @@ func TestFDBRestoreCommandCarriesTargetAndSourceCluster(t *testing.T) {
 	}
 
 	want := []string{
-		"fdbrestore", "start",
-		"--dest-cluster-file", "/var/fdb/fdb.cluster",
-		"-r", drillDestURL,
+		"fdbrestore",
+		"start",
+		"--dest-cluster-file",
+		"/var/fdb/fdb.cluster",
+		"-r",
+		drillDestURL,
 		"--waitfordone",
-		"--timestamp", "2026/08/30.01:05:00+0000",
-		"--orig-cluster-file", "/tack-orig-fdb/fdb.cluster",
+		"--timestamp",
+		"2026/08/30.01:05:00+0000",
+		"--orig-cluster-file",
+		"/tack-orig-fdb/fdb.cluster",
 	}
 	if !slices.Equal(got, want) {
 		t.Fatalf("targeted restore command changed:\n got %q\nwant %q", got, want)
 	}
+
 	// FoundationDB defaults to /etc/foundationdb/fdb.cluster when a command
 	// omits its cluster-file argument. The live cluster file must use a different
 	// path inside the scratch container.
 	if strings.Contains(fdbOrigClusterFilePath, "/etc/foundationdb/") {
-		t.Fatalf("source cluster file must not occupy FoundationDB's default path: %q", fdbOrigClusterFilePath)
+		t.Fatalf(
+			"source cluster file must not occupy FoundationDB's default path: %q",
+			fdbOrigClusterFilePath,
+		)
 	}
 }
 
@@ -119,28 +135,39 @@ func TestFDBCommandsCarryTheDestinationAsOneArgument(t *testing.T) {
 	if err != nil {
 		t.Fatalf("fdbRestoreCommand: %v", err)
 	}
+
 	describe := fdbDescribeCommand(hostileDestURL)
 
 	for name, command := range map[string][]string{"restore": restore, "describe": describe} {
-		t.Run(name, func(t *testing.T) {
-			if slices.Contains(command, "sh") || slices.Contains(command, "-c") {
-				t.Fatalf("engine vectors must carry no shell of their own: %q", command)
-			}
-			whole := 0
-			for _, arg := range command {
-				if arg == hostileDestURL {
-					whole++
-					continue
+		t.Run(
+			name,
+			func(t *testing.T) {
+				if slices.Contains(command, "sh") || slices.Contains(command, "-c") {
+					t.Fatalf("engine vectors must carry no shell of their own: %q", command)
 				}
-				if strings.Contains(arg, "touch /tmp/pwned") {
-					t.Fatalf("destination URL leaked out of its own argument: %q", command)
+
+				whole := 0
+
+				for _, arg := range command {
+					if arg == hostileDestURL {
+						whole++
+						continue
+					}
+
+					if strings.Contains(arg, "touch /tmp/pwned") {
+						t.Fatalf("destination URL leaked out of its own argument: %q", command)
+					}
 				}
-			}
-			if whole != 1 {
-				t.Fatalf("destination URL must be exactly one whole argument, appeared %d times: %q",
-					whole, command)
-			}
-		})
+
+				if whole != 1 {
+					t.Fatalf(
+						"destination URL must be exactly one whole argument, appeared %d times: %q",
+						whole,
+						command,
+					)
+				}
+			},
+		)
 	}
 }
 
@@ -152,14 +179,19 @@ func TestFDBRestoreCommandRefusesSubSecondTarget(t *testing.T) {
 	target := time.Date(2026, 8, 30, 1, 5, 0, 900000000, time.UTC)
 
 	got, err := fdbRestoreCommand(drillDestURL, &target)
-
 	if err == nil {
 		t.Fatalf("a sub-second target must not assemble a restore: %q", got)
 	}
+
 	if got != nil {
 		t.Fatalf("a refused target must yield no command: %q", got)
 	}
-	for _, want := range []string{"2026-08-30T01:05:00.9Z", fdbTimestampArgForm, "2026/08/30.01:05:00+0000"} {
+
+	for _, want := range []string{
+		"2026-08-30T01:05:00.9Z",
+		fdbTimestampArgForm,
+		"2026/08/30.01:05:00+0000",
+	} {
 		if !strings.Contains(err.Error(), want) {
 			t.Fatalf("refusal must name %q so the operator can pick a moment: %v", want, err)
 		}
@@ -170,7 +202,10 @@ func TestFDBRestoreCommandRefusesSubSecondTarget(t *testing.T) {
 // file mount uses the restore's source path and the read-only option.
 func TestFDBTargetTimeMountIsReadOnlySourceCluster(t *testing.T) {
 	if !strings.HasSuffix(fdbOrigClusterMount, ":"+fdbOrigClusterFilePath+":ro") {
-		t.Fatalf("source cluster mount must be read-only at the named path: %q", fdbOrigClusterMount)
+		t.Fatalf(
+			"source cluster mount must be read-only at the named path: %q",
+			fdbOrigClusterMount,
+		)
 	}
 }
 
@@ -187,10 +222,14 @@ func TestFDBDescribeCommandReadsWindowFromSourceCluster(t *testing.T) {
 	got := fdbDescribeCommand(drillDestURL)
 
 	want := []string{
-		"timeout", strconv.Itoa(fdbDescribeTimeoutSeconds),
-		"fdbbackup", "describe",
-		"-d", drillDestURL,
-		"-C", fdbOrigClusterFilePath,
+		"timeout",
+		strconv.Itoa(fdbDescribeTimeoutSeconds),
+		"fdbbackup",
+		"describe",
+		"-d",
+		drillDestURL,
+		"-C",
+		fdbOrigClusterFilePath,
 		"--version-timestamps",
 	}
 	if !slices.Equal(got, want) {
@@ -207,9 +246,13 @@ func TestFDBRestorableWindowFromDescribe(t *testing.T) {
 	wantMin := time.Date(2026, 8, 30, 1, 0, 0, 0, time.UTC)
 	wantMax := time.Date(2026, 8, 30, 1, 10, 3, 0, time.UTC)
 	if !window.Min.Equal(wantMin) || !window.Max.Equal(wantMax) {
-		t.Fatalf("window = %s .. %s, want %s .. %s",
-			formatFDBTime(window.Min), formatFDBTime(window.Max),
-			formatFDBTime(wantMin), formatFDBTime(wantMax))
+		t.Fatalf(
+			"window = %s .. %s, want %s .. %s",
+			formatFDBTime(window.Min),
+			formatFDBTime(window.Max),
+			formatFDBTime(wantMin),
+			formatFDBTime(wantMax),
+		)
 	}
 }
 
@@ -259,15 +302,19 @@ func TestFDBRestorableWindowRejectsUnusableDescribe(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			_, err := fdbRestorableWindowFromDescribe(test.describe)
-			if err == nil {
-				t.Fatal("expected an unusable describe to fail")
-			}
-			if !strings.Contains(err.Error(), test.want) {
-				t.Fatalf("error must explain the failure, want %q in: %v", test.want, err)
-			}
-		})
+		t.Run(
+			test.name,
+			func(t *testing.T) {
+				_, err := fdbRestorableWindowFromDescribe(test.describe)
+				if err == nil {
+					t.Fatal("expected an unusable describe to fail")
+				}
+
+				if !strings.Contains(err.Error(), test.want) {
+					t.Fatalf("error must explain the failure, want %q in: %v", test.want, err)
+				}
+			},
+		)
 	}
 }
 
@@ -298,21 +345,29 @@ func TestAssertTargetWithinWindowRefusesOutsideAndNamesTheWindow(t *testing.T) {
 	}
 
 	for name, target := range tests {
-		t.Run(name, func(t *testing.T) {
-			err := assertTargetWithinWindow(target, window)
-			if err == nil {
-				t.Fatal("a target outside the restorable window must be refused")
-			}
-			for _, want := range []string{
-				formatFDBTime(target),
-				formatFDBTime(window.Min),
-				formatFDBTime(window.Max),
-			} {
-				if !strings.Contains(err.Error(), want) {
-					t.Fatalf("refusal must name %q so the operator can pick a reachable moment: %v", want, err)
+		t.Run(
+			name,
+			func(t *testing.T) {
+				err := assertTargetWithinWindow(target, window)
+				if err == nil {
+					t.Fatal("a target outside the restorable window must be refused")
 				}
-			}
-		})
+
+				for _, want := range []string{
+					formatFDBTime(target),
+					formatFDBTime(window.Min),
+					formatFDBTime(window.Max),
+				} {
+					if !strings.Contains(err.Error(), want) {
+						t.Fatalf(
+							"refusal must name %q so the operator can pick a reachable moment: %v",
+							want,
+							err,
+						)
+					}
+				}
+			},
+		)
 	}
 }
 
@@ -330,16 +385,24 @@ func TestParseFDBTargetTime(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			got, err := parseFDBTargetTime(test.input)
-			if err != nil {
-				t.Fatalf("parseFDBTargetTime(%q): %v", test.input, err)
-			}
-			if !got.Equal(want) {
-				t.Fatalf("parseFDBTargetTime(%q) = %s, want %s",
-					test.input, formatFDBTime(got), formatFDBTime(want))
-			}
-		})
+		t.Run(
+			test.name,
+			func(t *testing.T) {
+				got, err := parseFDBTargetTime(test.input)
+				if err != nil {
+					t.Fatalf("parseFDBTargetTime(%q): %v", test.input, err)
+				}
+
+				if !got.Equal(want) {
+					t.Fatalf(
+						"parseFDBTargetTime(%q) = %s, want %s",
+						test.input,
+						formatFDBTime(got),
+						formatFDBTime(want),
+					)
+				}
+			},
+		)
 	}
 }
 
@@ -365,16 +428,23 @@ func TestParseFDBTargetTimeRefusesSubSecondInput(t *testing.T) {
 		"2026-08-29T21:05:00.000000001-04:00",
 		"2026/08/30.01:05:00.9+0000",
 	} {
-		t.Run(input, func(t *testing.T) {
-			got, err := parseFDBTargetTime(input)
-			if err == nil {
-				t.Fatalf("parseFDBTargetTime(%q) = %s, must refuse a precision the restore drops",
-					input, formatFDBTime(got))
-			}
-			if !strings.Contains(err.Error(), fdbTimestampArgForm) {
-				t.Fatalf("refusal must name the form a target has to fit: %v", err)
-			}
-		})
+		t.Run(
+			input,
+			func(t *testing.T) {
+				got, err := parseFDBTargetTime(input)
+				if err == nil {
+					t.Fatalf(
+						"parseFDBTargetTime(%q) = %s, must refuse a precision the restore drops",
+						input,
+						formatFDBTime(got),
+					)
+				}
+
+				if !strings.Contains(err.Error(), fdbTimestampArgForm) {
+					t.Fatalf("refusal must name the form a target has to fit: %v", err)
+				}
+			},
+		)
 	}
 }
 
@@ -391,6 +461,7 @@ func TestParseFDBTargetTimeKeepsTheZeroTimeExplicit(t *testing.T) {
 	if err != nil {
 		t.Fatalf("fdbRestoreCommand with no target: %v", err)
 	}
+
 	explicit, err := fdbRestoreCommand(drillDestURL, &parsed)
 	if err != nil {
 		t.Fatalf("fdbRestoreCommand with the zero instant: %v", err)
@@ -399,6 +470,7 @@ func TestParseFDBTargetTimeKeepsTheZeroTimeExplicit(t *testing.T) {
 	if slices.Equal(explicit, latest) {
 		t.Fatalf("an explicit target assembled the latest-point restore: %q", explicit)
 	}
+
 	if !slices.Contains(explicit, "0001/01/01.00:00:00+0000") {
 		t.Fatalf("an explicit target must reach fdbrestore as itself: %q", explicit)
 	}
@@ -418,11 +490,16 @@ func TestSelectFDBBackupSkipsTheWindowCheckByDefault(t *testing.T) {
 		FDBTargetTime: nil,
 	}
 
-	name, err := selectFDBBackup(context.Background(), drill, "tack-rtfdb-run",
-		[]string{"backups/20260829T000000Z", "backups/20260830T000000Z"})
+	name, err := selectFDBBackup(
+		context.Background(),
+		drill,
+		"tack-rtfdb-run",
+		[]string{"backups/20260829T000000Z", "backups/20260830T000000Z"},
+	)
 	if err != nil {
 		t.Fatalf("a drill with no target time must not check a window: %v", err)
 	}
+
 	if name != "20260830T000000Z" {
 		t.Fatalf("selected %q, want the newest backup's bare name", name)
 	}
@@ -451,18 +528,27 @@ func TestSelectFDBBackupChecksTheWindowForTheZeroTime(t *testing.T) {
 	func() {
 		defer func() {
 			if recovered := recover(); recovered != nil {
-				t.Logf("window check reached the describe exec and panicked on the absent client: %v", recovered)
+				t.Logf(
+					"window check reached the describe exec and panicked on the absent client: %v",
+					recovered,
+				)
 				reached = true
 			}
 		}()
 		if _, err := selectFDBBackup(
-			context.Background(), drill, "tack-rtfdb-run", []string{"backups/20260830T000000Z"}); err != nil {
+			context.Background(),
+			drill,
+			"tack-rtfdb-run",
+			[]string{"backups/20260830T000000Z"},
+		); err != nil {
 			t.Logf("window check reached the describe exec and errored: %v", err)
 			reached = true
 		}
 	}()
 
 	if !reached {
-		t.Fatal("an explicitly named zero instant was treated as no target and skipped the window check")
+		t.Fatal(
+			"an explicitly named zero instant was treated as no target and skipped the window check",
+		)
 	}
 }

@@ -53,8 +53,13 @@ const (
 //   - An offset of zero starts the order with live work.
 func ScheduledWorkClasses() []WorkClass {
 	return []WorkClass{
-		WorkClassLive, WorkClassAccess, WorkClassCleanup, WorkClassRescan,
-		WorkClassRollout, WorkClassRebuild, WorkClassCopy,
+		WorkClassLive,
+		WorkClassAccess,
+		WorkClassCleanup,
+		WorkClassRescan,
+		WorkClassRollout,
+		WorkClassRebuild,
+		WorkClassCopy,
 	}
 }
 
@@ -110,6 +115,7 @@ func (w Work) Excludable() bool {
 	if w.Deleted {
 		return false
 	}
+
 	return w.Class == WorkClassLive || w.Class == WorkClassAccess || w.Class == WorkClassCopy
 }
 

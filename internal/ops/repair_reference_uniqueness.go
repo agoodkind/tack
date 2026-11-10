@@ -79,26 +79,37 @@ type RepairReferenceReport struct {
 }
 
 func runRepairReferenceUniqueness(ctx context.Context, env *Env) error {
-	report, err := RepairReferenceUniqueness(ctx, env, RepairReferenceOptions{
-		Execute:          false,
-		Keep:             keepOldest,
-		FailAfterRenames: 0,
-	})
+	report, err := RepairReferenceUniqueness(
+		ctx,
+		env,
+		RepairReferenceOptions{
+			Execute:          false,
+			Keep:             keepOldest,
+			FailAfterRenames: 0,
+		},
+	)
 	if err != nil {
 		return err
 	}
+
 	for _, rename := range report.Renumbered {
-		env.Log.DebugContext(ctx, "reference.rename.planned",
+		env.Log.DebugContext(
+			ctx,
+			"reference.rename.planned",
 			slog.String("node_id", rename.NodeID.String()),
 			slog.String("from", rename.From),
 			slog.String("to", rename.To),
 		)
 	}
-	env.Log.InfoContext(ctx, "repair.reference_uniqueness.completed",
+
+	env.Log.InfoContext(
+		ctx,
+		"repair.reference_uniqueness.completed",
 		slog.Int("renumbered", len(report.Renumbered)),
 		slog.Int("counters_seeded", len(report.Counters)),
 		slog.Int("keys_written", len(report.Keys)),
 	)
+
 	return nil
 }
 
@@ -112,11 +123,16 @@ func RepairReferenceUniqueness(
 	if opts.Keep == "" {
 		opts.Keep = keepOldest
 	}
+
 	if opts.Keep != keepOldest && opts.Keep != keepNewest {
 		return RepairReferenceReport{}, fmt.Errorf(
-			"keep policy %q: want %q or %q", opts.Keep, keepOldest, keepNewest,
+			"keep policy %q: want %q or %q",
+			opts.Keep,
+			keepOldest,
+			keepNewest,
 		)
 	}
+
 	report := RepairReferenceReport{
 		Renumbered: nil,
 		Counters:   nil,
@@ -126,6 +142,7 @@ func RepairReferenceUniqueness(
 	if err != nil {
 		return report, err
 	}
+
 	// Every stage returns what it applied even when it fails, and the partial
 	// work is folded into the report before the error goes up. A run that dies
 	// midway has already written those changes to FoundationDB, so the report
@@ -137,22 +154,31 @@ func RepairReferenceUniqueness(
 			return report, seedErr
 		}
 	}
+
 	duplicates, err := FindDuplicateReferences(ctx, env)
 	if err != nil {
 		return report, err
 	}
+
 	applied := 0
 	beforeRename := func() error {
 		if opts.FailAfterRenames > 0 && applied >= opts.FailAfterRenames {
 			faultErr := fmt.Errorf("%w after %d rename(s)", ErrRepairFaultInjected, applied)
-			env.Log.WarnContext(ctx, "repair.reference_uniqueness.fault_injected",
+			env.Log.WarnContext(
+				ctx,
+				"repair.reference_uniqueness.fault_injected",
 				slog.Int("applied_renames", applied),
-				slog.String("err", faultErr.Error()))
+				slog.String("err", faultErr.Error()),
+			)
+
 			return faultErr
 		}
+
 		applied++
+
 		return nil
 	}
+
 	for _, duplicate := range duplicates {
 		renamed, renameErr := renumberDuplicateGroup(ctx, env, duplicate, opts, beforeRename)
 		report.Renumbered = append(report.Renumbered, renamed...)
@@ -160,9 +186,11 @@ func RepairReferenceUniqueness(
 			return report, renameErr
 		}
 	}
+
 	if !opts.Execute {
 		return report, nil
 	}
+
 	for orgID := range orgIDs {
 		written, writeErr := writeAllReferenceKeys(ctx, env, orgID)
 		report.Keys = append(report.Keys, written...)
@@ -170,5 +198,6 @@ func RepairReferenceUniqueness(
 			return report, writeErr
 		}
 	}
+
 	return report, nil
 }

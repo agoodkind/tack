@@ -67,6 +67,7 @@ func (p *ledgerNodeProgress) observe(counts ledgerClusterCounts) bool {
 	if p.observeFall(ledgerCounterUnderReplicated, counts.underReplicated) {
 		moved = true
 	}
+
 	return moved
 }
 
@@ -75,7 +76,9 @@ func (p *ledgerNodeProgress) observeFall(name string, value int) bool {
 	if seen && value >= previous {
 		return false
 	}
+
 	p.lowWater[name] = value
+
 	return true
 }
 
@@ -85,10 +88,12 @@ func (p *ledgerNodeProgress) summary() string {
 	if len(p.lowWater) == 0 {
 		return "no cluster reading was ever readable from the masters"
 	}
+
 	parts := make([]string, 0, len(p.lowWater))
 	for _, name := range slices.Sorted(maps.Keys(p.lowWater)) {
 		parts = append(parts, name+"="+strconv.Itoa(p.lowWater[name]))
 	}
+
 	return strings.Join(parts, " ")
 }
 
@@ -96,22 +101,35 @@ func (p *ledgerNodeProgress) summary() string {
 // container exits or progress stalls. stallWindow limits time since the last
 // observed progress. A container that is not running ends the wait immediately.
 // Health-read errors and context cancellation also end the wait.
-func awaitLedgerNode(ctx context.Context, watch ledgerNodeWatch, stallWindow, pollInterval time.Duration) (time.Duration, error) {
+func awaitLedgerNode(
+	ctx context.Context,
+	watch ledgerNodeWatch,
+	stallWindow time.Duration,
+	pollInterval time.Duration,
+) (time.Duration, error) {
 	progress := newLedgerNodeProgress()
 	started := opsNow()
 	lastMoved := started
 	var lastProbeErr string
+
 	for {
 		health, err := watch.Health(ctx)
 		if err != nil {
 			return 0, err
 		}
+
 		if health.status == ledgerNodeHealthy {
 			return opsNow().Sub(started), nil
 		}
+
 		if !health.running {
-			return 0, fmt.Errorf("the ledger node container is not running (health %s): %s", health.status, progress.summary())
+			return 0, fmt.Errorf(
+				"the ledger node container is not running (health %s): %s",
+				health.status,
+				progress.summary(),
+			)
 		}
+
 		counts, probeErr := watch.Cluster(ctx)
 		switch {
 		case probeErr != nil:
@@ -119,17 +137,28 @@ func awaitLedgerNode(ctx context.Context, watch ledgerNodeWatch, stallWindow, po
 		case progress.observe(counts):
 			lastMoved = opsNow()
 			lastProbeErr = ""
-			slog.DebugContext(ctx, "ops.ledger.node_wait.progress",
-				slog.String("health", health.status), slog.String("marks", progress.summary()))
+			slog.DebugContext(
+				ctx,
+				"ops.ledger.node_wait.progress",
+				slog.String("health", health.status),
+				slog.String("marks", progress.summary()),
+			)
 		default:
 			lastProbeErr = ""
 		}
+
 		if stalled := opsNow().Sub(lastMoved); stalled >= stallWindow {
 			return 0, ledgerNodeStallError(stalled, health.status, progress, lastProbeErr)
 		}
+
 		if !opsWait(ctx, pollInterval) {
-			slog.ErrorContext(ctx, "ops.ledger.node_wait.cancelled",
-				slog.String("err", ctx.Err().Error()), slog.String("marks", progress.summary()))
+			slog.ErrorContext(
+				ctx,
+				"ops.ledger.node_wait.cancelled",
+				slog.String("err", ctx.Err().Error()),
+				slog.String("marks", progress.summary()),
+			)
+
 			return 0, fmt.Errorf("waiting for the ledger node: %w", ctx.Err())
 		}
 	}
@@ -137,11 +166,21 @@ func awaitLedgerNode(ctx context.Context, watch ledgerNodeWatch, stallWindow, po
 
 // ledgerNodeStallError reports the observed health and minimum counters.
 // It includes the last cluster-read error when that read failed.
-func ledgerNodeStallError(stalled time.Duration, health string, progress *ledgerNodeProgress, lastProbeErr string) error {
-	message := fmt.Sprintf("the ledger node made no progress for %s (health %s): %s",
-		stalled.Round(time.Second), health, progress.summary())
+func ledgerNodeStallError(
+	stalled time.Duration,
+	health string,
+	progress *ledgerNodeProgress,
+	lastProbeErr string,
+) error {
+	message := fmt.Sprintf(
+		"the ledger node made no progress for %s (health %s): %s",
+		stalled.Round(time.Second),
+		health,
+		progress.summary(),
+	)
 	if lastProbeErr != "" {
 		message += "; the last cluster read failed: " + lastProbeErr
 	}
+
 	return errors.New(message)
 }

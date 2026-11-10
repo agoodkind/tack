@@ -18,30 +18,54 @@ const UnassignedText = "unassigned"
 // organization with assigned_to. Each get or list handler calls
 // loadAssignees once. It reads relationships because NodeReader relation
 // scans cannot return user targets.
-func (rc *renderCtx) loadAssignees(relationships node.RelationshipBatchLister, views ...*node.NodeView) error {
+func (rc *renderCtx) loadAssignees(
+	relationships node.RelationshipBatchLister,
+	views ...*node.NodeView,
+) error {
 	sourcesByOrg := map[uuid.UUID][]uuid.UUID{}
+
 	for _, view := range views {
 		if rc.hasAssignees(view) {
 			sourcesByOrg[view.OrgID] = append(sourcesByOrg[view.OrgID], view.ID)
 		}
 	}
+
 	for orgID, sourceIDs := range sourcesByOrg {
-		edgesBySource, err := relationships.ListBySources(rc.ctx, orgID, sourceIDs, node.RelAssignedTo)
+		edgesBySource, err := relationships.ListBySources(
+			rc.ctx,
+			orgID,
+			sourceIDs,
+			node.RelAssignedTo,
+		)
 		if err != nil {
-			slog.ErrorContext(rc.ctx, "render.assignees_read_failed",
-				slog.String("org_id", orgID.String()), slog.Int("node_count", len(sourceIDs)),
-				slog.String("err", err.Error()))
-			return fmt.Errorf("list assigned_to relationships of %d nodes in org %s: %w", len(sourceIDs), orgID, err)
+			slog.ErrorContext(
+				rc.ctx,
+				"render.assignees_read_failed",
+				slog.String("org_id", orgID.String()),
+				slog.Int("node_count", len(sourceIDs)),
+				slog.String("err", err.Error()),
+			)
+
+			return fmt.Errorf(
+				"list assigned_to relationships of %d nodes in org %s: %w",
+				len(sourceIDs),
+				orgID,
+				err,
+			)
 		}
+
 		for _, sourceID := range sourceIDs {
 			edges := edgesBySource[sourceID]
+
 			targets := make([]uuid.UUID, 0, len(edges))
 			for _, edge := range edges {
 				targets = append(targets, edge.TargetID)
 			}
+
 			rc.assignees[sourceID] = targets
 		}
 	}
+
 	return nil
 }
 
@@ -51,7 +75,9 @@ func (rc *renderCtx) hasAssignees(view *node.NodeView) bool {
 	if rc == nil || view == nil {
 		return false
 	}
+
 	nodeType := rc.typeIndex[view.NodeType]
+
 	return nodeType != nil && nodeType.Features.Has(node.FeatureHasAssignees)
 }
 
@@ -62,7 +88,9 @@ func (rc *renderCtx) loadedAssignees(view *node.NodeView) ([]uuid.UUID, bool) {
 	if !rc.hasAssignees(view) {
 		return nil, false
 	}
+
 	targets, loaded := rc.assignees[view.ID]
+
 	return targets, loaded
 }
 
@@ -73,13 +101,18 @@ func (rc *renderCtx) assigneeName(userID uuid.UUID) string {
 	if name := rc.userDisplay(userID); name != "" {
 		return name
 	}
+
 	return markdownCodeValue(userID.String())
 }
 
 // appendNestedAssigned adds the "Assigned" field to a list row when
 // loadAssignees loaded the view. It shows "unassigned" for zero assignees,
 // the assignee's name for one, or the user count for multiple assignees.
-func appendNestedAssigned(fields []markdownField, rc *renderCtx, view *node.NodeView) []markdownField {
+func appendNestedAssigned(
+	fields []markdownField,
+	rc *renderCtx,
+	view *node.NodeView,
+) []markdownField {
 	assignees, loaded := rc.loadedAssignees(view)
 	switch {
 	case !loaded:
@@ -89,7 +122,10 @@ func appendNestedAssigned(fields []markdownField, rc *renderCtx, view *node.Node
 	case len(assignees) == 1:
 		return append(fields, markdownFieldValue("Assigned", rc.assigneeName(assignees[0])))
 	default:
-		return append(fields, markdownFieldValue("Assigned", fmt.Sprintf("%d users", len(assignees))))
+		return append(
+			fields,
+			markdownFieldValue("Assigned", fmt.Sprintf("%d users", len(assignees))),
+		)
 	}
 }
 
@@ -103,12 +139,15 @@ func appendAssignees(fields []markdownField, rc *renderCtx, view *node.NodeView)
 	if !loaded {
 		return fields
 	}
+
 	if len(assignees) == 0 {
 		return append(fields, markdownFieldValue("Assignees", UnassignedText))
 	}
+
 	names := make([]string, 0, len(assignees))
 	for _, userID := range assignees {
 		names = append(names, rc.assigneeName(userID))
 	}
+
 	return append(fields, markdownFieldValue("Assignees", strings.Join(names, ", ")))
 }

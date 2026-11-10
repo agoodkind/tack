@@ -13,10 +13,12 @@ func redactSecret(cfg *config.Config, text string) string {
 	if len(second) > len(first) {
 		first, second = second, first
 	}
+
 	for _, credential := range []string{first, second} {
 		if credential != "" {
 			text = strings.ReplaceAll(text, credential, "***REDACTED***")
 		}
 	}
+
 	return text
 }

@@ -14,8 +14,10 @@ import (
 // bootstrap of an empty ledger, and the preparation of and wait on this
 // guest's own node around a restart.
 var ledgerGroup = &clispec.Group{
-	Use: "ledger", Short: "Bootstrap an empty ledger, and prepare and wait on this guest's ledger node around a restart",
-	Long: "", Parent: opsGroup,
+	Use:    "ledger",
+	Short:  "Bootstrap an empty ledger, and prepare and wait on this guest's ledger node around a restart",
+	Long:   "",
+	Parent: opsGroup,
 }
 
 // ledgerAuditBootstrapOp declares `ops ledger audit-bootstrap`. The command
@@ -60,9 +62,11 @@ func ledgerNodeWaitWindows(in ledgerNodeWaitInput) (stall, poll time.Duration, e
 	if err != nil || stall <= 0 {
 		return 0, 0, fmt.Errorf("--stall %q is not a positive duration", in.Stall)
 	}
+
 	poll, err = time.ParseDuration(in.Poll)
 	if err != nil || poll <= 0 {
 		return 0, 0, fmt.Errorf("--poll %q is not a positive duration", in.Poll)
 	}
+
 	return stall, poll, nil
 }

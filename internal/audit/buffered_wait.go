@@ -31,12 +31,14 @@ var (
 func (b *BufferedRecorder) waitForRoom(ctx context.Context, ev Event) error {
 	deadline := time.NewTimer(queueWaitTimeout)
 	defer deadline.Stop()
+
 	for {
 		b.stopping.RLock()
 		if b.closed {
 			b.stopping.RUnlock()
 			return b.recordThrough(ctx, ev)
 		}
+
 		result, opened := b.room.admitOrWait(ev)
 		b.stopping.RUnlock()
 		switch result {
@@ -46,6 +48,7 @@ func (b *BufferedRecorder) waitForRoom(ctx context.Context, ev Event) error {
 			return b.refuseQueued(ctx, ev, errRetainedFull)
 		case mustWait:
 		}
+
 		// Room or Close wakes the loop to check admission again. The deadline or
 		// ctx cancellation returns a refusal.
 		select {
@@ -65,10 +68,14 @@ func (b *BufferedRecorder) waitForRoom(ctx context.Context, ev Event) error {
 
 // refuseQueued logs and returns the refusal of one read-class event.
 func (b *BufferedRecorder) refuseQueued(ctx context.Context, ev Event, cause error) error {
-	slog.ErrorContext(ctx, "audit.buffer.queue_refused",
+	slog.ErrorContext(
+		ctx,
+		"audit.buffer.queue_refused",
 		slog.String("verb", ev.Verb),
 		slog.String("event_id", ev.EventID.String()),
 		slog.Int("capacity", cap(b.queue)),
-		slog.String("err", cause.Error()))
+		slog.String("err", cause.Error()),
+	)
+
 	return fmt.Errorf("queue audit event %s: %w", ev.Verb, cause)
 }

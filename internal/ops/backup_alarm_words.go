@@ -41,6 +41,7 @@ func backupStalenessAlarmSubject(host string, faults []backupStalenessMetric) st
 	if len(faults) == 1 {
 		return prefix + backupAlarmFaultPhrase(faults[0])
 	}
+
 	return prefix + strconv.Itoa(len(faults)) + " backup problems"
 }
 
@@ -57,18 +58,22 @@ func backupStalenessAlarmBody(cfg *config.Config, faults []backupStalenessMetric
 	if store, unreachable := backupAlarmObjectStoreParagraph(faults); unreachable {
 		body.WriteString(store + "\n\n")
 	}
+
 	for i, fault := range faults {
 		if i > 0 {
 			body.WriteString("\n\n")
 		}
+
 		if len(faults) > 1 {
 			body.WriteString(backupAlarmFaultPhrase(fault) + "\n")
 			body.WriteString(backupAlarmFaultParagraph(cfg, fault) + "\n")
 		} else {
 			body.WriteString(backupAlarmFaultParagraph(cfg, fault) + "\n\n")
 		}
+
 		body.WriteString(backupAlarmSteps(fault))
 	}
+
 	return body.String()
 }
 
@@ -79,21 +84,26 @@ func backupStalenessAlarmBody(cfg *config.Config, faults []backupStalenessMetric
 func backupAlarmObjectStoreParagraph(faults []backupStalenessMetric) (string, bool) {
 	unreachable := false
 	var lastRead time.Time
+
 	for _, fault := range faults {
 		if fault.Unknown != backupStalenessStoreUnreachable {
 			continue
 		}
+
 		unreachable = true
 		if fault.LastReadAt.After(lastRead) {
 			lastRead = fault.LastReadAt
 		}
 	}
+
 	if !unreachable {
 		return "", false
 	}
+
 	if lastRead.IsZero() {
 		return backupAlarmStoreNoun + " this check." + backupAlarmStoreStep, true
 	}
+
 	return backupAlarmStoreNoun + "; this guest last read it at " +
 		lastRead.UTC().Format(backupAlarmTimeLayout) + "." + backupAlarmStoreStep, true
 }
@@ -101,10 +111,12 @@ func backupAlarmObjectStoreParagraph(faults []backupStalenessMetric) (string, bo
 // backupAlarmSteps numbers one mechanism's steps, one per line.
 func backupAlarmSteps(fault backupStalenessMetric) string {
 	words := backupAlarmWordsFor(fault)
+
 	lines := make([]string, 0, len(words.steps))
 	for n, step := range words.steps {
 		lines = append(lines, strconv.Itoa(n+1)+". "+step)
 	}
+
 	return strings.Join(lines, "\n")
 }
 
@@ -115,9 +127,11 @@ func backupAlarmFaultPhrase(fault backupStalenessMetric) string {
 	if fault.Unknown == backupStalenessNeverRecorded {
 		return words.phraseNeverRecorded
 	}
+
 	if fault.Unknown != backupStalenessAgeKnown {
 		return words.phraseUnreadable
 	}
+
 	return fmt.Sprintf(words.phraseKnown, backupAlarmClock(fault.Age))
 }
 
@@ -134,22 +148,30 @@ func backupAlarmFaultParagraph(cfg *config.Config, fault backupStalenessMetric) 
 	if fault.Unknown == backupStalenessNeverRecorded {
 		return fmt.Sprintf(words.paragraphNeverRecorded, backupAlarmDetail(cfg, fault.Detail))
 	}
+
 	if fault.Unknown != backupStalenessAgeKnown {
 		if !fault.AgeKnown {
 			return words.paragraphUnreadable
 		}
-		return words.paragraphUnreadable + fmt.Sprintf(words.paragraphRemembered,
+
+		return words.paragraphUnreadable + fmt.Sprintf(
+			words.paragraphRemembered,
 			fault.At.UTC().Format(backupAlarmTimeLayout),
 			backupAlarmClock(fault.Age),
-			backupAlarmClock(fault.Threshold))
+			backupAlarmClock(fault.Threshold),
+		)
 	}
-	paragraph := fmt.Sprintf(words.paragraphKnown,
+
+	paragraph := fmt.Sprintf(
+		words.paragraphKnown,
 		fault.At.UTC().Format(backupAlarmTimeLayout),
 		backupAlarmClock(fault.Age),
-		backupAlarmClock(fault.Threshold))
+		backupAlarmClock(fault.Threshold),
+	)
 	if words.paragraphKnownDetail == "" {
 		return paragraph
 	}
+
 	return paragraph + fmt.Sprintf(words.paragraphKnownDetail, backupAlarmDetail(cfg, fault.Detail))
 }
 
@@ -164,16 +186,20 @@ func backupAlarmClock(d time.Duration) string {
 		if remainingHours := int((d % day) / time.Hour); remainingHours > 0 {
 			return days + " " + backupAlarmCount(remainingHours, "hour")
 		}
+
 		return days
 	}
+
 	hours := int(d / time.Hour)
 	minutes := int((d % time.Hour) / time.Minute)
 	if hours > 0 && minutes > 0 {
 		return backupAlarmCount(hours, "hour") + " " + backupAlarmCount(minutes, "minute")
 	}
+
 	if hours > 0 {
 		return backupAlarmCount(hours, "hour")
 	}
+
 	return backupAlarmCount(minutes, "minute")
 }
 
@@ -183,6 +209,7 @@ func backupAlarmCount(n int, unit string) string {
 	if n == 1 {
 		return "1 " + unit
 	}
+
 	return strconv.Itoa(n) + " " + unit + "s"
 }
 
@@ -195,7 +222,9 @@ func backupAlarmDetail(cfg *config.Config, detail string) string {
 	if endpoint == "" {
 		return flattened
 	}
+
 	authority := strings.TrimPrefix(strings.TrimPrefix(endpoint, "https://"), "http://")
 	flattened = strings.ReplaceAll(flattened, endpoint, backupAlarmObjectStoreStandIn)
+
 	return strings.ReplaceAll(flattened, authority, backupAlarmObjectStoreStandIn)
 }

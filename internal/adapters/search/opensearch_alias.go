@@ -53,19 +53,51 @@ func (a *Adapter) PublicAliasTarget(ctx context.Context) (string, error) {
 func (a *Adapter) SwitchPublicAlias(ctx context.Context, from, to string) error {
 	remove := aliasBinding{Index: from, Alias: PublicAlias, IsWriteIndex: false}
 	add := aliasBinding{Index: to, Alias: PublicAlias, IsWriteIndex: true}
-	body, err := json.Marshal(aliasActions{Actions: []aliasAction{{Remove: &remove, Add: nil}, {Remove: nil, Add: &add}}})
+	body, err := json.Marshal(aliasActions{
+		Actions: []aliasAction{{Remove: &remove, Add: nil}, {Remove: nil, Add: &add}},
+	})
 	if err != nil {
-		return engineFailure(ctx, "search.alias.encode_failed", "encode alias switch to "+to, to, err)
+		return engineFailure(
+			ctx,
+			"search.alias.encode_failed",
+			"encode alias switch to "+to,
+			to,
+			err,
+		)
 	}
-	response, err := a.api.Indices.UpdateAliases(ctx, &opensearchapi.IndicesUpdateAliasesReq{BodyReader: bytes.NewReader(body)})
+
+	response, err := a.api.Indices.UpdateAliases(
+		ctx,
+		&opensearchapi.IndicesUpdateAliasesReq{BodyReader: bytes.NewReader(body)},
+	)
 	if err != nil {
-		return engineFailure(ctx, "search.alias.switch_failed", "switch alias "+PublicAlias+" from "+from+" to "+to, to, err)
+		return engineFailure(
+			ctx,
+			"search.alias.switch_failed",
+			"switch alias "+PublicAlias+" from "+from+" to "+to,
+			to,
+			err,
+		)
 	}
+
 	if !response.Acknowledged {
-		return engineFailure(ctx, "search.alias.switch_unacknowledged", "switch alias "+PublicAlias+" to "+to, to, errNotAcknowledged)
+		return engineFailure(
+			ctx,
+			"search.alias.switch_unacknowledged",
+			"switch alias "+PublicAlias+" to "+to,
+			to,
+			errNotAcknowledged,
+		)
 	}
-	telemetry.L(ctx).InfoContext(ctx, "search.alias.switched", slog.String("alias", PublicAlias),
-		slog.String("previous_index", from), slog.String("index", to))
+
+	telemetry.L(ctx).InfoContext(
+		ctx,
+		"search.alias.switched",
+		slog.String("alias", PublicAlias),
+		slog.String("previous_index", from),
+		slog.String("index", to),
+	)
+
 	return nil
 }
 
@@ -77,14 +109,20 @@ func (a *Adapter) SwitchPublicAlias(ctx context.Context, from, to string) error 
 //  2. Log successful completion.
 func (a *Adapter) DeleteIndex(ctx context.Context, index string) error {
 	ignoreMissing := true
-	_, err := a.api.Indices.Delete(ctx, &opensearchapi.IndicesDeleteReq{
-		Indices: []string{index}, Header: nil,
-		Params: &opensearchapi.IndicesDeleteParams{IgnoreUnavailable: &ignoreMissing},
-	})
+	_, err := a.api.Indices.Delete(
+		ctx,
+		&opensearchapi.IndicesDeleteReq{
+			Indices: []string{index},
+			Header:  nil,
+			Params:  &opensearchapi.IndicesDeleteParams{IgnoreUnavailable: &ignoreMissing},
+		},
+	)
 	if err != nil {
 		return engineFailure(ctx, "search.index.delete_failed", "delete index "+index, index, err)
 	}
+
 	telemetry.L(ctx).InfoContext(ctx, "search.index.deleted", slog.String("index", index))
+
 	return nil
 }
 
@@ -98,30 +136,78 @@ type retiredCount struct {
 //
 //  1. Count documents with retired set to true.
 //  2. Read the primary shards' store size.
-func (a *Adapter) IndexRetention(ctx context.Context, index string) (searchdomain.RetentionStats, error) {
+func (a *Adapter) IndexRetention(
+	ctx context.Context,
+	index string,
+) (searchdomain.RetentionStats, error) {
 	var none searchdomain.RetentionStats
-	body, err := json.Marshal(retiredCount{Query: booleanTermClause{Term: map[string]bool{"retired": true}}})
+	body, err := json.Marshal(retiredCount{
+		Query: booleanTermClause{Term: map[string]bool{"retired": true}},
+	})
 	if err != nil {
-		return none, engineFailure(ctx, "search.retention.encode_failed", "encode retired page count", index, err)
+		return none, engineFailure(
+			ctx,
+			"search.retention.encode_failed",
+			"encode retired page count",
+			index,
+			err,
+		)
 	}
-	count, err := a.api.Count(ctx, &opensearchapi.CountReq{Indices: []string{index}, BodyReader: bytes.NewReader(body)})
+
+	count, err := a.api.Count(
+		ctx,
+		&opensearchapi.CountReq{Indices: []string{index}, BodyReader: bytes.NewReader(body)},
+	)
 	if err != nil {
-		return none, engineFailure(ctx, "search.retention.count_failed", "count retired pages of "+index, index, err)
+		return none, engineFailure(
+			ctx,
+			"search.retention.count_failed",
+			"count retired pages of "+index,
+			index,
+			err,
+		)
 	}
-	stats, err := a.api.Indices.Stats(ctx, &opensearchapi.IndicesStatsReq{Indices: []string{index}, Metric: []string{"store"}})
+
+	stats, err := a.api.Indices.Stats(
+		ctx,
+		&opensearchapi.IndicesStatsReq{Indices: []string{index}, Metric: []string{"store"}},
+	)
 	if err != nil {
-		return none, engineFailure(ctx, "search.retention.stats_failed", "read storage of "+index, index, err)
+		return none, engineFailure(
+			ctx,
+			"search.retention.stats_failed",
+			"read storage of "+index,
+			index,
+			err,
+		)
 	}
+
 	details, exists := stats.Indices[index]
 	if !exists {
-		return none, engineFailure(ctx, "search.retention.stats_absent", "read storage of "+index, index, errors.New("statistics are absent"))
+		return none, engineFailure(
+			ctx,
+			"search.retention.stats_absent",
+			"read storage of "+index,
+			index,
+			errors.New("statistics are absent"),
+		)
 	}
-	return searchdomain.RetentionStats{RetiredPages: count.Count, PrimaryBytes: details.Primaries.Store.SizeInBytes}, nil
+
+	return searchdomain.RetentionStats{
+		RetiredPages: count.Count,
+		PrimaryBytes: details.Primaries.Store.SizeInBytes,
+	}, nil
 }
 
 // engineFailure logs one failed OpenSearch operation and returns it wrapped.
 func engineFailure(ctx context.Context, event, operation, index string, err error) error {
 	wrapped := fmt.Errorf("%s: %w", operation, err)
-	telemetry.L(ctx).ErrorContext(ctx, event, slog.String("err", wrapped.Error()), slog.String("index", index))
+	telemetry.L(ctx).ErrorContext(
+		ctx,
+		event,
+		slog.String("err", wrapped.Error()),
+		slog.String("index", index),
+	)
+
 	return wrapped
 }

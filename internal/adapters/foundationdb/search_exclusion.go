@@ -50,19 +50,36 @@ type searchExclusionRecord struct {
 //
 //   - The exclusion record stores the class, physical index, reason, and
 //     exclusion time.
-func (s *SearchWorkStore) Exclude(ctx context.Context, work searchdomain.Work, reason string) (err error) {
+func (s *SearchWorkStore) Exclude(
+	ctx context.Context,
+	work searchdomain.Work,
+	reason string,
+) (err error) {
 	defer telemetry.FDBOp(ctx, "store.search_work.exclude")(&err)
-	err = transactSearch(ctx, s.db, func(tr fdb.Transaction) error {
-		record, err := s.verifyClaim(ctx, tr, work)
-		if err != nil {
-			return err
-		}
-		return s.excludeNode(ctx, tr, work, record, reason)
-	})
+	err = transactSearch(
+		ctx,
+		s.db,
+		func(tr fdb.Transaction) error {
+			record, err := s.verifyClaim(ctx, tr, work)
+			if err != nil {
+				return err
+			}
+
+			return s.excludeNode(ctx, tr, work, record, reason)
+		},
+	)
 	if err != nil {
-		return searchStorageError(ctx, "search.work.exclude_failed", "exclude node from search", work.NodeID, err)
+		return searchStorageError(
+			ctx,
+			"search.work.exclude_failed",
+			"exclude node from search",
+			work.NodeID,
+			err,
+		)
 	}
+
 	logSearchExclusion(ctx, work, reason)
+
 	return nil
 }
 
@@ -73,7 +90,12 @@ func (s *SearchWorkStore) Exclude(ctx context.Context, work searchdomain.Work, r
 // A nonnil failure.Pending preserves its document and index record under the
 // work class and node. The outcome reports whether the failure sets the
 // count to the limit.
-func (s *SearchWorkStore) recordFailure(ctx context.Context, tr fdb.Transaction, work searchdomain.Work, failure searchdomain.Failure) (failureOutcome, error) {
+func (s *SearchWorkStore) recordFailure(
+	ctx context.Context,
+	tr fdb.Transaction,
+	work searchdomain.Work,
+	failure searchdomain.Failure,
+) (failureOutcome, error) {
 	outcome := failureOutcome{LimitCrossed: false, Attempts: 0, ItemID: ""}
 	if failure.Counted {
 		var err error
@@ -82,31 +104,62 @@ func (s *SearchWorkStore) recordFailure(ctx context.Context, tr fdb.Transaction,
 			return outcome, err
 		}
 	}
+
 	if failure.Pending != nil {
 		if err := recordPendingWrite(ctx, tr, work, *failure.Pending); err != nil {
 			return outcome, err
 		}
 	}
-	tr.Set(fdb.Key(searchErrorKey(string(work.Class), work.OrgID, work.NodeID)), []byte(failure.Message))
-	return outcome, writeSearchRecord(ctx, tr, searchClaimKey(string(work.Class), searchBucket(work.OrgID, work.NodeID), work.OrgID, work.NodeID), searchClaimRecord{
-		Owner: "", Generation: work.Generation, LeaseUntil: s.clock.Now().Add(max(searchRetryDelay, failure.RetryAfter)), Target: work.Target, Mirror: work.Mirror,
-	})
+
+	tr.Set(
+		fdb.Key(searchErrorKey(string(work.Class), work.OrgID, work.NodeID)),
+		[]byte(failure.Message),
+	)
+
+	return outcome, writeSearchRecord(
+		ctx,
+		tr,
+		searchClaimKey(
+			string(work.Class),
+			searchBucket(work.OrgID, work.NodeID),
+			work.OrgID,
+			work.NodeID,
+		),
+		searchClaimRecord{
+			Owner:      "",
+			Generation: work.Generation,
+			LeaseUntil: s.clock.Now().Add(max(searchRetryDelay, failure.RetryAfter)),
+			Target:     work.Target,
+			Mirror:     work.Mirror,
+		},
+	)
 }
 
 // countFailure increments the work item's attempt count. It marks the
 // failure that sets the count to searchFailureLimit and identifies the item.
-func countFailure(ctx context.Context, tr fdb.Transaction, work searchdomain.Work) (failureOutcome, error) {
+func countFailure(
+	ctx context.Context,
+	tr fdb.Transaction,
+	work searchdomain.Work,
+) (failureOutcome, error) {
 	outcome := failureOutcome{LimitCrossed: false, Attempts: 0, ItemID: ""}
-	attempts, err := incrementSearchCounter(ctx, tr, searchAttemptKey(string(work.Class), work.OrgID, work.NodeID))
+	attempts, err := incrementSearchCounter(
+		ctx,
+		tr,
+		searchAttemptKey(string(work.Class), work.OrgID, work.NodeID),
+	)
 	if err != nil {
 		return outcome, err
 	}
+
 	outcome.Attempts = attempts
 	if attempts != searchFailureLimit {
 		return outcome, nil
 	}
+
 	outcome.LimitCrossed = true
 	outcome.ItemID, err = searchItemID(ctx, tr, work.Class, work.OrgID, work.NodeID)
+
 	return outcome, err
 }
 
@@ -118,67 +171,133 @@ func countFailure(ctx context.Context, tr fdb.Transaction, work searchdomain.Wor
 // excludeNode clears recorded access keys and pending flags before saving
 // the exclusion. A later compilation that produces different versions or
 // keys schedules the node's dependents through access work.
-func (s *SearchWorkStore) excludeNode(ctx context.Context, tr fdb.Transaction, work searchdomain.Work, record searchWorkRecord, reason string) error {
+func (s *SearchWorkStore) excludeNode(
+	ctx context.Context,
+	tr fdb.Transaction,
+	work searchdomain.Work,
+	record searchWorkRecord,
+	reason string,
+) error {
 	if !work.Excludable() {
 		return fmt.Errorf("%s work of node %s cannot exclude the node", work.Class, work.NodeID)
 	}
+
 	clearSearchWork(tr, work, record)
+
 	for _, class := range searchNodeClasses {
 		tr.Clear(fdb.Key(searchErrorKey(string(class), work.OrgID, work.NodeID)))
 		tr.Clear(fdb.Key(searchAttemptKey(string(class), work.OrgID, work.NodeID)))
 	}
+
 	now := s.clock.Now().UTC()
-	if _, err := scheduleSearchChange(ctx, tr, now, work.OrgID, work.NodeID, searchChangeExclusion); err != nil {
+	if _, err := scheduleSearchChange(
+		ctx,
+		tr,
+		now,
+		work.OrgID,
+		work.NodeID,
+		searchChangeExclusion,
+	); err != nil {
 		return err
 	}
+
 	var state searchAccessRecord
-	if _, err := readSearchRecord(ctx, tr, searchAccessKey(work.OrgID, work.NodeID), &state); err != nil {
+	if _, err := readSearchRecord(
+		ctx,
+		tr,
+		searchAccessKey(work.OrgID, work.NodeID),
+		&state,
+	); err != nil {
 		return err
 	}
+
 	state.Access.Keys = []string{}
 	state.PagesPending, state.DependentsPending = false, false
-	if err := writeSearchRecord(ctx, tr, searchAccessKey(work.OrgID, work.NodeID), state); err != nil {
+	if err := writeSearchRecord(
+		ctx,
+		tr,
+		searchAccessKey(work.OrgID, work.NodeID),
+		state,
+	); err != nil {
 		return err
 	}
-	return writeSearchRecord(ctx, tr, searchExclusionKey(work.OrgID, work.NodeID), searchExclusionRecord{
-		Class: string(work.Class), Index: work.Target, Reason: reason, ExcludedAt: now,
-	})
+
+	return writeSearchRecord(
+		ctx,
+		tr,
+		searchExclusionKey(work.OrgID, work.NodeID),
+		searchExclusionRecord{
+			Class:      string(work.Class),
+			Index:      work.Target,
+			Reason:     reason,
+			ExcludedAt: now,
+		},
+	)
 }
 
 // exclusionAdjustedChange selects the change to schedule for one node. An
 // access change for an excluded node requests repair because access work
 // cannot update that node's absent pages. A deletion clears the exclusion.
-func exclusionAdjustedChange(ctx context.Context, tr fdb.Transaction, orgID, nodeID uuid.UUID, change searchChange) (searchChange, error) {
+func exclusionAdjustedChange(
+	ctx context.Context,
+	tr fdb.Transaction,
+	orgID uuid.UUID,
+	nodeID uuid.UUID,
+	change searchChange,
+) (searchChange, error) {
 	if change == searchChangeDeletion {
 		tr.Clear(fdb.Key(searchExclusionKey(orgID, nodeID)))
 		return change, nil
 	}
+
 	if change != searchChangeAccess {
 		return change, nil
 	}
+
 	encoded, err := tr.Get(fdb.Key(searchExclusionKey(orgID, nodeID))).Get()
 	if err != nil {
 		return change, searchReadFailure(ctx, "read search exclusion of node "+nodeID.String(), err)
 	}
+
 	if len(encoded) > 0 {
 		return searchChangeRepair, nil
 	}
+
 	return change, nil
 }
 
 // logFailureOutcome logs the work item once when its attempt count equals
 // the limit. The log includes the item's generation, index, and failure
 // message.
-func logFailureOutcome(ctx context.Context, work searchdomain.Work, outcome failureOutcome, message string) {
+func logFailureOutcome(
+	ctx context.Context,
+	work searchdomain.Work,
+	outcome failureOutcome,
+	message string,
+) {
 	if !outcome.LimitCrossed {
 		return
 	}
-	telemetry.L(ctx).ErrorContext(ctx, "search.work.attempt_limit_crossed", slog.String("err", message),
-		slog.String("class", string(work.Class)), slog.String("item_id", outcome.ItemID), slog.Int64("attempts", outcome.Attempts),
-		slog.Int64("generation", work.Generation), slog.String("index", work.Target))
+
+	telemetry.L(ctx).ErrorContext(
+		ctx,
+		"search.work.attempt_limit_crossed",
+		slog.String("err", message),
+		slog.String("class", string(work.Class)),
+		slog.String("item_id", outcome.ItemID),
+		slog.Int64("attempts", outcome.Attempts),
+		slog.Int64("generation", work.Generation),
+		slog.String("index", work.Target),
+	)
 }
 
 func logSearchExclusion(ctx context.Context, work searchdomain.Work, reason string) {
-	telemetry.L(ctx).ErrorContext(ctx, "search.work.node_excluded", slog.String("node_id", work.NodeID.String()),
-		slog.String("class", string(work.Class)), slog.String("index", work.Target), slog.String("reason", reason))
+	telemetry.L(ctx).ErrorContext(
+		ctx,
+		"search.work.node_excluded",
+		slog.String("node_id", work.NodeID.String()),
+		slog.String("class", string(work.Class)),
+		slog.String("index", work.Target),
+		slog.String("reason", reason),
+	)
 }

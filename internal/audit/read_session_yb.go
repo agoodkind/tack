@@ -24,10 +24,18 @@ const noRoleSetting = "none"
 // connection. The pool destroys the closed connection on release. The role
 // change affects the connection rather than the call result. The method
 // returns the call error unchanged and reports a committed call as committed.
-func (l *PoolReadLifecycle) onCheckedConnection(ctx context.Context, call func(connection *pgx.Conn) error) error {
+func (l *PoolReadLifecycle) onCheckedConnection(
+	ctx context.Context,
+	call func(connection *pgx.Conn) error,
+) error {
 	pooled, err := l.pool.Acquire(ctx)
 	if err != nil {
-		slog.ErrorContext(ctx, "audit.read_lifecycle.acquire_failed", slog.String("err", err.Error()))
+		slog.ErrorContext(
+			ctx,
+			"audit.read_lifecycle.acquire_failed",
+			slog.String("err", err.Error()),
+		)
+
 		return fmt.Errorf("acquire a ledger connection: %w", err)
 	}
 	defer pooled.Release()
@@ -35,9 +43,15 @@ func (l *PoolReadLifecycle) onCheckedConnection(ctx context.Context, call func(c
 	if pooled.Conn().IsClosed() || sessionRoleVerified(ctx, pooled.Conn()) {
 		return callErr
 	}
+
 	if closeErr := pooled.Conn().Close(context.WithoutCancel(ctx)); closeErr != nil {
-		slog.ErrorContext(ctx, "audit.read_lifecycle.connection_close_failed", slog.String("err", closeErr.Error()))
+		slog.ErrorContext(
+			ctx,
+			"audit.read_lifecycle.connection_close_failed",
+			slog.String("err", closeErr.Error()),
+		)
 	}
+
 	return callErr
 }
 
@@ -49,26 +63,48 @@ func (l *PoolReadLifecycle) onCheckedConnection(ctx context.Context, call func(c
 // it cannot read the role.
 func sessionRoleVerified(ctx context.Context, connection *pgx.Conn) bool {
 	var currentUser, sessionUser, roleSetting string
-	err := connection.QueryRow(ctx, readStatement("session_role")).Scan(&currentUser, &sessionUser, &roleSetting)
+	err := connection.QueryRow(ctx, readStatement("session_role")).Scan(
+		&currentUser,
+		&sessionUser,
+		&roleSetting,
+	)
 	if err != nil {
-		slog.ErrorContext(ctx, "audit.read_lifecycle.session_role_read_failed", slog.String("err", err.Error()))
+		slog.ErrorContext(
+			ctx,
+			"audit.read_lifecycle.session_role_read_failed",
+			slog.String("err", err.Error()),
+		)
+
 		return false
 	}
+
 	expected := sessionUser
 	if roleSetting != noRoleSetting {
 		expected = roleSetting
 	}
+
 	if currentUser == expected {
 		return true
 	}
-	slog.ErrorContext(ctx, "audit.read_lifecycle.session_role_changed",
-		slog.String("current_user", currentUser), slog.String("session_role", expected),
-		slog.String("err", "current_user differs from the session role; the connection is closed"))
+
+	slog.ErrorContext(
+		ctx,
+		"audit.read_lifecycle.session_role_changed",
+		slog.String("current_user", currentUser),
+		slog.String("session_role", expected),
+		slog.String("err", "current_user differs from the session role; the connection is closed"),
+	)
+
 	return false
 }
 
 func statementFailure(ctx context.Context, name string, err error) error {
-	slog.ErrorContext(ctx, "audit.read_lifecycle.statement_failed",
-		slog.String("statement", name), slog.String("err", err.Error()))
+	slog.ErrorContext(
+		ctx,
+		"audit.read_lifecycle.statement_failed",
+		slog.String("statement", name),
+		slog.String("err", err.Error()),
+	)
+
 	return fmt.Errorf("run the %s statement: %w", name, err)
 }

@@ -78,10 +78,15 @@ func ExecuteRead[T ReadValue](
 	admission ReadAdmission,
 	read func(context.Context) (ReadResult[T], error),
 ) (EncodedRead, error) {
-	return executeReads(ctx, store, []ReadAdmission{admission}, read,
+	return executeReads(
+		ctx,
+		store,
+		[]ReadAdmission{admission},
+		read,
 		func(result ReadResult[T], _ ReadAdmission) ([]Target, uint64) {
 			return result.Targets, result.Count
-		})
+		},
+	)
 }
 
 // preparedRead contains the encoded payload, final outcome, and identities
@@ -102,59 +107,98 @@ func prepareRead[T ReadValue](result ReadResult[T], readErr error) preparedRead 
 		return preparedRead{
 			encoded: noEncodedRead(),
 			outcome: OutcomeDetails{
-				Outcome: OutcomeFailed, FailureCode: "read_failed",
-				FailureMessage: "the read failed", CommittedSteps: nil,
+				Outcome:        OutcomeFailed,
+				FailureCode:    "read_failed",
+				FailureMessage: "the read failed",
+				CommittedSteps: nil,
 			},
-			targets: nil, hasResult: false, encodeErr: nil,
+			targets:   nil,
+			hasResult: false,
+			encodeErr: nil,
 		}
 	}
+
 	if result.Encode == nil {
 		return failedEncoding(errors.New("audit read: the read result does not provide an encoder"))
 	}
+
 	var payload bytes.Buffer
 	hasher := sha256.New()
 	if err := result.Encode(io.MultiWriter(&payload, hasher), result.Value); err != nil {
-		return failedEncoding(fmt.Errorf("audit read: the server could not encode the read result: %w", err))
+		return failedEncoding(
+			fmt.Errorf("audit read: the server could not encode the read result: %w", err),
+		)
 	}
+
 	format := result.ContentType
 	if format == "" {
 		format = readPayloadFormatDefault
 	}
+
 	outcome := result.Outcome
 	if outcome.Outcome == "" {
 		outcome.Outcome = OutcomeCompleted
 	}
+
 	evidence := ReadEvidence{
-		Count: result.Count, PayloadSHA256: hex.EncodeToString(hasher.Sum(nil)), PayloadFormat: format,
-		ManifestSHA256: "", ManifestParts: 0,
+		Count:          result.Count,
+		PayloadSHA256:  hex.EncodeToString(hasher.Sum(nil)),
+		PayloadFormat:  format,
+		ManifestSHA256: "",
+		ManifestParts:  0,
 	}
+
 	return preparedRead{
-		encoded: EncodedRead{Payload: payload.Bytes(), ContentType: result.ContentType, Evidence: evidence},
-		outcome: outcome, targets: result.Targets, hasResult: true, encodeErr: nil,
+		encoded: EncodedRead{
+			Payload:     payload.Bytes(),
+			ContentType: result.ContentType,
+			Evidence:    evidence,
+		},
+		outcome:   outcome,
+		targets:   result.Targets,
+		hasResult: true,
+		encodeErr: nil,
 	}
 }
 
 func failedEncoding(err error) preparedRead {
 	slog.Error("audit.read_executor.encode_failed", slog.String("err", err.Error()))
+
 	return preparedRead{
 		encoded: noEncodedRead(),
 		outcome: OutcomeDetails{
-			Outcome: OutcomeFailed, FailureCode: "encode_failed",
-			FailureMessage: "the server could not encode the read result", CommittedSteps: nil,
+			Outcome:        OutcomeFailed,
+			FailureCode:    "encode_failed",
+			FailureMessage: "the server could not encode the read result",
+			CommittedSteps: nil,
 		},
-		targets: nil, hasResult: false, encodeErr: err,
+		targets:   nil,
+		hasResult: false,
+		encodeErr: err,
 	}
 }
 
 func noEncodedRead() EncodedRead {
 	return EncodedRead{
-		Payload: nil, ContentType: "",
-		Evidence: ReadEvidence{Count: 0, PayloadSHA256: "", PayloadFormat: "", ManifestSHA256: "", ManifestParts: 0},
+		Payload:     nil,
+		ContentType: "",
+		Evidence: ReadEvidence{
+			Count:          0,
+			PayloadSHA256:  "",
+			PayloadFormat:  "",
+			ManifestSHA256: "",
+			ManifestParts:  0,
+		},
 	}
 }
 
 func notRecorded(ctx context.Context, token ReadToken, err error) error {
-	slog.ErrorContext(ctx, "audit.read_executor.not_recorded",
-		slog.String("event_id", token.EventID.String()), slog.String("err", err.Error()))
+	slog.ErrorContext(
+		ctx,
+		"audit.read_executor.not_recorded",
+		slog.String("event_id", token.EventID.String()),
+		slog.String("err", err.Error()),
+	)
+
 	return fmt.Errorf("%w: read %s: %w", ErrReadNotRecorded, token.EventID, err)
 }

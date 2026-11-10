@@ -36,15 +36,22 @@ func TestSearchModelRecordLagAfterDeploy(t *testing.T) {
 	if err != nil {
 		t.Fatalf("provision with a late model record: %v", err)
 	}
+
 	if model.ID != modelID {
 		t.Fatalf("provision returned model %s, want %s", model.ID, modelID)
 	}
+
 	deployment, err := fixture.Adapter.ModelDeployment(ctx, fixture.Index, clock.Now())
 	if err != nil {
 		t.Fatalf("read model deployment: %v", err)
 	}
+
 	if deployment.State != deployedRecordState {
-		t.Fatalf("model state is %s after provision, want %s", deployment.State, deployedRecordState)
+		t.Fatalf(
+			"model state is %s after provision, want %s",
+			deployment.State,
+			deployedRecordState,
+		)
 	}
 }
 
@@ -59,6 +66,7 @@ func TestSearchModelRecordStaysFailedAfterDeploy(t *testing.T) {
 	if err == nil {
 		t.Fatal("provision accepted a model record that stayed in DEPLOY_FAILED")
 	}
+
 	if !strings.Contains(err.Error(), recordTimeoutText) {
 		t.Fatalf("provision error %q does not report the record timeout %q", err, recordTimeoutText)
 	}
@@ -69,10 +77,16 @@ func TestSearchModelRecordStaysFailedAfterDeploy(t *testing.T) {
 func undeployedRecordFixture(t *testing.T) (integration.QueryFixture, string) {
 	t.Helper()
 	fixture := integration.NewQueryFixture(t)
-	served, err := fixture.Adapter.ModelDeployment(integration.WithTestOperation(t, t.Context()), fixture.Index, clock.Now())
+	served, err := fixture.Adapter.ModelDeployment(
+		integration.WithTestOperation(t, t.Context()),
+		fixture.Index,
+		clock.Now(),
+	)
 	if err != nil {
 		t.Fatalf("read serving model: %v", err)
 	}
+
 	integration.UndeployNativeModel(t, fixture.Adapter, fixture.Client, served.ModelID)
+
 	return fixture, served.ModelID
 }

@@ -23,6 +23,7 @@ type membershipKey struct{}
 func WithOrgMembership(ctx context.Context, orgIDs []uuid.UUID) context.Context {
 	copied := make([]uuid.UUID, len(orgIDs))
 	copy(copied, orgIDs)
+
 	return context.WithValue(ctx, membershipKey{}, copied)
 }
 

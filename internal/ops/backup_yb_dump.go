@@ -62,11 +62,13 @@ const (
 // skip required grants when a role is missing.
 func ybSchemaDumpArgs(cfg *config.Config) []string {
 	return []string{
-		"-d", cfg.YugabyteDB,
+		"-d",
+		cfg.YugabyteDB,
 		"--schema-only",
 		"--include-yb-metadata",
 		"--no-owner",
-		"-f", ybDumpOutDir + "/" + ybSnapshotSchemaObject,
+		"-f",
+		ybDumpOutDir + "/" + ybSnapshotSchemaObject,
 	}
 }
 
@@ -76,10 +78,12 @@ func ybSchemaDumpArgs(cfg *config.Config) []string {
 // with a password until ops audit seed-roles assigns one.
 func ybRolesDumpArgs(cfg *config.Config) []string {
 	return []string{
-		"-l", cfg.YugabyteDB,
+		"-l",
+		cfg.YugabyteDB,
 		"--roles-only",
 		"--no-role-passwords",
-		"-f", ybDumpOutDir + "/" + ybSnapshotRolesObject,
+		"-f",
+		ybDumpOutDir + "/" + ybSnapshotRolesObject,
 	}
 }
 
@@ -129,11 +133,23 @@ func ybRolesDumpSpec(cfg *config.Config, rolesPath string) ybDumpSpec {
 
 // dumpYBSchemaOneShot writes a schema-only database dump into the mounted
 // staging directory.
-func dumpYBSchemaOneShot(ctx context.Context, cli *client.Client, cfg *config.Config, stageDir, schemaPath string) error {
+func dumpYBSchemaOneShot(
+	ctx context.Context,
+	cli *client.Client,
+	cfg *config.Config,
+	stageDir string,
+	schemaPath string,
+) error {
 	return runYBDumpOneShot(ctx, cli, cfg, stageDir, ybSchemaDumpSpec(cfg, schemaPath))
 }
 
 // dumpYBRolesOneShot writes cluster roles into the mounted staging directory.
-func dumpYBRolesOneShot(ctx context.Context, cli *client.Client, cfg *config.Config, stageDir, rolesPath string) error {
+func dumpYBRolesOneShot(
+	ctx context.Context,
+	cli *client.Client,
+	cfg *config.Config,
+	stageDir string,
+	rolesPath string,
+) error {
 	return runYBDumpOneShot(ctx, cli, cfg, stageDir, ybRolesDumpSpec(cfg, rolesPath))
 }

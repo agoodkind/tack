@@ -89,49 +89,68 @@ type guardedPlan struct {
 // requests with the read as their precondition. After a 409 it reads the
 // unaccepted pages again, at most maxGuardedAttempts times in total. It
 // returns the accepted prefix length and the encoded bytes sent.
-func (a *Adapter) writeGuarded(ctx context.Context, index string, pages []guardedPage, rule staleRule) (int, int, error) {
+func (a *Adapter) writeGuarded(
+	ctx context.Context,
+	index string,
+	pages []guardedPage,
+	rule staleRule,
+) (int, int, error) {
 	accepted, written := 0, 0
+
 	for attempt := 1; ; attempt++ {
 		remaining := pages[accepted:]
 		if len(remaining) == 0 {
 			return accepted, written, nil
 		}
+
 		ids := make([]string, 0, len(remaining))
 		for _, page := range remaining {
 			ids = append(ids, page.documentID)
 		}
+
 		states, err := a.readPageStates(ctx, index, ids)
 		if err != nil {
 			return accepted, written, err
 		}
+
 		plan, err := planGuardedWrite(ctx, index, remaining, states, rule)
 		if err != nil {
 			return accepted, written, err
 		}
+
 		for _, operation := range plan.operations {
 			written += len(operation.encoded)
 		}
+
 		count, err := a.submitBulk(ctx, index, plan.operations, bulkGuarded)
 		if err != nil {
 			accepted += plan.positions[count]
 			if errors.Is(err, searchdomain.ErrConcurrentWrite) && attempt < maxGuardedAttempts {
 				continue
 			}
+
 			return accepted, written, err
 		}
+
 		if plan.stale != nil {
 			return accepted + plan.positions[len(plan.operations)], written, plan.stale
 		}
+
 		return len(pages), written, nil
 	}
 }
 
 // planGuardedWrite encodes page requests in order. It stops at the first
 // stale page or absent page with holdCreate set.
-func planGuardedWrite(ctx context.Context, index string, pages []guardedPage, states map[string]pageState,
+func planGuardedWrite(
+	ctx context.Context,
+	index string,
+	pages []guardedPage,
+	states map[string]pageState,
 	rule staleRule,
 ) (guardedPlan, error) {
 	operations := make([]bulkOperation, 0, len(pages))
+
 	positions := make([]int, 0, len(pages)+1)
 	for position, page := range pages {
 		state := states[page.documentID]
@@ -139,24 +158,66 @@ func planGuardedWrite(ctx context.Context, index string, pages []guardedPage, st
 		case guardSkip:
 			continue
 		case guardStale:
-			stale := fmt.Errorf("document %s in %s has generation %d, retired %t, at or above write generation %d: %w",
-				page.documentID, index, state.Generation, state.Retired, page.generation, searchdomain.ErrObsoleteWrite)
-			telemetry.L(ctx).InfoContext(ctx, "search.page.stale_refused", slog.String("err", stale.Error()),
-				slog.String("document_id", page.documentID), slog.String("index", index))
-			return guardedPlan{operations: operations, positions: append(positions, position), stale: stale}, nil
+			stale := fmt.Errorf(
+				"document %s in %s has generation %d, retired %t, at or above write generation %d: %w",
+				page.documentID,
+				index,
+				state.Generation,
+				state.Retired,
+				page.generation,
+				searchdomain.ErrObsoleteWrite,
+			)
+			telemetry.L(ctx).InfoContext(
+				ctx,
+				"search.page.stale_refused",
+				slog.String("err", stale.Error()),
+				slog.String("document_id", page.documentID),
+				slog.String("index", index),
+			)
+
+			return guardedPlan{
+				operations: operations,
+				positions:  append(positions, position),
+				stale:      stale,
+			}, nil
 		case guardWrite:
 		}
+
 		if !state.Found && page.holdCreate {
-			held := fmt.Errorf("document %s in %s is absent: %w", page.documentID, index, searchdomain.ErrPageWritePending)
-			return guardedPlan{operations: operations, positions: append(positions, position), stale: held}, nil
+			held := fmt.Errorf(
+				"document %s in %s is absent: %w",
+				page.documentID,
+				index,
+				searchdomain.ErrPageWritePending,
+			)
+
+			return guardedPlan{
+				operations: operations,
+				positions:  append(positions, position),
+				stale:      held,
+			}, nil
 		}
-		precondition := pagePrecondition{Create: !state.Found, SeqNo: state.SeqNo, PrimaryTerm: state.PrimaryTerm}
+
+		precondition := pagePrecondition{
+			Create:      !state.Found,
+			SeqNo:       state.SeqNo,
+			PrimaryTerm: state.PrimaryTerm,
+		}
 		encoded, err := page.encode(precondition)
 		if err != nil {
 			return guardedPlan{operations: nil, positions: nil, stale: nil}, err
 		}
-		operations = append(operations, bulkOperation{documentID: page.documentID, encoded: encoded})
+
+		operations = append(
+			operations,
+			bulkOperation{documentID: page.documentID, encoded: encoded},
+		)
 		positions = append(positions, position)
 	}
-	return guardedPlan{operations: operations, positions: append(positions, len(pages)), stale: nil}, nil
+
+	return guardedPlan{
+		operations: operations,
+		positions:  append(positions, len(pages)),
+		stale:      nil,
+	}, nil
 }

@@ -70,13 +70,19 @@ func NewGenerator(
 	options GeneratorOptions,
 ) *Generator {
 	generator := &Generator{
-		driver: driver, content: content, identities: identities,
-		scale: scale, seed: seed, dryRun: options.DryRun,
+		driver:         driver,
+		content:        content,
+		identities:     identities,
+		scale:          scale,
+		seed:           seed,
+		dryRun:         options.DryRun,
 		productionAuth: options.ProductionAuth,
 		redactAuditPII: options.RedactAuditPII,
 		redactActor:    options.RedactActor,
 		summary: Summary{
-			Scale: scale.Name, Seed: seed, DryRun: options.DryRun,
+			Scale:      scale.Name,
+			Seed:       seed,
+			DryRun:     options.DryRun,
 			Workspaces: len(identities.Workspaces),
 		},
 	}
@@ -85,10 +91,7 @@ func NewGenerator(
 }
 
 func registerIdentityTokens(driver *Driver, identities Identities) {
-	driver.registerTokenIdentity(
-		identities.ExpiredToken,
-		identities.ExpiredRequestToken,
-	)
+	driver.registerTokenIdentity(identities.ExpiredToken, identities.ExpiredRequestToken)
 	driver.registerTokenIdentity(identities.BogusToken, identities.BogusRequestToken)
 	for _, workspace := range identities.Workspaces {
 		for _, actor := range workspace.Actors {
@@ -150,9 +153,12 @@ func (g *Generator) exerciseRejectedTokens(ctx context.Context) error {
 		{label: "expired", token: g.identities.ExpiredToken},
 		{label: "bogus", token: g.identities.BogusToken},
 	}
-	slices.SortFunc(probes, func(left, right authProbe) int {
+	slices.SortFunc(
+		probes,
+		func(left, right authProbe) int {
 		return strings.Compare(left.label, right.label)
-	})
+		},
+	)
 	for _, probe := range probes {
 		_, err := g.driver.Call(
 			ctx,
@@ -164,18 +170,12 @@ func (g *Generator) exerciseRejectedTokens(ctx context.Context) error {
 			continue
 		}
 		if err == nil {
-			return fmt.Errorf(
-				"qa datagen: %s token was unexpectedly accepted",
-				probe.label,
-			)
+			return fmt.Errorf("qa datagen: %s token was unexpectedly accepted", probe.label)
 		}
 		if !isAuthenticationRejection(err) {
 			return loggedError(
 				ctx,
-				fmt.Sprintf(
-					"qa datagen: %s token probe expected HTTP 401",
-					probe.label,
-				),
+				fmt.Sprintf("qa datagen: %s token probe expected HTTP 401", probe.label),
 				err,
 			)
 		}
@@ -197,8 +197,11 @@ type authProbe struct {
 // read when the first workspace or its first actor does not exist.
 func (g *Generator) readGettingStartedResource(ctx context.Context) error {
 	if len(g.identities.Workspaces) == 0 || len(g.identities.Workspaces[0].Actors) == 0 {
-		slog.InfoContext(ctx, "qa.datagen.resource_read_skipped",
-			slog.String("reason", "the scale generates no actor to read as"))
+		slog.InfoContext(
+			ctx,
+			"qa.datagen.resource_read_skipped",
+			slog.String("reason", "the scale generates no actor to read as"),
+		)
 		return nil
 	}
 	actor := g.identities.Workspaces[0].Actors[0]

@@ -33,38 +33,72 @@ func (snapshotScheduleEvidence) isStepEvidence() {}
 
 // runBackupFDBContinuousInitRecorded runs fdb-continuous-init as one step.
 // It refuses to start when TACK_BACKUP_FDB_CONTINUOUS is false.
-func runBackupFDBContinuousInitRecorded(ctx context.Context, cfg *config.Config, steps audit.StepRecorder) (audit.OutcomeDetails, error) {
+func runBackupFDBContinuousInitRecorded(
+	ctx context.Context,
+	cfg *config.Config,
+	steps audit.StepRecorder,
+) (audit.OutcomeDetails, error) {
 	if !cfg.BackupFDBContinuous {
 		err := RunBackupFDBContinuousInit(ctx, cfg)
 		return commandOutcome(audit.OutcomeRefused, continuousDisabledCode, err), err
 	}
-	evidence, err := encodeEvidence(ctx, continuousBackupEvidence{
-		Bucket: cfg.BackupS3BucketMain, EndpointHost: endpointHost(cfg.BackupS3Endpoint),
-		SnapshotIntervalSeconds: cfg.BackupFDBSnapshotInterval,
-	})
+
+	evidence, err := encodeEvidence(
+		ctx,
+		continuousBackupEvidence{
+			Bucket:                  cfg.BackupS3BucketMain,
+			EndpointHost:            endpointHost(cfg.BackupS3Endpoint),
+			SnapshotIntervalSeconds: cfg.BackupFDBSnapshotInterval,
+		},
+	)
 	if err != nil {
 		return commandOutcome(audit.OutcomeFailed, commandFailedCode, err), err
 	}
-	step := audit.ExternalStep(externalTarget("fdb/continuous-backup/"+cfg.BackupS3BucketMain), evidence)
-	return recordedStep(ctx, steps, step,
+
+	step := audit.ExternalStep(
+		externalTarget("fdb/continuous-backup/"+cfg.BackupS3BucketMain),
+		evidence,
+	)
+
+	return recordedStep(
+		ctx,
+		steps,
+		step,
 		func(ctx context.Context) error { return RunBackupFDBContinuousInit(ctx, cfg) },
-		func(context.Context) (json.RawMessage, error) { return evidence, nil })
+		func(context.Context) (json.RawMessage, error) { return evidence, nil },
+	)
 }
 
-func runBackupYBPITRInitRecorded(ctx context.Context, cfg *config.Config, steps audit.StepRecorder) (audit.OutcomeDetails, error) {
+func runBackupYBPITRInitRecorded(
+	ctx context.Context,
+	cfg *config.Config,
+	steps audit.StepRecorder,
+) (audit.OutcomeDetails, error) {
 	if cfg.BackupYBImage == "" {
 		err := RunBackupYBPITRInit(ctx, cfg)
 		return commandOutcome(audit.OutcomeRefused, commandConfigCode, err), err
 	}
+
 	filter := "ysql." + cfg.YugabyteDB
-	evidence, err := encodeEvidence(ctx, snapshotScheduleEvidence{
-		Filter: filter, IntervalMinutes: cfg.BackupYBPITRIntervalMinutes, RetentionMinutes: cfg.BackupYBPITRRetentionMinutes,
-	})
+	evidence, err := encodeEvidence(
+		ctx,
+		snapshotScheduleEvidence{
+			Filter:           filter,
+			IntervalMinutes:  cfg.BackupYBPITRIntervalMinutes,
+			RetentionMinutes: cfg.BackupYBPITRRetentionMinutes,
+		},
+	)
 	if err != nil {
 		return commandOutcome(audit.OutcomeFailed, commandFailedCode, err), err
 	}
+
 	step := audit.ExternalStep(externalTarget("yugabyte/snapshot-schedule/"+filter), evidence)
-	return recordedStep(ctx, steps, step,
+
+	return recordedStep(
+		ctx,
+		steps,
+		step,
 		func(ctx context.Context) error { return RunBackupYBPITRInit(ctx, cfg) },
-		func(context.Context) (json.RawMessage, error) { return evidence, nil })
+		func(context.Context) (json.RawMessage, error) { return evidence, nil },
+	)
 }

@@ -35,7 +35,9 @@ func newOperatorEvent(
 	if err != nil {
 		return audit.Event{}, loggedAuditError(ctx, "encode operator event extra", err)
 	}
+
 	correlation := response.FromContext(ctx)
+
 	return audit.Event{
 		Verb:    spec.Verb,
 		EventID: uuid.Must(uuid.NewV7()),

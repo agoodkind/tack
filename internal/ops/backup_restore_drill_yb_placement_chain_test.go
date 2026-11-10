@@ -23,24 +23,35 @@ func (f *placementFixture) archive(t *testing.T, node, exportSnap string) ybArch
 	if err := os.MkdirAll(f.artifactDir, 0o755); err != nil {
 		t.Fatalf("make the fixture staging dir: %v", err)
 	}
+
 	tarPath := filepath.Join(f.artifactDir, ybDrillArchiveName(node))
 	// COPYFILE_DISABLE prevents macOS bsdtar from adding AppleDouble "._name"
 	// members for entries. Linux export containers do not produce those members.
 	// Without this setting, the fixture inventory would include files that
 	// extraction does not create.
-	runShell(t, f.shell, "cd "+shellQuote(filepath.Join(f.stageRoot, node))+
-		" && find . -type d -path "+shellQuote("*.snapshots/"+exportSnap)+
-		" -print0 | COPYFILE_DISABLE=1 tar czf "+shellQuote(tarPath)+" --null --files-from -")
+	runShell(
+		t,
+		f.shell,
+		"cd "+shellQuote(filepath.Join(f.stageRoot, node))+
+			" && find . -type d -path "+shellQuote("*.snapshots/"+exportSnap)+
+			" -print0 | COPYFILE_DISABLE=1 tar czf "+shellQuote(tarPath)+" --null --files-from -",
+	)
 	inventory, err := readYBArchiveInventory(t.Context(), f.runID, node, tarPath)
 	if err != nil {
 		t.Fatalf("inventory node %s: %v", node, err)
 	}
-	if err := os.WriteFile(filepath.Join(f.artifactDir, ybDrillInventoryName(node)),
-		inventory.render(), 0o600); err != nil {
+
+	if err := os.WriteFile(
+		filepath.Join(f.artifactDir, ybDrillInventoryName(node)),
+		inventory.render(),
+		0o600,
+	); err != nil {
 		t.Fatalf("stage the inventory for node %s: %v", node, err)
 	}
+
 	f.extract(t, node)
 	f.inventories = append(f.inventories, inventory)
+
 	return inventory
 }
 
@@ -56,14 +67,20 @@ func (f *placementFixture) extract(t *testing.T, node string) {
 // node's archive and returns the files missing from extraction.
 func (f *placementFixture) check(t *testing.T, inventory ybArchiveInventory) []ybArchivedFile {
 	t.Helper()
-	out := runShell(t, f.shell, ybInventoryCheckScript(
-		filepath.Join(f.layout.ExportRoot, inventory.Node),
-		filepath.Join(f.artifactDir, ybDrillInventoryName(inventory.Node)),
-		t.TempDir()))
+	out := runShell(
+		t,
+		f.shell,
+		ybInventoryCheckScript(
+			filepath.Join(f.layout.ExportRoot, inventory.Node),
+			filepath.Join(f.artifactDir, ybDrillInventoryName(inventory.Node)),
+			t.TempDir(),
+		),
+	)
 	missing, err := parseYBInventoryCheck(inventory.Node, out)
 	if err != nil {
 		t.Fatalf("parse the extraction check for node %s from %q: %v", inventory.Node, out, err)
 	}
+
 	return missing
 }
 
@@ -71,24 +88,38 @@ func (f *placementFixture) check(t *testing.T, inventory ybArchiveInventory) []y
 // per tablet, and places those copies. The audit applies only when selection
 // accepts every tablet. Production stops before placement if selection rejects
 // a tablet.
-func (f *placementFixture) restore(t *testing.T, exportSnap, newSnap string) (ybPlacementAudit, []ybTabletDefect) {
+func (f *placementFixture) restore(
+	t *testing.T,
+	exportSnap string,
+	newSnap string,
+) (ybPlacementAudit, []ybTabletDefect) {
 	t.Helper()
+
 	extractions := make([]ybNodeExtraction, 0, len(f.inventories))
 	for _, inventory := range f.inventories {
 		extractions = append(extractions, newYBNodeExtraction(inventory, f.check(t, inventory)))
 	}
-	placements, defects := chooseYBTabletReplicas(f.remaps, f.layout.ExportRoot, exportSnap, extractions)
+
+	placements, defects := chooseYBTabletReplicas(
+		f.remaps,
+		f.layout.ExportRoot,
+		exportSnap,
+		extractions,
+	)
 	if len(defects) > 0 {
 		return ybPlacementAudit{Expected: 0, Placed: 0, Missing: nil}, defects
 	}
+
 	for _, script := range ybPlacementScripts(placements, f.layout, newSnap) {
 		runShell(t, f.shell, script)
 	}
+
 	out := runShell(t, f.shell, ybPlacementAuditScript(f.layout))
 	audit, err := parseYBPlacementAudit(out)
 	if err != nil {
 		t.Fatalf("parse placement audit %q: %v", out, err)
 	}
+
 	return audit, nil
 }
 
@@ -109,6 +140,7 @@ func runShellArgs(t *testing.T, shell, script string, args ...string) string {
 	if err != nil {
 		t.Fatalf("%s script failed: %v\n%s", shell, err, out)
 	}
+
 	return string(out)
 }
 
@@ -117,15 +149,25 @@ func runShellArgs(t *testing.T, shell, script string, args ...string) string {
 // establish script behavior under that shell.
 func eachPlacementShell(t *testing.T, body func(t *testing.T, shell string)) {
 	t.Helper()
+
 	for _, shell := range placementShells {
-		t.Run(shell, func(t *testing.T) {
-			if _, err := exec.LookPath(shell); err != nil {
-				t.Skipf("%s is not installed, so the scripts are unproven under it: %v", shell, err)
-			}
-			if _, err := exec.LookPath("tar"); err != nil {
-				t.Skipf("tar is not installed, so no fixture archive can be built: %v", err)
-			}
-			body(t, shell)
-		})
+		t.Run(
+			shell,
+			func(t *testing.T) {
+				if _, err := exec.LookPath(shell); err != nil {
+					t.Skipf(
+						"%s is not installed, so the scripts are unproven under it: %v",
+						shell,
+						err,
+					)
+				}
+
+				if _, err := exec.LookPath("tar"); err != nil {
+					t.Skipf("tar is not installed, so no fixture archive can be built: %v", err)
+				}
+
+				body(t, shell)
+			},
+		)
 	}
 }

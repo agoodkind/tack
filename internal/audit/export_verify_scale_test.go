@@ -50,7 +50,9 @@ func buildScaleBundle(t *testing.T, n int) (string, []byte) {
 		prevByShard[shard] = row.RowHash
 		rows = append(rows, row)
 	}
+
 	pub := writeSignedExportTestBundle(t, dir, rows)
+
 	return dir, pub
 }
 
@@ -67,13 +69,20 @@ func TestVerifyBundleMultiShardIntegrity(t *testing.T) {
 	if report.RowsScanned != verifyScaleRows {
 		t.Fatalf("rows scanned = %d, want %d", report.RowsScanned, verifyScaleRows)
 	}
+
 	if report.HashMatches != verifyScaleRows {
 		t.Fatalf("hash matches = %d, want %d", report.HashMatches, verifyScaleRows)
 	}
+
 	if len(report.ChainBreaks) != 0 {
 		t.Fatalf("chain breaks = %v, want none", report.ChainBreaks)
 	}
+
 	if !report.FileSHA256OK || !report.SignatureOK {
-		t.Fatalf("digest ok = %v, signature ok = %v, want both true", report.FileSHA256OK, report.SignatureOK)
+		t.Fatalf(
+			"digest ok = %v, signature ok = %v, want both true",
+			report.FileSHA256OK,
+			report.SignatureOK,
+		)
 	}
 }

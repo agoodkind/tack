@@ -39,7 +39,9 @@ var errRetireAttemptFenced = errors.New("recovery already resolved this retireme
 // record absent on retry. Its earlier commit or recovery removed the record.
 // The transaction result does not identify which removed it. This error does
 // not wrap errRetireAttemptFenced or audit.ErrEventNotRecorded.
-var errRetireClearAbsent = errors.New("the retirement attempt record is absent after a retried clear; this clear or recovery removed it")
+var errRetireClearAbsent = errors.New(
+	"the retirement attempt record is absent after a retried clear; this clear or recovery removed it",
+)
 
 // beginRetireAttempt returns errRetireRebuildEnded when the replacement
 // record is absent or retires another index. The attempt save reads the
@@ -91,14 +93,17 @@ func (s *SearchRebuildStore) retireStep(
 	if err != nil {
 		return err
 	}
+
 	effectContext, cancelEffect := context.WithTimeout(ctx, audit.ExternalResultDeadline)
 	defer cancelEffect()
 	if err := effect(effectContext, attempt.key); err != nil {
 		if errors.Is(err, errRetireAttemptFenced) {
 			return err
 		}
+
 		return s.recordRetireFailure(ctx, attempt, step, err)
 	}
+
 	return s.clearRetireAttempt(ctx, attempt)
 }
 
@@ -110,14 +115,17 @@ func requireRetireFence(tr fdb.Transaction, fence fdb.Key) error {
 	if fence == nil {
 		return nil
 	}
+
 	countSessionRead(tr)
 	stored, err := tr.Get(fence).Get()
 	if err != nil {
 		return sessionStepError{operation: "read retirement attempt", err: err}
 	}
+
 	if len(stored) == 0 {
 		return errRetireAttemptFenced
 	}
+
 	return nil
 }
 
@@ -125,41 +133,82 @@ func requireRetireFence(tr fdb.Transaction, fence fdb.Key) error {
 // operation on ctx and the session record. Before the cleanup step runs, it
 // saves the event under the index with the original actor, operation ID, and
 // start time.
-func (s *SearchRebuildStore) beginRetireAttempt(ctx context.Context, index string, sessionID uuid.UUID, record searchSessionRecord, step searchdomain.CleanupStep) (retireAttempt, error) {
+func (s *SearchRebuildStore) beginRetireAttempt(
+	ctx context.Context,
+	index string,
+	sessionID uuid.UUID,
+	record searchSessionRecord,
+	step searchdomain.CleanupStep,
+) (retireAttempt, error) {
 	changes, err := beginSessionAudit(ctx, retireAttemptSaveOperation, sessionID)
 	if err != nil {
 		return retireAttempt{}, err
 	}
+
 	changes.bind(record)
-	event, err := cleanupFailureEvent(ctx, changes, audit.SearchSessionTarget(sessionID, record.PrincipalID), step, nil)
+	event, err := cleanupFailureEvent(
+		ctx,
+		changes,
+		audit.SearchSessionTarget(sessionID, record.PrincipalID),
+		step,
+		nil,
+	)
 	if err != nil {
 		return retireAttempt{}, err
 	}
+
 	encodedEvent, err := audit.MarshalEvent(event)
 	if err != nil {
 		return retireAttempt{}, sessionFailure(ctx, retireAttemptSaveOperation, sessionID, err)
 	}
+
 	encoded, err := json.Marshal(retireAttemptRecord{
-		Deadline: s.work.clock.Now().Add(retireAttemptLease), ObservedAt: time.Time{}, Event: encodedEvent, CleanupFailure: "", RecordingFailure: "",
+		Deadline:         s.work.clock.Now().Add(retireAttemptLease),
+		ObservedAt:       time.Time{},
+		Event:            encodedEvent,
+		CleanupFailure:   "",
+		RecordingFailure: "",
 	})
 	if err != nil {
 		return retireAttempt{}, sessionFailure(ctx, retireAttemptSaveOperation, sessionID, err)
 	}
-	attempt := retireAttempt{key: fdb.Key(searchRetireAttemptKey(index, sessionID, step, event.EventID)), sessionID: sessionID, event: event}
-	err = transactSession(ctx, s.db, s.work.clock, retireAttemptSaveOperation, sessionID, func(tr fdb.Transaction) error {
-		rebuild, found, readErr := readRebuild(ctx, tr)
-		if readErr != nil {
-			return readErr
-		}
-		if !found || rebuild.SourceIndex != index {
-			return errRetireRebuildEnded
-		}
-		tr.Set(attempt.key, encoded)
-		return nil
-	})
+
+	attempt := retireAttempt{
+		key:       fdb.Key(searchRetireAttemptKey(index, sessionID, step, event.EventID)),
+		sessionID: sessionID,
+		event:     event,
+	}
+	err = transactSession(
+		ctx,
+		s.db,
+		s.work.clock,
+		retireAttemptSaveOperation,
+		sessionID,
+		func(tr fdb.Transaction) error {
+			rebuild, found, readErr := readRebuild(ctx, tr)
+			if readErr != nil {
+				return readErr
+			}
+
+			if !found || rebuild.SourceIndex != index {
+				return errRetireRebuildEnded
+			}
+
+			tr.Set(attempt.key, encoded)
+
+			return nil
+		},
+	)
 	if err != nil {
 		return retireAttempt{}, err
 	}
-	slog.DebugContext(ctx, "search.session.retire_attempt_saved", slog.String("session_id", sessionID.String()), slog.String("step", string(step)))
+
+	slog.DebugContext(
+		ctx,
+		"search.session.retire_attempt_saved",
+		slog.String("session_id", sessionID.String()),
+		slog.String("step", string(step)),
+	)
+
 	return attempt, nil
 }

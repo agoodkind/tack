@@ -64,15 +64,19 @@ func (m Metadata) HeaderLine() string {
 	if m.TraceID != "" {
 		parts = append(parts, "trace_id="+m.TraceID)
 	}
+
 	if m.SpanID != "" {
 		parts = append(parts, "span_id="+m.SpanID)
 	}
+
 	if m.RequestID != "" {
 		parts = append(parts, "request_id="+m.RequestID)
 	}
+
 	if len(parts) == 0 {
 		return ""
 	}
+
 	return headerMarker + " " + strings.Join(parts, " ")
 }
 
@@ -86,13 +90,16 @@ func (m Metadata) Text(body string) string {
 	if strings.HasPrefix(body, headerMarker) {
 		return body
 	}
+
 	header := m.HeaderLine()
 	if header == "" {
 		return body
 	}
+
 	if body == "" {
 		return header + "\n"
 	}
+
 	return header + "\n" + body
 }
 
@@ -127,9 +134,11 @@ func Marshal(ctx context.Context, payload []byte) ([]byte, error) {
 	if len(trimmed) == 0 {
 		return nil, fmt.Errorf("response: empty json payload")
 	}
+
 	if !json.Valid(trimmed) {
 		return nil, fmt.Errorf("response: invalid json payload")
 	}
+
 	doc := JSONDocument{
 		Meta:   FromContext(ctx),
 		Result: append(json.RawMessage(nil), trimmed...),
@@ -139,5 +148,6 @@ func Marshal(ctx context.Context, payload []byte) ([]byte, error) {
 		slog.ErrorContext(ctx, "response.encode_failed", slog.String("err", err.Error()))
 		return nil, fmt.Errorf("response: encode json envelope: %w", err)
 	}
+
 	return append(body, '\n'), nil
 }

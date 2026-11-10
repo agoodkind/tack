@@ -46,12 +46,22 @@ type bulkSource struct {
 
 // newBulkRecord reads the first action body of one bulk request.
 func newBulkRecord(index string, body []byte) bulkRecord {
-	record := bulkRecord{index: index, bytes: len(body), content: false, ordinal: 0, textBytes: 0, access: nativeAccess{Versions: nil, Keys: nil, Generation: 0}}
+	record := bulkRecord{
+		index:     index,
+		bytes:     len(body),
+		content:   false,
+		ordinal:   0,
+		textBytes: 0,
+		access:    nativeAccess{Versions: nil, Keys: nil, Generation: 0},
+	}
 	lines := bytes.Split(body, []byte("\n"))
 	var source bulkSource
 	if len(lines) > 1 && json.Unmarshal(lines[1], &source) == nil && source.PageText != nil {
-		record.content, record.ordinal, record.textBytes, record.access = true, source.PageOrdinal, len(*source.PageText), source.Access
+		record.content, record.ordinal, record.textBytes, record.access = true, source.PageOrdinal, len(
+			*source.PageText,
+		), source.Access
 	}
+
 	return record
 }
 
@@ -71,6 +81,7 @@ func (meter *bulkMeter) ServeHTTP(writer http.ResponseWriter, request *http.Requ
 			http.Error(writer, "read bulk body: "+err.Error(), http.StatusBadRequest)
 			return
 		}
+
 		meter.mutex.Lock()
 		index := strings.TrimSuffix(strings.TrimPrefix(request.URL.Path, "/"), "/_bulk")
 		meter.records = append(meter.records, newBulkRecord(index, body))
@@ -78,6 +89,7 @@ func (meter *bulkMeter) ServeHTTP(writer http.ResponseWriter, request *http.Requ
 		request.Body = io.NopCloser(bytes.NewReader(body))
 		request.ContentLength = int64(len(body))
 	}
+
 	meter.engine.ServeHTTP(writer, request)
 }
 
@@ -87,6 +99,7 @@ func (meter *bulkMeter) take() []bulkRecord {
 	defer meter.mutex.Unlock()
 	records := meter.records
 	meter.records = nil
+
 	return records
 }
 
@@ -94,40 +107,63 @@ func (meter *bulkMeter) take() []bulkRecord {
 // TLS proxy that records bulk body lengths, and records the index as the
 // serving index. The production adapter sends every request through the
 // proxy; the typed client reads the engine directly.
-func newMeteredSearchIndex(t *testing.T, stores *fdbadapter.Stores) (*search.Adapter, *opensearchapi.Client, *bulkMeter, string) {
+func newMeteredSearchIndex(
+	t *testing.T,
+	stores *fdbadapter.Stores,
+) (*search.Adapter, *opensearchapi.Client, *bulkMeter, string) {
 	t.Helper()
 	fixture := testenv.OpenSearchWithMemory(t, nativeSearchMemoryBytes)
 	target, err := url.Parse(fixture.Endpoint)
 	if err != nil {
 		t.Fatalf("parse engine endpoint: %v", err)
 	}
+
 	engineCA := x509.NewCertPool()
 	if !engineCA.AppendCertsFromPEM([]byte(fixture.CA)) {
 		t.Fatal("engine CA is invalid")
 	}
-	meter := &bulkMeter{engine: &httputil.ReverseProxy{
-		Rewrite:   func(outbound *httputil.ProxyRequest) { outbound.SetURL(target) },
-		Transport: &http.Transport{TLSClientConfig: &tls.Config{RootCAs: engineCA, MinVersion: tls.VersionTLS12}},
-	}}
+
+	meter := &bulkMeter{
+		engine: &httputil.ReverseProxy{
+			Rewrite: func(outbound *httputil.ProxyRequest) { outbound.SetURL(target) },
+			Transport: &http.Transport{
+				TLSClientConfig: &tls.Config{RootCAs: engineCA, MinVersion: tls.VersionTLS12},
+			},
+		},
+	}
 	listener, err := net.Listen("tcp", "localhost:0")
 	if err != nil {
 		t.Fatalf("listen for the bulk meter: %v", err)
 	}
+
 	server := httptest.NewUnstartedServer(meter)
 	server.Listener = listener
 	server.StartTLS()
 	t.Cleanup(server.Close)
-	proxyCA := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: server.Certificate().Raw})
-	pass := fixture.Password
-	adapter, err := search.New(WithTestOperation(t, t.Context()), search.Config{
-		Endpoint: server.URL, CA: string(proxyCA), Username: fixture.Username,
-		Password: pass, RequestTimeout: 2 * time.Minute, MaxRetries: 1,
+	proxyCA := pem.EncodeToMemory(&pem.Block{
+		Type:  "CERTIFICATE",
+		Bytes: server.Certificate().Raw,
 	})
+	pass := fixture.Password
+	adapter, err := search.New(
+		WithTestOperation(t, t.Context()),
+		search.Config{
+			Endpoint:       server.URL,
+			CA:             string(proxyCA),
+			Username:       fixture.Username,
+			Password:       pass,
+			RequestTimeout: 2 * time.Minute,
+			MaxRetries:     1,
+		},
+	)
 	if err != nil {
 		t.Fatalf("create metered adapter: %v", err)
 	}
+
 	t.Cleanup(func() {
-		if err := adapter.Close(context.WithoutCancel(WithTestOperation(t, t.Context()))); err != nil {
+		if err := adapter.Close(
+			context.WithoutCancel(WithTestOperation(t, t.Context())),
+		); err != nil {
 			t.Error(err)
 		}
 	})
@@ -136,11 +172,14 @@ func newMeteredSearchIndex(t *testing.T, stores *fdbadapter.Stores) (*search.Ada
 	if err != nil {
 		t.Fatalf("provision search model: %v", err)
 	}
+
 	index := "node-pages-" + uuid.Must(uuid.NewV7()).String()
 	createNativeSearchIndex(t, adapter, client, model, index)
 	if err := stores.InitializeSearchIndex(WithTestOperation(t, t.Context()), index); err != nil {
 		t.Fatalf("record serving search index: %v", err)
 	}
+
 	meter.take()
+
 	return adapter, client, meter, index
 }

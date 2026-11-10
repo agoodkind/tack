@@ -47,30 +47,45 @@ type openSearchDataDisk struct {
 // createOpenSearchDataDisk creates a filesystem of sizeBytes and a volume
 // that mounts it. After an error it still returns the names of everything it
 // created, and the caller removes them with removeOpenSearchDataDisk.
-func createOpenSearchDataDisk(ctx context.Context, cli *client.Client, sizeBytes int64) (openSearchDataDisk, error) {
+func createOpenSearchDataDisk(
+	ctx context.Context,
+	cli *client.Client,
+	sizeBytes int64,
+) (openSearchDataDisk, error) {
 	var disk openSearchDataDisk
 	base, err := generatedEngineName(ctx, dataDiskKind)
 	if err != nil {
 		return disk, err
 	}
+
 	process, err := prepareCreate(ctx, cli)
 	if err != nil {
 		return disk, err
 	}
+
 	labels := ownerLabels(process)
-	if _, err := cli.VolumeCreate(ctx, client.VolumeCreateOptions{Name: base + "-image", Labels: labels}); err != nil {
+	if _, err := cli.VolumeCreate(
+		ctx,
+		client.VolumeCreateOptions{Name: base + "-image", Labels: labels},
+	); err != nil {
 		return disk, dataDiskFailure(ctx, "create the image volume "+base+"-image", err)
 	}
+
 	disk.imageVolume = base + "-image"
-	mounts := []mount.Mount{{Type: mount.TypeVolume, Source: disk.imageVolume, Target: dataDiskMount}}
+	mounts := []mount.Mount{
+		{Type: mount.TypeVolume, Source: disk.imageVolume, Target: dataDiskMount},
+	}
 	disk.helper = base
 	if err := startDataDiskHelper(ctx, cli, base, mounts); err != nil {
 		return disk, err
 	}
+
 	if err := requireDataDiskSpace(ctx, cli, base, sizeBytes); err != nil {
 		return disk, err
 	}
+
 	file := dataDiskMount + "/" + dataDiskFileName
+
 	owner := strconv.Itoa(openSearchOwner.uid) + ":" + strconv.Itoa(openSearchOwner.gid)
 	for _, command := range [][]string{
 		{"truncate", "-s", strconv.FormatInt(sizeBytes, 10), file},
@@ -80,23 +95,51 @@ func createOpenSearchDataDisk(ctx context.Context, cli *client.Client, sizeBytes
 			return disk, err
 		}
 	}
-	device, err := runInDataDiskHelper(ctx, cli, base, []string{"losetup", "--find", "--show", file})
+
+	device, err := runInDataDiskHelper(
+		ctx,
+		cli,
+		base,
+		[]string{"losetup", "--find", "--show", file},
+	)
 	if err != nil {
 		// losetup may have attached a device before the output read failed.
 		_, detachErr := detachDataDiskDevices(ctx, cli, base, file)
-		return disk, dataDiskFailure(ctx, "attach "+file+" to a loop device", errors.Join(err, detachErr))
+
+		return disk, dataDiskFailure(
+			ctx,
+			"attach "+file+" to a loop device",
+			errors.Join(err, detachErr),
+		)
 	}
+
 	disk.device = strings.TrimSpace(device)
-	_, err = cli.VolumeCreate(ctx, client.VolumeCreateOptions{
-		Name: base + "-data", Driver: "local", Labels: labels,
-		DriverOpts: map[string]string{"type": "ext4", "device": disk.device},
-	})
+	_, err = cli.VolumeCreate(
+		ctx,
+		client.VolumeCreateOptions{
+			Name:       base + "-data",
+			Driver:     "local",
+			Labels:     labels,
+			DriverOpts: map[string]string{"type": "ext4", "device": disk.device},
+		},
+	)
 	if err != nil {
-		return disk, dataDiskFailure(ctx, "create the data volume "+base+"-data on "+disk.device, err)
+		return disk, dataDiskFailure(
+			ctx,
+			"create the data volume "+base+"-data on "+disk.device,
+			err,
+		)
 	}
+
 	disk.dataVolume = base + "-data"
-	telemetry.L(ctx).InfoContext(ctx, "search.data_disk_created", slog.String("device", disk.device),
-		slog.String("volume", disk.dataVolume), slog.Int64("size_bytes", sizeBytes))
+	telemetry.L(ctx).InfoContext(
+		ctx,
+		"search.data_disk_created",
+		slog.String("device", disk.device),
+		slog.String("volume", disk.dataVolume),
+		slog.Int64("size_bytes", sizeBytes),
+	)
+
 	return disk, nil
 }
 
@@ -104,26 +147,38 @@ func createOpenSearchDataDisk(ctx context.Context, cli *client.Client, sizeBytes
 // device, removes the helper, and removes the image volume, in that order.
 // It runs after the engine is removed. A name that is empty or already gone
 // counts as removed.
-func removeOpenSearchDataDisk(ctx context.Context, cli *client.Client, disk openSearchDataDisk) error {
+func removeOpenSearchDataDisk(
+	ctx context.Context,
+	cli *client.Client,
+	disk openSearchDataDisk,
+) error {
 	var failures []error
 	failures = append(failures, removeDataDiskVolume(ctx, cli, disk.dataVolume))
 	if disk.device != "" {
 		_, err := runInDataDiskHelper(ctx, cli, disk.helper, []string{"losetup", "-d", disk.device})
 		failures = append(failures, err)
 	}
+
 	if disk.helper != "" {
 		failures = append(failures, removeContainersWith(ctx, cli, []string{disk.helper}))
 	}
+
 	failures = append(failures, removeDataDiskVolume(ctx, cli, disk.imageVolume))
 	if err := errors.Join(failures...); err != nil {
 		return dataDiskFailure(ctx, "remove the data disk "+disk.helper, err)
 	}
+
 	return nil
 }
 
 // dataDiskFailure logs and wraps one failed data disk step.
 func dataDiskFailure(ctx context.Context, action string, err error) error {
 	wrapped := fmt.Errorf("%s: %w", action, err)
-	telemetry.L(ctx).ErrorContext(ctx, "search.data_disk_failed", slog.String("err", wrapped.Error()))
+	telemetry.L(ctx).ErrorContext(
+		ctx,
+		"search.data_disk_failed",
+		slog.String("err", wrapped.Error()),
+	)
+
 	return wrapped
 }

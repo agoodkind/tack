@@ -32,7 +32,11 @@ func unpackSearchAgeKey(ctx context.Context, key []byte) (searchAgeEntry, error)
 	var entry searchAgeEntry
 	elements, err := tuple.Unpack(key)
 	if err != nil {
-		return entry, loggedError(ctx, "the command could not decode the pending search work key", err)
+		return entry, loggedError(
+			ctx,
+			"the command could not decode the pending search work key",
+			err,
+		)
 	}
 	if len(elements) != searchAgeKeyElements {
 		return entry, errSearchAgeKey
@@ -54,19 +58,34 @@ func unpackSearchAgeKey(ctx context.Context, key []byte) (searchAgeEntry, error)
 //   - Different enqueue times return SearchMixedOldestRecordSuperseded.
 //   - Equal enqueue times return SearchMixedOldestRecordLive.
 func searchAgeEntryRecord(
-	ctx context.Context, snapshot fdb.Snapshot, prefix []byte, class searchdomain.WorkClass, entry searchAgeEntry,
+	ctx context.Context,
+	snapshot fdb.Snapshot,
+	prefix []byte,
+	class searchdomain.WorkClass,
+	entry searchAgeEntry,
 ) (SearchMixedOldestRecord, error) {
-	key := prefixedKey(prefix, tuple.Tuple{searchWorkFamily, string(class), entry.bucket, entry.orgID, entry.nodeID})
+	key := prefixedKey(
+		prefix,
+		tuple.Tuple{searchWorkFamily, string(class), entry.bucket, entry.orgID, entry.nodeID},
+	)
 	value, err := snapshot.Get(fdb.Key(key)).Get()
 	if err != nil {
-		return "", loggedError(ctx, "the command could not read a pending search work record for class "+string(class), err)
+		return "", loggedError(
+			ctx,
+			"the command could not read a pending search work record for class "+string(class),
+			err,
+		)
 	}
 	if len(value) == 0 {
 		return SearchMixedOldestRecordMissing, nil
 	}
 	var record searchWorkEnqueued
 	if err := json.Unmarshal(value, &record); err != nil {
-		return "", loggedError(ctx, "the command could not decode a pending search work record for class "+string(class), err)
+		return "", loggedError(
+			ctx,
+			"the command could not decode a pending search work record for class "+string(class),
+			err,
+		)
 	}
 	if record.EnqueuedAt.UnixNano() != entry.enqueued {
 		return SearchMixedOldestRecordSuperseded, nil

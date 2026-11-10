@@ -34,19 +34,32 @@ const (
 func openRestoredLedgerReader(
 	ctx context.Context,
 	r *restoreDrillCtx,
-	containerName, database, roleName string,
+	containerName string,
+	database string,
+	roleName string,
 ) (*audit.Reader, error) {
 	logger := telemetry.L(ctx)
 	address, err := scratchLedgerAddress(ctx, r, containerName)
 	if err != nil {
 		return nil, err
 	}
+
 	reader, err := audit.NewReader(ctx, scratchLedgerDSN(address, database, roleName, r.YBPass))
 	if err != nil {
-		wrapped := fmt.Errorf("open a ledger reader on the restored database at %s: %w", address, err)
-		logger.ErrorContext(ctx, "backup.restore_drill.ledger_chain.failed", slog.String("err", wrapped.Error()))
+		wrapped := fmt.Errorf(
+			"open a ledger reader on the restored database at %s: %w",
+			address,
+			err,
+		)
+		logger.ErrorContext(
+			ctx,
+			"backup.restore_drill.ledger_chain.failed",
+			slog.String("err", wrapped.Error()),
+		)
+
 		return nil, wrapped
 	}
+
 	return reader, nil
 }
 
@@ -55,28 +68,56 @@ func openRestoredLedgerReader(
 // the drill uses the host network. The function therefore reads the named
 // container's endpoint on the drill network instead of using the live cluster
 // configuration.
-func scratchLedgerAddress(ctx context.Context, r *restoreDrillCtx, containerName string) (netip.Addr, error) {
+func scratchLedgerAddress(
+	ctx context.Context,
+	r *restoreDrillCtx,
+	containerName string,
+) (netip.Addr, error) {
 	logger := telemetry.L(ctx)
-	inspected, err := r.Cli.ContainerInspect(ctx, containerName, client.ContainerInspectOptions{Size: false})
+	inspected, err := r.Cli.ContainerInspect(
+		ctx,
+		containerName,
+		client.ContainerInspectOptions{Size: false},
+	)
 	if err != nil {
 		wrapped := fmt.Errorf("inspect scratch yugabyted %s: %w", containerName, err)
-		logger.ErrorContext(ctx, "backup.restore_drill.ledger_chain.failed", slog.String("err", wrapped.Error()))
+		logger.ErrorContext(
+			ctx,
+			"backup.restore_drill.ledger_chain.failed",
+			slog.String("err", wrapped.Error()),
+		)
+
 		return netip.Addr{}, wrapped
 	}
+
 	networkName := r.Cfg.BackupFDBNetwork
 	if networkName == "" {
 		networkName = drillLedgerDefaultNetwork
 	}
+
 	address := endpointAddress(inspected, networkName)
 	if !address.IsValid() {
 		wrapped := fmt.Errorf(
 			"scratch yugabyted %s has no address on network %s, so the restored ledger cannot be read",
-			containerName, networkName)
-		logger.ErrorContext(ctx, "backup.restore_drill.ledger_chain.failed", slog.String("err", wrapped.Error()))
+			containerName,
+			networkName,
+		)
+		logger.ErrorContext(
+			ctx,
+			"backup.restore_drill.ledger_chain.failed",
+			slog.String("err", wrapped.Error()),
+		)
+
 		return netip.Addr{}, wrapped
 	}
-	logger.InfoContext(ctx, "backup.restore_drill.ledger_chain.address",
-		slog.String("container", containerName), slog.String("address", address.String()))
+
+	logger.InfoContext(
+		ctx,
+		"backup.restore_drill.ledger_chain.address",
+		slog.String("container", containerName),
+		slog.String("address", address.String()),
+	)
+
 	return address, nil
 }
 
@@ -88,13 +129,16 @@ func endpointAddress(inspected client.ContainerInspectResult, networkName string
 	if settings == nil {
 		return netip.Addr{}
 	}
+
 	endpoint, found := settings.Networks[networkName]
 	if !found || endpoint == nil {
 		return netip.Addr{}
 	}
+
 	if endpoint.GlobalIPv6Address.IsValid() {
 		return endpoint.GlobalIPv6Address
 	}
+
 	return endpoint.IPAddress
 }
 
@@ -109,10 +153,23 @@ func scratchLedgerDSN(address netip.Addr, database, roleName, password string) s
 		Path:     "/" + database,
 		RawQuery: "sslmode=disable",
 	}
+
 	return dsn.String()
 }
 
 // ysqlshRoleArgs builds a ysqlsh command vector that connects as roleName.
 func ysqlshRoleArgs(host, database, roleName, sql string) []string {
-	return []string{"ysqlsh", "-h", host, "-p", drillLedgerPort, "-U", roleName, "-d", database, "-tAc", sql}
+	return []string{
+		"ysqlsh",
+		"-h",
+		host,
+		"-p",
+		drillLedgerPort,
+		"-U",
+		roleName,
+		"-d",
+		database,
+		"-tAc",
+		sql,
+	}
 }

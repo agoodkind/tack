@@ -27,48 +27,74 @@ type expiredRead struct {
 //
 //   - A changed candidate does not count as a recovered read.
 //   - An error returns the number of reads already recovered and the error.
-func (l *PoolReadLifecycle) RecoverExpired(ctx context.Context, bucket uint16, limit int) (int, error) {
+func (l *PoolReadLifecycle) RecoverExpired(
+	ctx context.Context,
+	bucket uint16,
+	limit int,
+) (int, error) {
 	candidates, err := l.expiredReads(ctx, bucket, limit)
 	if err != nil {
 		return 0, err
 	}
+
 	recovered := 0
+
 	for _, expired := range candidates {
 		saved, err := l.recoverOne(ctx, expired)
 		if err != nil {
 			return recovered, err
 		}
+
 		if saved {
 			recovered++
 		}
 	}
+
 	return recovered, nil
 }
 
 // expiredReads returns up to limit reads with expired leases in bucket.
-func (l *PoolReadLifecycle) expiredReads(ctx context.Context, bucket uint16, limit int) ([]expiredRead, error) {
+func (l *PoolReadLifecycle) expiredReads(
+	ctx context.Context,
+	bucket uint16,
+	limit int,
+) ([]expiredRead, error) {
 	var candidates []expiredRead
-	err := l.onCheckedConnection(ctx, func(connection *pgx.Conn) error {
-		rows, err := connection.Query(ctx, readStatement("expired"), int(bucket), limit)
-		if err != nil {
-			return statementFailure(ctx, "expired", err)
-		}
-		defer rows.Close()
-		for rows.Next() {
-			var found expiredRead
-			if err := rows.Scan(&found.eventID, &found.generation, &found.leaseDeadline, &found.template, &found.observedAt); err != nil {
+	err := l.onCheckedConnection(
+		ctx,
+		func(connection *pgx.Conn) error {
+			rows, err := connection.Query(ctx, readStatement("expired"), int(bucket), limit)
+			if err != nil {
 				return statementFailure(ctx, "expired", err)
 			}
-			candidates = append(candidates, found)
-		}
-		if err := rows.Err(); err != nil {
-			return statementFailure(ctx, "expired", err)
-		}
-		return nil
-	})
+			defer rows.Close()
+
+			for rows.Next() {
+				var found expiredRead
+				if err := rows.Scan(
+					&found.eventID,
+					&found.generation,
+					&found.leaseDeadline,
+					&found.template,
+					&found.observedAt,
+				); err != nil {
+					return statementFailure(ctx, "expired", err)
+				}
+
+				candidates = append(candidates, found)
+			}
+
+			if err := rows.Err(); err != nil {
+				return statementFailure(ctx, "expired", err)
+			}
+
+			return nil
+		},
+	)
 	if err != nil {
 		return nil, readLifecycleFailure(ctx, "scan expired audit reads", uuid.Nil, err)
 	}
+
 	return candidates, nil
 }
 
@@ -79,22 +105,39 @@ func (l *PoolReadLifecycle) recoverOne(ctx context.Context, expired expiredRead)
 	if err := json.Unmarshal(expired.template, &template); err != nil {
 		return false, readLifecycleFailure(ctx, "decode audit read template", expired.eventID, err)
 	}
+
 	_, encoded, err := EncodeIncompleteRead(template, expired.observedAt)
 	if err != nil {
 		return false, readLifecycleFailure(ctx, "recover audit read", expired.eventID, err)
 	}
+
 	header, parts, err := splitOutboxRecords(encoded)
 	if err != nil {
 		return false, readLifecycleFailure(ctx, "encode audit read event", expired.eventID, err)
 	}
+
 	var saved bool
-	err = l.onCheckedConnection(ctx, func(connection *pgx.Conn) error {
-		return connection.QueryRow(ctx, readStatement("recover"), expired.eventID, expired.generation,
-			expired.leaseDeadline, encoded.TransportDigest, header, parts).Scan(&saved)
-	})
+	err = l.onCheckedConnection(
+		ctx,
+		func(connection *pgx.Conn) error {
+			return connection.QueryRow(
+				ctx,
+				readStatement("recover"),
+				expired.eventID,
+				expired.generation,
+				expired.leaseDeadline,
+				encoded.TransportDigest,
+				header,
+				parts,
+			).Scan(
+				&saved,
+			)
+		},
+	)
 	if err != nil {
 		return false, readLifecycleFailure(ctx, "recover audit read", expired.eventID, err)
 	}
+
 	return saved, nil
 }
 
@@ -106,13 +149,23 @@ func (l *PoolReadLifecycle) recoverOne(ctx context.Context, expired expiredRead)
 //
 //   - A receipt without a publication time remains in storage.
 //   - A receipt newer than the retention threshold remains in storage.
-func (l *PoolReadLifecycle) CleanupPublished(ctx context.Context, bucket uint16, limit int) (int, error) {
+func (l *PoolReadLifecycle) CleanupPublished(
+	ctx context.Context,
+	bucket uint16,
+	limit int,
+) (int, error) {
 	var deleted int
-	err := l.onCheckedConnection(ctx, func(connection *pgx.Conn) error {
-		return connection.QueryRow(ctx, readStatement("cleanup"), int(bucket), limit).Scan(&deleted)
-	})
+	err := l.onCheckedConnection(
+		ctx,
+		func(connection *pgx.Conn) error {
+			return connection.QueryRow(ctx, readStatement("cleanup"), int(bucket), limit).Scan(
+				&deleted,
+			)
+		},
+	)
 	if err != nil {
 		return 0, readLifecycleFailure(ctx, "clean up audit read receipts", uuid.Nil, err)
 	}
+
 	return deleted, nil
 }

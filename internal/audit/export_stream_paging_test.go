@@ -35,41 +35,64 @@ func TestExportWritesEveryRowPastEveryPageSize(t *testing.T) {
 	if err != nil {
 		t.Fatalf("generate key: %v", err)
 	}
+
 	source := &ledgerRowStream{
-		t: t, orgID: orgID, rows: exportPageSpanRows, shards: 8,
-		base: time.Now().UTC().Add(-time.Duration(exportPageSpanRows) * time.Second), observe: nil,
+		t:       t,
+		orgID:   orgID,
+		rows:    exportPageSpanRows,
+		shards:  8,
+		base:    time.Now().UTC().Add(-time.Duration(exportPageSpanRows) * time.Second),
+		observe: nil,
 	}
 
 	manifest, err := Export(
-		context.Background(), source, privateKey, "ed25519:test", exportTestFilter(orgID), dir)
+		context.Background(),
+		source,
+		privateKey,
+		"ed25519:test",
+		exportTestFilter(orgID),
+		dir,
+	)
 	if err != nil {
 		t.Fatalf("export: %v", err)
 	}
+
 	if manifest.RowCount != exportPageSpanRows {
-		t.Fatalf("manifest row count = %d, want %d; a zero limit must export every row, not a page",
-			manifest.RowCount, exportPageSpanRows)
+		t.Fatalf(
+			"manifest row count = %d, want %d; a zero limit must export every row, not a page",
+			manifest.RowCount,
+			exportPageSpanRows,
+		)
 	}
 
 	report, err := VerifyBundle(dir, publicKey)
 	if err != nil {
 		t.Fatalf("verify: %v", err)
 	}
+
 	if report.RowsScanned != exportPageSpanRows {
 		t.Fatalf("rows scanned = %d, want %d", report.RowsScanned, exportPageSpanRows)
 	}
+
 	if report.HashMatches != exportPageSpanRows {
 		t.Fatalf("hash matches = %d, want %d", report.HashMatches, exportPageSpanRows)
 	}
+
 	if report.ChainGapCount != 0 {
 		t.Fatalf("sequence gaps = %d in a whole-ledger export, want 0", report.ChainGapCount)
 	}
+
 	// The signature covers the manifest's row count and digest. These checks
 	// establish that the file matches those signed values; the expected fixture
 	// count separately detects a read that stopped at one page.
 	if !report.FileSHA256OK || !report.SignatureOK {
-		t.Fatalf("digest ok = %v, signature ok = %v, want both true",
-			report.FileSHA256OK, report.SignatureOK)
+		t.Fatalf(
+			"digest ok = %v, signature ok = %v, want both true",
+			report.FileSHA256OK,
+			report.SignatureOK,
+		)
 	}
+
 	if verdict := report.Err(); verdict != nil {
 		t.Fatalf("a complete export failed verification: %v", verdict)
 	}

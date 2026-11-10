@@ -38,14 +38,22 @@ func NewRequestRecorder(store audit.ReadLifecycle) *RequestRecorder {
 //   - GET and HEAD requests call next.
 //   - Other methods receive HTTP 405.
 func (recorder *RequestRecorder) Health(next http.Handler) http.Handler {
-	return recorder.route(routeOperation(audit.VerbHTTPHealthRead, healthRoute), http.HandlerFunc(
-		func(writer http.ResponseWriter, request *http.Request) {
+	return recorder.route(
+		routeOperation(audit.VerbHTTPHealthRead, healthRoute),
+		http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 			if request.Method != http.MethodGet && request.Method != http.MethodHead {
-				methodNotAllowed(writer, http.MethodGet+", "+http.MethodHead, healthMethodNotAllowedBody)
+				methodNotAllowed(
+					writer,
+					http.MethodGet+", "+http.MethodHead,
+					healthMethodNotAllowedBody,
+				)
+
 				return
 			}
+
 			next.ServeHTTP(writer, request)
-		}))
+		}),
+	)
 }
 
 // Diagnostics records requests to the diagnostics route.
@@ -64,14 +72,22 @@ func (recorder *RequestRecorder) Diagnostics(next http.Handler) http.Handler {
 //
 //	unknown := recorder.UnknownRoute()
 func (recorder *RequestRecorder) UnknownRoute() http.Handler {
-	return recorder.route(routeOperation(audit.VerbHTTPRouteUnknown, unknownRoute), http.NotFoundHandler())
+	return recorder.route(
+		routeOperation(audit.VerbHTTPRouteUnknown, unknownRoute),
+		http.NotFoundHandler(),
+	)
 }
 
 // route records each request to a route that does not authenticate. The
 // event uses the unauthenticated actor and the system organization.
 func (recorder *RequestRecorder) route(operation requestOperation, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		recorder.serveRead(writer, request, newRequestRead(request.Context(), request, operation), next)
+		recorder.serveRead(
+			writer,
+			request,
+			newRequestRead(request.Context(), request, operation),
+			next,
+		)
 	})
 }
 
@@ -86,7 +102,10 @@ func (recorder *RequestRecorder) route(operation requestOperation, next http.Han
 //   - The recorder saves admissions before invoking the MCP handler.
 //   - The recorder saves final read events before writing the response.
 //   - Authenticated mutations use the tool and storage recording paths.
-func (recorder *RequestRecorder) MCP(authenticate func(http.Handler) http.Handler, handler *Handler) http.Handler {
+func (recorder *RequestRecorder) MCP(
+	authenticate func(http.Handler) http.Handler,
+	handler *Handler,
+) http.Handler {
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		operation := mcpOperation(request)
 		ctx := auth.WithRejectionNote(request.Context())
@@ -97,18 +116,23 @@ func (recorder *RequestRecorder) MCP(authenticate func(http.Handler) http.Handle
 			capture := newResponseCapture()
 			methodNotAllowed(capture, http.MethodPost, mcpMethodNotAllowedBody)
 			recorder.rejectBeforeAuthentication(writer, request, read, capture)
+
 			return
 		}
+
 		handled := false
-		authenticated := http.HandlerFunc(func(_ http.ResponseWriter, authenticatedRequest *http.Request) {
-			handled = true
-			recorder.serveAuthenticated(writer, authenticatedRequest, read, handler)
-		})
+		authenticated := http.HandlerFunc(
+			func(_ http.ResponseWriter, authenticatedRequest *http.Request) {
+				handled = true
+				recorder.serveAuthenticated(writer, authenticatedRequest, read, handler)
+			},
+		)
 		capture := newResponseCapture()
 		authenticate(authenticated).ServeHTTP(capture, request)
 		if handled {
 			return
 		}
+
 		recorder.rejectBeforeAuthentication(writer, request, read, capture)
 	})
 }
@@ -118,11 +142,17 @@ func (recorder *RequestRecorder) MCP(authenticate func(http.Handler) http.Handle
 // user and the organizations from Handler.requestOrganizations. If
 // organization lookup fails, the recorder saves a failed read in the system
 // organization and answers with HTTP 503.
-func (recorder *RequestRecorder) serveAuthenticated(writer http.ResponseWriter, request *http.Request, read requestRead, handler *Handler) {
+func (recorder *RequestRecorder) serveAuthenticated(
+	writer http.ResponseWriter,
+	request *http.Request,
+	read requestRead,
+	handler *Handler,
+) {
 	if read.operation.mutation {
 		handler.ServeHTTP(writer, request)
 		return
 	}
+
 	ctx := request.Context()
 	userID, _ := auth.UserID(ctx)
 	read.actor = userActor(ctx, userID)
@@ -130,29 +160,52 @@ func (recorder *RequestRecorder) serveAuthenticated(writer http.ResponseWriter, 
 	orgIDs, err := handler.requestOrganizations(ctx, read.operation)
 	if err != nil {
 		result := organizationUnavailable().readResult(ctx)
-		result.Outcome = failed("organization_unavailable", "could not read the request organization")
-		recorder.release(writer, request, read, func(*http.Request) audit.ReadResult[*responseCapture] { return result })
+		result.Outcome = failed(
+			"organization_unavailable",
+			"could not read the request organization",
+		)
+		recorder.release(
+			writer,
+			request,
+			read,
+			func(*http.Request) audit.ReadResult[*responseCapture] { return result },
+		)
+
 		return
 	}
+
 	read.orgIDs = orgIDs
 	if read.operation.metadata {
 		request = request.WithContext(withMetadataTargets(ctx))
 	}
+
 	recorder.serveRead(writer, request, read, handler)
 }
 
 // rejectBeforeAuthentication saves a refused or failed read event before
 // writing a response that the server prepared before authentication
 // succeeded.
-func (recorder *RequestRecorder) rejectBeforeAuthentication(writer http.ResponseWriter, request *http.Request, read requestRead, capture *responseCapture) {
+func (recorder *RequestRecorder) rejectBeforeAuthentication(
+	writer http.ResponseWriter,
+	request *http.Request,
+	read requestRead,
+	capture *responseCapture,
+) {
 	reason, rejected := auth.RejectionReason(request.Context())
 	if rejected {
 		read.operation.verb = rejectionVerb(reason)
 	}
+
 	result := capture.readResult(request.Context())
 	result.Targets, result.OrgTargets, result.Count = nil, nil, 0
 	if rejected {
 		result.Outcome = rejectionOutcome(reason)
 	}
-	recorder.release(writer, request, read, func(*http.Request) audit.ReadResult[*responseCapture] { return result })
+
+	recorder.release(
+		writer,
+		request,
+		read,
+		func(*http.Request) audit.ReadResult[*responseCapture] { return result },
+	)
 }

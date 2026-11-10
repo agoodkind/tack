@@ -27,46 +27,86 @@ import (
 // returns an error that matches domain.ErrFailedPrecondition. When two
 // concurrent removals each depend on the other edge as the remaining parent,
 // FoundationDB aborts one transaction.
-func refuseOnlyParentRemoval(ctx context.Context, tr fdb.Transaction, orgID, sourceID uuid.UUID, relationType string, targetID uuid.UUID) error {
+func refuseOnlyParentRemoval(
+	ctx context.Context,
+	tr fdb.Transaction,
+	orgID uuid.UUID,
+	sourceID uuid.UUID,
+	relationType string,
+	targetID uuid.UUID,
+) error {
 	if relationType != node.RelChildOf {
 		return nil
 	}
+
 	removedKey := fdb.Key(relationshipKey(orgID, sourceID, relationType, targetID))
 	existing, err := tr.Get(removedKey).Get()
 	if err != nil {
-		return searchReadFailure(ctx, "read relationship "+relationType+" of node "+sourceID.String(), err)
+		return searchReadFailure(
+			ctx,
+			"read relationship "+relationType+" of node "+sourceID.String(),
+			err,
+		)
 	}
+
 	if len(existing) == 0 {
 		return nil
 	}
-	sources, err := readHierarchyNodes(ctx, tr, orgID, []uuid.UUID{sourceID}, make(map[string]*node.NodeType))
+
+	sources, err := readHierarchyNodes(
+		ctx,
+		tr,
+		orgID,
+		[]uuid.UUID{sourceID},
+		make(map[string]*node.NodeType),
+	)
 	if err != nil {
 		return err
 	}
+
 	canonicalID, err := storedParentID(ctx, tr, orgID, sources[0])
 	if err != nil {
 		return err
 	}
+
 	if canonicalID != uuid.Nil && canonicalID != targetID {
 		return nil
 	}
+
 	if canonicalID == uuid.Nil {
 		otherID, found, err := otherParentTarget(ctx, tr, orgID, sourceID, removedKey)
 		if err != nil {
 			return err
 		}
+
 		var remaining []uuid.UUID
 		if found {
 			remaining = []uuid.UUID{otherID}
 		}
-		if _, parentErr := node.HierarchyParent(sourceID, sources[0].Kind, remaining); parentErr == nil {
+
+		if _, parentErr := node.HierarchyParent(
+			sourceID,
+			sources[0].Kind,
+			remaining,
+		); parentErr == nil {
 			return nil
 		}
 	}
-	wrapped := fmt.Errorf("node %s needs a hierarchy parent, and %s is its only hierarchy parent; move the node to another parent instead: %w",
-		sourceID, targetID, domain.ErrFailedPrecondition)
-	telemetry.L(ctx).ErrorContext(ctx, "relationship.remove_refused", slog.String("err", wrapped.Error()),
-		slog.String("source_id", sourceID.String()), slog.String("target_id", targetID.String()))
+
+	wrapped := fmt.Errorf(
+		"node %s needs a hierarchy parent, and %s is its only hierarchy parent; move the node to another parent instead: %w",
+		sourceID,
+		targetID,
+		domain.ErrFailedPrecondition,
+	)
+	telemetry.L(ctx).ErrorContext(
+		ctx,
+		"relationship.remove_refused",
+		slog.String("err", wrapped.Error()),
+		slog.String("source_id", sourceID.String()),
+		slog.String("target_id", targetID.String()),
+	)
+
 	return loggedSearchError{err: wrapped}
 }
 
@@ -76,14 +116,21 @@ func refuseOnlyParentRemoval(ctx context.Context, tr fdb.Transaction, orgID, sou
 // primary record does not exist, or the record does not store parent_id. It
 // returns an error when the stored parent_id is not a JSON string that
 // contains a UUID.
-func storedParentID(ctx context.Context, tr fdb.Transaction, orgID uuid.UUID, source hierarchyNode) (uuid.UUID, error) {
+func storedParentID(
+	ctx context.Context,
+	tr fdb.Transaction,
+	orgID uuid.UUID,
+	source hierarchyNode,
+) (uuid.UUID, error) {
 	if !source.Found {
 		return uuid.Nil, nil
 	}
+
 	current, _, _, err := readNodeAndView(ctx, tr, orgID, source)
 	if err != nil || current == nil {
 		return uuid.Nil, err
 	}
+
 	return parentIDValue(ctx, source.ID, current.Props[parentIDProperty])
 }
 
@@ -95,14 +142,17 @@ func parentIDValue(ctx context.Context, nodeID uuid.UUID, raw json.RawMessage) (
 	if len(raw) == 0 {
 		return uuid.Nil, nil
 	}
+
 	var text string
 	if err := json.Unmarshal(raw, &text); err != nil {
 		return uuid.Nil, invalidStoredParent(ctx, nodeID, raw, err)
 	}
+
 	parentID, err := uuid.Parse(text)
 	if err != nil {
 		return uuid.Nil, invalidStoredParent(ctx, nodeID, raw, err)
 	}
+
 	return parentID, nil
 }
 
@@ -111,10 +161,26 @@ func parentIDValue(ctx context.Context, nodeID uuid.UUID, raw json.RawMessage) (
 // at Error level with the event relationship.remove_refused and the
 // source_id attribute set to nodeID. It returns the error as an already
 // logged error.
-func invalidStoredParent(ctx context.Context, nodeID uuid.UUID, raw json.RawMessage, cause error) error {
-	wrapped := fmt.Errorf("node %s stores a parent_id value %s that is not a UUID string: %w: %w", nodeID, raw, cause, domain.ErrFailedPrecondition)
-	telemetry.L(ctx).ErrorContext(ctx, "relationship.remove_refused", slog.String("err", wrapped.Error()),
-		slog.String("source_id", nodeID.String()))
+func invalidStoredParent(
+	ctx context.Context,
+	nodeID uuid.UUID,
+	raw json.RawMessage,
+	cause error,
+) error {
+	wrapped := fmt.Errorf(
+		"node %s stores a parent_id value %s that is not a UUID string: %w: %w",
+		nodeID,
+		raw,
+		cause,
+		domain.ErrFailedPrecondition,
+	)
+	telemetry.L(ctx).ErrorContext(
+		ctx,
+		"relationship.remove_refused",
+		slog.String("err", wrapped.Error()),
+		slog.String("source_id", nodeID.String()),
+	)
+
 	return loggedSearchError{err: wrapped}
 }
 
@@ -127,60 +193,101 @@ const parentGuardEdgeLimit = 2
 // other than removedKey. It returns [uuid.Nil] and false when it does not
 // find another edge. It returns an error if the range read fails or an edge
 // key does not decode.
-func otherParentTarget(ctx context.Context, tr fdb.Transaction, orgID, sourceID uuid.UUID, removedKey fdb.Key) (uuid.UUID, bool, error) {
+func otherParentTarget(
+	ctx context.Context,
+	tr fdb.Transaction,
+	orgID uuid.UUID,
+	sourceID uuid.UUID,
+	removedKey fdb.Key,
+) (uuid.UUID, bool, error) {
 	keyRange, err := fdb.PrefixRange(relationshipPrefixBySource(orgID, sourceID, node.RelChildOf))
 	if err != nil {
-		return uuid.Nil, false, nodeOperationFailure(ctx, "create relationship range for node "+sourceID.String(), err)
+		return uuid.Nil, false, nodeOperationFailure(
+			ctx,
+			"create relationship range for node "+sourceID.String(),
+			err,
+		)
 	}
-	items, err := tr.GetRange(keyRange, fdb.RangeOptions{Limit: parentGuardEdgeLimit}).GetSliceWithError()
+
+	items, err := tr.GetRange(
+		keyRange,
+		fdb.RangeOptions{Limit: parentGuardEdgeLimit},
+	).GetSliceWithError()
 	if err != nil {
-		return uuid.Nil, false, searchReadFailure(ctx, "read child_of edges of node "+sourceID.String(), err)
+		return uuid.Nil, false, searchReadFailure(
+			ctx,
+			"read child_of edges of node "+sourceID.String(),
+			err,
+		)
 	}
+
 	for _, item := range items {
 		if bytes.Equal(item.Key, removedKey) {
 			continue
 		}
+
 		targetID, err := edgeEnd(ctx, item.Key)
 		if err != nil {
 			return uuid.Nil, false, err
 		}
+
 		return targetID, true, nil
 	}
+
 	return uuid.Nil, false, nil
 }
 
 // cachedNodeTypeByKey reads the node type of orgID that uses typeKey through
 // the type-key index. A missing type yields nil, and a type key that several
 // node types use is an error.
-func cachedNodeTypeByKey(ctx context.Context, tr fdb.Transaction, orgID uuid.UUID, typeKey string, kinds map[string]*node.NodeType) (*node.NodeType, error) {
+func cachedNodeTypeByKey(
+	ctx context.Context,
+	tr fdb.Transaction,
+	orgID uuid.UUID,
+	typeKey string,
+	kinds map[string]*node.NodeType,
+) (*node.NodeType, error) {
 	if kind, cached := kinds[typeKey]; cached {
 		return kind, nil
 	}
+
 	typeIDs, err := indexedIDs(ctx, tr, nodeTypeByKeyPrefix(orgID, typeKey))
 	if err != nil {
 		return nil, err
 	}
+
 	if len(typeIDs) > 1 {
-		return nil, nodeOperationFailure(ctx, "read node type "+typeKey, fmt.Errorf("node type key %q is used by several node types", typeKey))
+		return nil, nodeOperationFailure(
+			ctx,
+			"read node type "+typeKey,
+			fmt.Errorf("node type key %q is used by several node types", typeKey),
+		)
 	}
+
 	kinds[typeKey] = nil
 	if len(typeIDs) == 0 {
 		return nil, nil
 	}
+
 	encoded, err := tr.Get(fdb.Key(nodeTypeDefKey(orgID, typeIDs[0]))).Get()
 	if err != nil {
 		return nil, searchReadFailure(ctx, "read node type "+typeIDs[0].String(), err)
 	}
+
 	if len(encoded) == 0 {
 		return nil, nil
 	}
+
 	var decoded node.NodeType
 	if err := json.Unmarshal(encoded, &decoded); err != nil {
 		return nil, searchReadFailure(ctx, "decode node type "+typeKey, err)
 	}
+
 	if decoded.TypeKey != typeKey {
 		return nil, nil
 	}
+
 	kinds[typeKey] = &decoded
+
 	return &decoded, nil
 }

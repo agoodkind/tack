@@ -63,10 +63,16 @@ func bundleEventsFileName(manifest ExportManifest) (string, error) {
 	if manifest.EventsFile == "" {
 		return legacyExportEventsFile, nil
 	}
+
 	name := manifest.EventsFile
-	if name == "." || name == ".." || name != filepath.Base(name) || strings.ContainsAny(name, `/\`) {
-		return "", fmt.Errorf("verify manifest: events_file %q is not a file name inside the bundle", name)
+	if name == "." || name == ".." || name != filepath.Base(name) ||
+		strings.ContainsAny(name, `/\`) {
+		return "", fmt.Errorf(
+			"verify manifest: events_file %q is not a file name inside the bundle",
+			name,
+		)
 	}
+
 	return name, nil
 }
 
@@ -86,14 +92,17 @@ func exporterOwnedFile(name string) bool {
 	if name == legacyExportEventsFile {
 		return true
 	}
+
 	if afterPrefix, hasPrefix := strings.CutPrefix(name, exportEventsPrefix); hasPrefix {
 		exportID, hasSuffix := strings.CutSuffix(afterPrefix, exportEventsSuffix)
 		return hasSuffix && isExportIDText(exportID)
 	}
+
 	stagedName, isStaged := strings.CutSuffix(name, stagedSuffix)
 	if !isStaged {
 		return false
 	}
+
 	return stagedForExport(stagedName, exportManifestFile) ||
 		stagedForExport(stagedName, legacyExportEventsFile)
 }
@@ -115,5 +124,6 @@ func isExportIDText(text string) bool {
 	if err != nil {
 		return false
 	}
+
 	return parsed.String() == text
 }

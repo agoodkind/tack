@@ -17,7 +17,14 @@ import (
 // manifest. It fails the test when a matching format 2 row does not record a
 // target, or when a completed read row does not record a SHA-256 payload
 // digest that matches the response body of the case.
-func caseEvidenceFound(t *testing.T, env *coverageEnv, evidence coverageEvidence, verb audit.Verb, outcome audit.Outcome, rows []audit.Row) bool {
+func caseEvidenceFound(
+	t *testing.T,
+	env *coverageEnv,
+	evidence coverageEvidence,
+	verb audit.Verb,
+	outcome audit.Outcome,
+	rows []audit.Row,
+) bool {
 	t.Helper()
 	matched := false
 	found := evidence.targetID == uuid.Nil
@@ -31,12 +38,17 @@ func caseEvidenceFound(t *testing.T, env *coverageEnv, evidence coverageEvidence
 		}
 		target := row.Context.Target
 		if target == nil || target.Kind == "" {
-			t.Fatalf("Format 2 event %s did not record a target; the event context follows: %+v", row.EventID, row.Context)
+			t.Fatalf(
+				"Format 2 event %s did not record a target; the event context follows: %+v",
+				row.EventID,
+				row.Context,
+			)
 		}
 		if !found && (target.ID == evidence.targetID || target.SourceID == evidence.targetID) {
 			found = true
 		}
-		if row.Context.OperationClass != audit.OperationRead || row.Outcome != audit.OutcomeCompleted {
+		if row.Context.OperationClass != audit.OperationRead ||
+			row.Outcome != audit.OutcomeCompleted {
 			continue
 		}
 		requireReadDigest(t, evidence, row)
@@ -53,11 +65,19 @@ func requireReadDigest(t *testing.T, evidence coverageEvidence, row audit.Row) {
 	t.Helper()
 	read := row.Context.Read
 	if read == nil || !isPayloadDigest(read.PayloadSHA256) {
-		t.Fatalf("Completed read event %s did not record a payload digest; the read evidence follows: %+v", row.EventID, read)
+		t.Fatalf(
+			"Completed read event %s did not record a payload digest; the read evidence follows: %+v",
+			row.EventID,
+			read,
+		)
 	}
 	if evidence.body != nil && read.PayloadSHA256 != payloadDigest(evidence.body) {
-		t.Fatalf("Completed read event %s recorded payload digest %s, but the response body has digest %s.",
-			row.EventID, read.PayloadSHA256, payloadDigest(evidence.body))
+		t.Fatalf(
+			"Completed read event %s recorded payload digest %s, but the response body has digest %s.",
+			row.EventID,
+			read.PayloadSHA256,
+			payloadDigest(evidence.body),
+		)
 	}
 }
 
@@ -90,7 +110,11 @@ func argumentNodeID(t *testing.T, arguments map[string]any) uuid.UUID {
 	}
 	value, isString := raw.(string)
 	if !isString {
-		t.Fatalf("The case passed node_id %v of type %T; the coverage check requires a UUID string.", raw, raw)
+		t.Fatalf(
+			"The case passed node_id %v of type %T; the coverage check requires a UUID string.",
+			raw,
+			raw,
+		)
 	}
 	nodeID, err := uuid.Parse(value)
 	if err != nil {

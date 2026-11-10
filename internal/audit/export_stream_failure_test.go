@@ -32,24 +32,39 @@ func TestExportStopsWhenTheLedgerReadFails(t *testing.T) {
 		{name: "after rows are already written", rowsBeforeFailure: exportFailureRows},
 	}
 	for _, testCase := range cases {
-		t.Run(testCase.name, func(t *testing.T) {
-			dir := t.TempDir()
-			orgID := uuid.Must(uuid.NewV7())
-			_, privateKey, err := ed25519.GenerateKey(rand.Reader)
-			if err != nil {
-				t.Fatalf("generate key: %v", err)
-			}
+		t.Run(
+			testCase.name,
+			func(t *testing.T) {
+				dir := t.TempDir()
+				orgID := uuid.Must(uuid.NewV7())
+				_, privateKey, err := ed25519.GenerateKey(rand.Reader)
+				if err != nil {
+					t.Fatalf("generate key: %v", err)
+				}
 
-			source := &failingRowSource{t: t, orgID: orgID, rowsBeforeFailure: testCase.rowsBeforeFailure}
-			if _, err := Export(context.Background(), source, privateKey, "ed25519:test",
-				exportTestFilter(orgID), dir); err == nil {
-				t.Fatal("export reported success on a ledger read that failed")
-			}
-			if _, statErr := os.Stat(filepath.Join(dir, exportManifestFile)); statErr == nil {
-				t.Fatal("a failed export left a signed manifest behind")
-			}
-			assertDirectoryHoldsOnlyItsBundle(t, dir)
-		})
+				source := &failingRowSource{
+					t:                 t,
+					orgID:             orgID,
+					rowsBeforeFailure: testCase.rowsBeforeFailure,
+				}
+				if _, err := Export(
+					context.Background(),
+					source,
+					privateKey,
+					"ed25519:test",
+					exportTestFilter(orgID),
+					dir,
+				); err == nil {
+					t.Fatal("export reported success on a ledger read that failed")
+				}
+
+				if _, statErr := os.Stat(filepath.Join(dir, exportManifestFile)); statErr == nil {
+					t.Fatal("a failed export left a signed manifest behind")
+				}
+
+				assertDirectoryHoldsOnlyItsBundle(t, dir)
+			},
+		)
 	}
 }
 
@@ -71,11 +86,18 @@ type failingRowSource struct {
 	rowsBeforeFailure int
 }
 
-func (s *failingRowSource) StreamQuery(ctx context.Context, filter QueryFilter, visit RowVisitor) error {
+func (s *failingRowSource) StreamQuery(
+	ctx context.Context,
+	filter QueryFilter,
+	visit RowVisitor,
+) error {
 	s.t.Helper()
 	if s.rowsBeforeFailure > 0 {
 		delivered := &ledgerRowStream{
-			t: s.t, orgID: s.orgID, rows: s.rowsBeforeFailure, shards: 4,
+			t:       s.t,
+			orgID:   s.orgID,
+			rows:    s.rowsBeforeFailure,
+			shards:  4,
 			base:    time.Now().UTC().Add(-time.Duration(s.rowsBeforeFailure) * time.Second),
 			observe: nil,
 		}
@@ -83,6 +105,7 @@ func (s *failingRowSource) StreamQuery(ctx context.Context, filter QueryFilter, 
 			return err
 		}
 	}
+
 	return context.DeadlineExceeded
 }
 
@@ -107,35 +130,60 @@ func TestFailedReExportLeavesThePublishedBundleIntact(t *testing.T) {
 	if err != nil {
 		t.Fatalf("generate key: %v", err)
 	}
+
 	source := &ledgerRowStream{
-		t: t, orgID: orgID, rows: exportFailureRows, shards: 4,
-		base: time.Now().UTC().Add(-exportFailureRows * time.Second), observe: nil,
+		t:       t,
+		orgID:   orgID,
+		rows:    exportFailureRows,
+		shards:  4,
+		base:    time.Now().UTC().Add(-exportFailureRows * time.Second),
+		observe: nil,
 	}
 
 	published, err := Export(
-		context.Background(), source, privateKey, "ed25519:test", exportTestFilter(orgID), dir)
+		context.Background(),
+		source,
+		privateKey,
+		"ed25519:test",
+		exportTestFilter(orgID),
+		dir,
+	)
 	if err != nil {
 		t.Fatalf("first export: %v", err)
 	}
+
 	_, rowsBefore := publishedBundle(t, dir)
 	// The failing re-export supplies this same row count. Its encoded output must
 	// exceed the write buffer and force file writes before failure. Otherwise the
 	// preservation assertions could pass without exercising separate output files.
 	if len(rowsBefore) <= exportWriteBufferBytes {
-		t.Fatalf("%d rows encode to %d bytes, which the %d-byte write buffer holds entirely; the failed re-export would never reach the disk",
-			exportFailureRows, len(rowsBefore), exportWriteBufferBytes)
+		t.Fatalf(
+			"%d rows encode to %d bytes, which the %d-byte write buffer holds entirely; the failed re-export would never reach the disk",
+			exportFailureRows,
+			len(rowsBefore),
+			exportWriteBufferBytes,
+		)
 	}
 
 	failing := &failingRowSource{t: t, orgID: orgID, rowsBeforeFailure: exportFailureRows}
-	if _, err := Export(context.Background(), failing, privateKey, "ed25519:test",
-		exportTestFilter(orgID), dir); err == nil {
+	if _, err := Export(
+		context.Background(),
+		failing,
+		privateKey,
+		"ed25519:test",
+		exportTestFilter(orgID),
+		dir,
+	); err == nil {
 		t.Fatal("the re-export reported success on a ledger read that failed")
 	}
 
 	_, rowsAfter := publishedBundle(t, dir)
 	if !bytes.Equal(rowsBefore, rowsAfter) {
-		t.Fatalf("the failed re-export rewrote the published rows: %d bytes before, %d after",
-			len(rowsBefore), len(rowsAfter))
+		t.Fatalf(
+			"the failed re-export rewrote the published rows: %d bytes before, %d after",
+			len(rowsBefore),
+			len(rowsAfter),
+		)
 	}
 
 	// Verify the surviving manifest and rows together. Preserving rows without
@@ -144,12 +192,17 @@ func TestFailedReExportLeavesThePublishedBundleIntact(t *testing.T) {
 	if err != nil {
 		t.Fatalf("the bundle that survived the failed re-export no longer verifies: %v", err)
 	}
+
 	if verdict := report.Err(); verdict != nil {
 		t.Fatalf("surviving bundle failed verification: %v", verdict)
 	}
+
 	if report.RowsScanned != published.RowCount {
-		t.Fatalf("surviving bundle holds %d rows, want the %d it was published with",
-			report.RowsScanned, published.RowCount)
+		t.Fatalf(
+			"surviving bundle holds %d rows, want the %d it was published with",
+			report.RowsScanned,
+			published.RowCount,
+		)
 	}
 
 	assertDirectoryHoldsOnlyItsBundle(t, dir)

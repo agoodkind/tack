@@ -32,17 +32,27 @@ func getObjectBytes(ctx context.Context, client *s3.Client, bucket, key string) 
 
 // getObjectBytesUpTo reads an object like getObjectBytes, with maxBytes as
 // the in-memory body limit.
-func getObjectBytesUpTo(ctx context.Context, client *s3.Client, bucket, key string, maxBytes int) ([]byte, error) {
+func getObjectBytesUpTo(
+	ctx context.Context,
+	client *s3.Client,
+	bucket string,
+	key string,
+	maxBytes int,
+) ([]byte, error) {
 	logger := telemetry.L(ctx)
-	out, err := client.GetObject(ctx, &s3.GetObjectInput{
-		Bucket: aws.String(bucket),
-		Key:    aws.String(key),
-	})
+	out, err := client.GetObject(
+		ctx,
+		&s3.GetObjectInput{
+			Bucket: aws.String(bucket),
+			Key:    aws.String(key),
+		},
+	)
 	if err != nil {
 		wrapped := fmt.Errorf("get object %s/%s: %w", bucket, key, err)
 		if !isObjectNotFound(err) {
 			logger.ErrorContext(ctx, "backup.s3.get_failed", slog.String("err", wrapped.Error()))
 		}
+
 		return nil, wrapped
 	}
 	defer out.Body.Close()
@@ -53,13 +63,21 @@ func getObjectBytesUpTo(ctx context.Context, client *s3.Client, bucket, key stri
 	if err != nil {
 		wrapped := fmt.Errorf("read object %s/%s: %w", bucket, key, err)
 		logger.ErrorContext(ctx, "backup.s3.get_failed", slog.String("err", wrapped.Error()))
+
 		return nil, wrapped
 	}
+
 	if len(body) > maxBytes {
-		wrapped := fmt.Errorf("object %s/%s is larger than the %d byte limit for in-memory reads",
-			bucket, key, maxBytes)
+		wrapped := fmt.Errorf(
+			"object %s/%s is larger than the %d byte limit for in-memory reads",
+			bucket,
+			key,
+			maxBytes,
+		)
 		logger.ErrorContext(ctx, "backup.s3.get_failed", slog.String("err", wrapped.Error()))
+
 		return nil, wrapped
 	}
+
 	return body, nil
 }

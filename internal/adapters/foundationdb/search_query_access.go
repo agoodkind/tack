@@ -34,11 +34,15 @@ func NewSearchQueryAccess(policies *searchaccess.PolicySet) *SearchQueryAccess {
 // context deadline also matches [searchdomain.ErrEngineUnavailable].
 //
 //   - Other errors retain their original identity and text.
-func (a *SearchQueryAccess) EntryAuthority(ctx context.Context, entryPointID uuid.UUID) (uuid.UUID, error) {
+func (a *SearchQueryAccess) EntryAuthority(
+	ctx context.Context,
+	entryPointID uuid.UUID,
+) (uuid.UUID, error) {
 	authority, err := a.policies.EntryAuthority(ctx, entryPointID)
 	if err != nil {
 		return uuid.Nil, classifySearchTimeout(err)
 	}
+
 	return authority, nil
 }
 
@@ -49,10 +53,14 @@ func (a *SearchQueryAccess) EntryAuthority(ctx context.Context, entryPointID uui
 // [searchdomain.ErrEngineUnavailable].
 //
 //   - A successful filter contains sorted unique opaque keys.
-func (a *SearchQueryAccess) Query(ctx context.Context, request searchaccess.AccessRequest) (searchdomain.AccessFilter, error) {
+func (a *SearchQueryAccess) Query(
+	ctx context.Context,
+	request searchaccess.AccessRequest,
+) (searchdomain.AccessFilter, error) {
 	filter, err := a.policies.Query(ctx, request)
 	if err != nil {
 		return searchdomain.AccessFilter{}, classifySearchTimeout(err)
 	}
+
 	return filter, nil
 }

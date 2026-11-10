@@ -36,8 +36,12 @@ func TestBackupAlarmWordsNumberNoArgument(t *testing.T) {
 			"phraseKnown":            words.phraseKnown,
 		} {
 			if strings.Contains(template, backupAlarmNumberedArgument) {
-				t.Errorf("%s %s numbers its arguments, which hides an argument the words do not name: %q",
-					name, label, template)
+				t.Errorf(
+					"%s %s numbers its arguments, which hides an argument the words do not name: %q",
+					name,
+					label,
+					template,
+				)
 			}
 		}
 	}
@@ -54,20 +58,40 @@ func TestBackupAlarmKnownMailsDropNoArgument(t *testing.T) {
 	const reading = "1 dead nodes, 4 under-replicated tablets"
 
 	for _, name := range backupAlarmMetricNames {
-		fault := knownBackupStalenessMetric(ctx, name, now, now.Add(-40*time.Hour), 36*time.Hour, reading)
+		fault := knownBackupStalenessMetric(
+			ctx,
+			name,
+			now,
+			now.Add(-40*time.Hour),
+			36*time.Hour,
+			reading,
+		)
 		body := backupStalenessAlarmBody(cfg, []backupStalenessMetric{fault})
 
 		if strings.Contains(body, "%!") {
-			t.Errorf("%s: the mail carries a formatting marker, so a sentence and its arguments disagree:\n%s",
-				name, body)
+			t.Errorf(
+				"%s: the mail carries a formatting marker, so a sentence and its arguments disagree:\n%s",
+				name,
+				body,
+			)
 		}
+
 		declared := backupAlarmVocabulary[name].paragraphKnownDetail != ""
 		carried := strings.Contains(body, "The last check reported: "+reading+".")
 		if declared && !carried {
-			t.Errorf("%s: the words promise the last-check sentence and the mail does not carry it:\n%s", name, body)
+			t.Errorf(
+				"%s: the words promise the last-check sentence and the mail does not carry it:\n%s",
+				name,
+				body,
+			)
 		}
+
 		if !declared && carried {
-			t.Errorf("%s: the mail claims the last check reported a reading its words never promised:\n%s", name, body)
+			t.Errorf(
+				"%s: the mail claims the last check reported a reading its words never promised:\n%s",
+				name,
+				body,
+			)
 		}
 	}
 }
@@ -82,7 +106,12 @@ func TestBackupAlarmLastCheckSentenceGoesWhereTheReadingIsThisRun(t *testing.T) 
 		declared := backupAlarmVocabulary[name].paragraphKnownDetail != ""
 		wantDeclared := name == backupStalenessReplicationName
 		if declared != wantDeclared {
-			t.Errorf("%s declares the last-check sentence = %v, want %v", name, declared, wantDeclared)
+			t.Errorf(
+				"%s declares the last-check sentence = %v, want %v",
+				name,
+				declared,
+				wantDeclared,
+			)
 		}
 	}
 }

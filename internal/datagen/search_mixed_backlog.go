@@ -46,7 +46,11 @@ type searchClassBacklog struct {
 func newSearchMixedBacklog(ctx context.Context, cfg *config.Config) (*searchMixedBacklog, error) {
 	db, err := fdbadapter.Open(cfg.FDBClusterFile, cfg.FDBTransactionTimeout)
 	if err != nil {
-		return nil, loggedError(ctx, "qa datagen search-mixed: the command could not open FoundationDB to read pending search work", err)
+		return nil, loggedError(
+			ctx,
+			"qa datagen search-mixed: the command could not open FoundationDB to read pending search work",
+			err,
+		)
 	}
 	return &searchMixedBacklog{db: db, timeout: cfg.FDBTransactionTimeout}, nil
 }
@@ -54,14 +58,25 @@ func newSearchMixedBacklog(ctx context.Context, cfg *config.Config) (*searchMixe
 // pending returns pending search work by class and omits classes without age
 // keys. It uses snapshot reads in one transaction and retries retryable
 // FoundationDB errors.
-func (b *searchMixedBacklog) pending(ctx context.Context) (map[searchdomain.WorkClass]searchClassBacklog, error) {
+func (b *searchMixedBacklog) pending(ctx context.Context) (
+	map[searchdomain.WorkClass]searchClassBacklog,
+	error,
+) {
 	transaction, err := b.db.CreateTransaction()
 	if err != nil {
-		return nil, loggedError(ctx, "qa datagen search-mixed: the command could not create a transaction to read pending search work", err)
+		return nil, loggedError(
+			ctx,
+			"qa datagen search-mixed: the command could not create a transaction to read pending search work",
+			err,
+		)
 	}
 	defer transaction.Cancel()
 	if err := transaction.Options().SetTimeout(max(b.timeout.Milliseconds(), 1)); err != nil {
-		return nil, loggedError(ctx, "qa datagen search-mixed: the command could not set the transaction timeout for pending search work", err)
+		return nil, loggedError(
+			ctx,
+			"qa datagen search-mixed: the command could not set the transaction timeout for pending search work",
+			err,
+		)
 	}
 	for {
 		pending, readErr := readPendingSearchWork(ctx, transaction.Snapshot())
@@ -70,15 +85,26 @@ func (b *searchMixedBacklog) pending(ctx context.Context) (map[searchdomain.Work
 		}
 		var databaseError fdb.Error
 		if !errors.As(readErr, &databaseError) {
-			return nil, loggedError(ctx, "qa datagen search-mixed: the command could not read pending search work", readErr)
+			return nil, loggedError(
+				ctx,
+				"qa datagen search-mixed: the command could not read pending search work",
+				readErr,
+			)
 		}
 		if retryErr := transaction.OnError(databaseError).Get(); retryErr != nil {
-			return nil, loggedError(ctx, "qa datagen search-mixed: the command could not retry the read of pending search work", retryErr)
+			return nil, loggedError(
+				ctx,
+				"qa datagen search-mixed: the command could not retry the read of pending search work",
+				retryErr,
+			)
 		}
 	}
 }
 
-func readPendingSearchWork(ctx context.Context, snapshot fdb.Snapshot) (map[searchdomain.WorkClass]searchClassBacklog, error) {
+func readPendingSearchWork(ctx context.Context, snapshot fdb.Snapshot) (
+	map[searchdomain.WorkClass]searchClassBacklog,
+	error,
+) {
 	prefix := fdbadapter.TestPrefixRange()
 	pending := make(map[searchdomain.WorkClass]searchClassBacklog)
 	for _, class := range searchdomain.ScheduledWorkClasses() {
@@ -98,12 +124,23 @@ func readPendingSearchWork(ctx context.Context, snapshot fdb.Snapshot) (map[sear
 // work record state. A class without age keys returns a backlog with
 // nonemptyBuckets equal to zero.
 func readClassSearchWork(
-	ctx context.Context, snapshot fdb.Snapshot, prefix []byte, class searchdomain.WorkClass,
+	ctx context.Context,
+	snapshot fdb.Snapshot,
+	prefix []byte,
+	class searchdomain.WorkClass,
 ) (searchClassBacklog, error) {
 	backlog := searchClassBacklog{oldest: time.Time{}, nonemptyBuckets: 0, oldestRecord: ""}
-	classRange, err := fdb.PrefixRange(prefixedKey(prefix, tuple.Tuple{searchAgeFamily, string(class)}))
+	classRange, err := fdb.PrefixRange(
+		prefixedKey(prefix, tuple.Tuple{searchAgeFamily, string(class)}),
+	)
 	if err != nil {
-		return backlog, loggedError(ctx, "the command could not create a key range for pending search work in class "+string(class), err)
+		return backlog, loggedError(
+			ctx,
+			"the command could not create a key range for pending search work in class "+string(
+				class,
+			),
+			err,
+		)
 	}
 	begin := classRange.Begin.FDBKey()
 	end := classRange.End.FDBKey()
@@ -111,7 +148,11 @@ func readClassSearchWork(
 	for {
 		key, err := snapshot.GetKey(fdb.FirstGreaterOrEqual(begin)).Get()
 		if err != nil {
-			return backlog, loggedError(ctx, "the command could not read a pending search work key for class "+string(class), err)
+			return backlog, loggedError(
+				ctx,
+				"the command could not read a pending search work key for class "+string(class),
+				err,
+			)
 		}
 		if bytes.Compare(key, end) >= 0 {
 			break
@@ -124,7 +165,9 @@ func readClassSearchWork(
 			oldest = entry
 		}
 		backlog.nonemptyBuckets++
-		begin = fdb.Key(prefixedKey(prefix, tuple.Tuple{searchAgeFamily, string(class), entry.bucket + 1}))
+		begin = fdb.Key(
+			prefixedKey(prefix, tuple.Tuple{searchAgeFamily, string(class), entry.bucket + 1}),
+		)
 	}
 	if backlog.nonemptyBuckets == 0 {
 		return backlog, nil

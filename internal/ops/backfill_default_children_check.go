@@ -14,29 +14,62 @@ import (
 	"goodkind.io/tack/internal/service"
 )
 
-func checkDefaultChildProps(ctx context.Context, env *Env, orgTypes map[uuid.UUID][]*node.NodeType) error {
+func checkDefaultChildProps(
+	ctx context.Context,
+	env *Env,
+	orgTypes map[uuid.UUID][]*node.NodeType,
+) error {
 	var refusals []error
 	var failures []error
+
 	for orgID, nodeTypes := range orgTypes {
 		definitions, err := env.Stores.PropertyDefs.List(ctx, orgID)
 		if err != nil {
-			failures = append(failures, fmt.Errorf("list property definitions of organization %s for the default children check: %w", orgID, err))
+			failures = append(
+				failures,
+				fmt.Errorf(
+					"list property definitions of organization %s for the default children check: %w",
+					orgID,
+					err,
+				),
+			)
 			continue
 		}
-		refusals = append(refusals, checkOrgDefaultChildProps(ctx, orgID, nodeTypes, definitions)...)
+
+		refusals = append(
+			refusals,
+			checkOrgDefaultChildProps(ctx, orgID, nodeTypes, definitions)...,
+		)
 	}
+
 	if len(failures) > 0 {
-		failed := fmt.Errorf("refuse the default children backfill after %d failed property definition reads: %w", len(failures), errors.Join(failures...))
-		env.Log.ErrorContext(ctx, "backfill.default_children_check_failed",
-			slog.Int("failed_reads", len(failures)), slog.String("err", failed.Error()))
+		failed := fmt.Errorf(
+			"refuse the default children backfill after %d failed property definition reads: %w",
+			len(failures),
+			errors.Join(failures...),
+		)
+		env.Log.ErrorContext(
+			ctx,
+			"backfill.default_children_check_failed",
+			slog.Int("failed_reads", len(failures)),
+			slog.String("err", failed.Error()),
+		)
+
 		return failed
 	}
+
 	if len(refusals) == 0 {
 		return nil
 	}
+
 	refused := fmt.Errorf("refuse the default children backfill: %w", errors.Join(refusals...))
-	env.Log.ErrorContext(ctx, "backfill.default_children_refused",
-		slog.Int("refused_children", len(refusals)), slog.String("err", refused.Error()))
+	env.Log.ErrorContext(
+		ctx,
+		"backfill.default_children_refused",
+		slog.Int("refused_children", len(refusals)),
+		slog.String("err", refused.Error()),
+	)
+
 	return refused
 }
 
@@ -44,23 +77,43 @@ func checkDefaultChildProps(ctx context.Context, env *Env, orgTypes map[uuid.UUI
 // orgIDs, even after a read fails. Complete success returns node types by
 // organization ID. Any failure logs one backfill.default_children_check_failed
 // event and returns one error joining all failed reads, without node types.
-func listOrgNodeTypes(ctx context.Context, env *Env, orgIDs map[uuid.UUID]struct{}) (map[uuid.UUID][]*node.NodeType, error) {
+func listOrgNodeTypes(
+	ctx context.Context,
+	env *Env,
+	orgIDs map[uuid.UUID]struct{},
+) (map[uuid.UUID][]*node.NodeType, error) {
 	orgTypes := make(map[uuid.UUID][]*node.NodeType, len(orgIDs))
 	var failures []error
+
 	for orgID := range orgIDs {
 		nodeTypes, err := env.Stores.NodeTypes.List(ctx, orgID)
 		if err != nil {
-			failures = append(failures, fmt.Errorf("list node types of organization %s: %w", orgID, err))
+			failures = append(
+				failures,
+				fmt.Errorf("list node types of organization %s: %w", orgID, err),
+			)
 			continue
 		}
+
 		orgTypes[orgID] = nodeTypes
 	}
+
 	if len(failures) == 0 {
 		return orgTypes, nil
 	}
-	failed := fmt.Errorf("refuse the default children backfill after %d failed node type reads: %w", len(failures), errors.Join(failures...))
-	env.Log.ErrorContext(ctx, "backfill.default_children_check_failed",
-		slog.Int("failed_reads", len(failures)), slog.String("err", failed.Error()))
+
+	failed := fmt.Errorf(
+		"refuse the default children backfill after %d failed node type reads: %w",
+		len(failures),
+		errors.Join(failures...),
+	)
+	env.Log.ErrorContext(
+		ctx,
+		"backfill.default_children_check_failed",
+		slog.Int("failed_reads", len(failures)),
+		slog.String("err", failed.Error()),
+	)
+
 	return nil, failed
 }
 
@@ -73,19 +126,36 @@ func checkOrgDefaultChildProps(
 	typeIndex := node.BuildTypeIndex(nodeTypes)
 	schema := node.Schema{OrgID: orgID, Types: typeIndex, Definitions: definitions}
 	var refusals []error
+
 	for _, nodeType := range nodeTypes {
 		for _, defaultChild := range nodeType.DefaultChildren {
 			childType := typeIndex[defaultChild.TypeKey]
 			if childType == nil {
 				continue
 			}
+
 			props := defaultChildProps(defaultChild, checkedParentRaw)
-			if err := service.ValidateNodeProps(ctx, schema, childType, "create", props); err != nil {
-				refusals = append(refusals, fmt.Errorf("default child %q of node type %q in organization %s: %w",
-					defaultChild.Name, nodeType.TypeKey, orgID, err))
+			if err := service.ValidateNodeProps(
+				ctx,
+				schema,
+				childType,
+				"create",
+				props,
+			); err != nil {
+				refusals = append(
+					refusals,
+					fmt.Errorf(
+						"default child %q of node type %q in organization %s: %w",
+						defaultChild.Name,
+						nodeType.TypeKey,
+						orgID,
+						err,
+					),
+				)
 			}
 		}
 	}
+
 	return refusals
 }
 
@@ -101,5 +171,6 @@ func defaultChildProps(dc node.DefaultChild, parentRaw json.RawMessage) map[stri
 	maps.Copy(props, dc.Props)
 	props["parent_id"] = parentRaw
 	props["scope_id"] = parentRaw
+
 	return props
 }

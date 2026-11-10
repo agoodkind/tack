@@ -75,9 +75,7 @@ func RunSoak(
 	if err := soakContextError(scheduleContext, "start setup"); err != nil {
 		return SoakSummary{}, err
 	}
-	session, err := openRunSession(
-		callContext, cfg, options.Scale, options.Seed, options.Commit,
-	)
+	session, err := openRunSession(callContext, cfg, options.Scale, options.Seed, options.Commit)
 	if err != nil {
 		return SoakSummary{}, err
 	}
@@ -97,7 +95,10 @@ func RunSoak(
 		return SoakSummary{}, err
 	}
 	soak := &Soak{
-		driver: session.driver, content: content, projects: projects, options: options,
+		driver:   session.driver,
+		content:  content,
+		projects: projects,
+		options:  options,
 		summary: SoakSummary{Seed: options.Seed, DryRun: !options.Commit},
 		clock:   clock.Wall{},
 	}
@@ -176,9 +177,7 @@ func (s *Soak) Run(
 				delay = remaining
 			}
 		}
-		proceed, err := waitForSoakOperation(
-			scheduleContext, stop, delay,
-		)
+		proceed, err := waitForSoakOperation(scheduleContext, stop, delay)
 		if err != nil {
 			return s.finish(scheduleContext, startedAt, "context"), err
 		}

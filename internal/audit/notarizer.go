@@ -75,25 +75,31 @@ func NewNotarizer(ctx context.Context, dsn string, cfg NotarizerConfig) (*Notari
 	if cfg.SigningKeyPath == "" {
 		return nil, errors.New("audit notarizer: SigningKeyPath required")
 	}
+
 	if dsn == "" {
 		return nil, errors.New("audit notarizer: AUDIT_WRITER_DSN required")
 	}
+
 	priv, keyID, err := loadEd25519Key(cfg.SigningKeyPath)
 	if err != nil {
 		return nil, err
 	}
+
 	pool, err := pgxpool.New(ctx, dsn)
 	if err != nil {
 		return nil, fmt.Errorf("audit notarizer pool: %w", err)
 	}
+
 	if err := pool.Ping(ctx); err != nil {
 		pool.Close()
 		return nil, fmt.Errorf("audit notarizer ping: %w", err)
 	}
+
 	period := cfg.Period
 	if period <= 0 {
 		period = 60 * time.Second
 	}
+
 	return &Notarizer{
 		pool:    pool,
 		signer:  priv,
@@ -130,6 +136,7 @@ func (n *Notarizer) loop(ctx context.Context) {
 	defer t.Stop()
 	// Attempt a notarization at startup before the first timer tick.
 	n.runOnce(ctx)
+
 	for {
 		select {
 		case <-n.stop:
@@ -156,10 +163,12 @@ func (n *Notarizer) Close() error {
 	default:
 		close(n.stop)
 	}
+
 	<-n.stopped
 	if n.pool != nil {
 		n.pool.Close()
 	}
+
 	return nil
 }
 
@@ -174,26 +183,33 @@ func (n *Notarizer) Close() error {
 func (n *Notarizer) LastNotarizedUnix() int64 { return n.lastAt.Load() }
 
 func (n *Notarizer) runOnce(ctx context.Context) {
-	ctx, span := telemetry.StartSpan(ctx, "audit.notarizer.run_once",
+	ctx, span := telemetry.StartSpan(
+		ctx,
+		"audit.notarizer.run_once",
 		trace.WithSpanKind(trace.SpanKindInternal),
 	)
 	defer span.End()
 
 	start := clock.Now()
-	rows, err := n.pool.Query(ctx, `
+	rows, err := n.pool.Query(
+		ctx,
+		`
 		SELECT org_id, shard, last_seq, last_hash
 		  FROM audit.chain_heads
 		 ORDER BY org_id, shard
-	`)
+	`,
+	)
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, err.Error())
 		telemetry.L(ctx).Error("audit.notarizer.scan_failed", slog.String("err", err.Error()))
+
 		return
 	}
 	defer rows.Close()
 
 	heads := map[uuid.UUID][]chainHead{}
+
 	for rows.Next() {
 		var orgID uuid.UUID
 		var h chainHead
@@ -201,14 +217,18 @@ func (n *Notarizer) runOnce(ctx context.Context) {
 			span.RecordError(err)
 			span.SetStatus(codes.Error, err.Error())
 			telemetry.L(ctx).Error("audit.notarizer.scan_row", slog.String("err", err.Error()))
+
 			return
 		}
+
 		heads[orgID] = append(heads[orgID], h)
 	}
+
 	if err := rows.Err(); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, err.Error())
 		telemetry.L(ctx).Error("audit.notarizer.iter", slog.String("err", err.Error()))
+
 		return
 	}
 
@@ -217,19 +237,31 @@ func (n *Notarizer) runOnce(ctx context.Context) {
 	for orgID, list := range heads {
 		root, manifest := merkleAndManifest(list)
 		sig := ed25519.Sign(n.signer, root)
-		if _, err := n.pool.Exec(ctx, `
+		if _, err := n.pool.Exec(
+			ctx,
+			`
 			INSERT INTO audit.notarizations (
 				org_id, notarized_at, merkle_root, shard_heads, signature, signing_key, signing_host
 			) VALUES ($1, now(), $2, $3, $4, $5, $6)
-		`, orgID, root, manifest, sig, n.keyID, n.host); err != nil {
+		`,
+			orgID,
+			root,
+			manifest,
+			sig,
+			n.keyID,
+			n.host,
+		); err != nil {
 			span.RecordError(err)
-			telemetry.L(ctx).Error("audit.notarizer.insert_failed",
+			telemetry.L(ctx).Error(
+				"audit.notarizer.insert_failed",
 				slog.String("org_id", orgID.String()),
 				slog.String("err", err.Error()),
 			)
 			continue
 		}
-		telemetry.L(ctx).Info("audit.notarizer.signed",
+
+		telemetry.L(ctx).Info(
+			"audit.notarizer.signed",
 			slog.String("org_id", orgID.String()),
 			slog.String("merkle_root", hex.EncodeToString(root)),
 			slog.Int("shard_count", len(list)),
@@ -238,7 +270,10 @@ func (n *Notarizer) runOnce(ctx context.Context) {
 			slog.Int64("duration_ms", clock.Since(start).Milliseconds()),
 		)
 	}
+
 	span.SetStatus(codes.Ok, "ok")
-	span.SetAttributes(attribute.Int64("audit.notarizer.duration_ms", clock.Since(start).Milliseconds()))
+	span.SetAttributes(
+		attribute.Int64("audit.notarizer.duration_ms", clock.Since(start).Milliseconds()),
+	)
 	n.lastAt.Store(clock.Now().Unix())
 }

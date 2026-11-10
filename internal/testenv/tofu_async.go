@@ -26,19 +26,30 @@ func (host OpenTofuHost) Start(t T, environment []string, command ...string) *To
 		cancel()
 		failWith(t, err)
 	}
+
 	go func() {
 		defer close(process.finished)
 		defer cancel()
 		defer func() { _ = cli.Close() }()
 		defer func() {
 			if recovered := recover(); recovered != nil {
-				process.err = fmt.Errorf("asynchronous OpenTofu command panicked:\n%s", debug.Stack())
+				process.err = fmt.Errorf(
+					"asynchronous OpenTofu command panicked:\n%s",
+					debug.Stack(),
+				)
 				slog.ErrorContext(ctx, "testenv.tofu.start_panicked", slog.Any("err", process.err))
 			}
 		}()
 
-		process.output, process.code, process.err = execInContainerWithEnv(ctx, cli, host.name, command, environment)
+		process.output, process.code, process.err = execInContainerWithEnv(
+			ctx,
+			cli,
+			host.name,
+			command,
+			environment,
+		)
 	}()
+
 	return process
 }
 
@@ -50,5 +61,6 @@ func (process *TofuProcess) Wait(t T) (string, int) {
 	if process.err != nil {
 		failWith(t, process.err)
 	}
+
 	return process.output, process.code
 }

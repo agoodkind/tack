@@ -33,24 +33,35 @@ type placementFixture struct {
 
 func newPlacementFixture(t *testing.T, shell string, tabletCount int) *placementFixture {
 	t.Helper()
+
 	remaps := make([]ybTabletRemap, 0, tabletCount)
 	for i := range tabletCount {
-		remaps = append(remaps, ybTabletRemap{
-			table: fmt.Sprintf("table%02d", i),
-			old:   fmt.Sprintf("old%02d", i),
-			new:   fmt.Sprintf("new%02d", i),
-		})
+		remaps = append(
+			remaps,
+			ybTabletRemap{
+				table: fmt.Sprintf("table%02d", i),
+				old:   fmt.Sprintf("old%02d", i),
+				new:   fmt.Sprintf("new%02d", i),
+			},
+		)
 	}
+
 	return newPlacementFixtureFor(t, shell, t.TempDir(), remaps)
 }
 
 // newPlacementFixtureFor creates a fixture with the supplied root and remaps.
 // Tests can select a configured path or tablet ID for placement.
-func newPlacementFixtureFor(t *testing.T, shell, root string, remaps []ybTabletRemap) *placementFixture {
+func newPlacementFixtureFor(
+	t *testing.T,
+	shell string,
+	root string,
+	remaps []ybTabletRemap,
+) *placementFixture {
 	t.Helper()
 	if err := os.MkdirAll(root, 0o755); err != nil {
 		t.Fatalf("make fixture root %s: %v", root, err)
 	}
+
 	return &placementFixture{
 		layout: ybPlacementLayout{
 			ExportRoot:     filepath.Join(root, "exp"),
@@ -78,12 +89,19 @@ func (f *placementFixture) tabletSourceDir(remap ybTabletRemap, node, exportSnap
 // command. Each file contains its node and file name. Tests can identify the
 // selected node. Copies of one file differ in size when the node names have
 // different lengths.
-func (f *placementFixture) stageTablet(t *testing.T, remap ybTabletRemap, node, exportSnap string, files ...string) {
+func (f *placementFixture) stageTablet(
+	t *testing.T,
+	remap ybTabletRemap,
+	node string,
+	exportSnap string,
+	files ...string,
+) {
 	t.Helper()
 	dir := filepath.Join(f.stageRoot, node, ybTabletSourceDir(remap, exportSnap))
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatalf("stage tablet %s: %v", remap.old, err)
 	}
+
 	for _, name := range files {
 		if err := os.WriteFile(filepath.Join(dir, name), []byte(node+":"+name), 0o600); err != nil {
 			t.Fatalf("write tablet file %s: %v", name, err)
@@ -93,6 +111,10 @@ func (f *placementFixture) stageTablet(t *testing.T, remap ybTabletRemap, node, 
 
 // placedTabletDir returns the expected destination for one tablet's files.
 func (f *placementFixture) placedTabletDir(remap ybTabletRemap, newSnap string) string {
-	return filepath.Join(f.layout.RocksDBDir,
-		"table-"+remap.table, "tablet-"+remap.new+".snapshots", newSnap)
+	return filepath.Join(
+		f.layout.RocksDBDir,
+		"table-"+remap.table,
+		"tablet-"+remap.new+".snapshots",
+		newSnap,
+	)
 }

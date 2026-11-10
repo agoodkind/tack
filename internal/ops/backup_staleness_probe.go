@@ -66,32 +66,47 @@ func probeYBClusterHealth(ctx context.Context, cfg *config.Config) (ybClusterObs
 	if len(urls) == 0 {
 		return ybClusterUnseen, "TACK_BACKUP_YB_MASTER_ADDRESSES names no master to probe"
 	}
+
 	var failures []string
+
 	for _, url := range urls {
 		body, err := fetchYBMasterHealth(ctx, url)
 		if err != nil {
 			failures = append(failures, err.Error())
 			continue
 		}
+
 		if ybMasterAnswersAsFollower(body) {
-			telemetry.L(ctx).DebugContext(ctx, "backup.staleness.master_follower", slog.String("url", url))
+			telemetry.L(ctx).DebugContext(
+				ctx,
+				"backup.staleness.master_follower",
+				slog.String("url", url),
+			)
 			failures = append(failures, url+" answered as a follower")
 			continue
 		}
+
 		replicated, healthDetail, parseErr := ybClusterHealthFromBody(ctx, body)
 		if parseErr != nil {
 			failures = append(failures, parseErr.Error())
 			continue
 		}
+
 		if replicated {
 			return ybClusterHealthy, healthDetail
 		}
+
 		return ybClusterDegraded, healthDetail
 	}
+
 	// The journal records each master's failure and address. Reports and mail
 	// use the general failure reason below.
-	telemetry.L(ctx).WarnContext(ctx, "backup.staleness.masters_unanswered",
-		slog.Any("failures", failures))
+	telemetry.L(ctx).WarnContext(
+		ctx,
+		"backup.staleness.masters_unanswered",
+		slog.Any("failures", failures),
+	)
+
 	return ybClusterUnseen, "no master answered the health check"
 }
 
@@ -100,13 +115,16 @@ func probeYBClusterHealth(ctx context.Context, cfg *config.Config) (ybClusterObs
 // brackets around IPv6 literals.
 func ybMasterHealthURLs(masterAddresses string) []string {
 	var urls []string
+
 	for entry := range strings.SplitSeq(masterAddresses, ",") {
 		host := hostFromHostPort(strings.TrimSpace(entry))
 		if host == "" {
 			continue
 		}
+
 		urls = append(urls, "http://"+net.JoinHostPort(host, ybMasterHealthPort)+ybMasterHealthPath)
 	}
+
 	return urls
 }
 
@@ -121,51 +139,92 @@ func fetchYBMasterHealth(ctx context.Context, url string) ([]byte, error) {
 	req, err := http.NewRequestWithContext(reqCtx, http.MethodGet, url, nil)
 	if err != nil {
 		wrapped := fmt.Errorf("build health-check request for %s: %w", url, err)
-		logger.WarnContext(ctx, "backup.staleness.master_unreachable", slog.String("err", wrapped.Error()))
+		logger.WarnContext(
+			ctx,
+			"backup.staleness.master_unreachable",
+			slog.String("err", wrapped.Error()),
+		)
+
 		return nil, wrapped
 	}
+
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		wrapped := fmt.Errorf("get %s: %w", url, err)
-		logger.WarnContext(ctx, "backup.staleness.master_unreachable", slog.String("err", wrapped.Error()))
+		logger.WarnContext(
+			ctx,
+			"backup.staleness.master_unreachable",
+			slog.String("err", wrapped.Error()),
+		)
+
 		return nil, wrapped
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		statusErr := fmt.Errorf("get %s: status %d", url, resp.StatusCode)
-		logger.WarnContext(ctx, "backup.staleness.master_unreachable", slog.String("err", statusErr.Error()))
+		logger.WarnContext(
+			ctx,
+			"backup.staleness.master_unreachable",
+			slog.String("err", statusErr.Error()),
+		)
+
 		return nil, statusErr
 	}
+
 	body, err := io.ReadAll(io.LimitReader(resp.Body, ybMasterHealthMaxBytes))
 	if err != nil {
 		wrapped := fmt.Errorf("read %s: %w", url, err)
-		logger.WarnContext(ctx, "backup.staleness.master_unreachable", slog.String("err", wrapped.Error()))
+		logger.WarnContext(
+			ctx,
+			"backup.staleness.master_unreachable",
+			slog.String("err", wrapped.Error()),
+		)
+
 		return nil, wrapped
 	}
+
 	return body, nil
 }
 
 // ybClusterHealthFromBody reports healthy only when the payload lists
 // zero dead nodes and zero under-replicated tablets. It returns an error if
 // either list is absent.
-func ybClusterHealthFromBody(ctx context.Context, body []byte) (healthy bool, detail string, err error) {
+func ybClusterHealthFromBody(
+	ctx context.Context,
+	body []byte,
+) (healthy bool, detail string, err error) {
 	logger := telemetry.L(ctx)
 	var payload ybMasterHealthCheck
 	if err := json.Unmarshal(body, &payload); err != nil {
 		wrapped := fmt.Errorf("unmarshal master health check: %w", err)
-		logger.WarnContext(ctx, "backup.staleness.health_unparseable", slog.String("err", wrapped.Error()))
+		logger.WarnContext(
+			ctx,
+			"backup.staleness.health_unparseable",
+			slog.String("err", wrapped.Error()),
+		)
+
 		return false, "", wrapped
 	}
+
 	if payload.DeadNodes == nil || payload.UnderReplicatedTablets == nil {
-		missingErr := fmt.Errorf(
-			"master health check omits dead_nodes or under_replicated_tablets")
-		logger.WarnContext(ctx, "backup.staleness.health_unparseable", slog.String("err", missingErr.Error()))
+		missingErr := fmt.Errorf("master health check omits dead_nodes or under_replicated_tablets")
+		logger.WarnContext(
+			ctx,
+			"backup.staleness.health_unparseable",
+			slog.String("err", missingErr.Error()),
+		)
+
 		return false, "", missingErr
 	}
+
 	deadCount := len(*payload.DeadNodes)
 	underReplicatedCount := len(*payload.UnderReplicatedTablets)
-	detail = fmt.Sprintf("%d dead nodes, %d under-replicated tablets",
-		deadCount, underReplicatedCount)
+	detail = fmt.Sprintf(
+		"%d dead nodes, %d under-replicated tablets",
+		deadCount,
+		underReplicatedCount,
+	)
+
 	return deadCount == 0 && underReplicatedCount == 0, detail, nil
 }
 
@@ -209,11 +268,13 @@ func fdbRestorablePointFromStatus(ctx context.Context, status string) (fdbRestor
 		strings.Contains(lowered, fdbNotRestorableStatusText) {
 		return none, errFDBNoRestorablePoint
 	}
+
 	for line := range strings.SplitSeq(status, "\n") {
 		if strings.Contains(line, fdbLastCompleteLogLabel) {
 			return fdbRestorablePointFromLine(ctx, line)
 		}
 	}
+
 	return none, fmt.Errorf("fdbbackup status has no %q line", fdbLastCompleteLogLabel)
 }
 
@@ -227,26 +288,50 @@ func fdbRestorablePointFromLine(ctx context.Context, line string) (fdbRestorable
 	_, value, found := strings.Cut(line, " - ")
 	if !found {
 		shapeErr := fmt.Errorf("fdbbackup status line %q has no value", trimmed)
-		logger.WarnContext(ctx, "backup.staleness.fdb_status_unparseable", slog.String("err", shapeErr.Error()))
+		logger.WarnContext(
+			ctx,
+			"backup.staleness.fdb_status_unparseable",
+			slog.String("err", shapeErr.Error()),
+		)
+
 		return none, shapeErr
 	}
+
 	rawVersion, stamp, found := strings.Cut(value, ",")
 	if !found {
 		shapeErr := fmt.Errorf("fdbbackup status line %q has no timestamp", trimmed)
-		logger.WarnContext(ctx, "backup.staleness.fdb_status_unparseable", slog.String("err", shapeErr.Error()))
+		logger.WarnContext(
+			ctx,
+			"backup.staleness.fdb_status_unparseable",
+			slog.String("err", shapeErr.Error()),
+		)
+
 		return none, shapeErr
 	}
+
 	version, err := strconv.ParseInt(strings.TrimSpace(rawVersion), 10, 64)
 	if err != nil {
 		wrapped := fmt.Errorf("parse fdbbackup version %q: %w", strings.TrimSpace(rawVersion), err)
-		logger.WarnContext(ctx, "backup.staleness.fdb_status_unparseable", slog.String("err", wrapped.Error()))
+		logger.WarnContext(
+			ctx,
+			"backup.staleness.fdb_status_unparseable",
+			slog.String("err", wrapped.Error()),
+		)
+
 		return none, wrapped
 	}
+
 	at, err := time.Parse(fdbStatusTimestampLayout, strings.TrimSpace(stamp))
 	if err != nil {
 		wrapped := fmt.Errorf("parse fdbbackup timestamp %q: %w", strings.TrimSpace(stamp), err)
-		logger.WarnContext(ctx, "backup.staleness.fdb_status_unparseable", slog.String("err", wrapped.Error()))
+		logger.WarnContext(
+			ctx,
+			"backup.staleness.fdb_status_unparseable",
+			slog.String("err", wrapped.Error()),
+		)
+
 		return none, wrapped
 	}
+
 	return fdbRestorablePoint{Version: version, At: at.UTC()}, nil
 }

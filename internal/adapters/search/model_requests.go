@@ -23,22 +23,39 @@ func (e modelRequestBuildError) Unwrap() error { return e.err }
 // request body without a Content-Type header with status 406. opensearch.Do
 // replaces the placeholder context with the caller context.
 func jsonBodyRequest(method, path string, body []byte, operation string) (*http.Request, error) {
-	result, err := http.NewRequestWithContext(context.Background(), method, path, bytes.NewReader(body))
+	result, err := http.NewRequestWithContext(
+		context.Background(),
+		method,
+		path,
+		bytes.NewReader(body),
+	)
 	if err != nil {
 		return nil, modelRequestBuildError{operation: operation, err: err}
 	}
+
 	result.Header.Set("Content-Type", "application/json")
+
 	return result, nil
 }
 
 func (request modelSearchRequest) GetRequest(method string) (*http.Request, error) {
-	return jsonBodyRequest(method, "/_plugins/_ml/models/_search", request.body, "build model search request")
+	return jsonBodyRequest(
+		method,
+		"/_plugins/_ml/models/_search",
+		request.body,
+		"build model search request",
+	)
 }
 
 type modelRegisterRequest struct{ body []byte }
 
 func (request modelRegisterRequest) GetRequest(method string) (*http.Request, error) {
-	return jsonBodyRequest(method, "/_plugins/_ml/models/_register", request.body, "build model register request")
+	return jsonBodyRequest(
+		method,
+		"/_plugins/_ml/models/_register",
+		request.body,
+		"build model register request",
+	)
 }
 
 type modelTaskRequest struct{ taskID string }
@@ -47,10 +64,17 @@ func (request modelTaskRequest) GetRequest(method string) (*http.Request, error)
 	if request.taskID == "" {
 		return nil, fmt.Errorf("ML task ID is empty")
 	}
-	result, err := http.NewRequestWithContext(context.Background(), method, "/_plugins/_ml/tasks/"+url.PathEscape(request.taskID), nil)
+
+	result, err := http.NewRequestWithContext(
+		context.Background(),
+		method,
+		"/_plugins/_ml/tasks/"+url.PathEscape(request.taskID),
+		nil,
+	)
 	if err != nil {
 		return nil, modelRequestBuildError{operation: "build model task request", err: err}
 	}
+
 	return result, nil
 }
 
@@ -60,10 +84,17 @@ func (request modelDeployRequest) GetRequest(method string) (*http.Request, erro
 	if request.modelID == "" {
 		return nil, fmt.Errorf("ML model ID is empty")
 	}
-	result, err := http.NewRequestWithContext(context.Background(), method, "/_plugins/_ml/models/"+url.PathEscape(request.modelID)+"/_deploy", nil)
+
+	result, err := http.NewRequestWithContext(
+		context.Background(),
+		method,
+		"/_plugins/_ml/models/"+url.PathEscape(request.modelID)+"/_deploy",
+		nil,
+	)
 	if err != nil {
 		return nil, modelRequestBuildError{operation: "build model deploy request", err: err}
 	}
+
 	return result, nil
 }
 
@@ -73,10 +104,17 @@ func (request modelGetRequest) GetRequest(method string) (*http.Request, error) 
 	if request.modelID == "" {
 		return nil, fmt.Errorf("ML model ID is empty")
 	}
-	result, err := http.NewRequestWithContext(context.Background(), method, "/_plugins/_ml/models/"+url.PathEscape(request.modelID), nil)
+
+	result, err := http.NewRequestWithContext(
+		context.Background(),
+		method,
+		"/_plugins/_ml/models/"+url.PathEscape(request.modelID),
+		nil,
+	)
 	if err != nil {
 		return nil, modelRequestBuildError{operation: "build model get request", err: err}
 	}
+
 	return result, nil
 }
 
@@ -86,10 +124,17 @@ func (request modelProfileRequest) GetRequest(method string) (*http.Request, err
 	if request.modelID == "" {
 		return nil, fmt.Errorf("ML model ID is empty")
 	}
-	result, err := http.NewRequestWithContext(context.Background(), method, "/_plugins/_ml/profile/models/"+url.PathEscape(request.modelID), nil)
+
+	result, err := http.NewRequestWithContext(
+		context.Background(),
+		method,
+		"/_plugins/_ml/profile/models/"+url.PathEscape(request.modelID),
+		nil,
+	)
 	if err != nil {
 		return nil, modelRequestBuildError{operation: "build model profile request", err: err}
 	}
+
 	return result, nil
 }
 
@@ -168,16 +213,24 @@ func MarshalModelSearchBody() ([]byte, error) {
 	type searchQuery struct {
 		Bool boolQuery `json:"bool"`
 	}
-	query := searchQuery{Bool: boolQuery{
-		Filter:  []filterClause{{Term: termQuery{Name: PinnedModel.Name}}},
-		MustNot: []mustNotClause{{Exists: existsQuery{Field: "chunk_number"}}},
-	}}
-	body, err := json.Marshal(struct {
-		Query searchQuery `json:"query"`
-		Size  int         `json:"size"`
-	}{Query: query, Size: 100})
+	query := searchQuery{
+		Bool: boolQuery{
+			Filter:  []filterClause{{Term: termQuery{Name: PinnedModel.Name}}},
+			MustNot: []mustNotClause{{Exists: existsQuery{Field: "chunk_number"}}},
+		},
+	}
+	body, err := json.Marshal(
+		struct {
+			Query searchQuery `json:"query"`
+			Size  int         `json:"size"`
+		}{
+			Query: query,
+			Size:  100,
+		},
+	)
 	if err != nil {
 		return nil, fmt.Errorf("marshal OpenSearch model search: %w", err)
 	}
+
 	return body, nil
 }

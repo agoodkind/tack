@@ -49,11 +49,14 @@ func (s schema) toMCP() mcpmcp.ToolInputSchema {
 		if f.Desc != "" {
 			spec["description"] = f.Desc
 		}
+
 		if len(f.Enum) > 0 {
 			spec["enum"] = f.Enum
 		}
+
 		props[f.Name] = spec
 	}
+
 	return mcpmcp.ToolInputSchema{
 		Type:                 "object",
 		Properties:           props,

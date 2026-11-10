@@ -27,6 +27,7 @@ const (
 func renderListPage(rc *renderCtx, kind string, page node.Page) string {
 	items := make([]markdownItem, 0, len(page.Views))
 	usedBytes := 0
+
 	nextCursor := page.NextCursor
 	for index, view := range page.Views {
 		item := nodeListItem(rc, view)
@@ -35,16 +36,26 @@ func renderListPage(rc *renderCtx, kind string, page node.Page) string {
 			// budget. The next page can then start after that row.
 			item = fitItemToBudget(item, listPageItemBudget)
 		}
+
 		size := markdownItemBytes(item)
 		if index > 0 && usedBytes+size > listPageItemBudget {
 			nextCursor = node.EncodeCursor(page.Views[index-1].ID)
 			break
 		}
+
 		usedBytes += size
 		items = append(items, item)
 		addNodeTargets(rc.ctx, view)
 	}
-	data := collectionTemplateData{Heading: titleText(kind), Count: len(items), Noun: kind, Items: items, NextCursor: nextCursor}
+
+	data := collectionTemplateData{
+		Heading:    titleText(kind),
+		Count:      len(items),
+		Noun:       kind,
+		Items:      items,
+		NextCursor: nextCursor,
+	}
+
 	return executeMarkdownTemplate("collection.md.tmpl", data)
 }
 
@@ -55,5 +66,6 @@ func markdownItemBytes(item markdownItem) int {
 	for _, field := range item.Fields {
 		size += itemFieldOverheadBytes + len(field.Label) + len(field.Value)
 	}
+
 	return size
 }

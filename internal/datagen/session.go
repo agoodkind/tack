@@ -46,7 +46,10 @@ func openRunSession(
 		return nil, err
 	}
 	session := &runSession{
-		content: content, scale: scale, seed: seed, dryRun: !commit,
+		content:        content,
+		scale:          scale,
+		seed:           seed,
+		dryRun:         !commit,
 		productionAuth: cfg.Env != "development",
 		redactActor:    actorRedactorFor(cfg),
 	}
@@ -115,13 +118,7 @@ func RunSeed(
 	cfg *config.Config,
 	options SeedRunOptions,
 ) (Summary, error) {
-	session, err := openRunSession(
-		ctx,
-		cfg,
-		options.Scale,
-		options.Seed,
-		options.Commit,
-	)
+	session, err := openRunSession(ctx, cfg, options.Scale, options.Seed, options.Commit)
 	if err != nil {
 		return Summary{}, err
 	}

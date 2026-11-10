@@ -38,7 +38,10 @@ var (
 //
 // After drain returns, run closes stopSampler and waits for the sampler. It
 // returns the summary and joined phase and panic errors.
-func (m *searchMixed) run(parentSchedule, callContext context.Context, plannedWrites int) (SearchMixedSummary, error) {
+func (m *searchMixed) run(parentSchedule, callContext context.Context, plannedWrites int) (
+	SearchMixedSummary,
+	error,
+) {
 	scheduleContext, stopSchedule := context.WithCancel(parentSchedule)
 	defer stopSchedule()
 	probeContext, stopProbes := context.WithCancel(callContext)
@@ -47,7 +50,11 @@ func (m *searchMixed) run(parentSchedule, callContext context.Context, plannedWr
 	go func() {
 		defer func() {
 			if recovered := recover(); recovered != nil {
-				m.recordPanic(callContext, "qa.datagen.search_mixed_probe_panicked", fmt.Sprint(recovered))
+				m.recordPanic(
+					callContext,
+					"qa.datagen.search_mixed_probe_panicked",
+					fmt.Sprint(recovered),
+				)
 			}
 		}()
 		m.probe(probeContext, proberDone)
@@ -57,7 +64,11 @@ func (m *searchMixed) run(parentSchedule, callContext context.Context, plannedWr
 	go func() {
 		defer func() {
 			if recovered := recover(); recovered != nil {
-				m.recordPanic(callContext, "qa.datagen.search_mixed_sampler_panicked", fmt.Sprint(recovered))
+				m.recordPanic(
+					callContext,
+					"qa.datagen.search_mixed_sampler_panicked",
+					fmt.Sprint(recovered),
+				)
 			}
 		}()
 		m.sampleUntil(callContext, windowStarted, stopSampler, samplerDone)
@@ -66,7 +77,11 @@ func (m *searchMixed) run(parentSchedule, callContext context.Context, plannedWr
 	go func() {
 		defer func() {
 			if recovered := recover(); recovered != nil {
-				m.recordPanic(callContext, "qa.datagen.search_mixed_load_panicked", fmt.Sprint(recovered))
+				m.recordPanic(
+					callContext,
+					"qa.datagen.search_mixed_load_panicked",
+					fmt.Sprint(recovered),
+				)
 				searches <- m.loadStats.summary(false, 0, 0, 0, 0, 0)
 			}
 		}()
@@ -76,7 +91,11 @@ func (m *searchMixed) run(parentSchedule, callContext context.Context, plannedWr
 	go func() {
 		defer func() {
 			if recovered := recover(); recovered != nil {
-				slog.ErrorContext(callContext, "qa.datagen.search_mixed_phase_panicked", slog.String("err", fmt.Sprint(recovered)))
+				slog.ErrorContext(
+					callContext,
+					"qa.datagen.search_mixed_phase_panicked",
+					slog.String("err", fmt.Sprint(recovered)),
+				)
 				stopSchedule()
 				phaseErrors <- errSearchMixedPhasePanic
 			}
@@ -98,7 +117,9 @@ func (m *searchMixed) run(parentSchedule, callContext context.Context, plannedWr
 	close(stopSampler)
 	<-samplerDone
 	summary := m.stats.summary(searchSummary, plannedWrites, writeElapsed)
-	summary.Endpoints, summary.Tenants, summary.Measured = len(m.options.Endpoints), len(m.tenants), true
+	summary.Endpoints, summary.Tenants, summary.Measured = len(
+		m.options.Endpoints,
+	), len(m.tenants), true
 	summary.Changes.MetadataPlanned, summary.Changes.MovesPlanned = m.options.MetadataWrites, m.options.Moves
 	summary.Stopped = parentSchedule.Err() != nil
 	m.phases.apply(&summary)
@@ -134,7 +155,11 @@ func (m *searchMixed) runLoads(scheduleContext, callContext context.Context) Sea
 		loads.Go(func() {
 			defer func() {
 				if recovered := recover(); recovered != nil {
-					m.recordPanic(callContext, "qa.datagen.search_mixed_load_panicked", fmt.Sprint(recovered))
+					m.recordPanic(
+						callContext,
+						"qa.datagen.search_mixed_load_panicked",
+						fmt.Sprint(recovered),
+					)
 				}
 			}()
 			results[index] = load.run(scheduleContext, callContext, loadPlanned)

@@ -39,19 +39,31 @@ type AccessFilter struct {
 func ValidateAccessFilter(filter AccessFilter) error {
 	valueBound := strconv.Itoa(MaxAccessValueBytes)
 	if filter.Version == "" || len(filter.Version) > MaxAccessValueBytes {
-		return invalidFilterError{reason: "the version must contain between 1 and " + valueBound + " bytes"}
+		return invalidFilterError{
+			reason: "the version must contain between 1 and " + valueBound + " bytes",
+		}
 	}
+
 	if len(filter.Keys) == 0 || len(filter.Keys) > MaxAccessKeys {
-		return invalidFilterError{reason: "the filter must contain between 1 and " + strconv.Itoa(MaxAccessKeys) + " keys"}
+		return invalidFilterError{
+			reason: "the filter must contain between 1 and " + strconv.Itoa(
+				MaxAccessKeys,
+			) + " keys",
+		}
 	}
+
 	if !slices.IsSorted(filter.Keys) || hasDuplicate(filter.Keys) {
 		return invalidFilterError{reason: "keys must be sorted and unique"}
 	}
+
 	for _, key := range filter.Keys {
 		if key == "" || len(key) > MaxAccessValueBytes {
-			return invalidFilterError{reason: "each key must contain between 1 and " + valueBound + " bytes"}
+			return invalidFilterError{
+				reason: "each key must contain between 1 and " + valueBound + " bytes",
+			}
 		}
 	}
+
 	return nil
 }
 
@@ -68,5 +80,6 @@ func (f AccessFilter) Permits(resourceKeys []string) bool {
 			return true
 		}
 	}
+
 	return false
 }

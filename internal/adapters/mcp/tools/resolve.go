@@ -45,7 +45,12 @@ type Resolver struct {
 	typeIndex         map[string]*node.NodeType
 }
 
-func NewResolver(nodes node.NodeRepository, reader node.NodeReader, members org.MemberRepository, nodeTypes []*node.NodeType) *Resolver {
+func NewResolver(
+	nodes node.NodeRepository,
+	reader node.NodeReader,
+	members org.MemberRepository,
+	nodeTypes []*node.NodeType,
+) *Resolver {
 	r := &Resolver{
 		nodes:             nodes,
 		reader:            reader,
@@ -57,6 +62,7 @@ func NewResolver(nodes node.NodeRepository, reader node.NodeReader, members org.
 		sequenceTypeKeys:  nil,
 		typeIndex:         nil,
 	}
+
 	r.typeIndex = node.BuildTypeIndex(nodeTypes)
 	for _, nt := range nodeTypes {
 		if nt.Features.Has(node.FeatureIsEntryPoint) {
@@ -64,10 +70,12 @@ func NewResolver(nodes node.NodeRepository, reader node.NodeReader, members org.
 			r.entryPointSlug = strings.ToLower(nt.Slug)
 			r.entryPointRefProp = nt.Reference.DirectAddressProperty()
 		}
+
 		if nt.Features.Has(node.FeatureHasSequenceID) {
 			r.sequenceTypeKeys = append(r.sequenceTypeKeys, nt.TypeKey)
 		}
 	}
+
 	// Build the default scope chain from the longest chain below the entry
 	// point.
 	for _, nt := range nodeTypes {
@@ -76,6 +84,7 @@ func NewResolver(nodes node.NodeRepository, reader node.NodeReader, members org.
 			r.scopeChain = chain
 		}
 	}
+
 	return r
 }
 
@@ -95,6 +104,7 @@ func (r *Resolver) EntryPointParamName() string {
 //     level followed by the epic level.
 func (r *Resolver) ScopeChainForType(nt *node.NodeType) []ScopeLevel {
 	var chain []ScopeLevel
+
 	current := nt
 	for len(current.CanLiveUnder) > 0 {
 		parentKey := current.CanLiveUnder[0]
@@ -102,20 +112,27 @@ func (r *Resolver) ScopeChainForType(nt *node.NodeType) []ScopeLevel {
 		if parent == nil {
 			break
 		}
+
 		if parent.Features.Has(node.FeatureIsEntryPoint) {
 			break
 		}
-		chain = append(chain, ScopeLevel{
-			TypeKey:   parent.TypeKey,
-			Slug:      strings.ToLower(parent.Slug),
-			ParamName: strings.ToLower(parent.Slug) + referenceParamSuffix,
-		})
+
+		chain = append(
+			chain,
+			ScopeLevel{
+				TypeKey:   parent.TypeKey,
+				Slug:      strings.ToLower(parent.Slug),
+				ParamName: strings.ToLower(parent.Slug) + referenceParamSuffix,
+			},
+		)
 		current = parent
 	}
+
 	// Reverse the levels into ancestor order from the entry point toward nt.
 	for i, j := 0, len(chain)-1; i < j; i, j = i+1, j-1 {
 		chain[i], chain[j] = chain[j], chain[i]
 	}
+
 	return chain
 }
 
@@ -134,36 +151,53 @@ func (r *Resolver) ScopeChainForType(nt *node.NodeType) []ScopeLevel {
 //   - The membership repository supplies that user's organizations.
 func (r *Resolver) Workspace(ctx context.Context, reference string) (*node.NodeView, error) {
 	if r.entryPointRefProp == "" {
-		return nil, fmt.Errorf("%s reference %q: entry point type has no declared reference property: %w",
-			r.entryPointSlug, reference, domain.ErrInvalidArgument)
+		return nil, fmt.Errorf(
+			"%s reference %q: entry point type has no declared reference property: %w",
+			r.entryPointSlug,
+			reference,
+			domain.ErrInvalidArgument,
+		)
 	}
+
 	userID, ok := auth.UserID(ctx)
 	if !ok {
 		return nil, fmt.Errorf("unauthenticated")
 	}
+
 	orgIDs, err := r.members.ListOrgIDsForUser(ctx, userID)
 	if err != nil {
 		return nil, fmt.Errorf("%s reference %q: list orgs: %w", r.entryPointSlug, reference, err)
 	}
+
 	for _, rawValue := range referenceLookupValues(reference) {
 		for _, orgID := range orgIDs {
-			matched, err := r.nodes.ListByProperty(ctx, orgID, r.entryPointTypeKey, r.entryPointRefProp, rawValue)
+			matched, err := r.nodes.ListByProperty(
+				ctx,
+				orgID,
+				r.entryPointTypeKey,
+				r.entryPointRefProp,
+				rawValue,
+			)
 			if err != nil {
 				continue
 			}
+
 			for _, n := range matched {
 				view, viewErr := r.reader.Get(ctx, n.ID)
 				if viewErr != nil || view == nil {
 					continue
 				}
+
 				// The property lookup matched a node in one of the caller's
 				// organizations. The membership query already checked that organization.
 				markAuthorized(ctx)
 				stampAuditEntryPoint(ctx, view)
+
 				return view, nil
 			}
 		}
 	}
+
 	return nil, fmt.Errorf("%s reference %q: %w", r.entryPointSlug, reference, domain.ErrNotFound)
 }
 
@@ -179,17 +213,27 @@ func (r *Resolver) Workspace(ctx context.Context, reference string) (*node.NodeV
 //   - An invalid-argument error retains its details, including candidate IDs
 //     for an ambiguous reference.
 //   - Other lookup errors return not-found.
-func (r *Resolver) ResolveScope(ctx context.Context, parent *node.NodeView, level ScopeLevel, reference string) (*node.NodeView, error) {
+func (r *Resolver) ResolveScope(
+	ctx context.Context,
+	parent *node.NodeView,
+	level ScopeLevel,
+	reference string,
+) (*node.NodeView, error) {
 	view, err := r.resolveScopeReference(ctx, parent, level, reference)
 	if err == nil && view != nil {
 		if parent != nil && parent.NodeType == r.entryPointTypeKey {
 			stampAuditEntryPoint(ctx, parent)
 		}
+
 		audit.SetScopeFields(ctx, audit.Scope{ScopeID: view.ID})
+
 		return view, nil
 	}
+
 	telemetry.IncResolverMiss("scope")
-	telemetry.L(ctx).InfoContext(ctx, "resolver.scope.miss",
+	telemetry.L(ctx).InfoContext(
+		ctx,
+		"resolver.scope.miss",
 		slog.String("level", level.TypeKey),
 		slog.String("reference", reference),
 		slog.String("parent_id", parent.ID.String()),
@@ -202,6 +246,7 @@ func (r *Resolver) ResolveScope(ctx context.Context, parent *node.NodeView, leve
 	if errors.Is(err, domain.ErrInvalidArgument) {
 		return nil, fmt.Errorf("%s reference %q: %w", level.Slug, reference, err)
 	}
+
 	return nil, fmt.Errorf("%s reference %q: %w", level.Slug, reference, domain.ErrNotFound)
 }
 
@@ -214,28 +259,39 @@ func (r *Resolver) ResolveScope(ctx context.Context, parent *node.NodeView, leve
 //   - If the user belongs to organizations A and B, the query for A returns
 //     workspace X, and the query for B fails, the result contains only
 //     workspace X.
-func (r *Resolver) WorkspacesForUser(ctx context.Context, userID uuid.UUID) ([]*node.NodeView, error) {
+func (r *Resolver) WorkspacesForUser(
+	ctx context.Context,
+	userID uuid.UUID,
+) ([]*node.NodeView, error) {
 	orgIDs, err := r.members.ListOrgIDsForUser(ctx, userID)
 	if err != nil {
 		return nil, err
 	}
+
 	// Each workspace query uses an organization from the user's membership
 	// list. Mark the request authorized before reading those workspaces.
 	markAuthorized(ctx)
 	if len(orgIDs) == 1 {
 		stampAuditOrg(ctx, orgIDs[0])
 	}
+
 	var all []*node.NodeView
+
 	for _, orgID := range orgIDs {
-		views, err := r.reader.List(ctx, node.NodeListQuery{
-			OrgID:    orgID,
-			NodeType: r.entryPointTypeKey,
-		})
+		views, err := r.reader.List(
+			ctx,
+			node.NodeListQuery{
+				OrgID:    orgID,
+				NodeType: r.entryPointTypeKey,
+			},
+		)
 		if err != nil {
 			continue
 		}
+
 		all = append(all, views...)
 	}
+
 	return all, nil
 }
 
@@ -254,17 +310,22 @@ func (r *Resolver) ResolveNodeID(ctx context.Context, input string) (uuid.UUID, 
 	if id, err := uuid.Parse(input); err == nil {
 		return r.resolveMemberNodeID(ctx, id, "node", input)
 	}
+
 	id, err := r.resolveSequenceNodeID(ctx, input, r.sequenceTypeKeys)
 	if err == nil {
 		return id, nil
 	}
+
 	var invalidArgument error
 	if errors.Is(err, domain.ErrInvalidArgument) {
 		invalidArgument = err
 	}
+
 	telemetry.IncResolverMiss("node_id")
 	projectReference, seqID, _ := ParseNodeIdentifier(input)
-	telemetry.L(ctx).InfoContext(ctx, "resolver.node_id.miss",
+	telemetry.L(ctx).InfoContext(
+		ctx,
+		"resolver.node_id.miss",
 		slog.String("input", input),
 		slog.String("project_reference", projectReference),
 		slog.Int("sequence_id", seqID),
@@ -275,22 +336,36 @@ func (r *Resolver) ResolveNodeID(ctx context.Context, input string) (uuid.UUID, 
 	if invalidArgument != nil {
 		return uuid.Nil, invalidArgument
 	}
+
 	return uuid.Nil, fmt.Errorf("reference %q: %w", input, domain.ErrNotFound)
 }
 
 // resolveMemberNodeID resolves a UUID and requires membership in its node's
 // organization. Missing nodes and foreign nodes return not-found.
-func (r *Resolver) resolveMemberNodeID(ctx context.Context, id uuid.UUID, kind, input string) (uuid.UUID, error) {
+func (r *Resolver) resolveMemberNodeID(
+	ctx context.Context,
+	id uuid.UUID,
+	kind string,
+	input string,
+) (uuid.UUID, error) {
 	resolve, err := r.reader.Resolve(ctx, id)
 	if err != nil || resolve == nil {
 		telemetry.IncResolverMiss("node_id")
-		slog.WarnContext(ctx, "resolver.node_id.miss",
-			slog.String("input", input), slog.String("kind", kind))
+		slog.WarnContext(
+			ctx,
+			"resolver.node_id.miss",
+			slog.String("input", input),
+			slog.String("kind", kind),
+		)
+
 		return uuid.Nil, fmt.Errorf("%s %q: %w", kind, input, domain.ErrNotFound)
 	}
+
 	if err := r.requireMembership(ctx, resolve.OrgID, kind, input); err != nil {
 		return uuid.Nil, err
 	}
+
 	stampAuditNodeResolve(ctx, resolve)
+
 	return id, nil
 }

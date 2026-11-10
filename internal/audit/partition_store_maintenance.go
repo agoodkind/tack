@@ -28,17 +28,29 @@ func (s *pgPartitionStore) RunMaintenance(ctx context.Context) error {
 	defer connection.Release()
 	_, maintenanceErr := connection.Exec(ctx, `SELECT audit.run_partition_maintenance()`)
 	if maintenanceErr != nil {
-		slog.ErrorContext(ctx, "audit.partition.maintenance_query_failed",
+		slog.ErrorContext(
+			ctx,
+			"audit.partition.maintenance_query_failed",
 			slog.String("err", maintenanceErr.Error()),
 		)
 		maintenanceErr = fmt.Errorf("run partition maintenance: %w", maintenanceErr)
 	}
+
 	if _, err := connection.Exec(ctx, `RESET search_path`); err != nil {
-		slog.ErrorContext(ctx, "audit.partition.search_path_reset_failed", slog.String("err", err.Error()))
+		slog.ErrorContext(
+			ctx,
+			"audit.partition.search_path_reset_failed",
+			slog.String("err", err.Error()),
+		)
 		// The pool destroys a closed connection on release. A later batch transaction
 		// cannot use that connection's maintenance search path.
 		_ = connection.Conn().Close(context.WithoutCancel(ctx))
-		return errors.Join(maintenanceErr, fmt.Errorf("reset search_path after partition maintenance: %w", err))
+
+		return errors.Join(
+			maintenanceErr,
+			fmt.Errorf("reset search_path after partition maintenance: %w", err),
+		)
 	}
+
 	return maintenanceErr
 }

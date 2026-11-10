@@ -27,25 +27,36 @@ import (
 //     returns ErrPageWritePending without a write request to that index.
 func (a *Adapter) Put(ctx context.Context, intent searchdomain.WriteIntent) (int, error) {
 	if intent.Work.Target == "" {
-		return 0, pageWriteFailure(ctx, "search.page.target_missing", intent.Work, errors.New("page write requires a serving index"))
+		return 0, pageWriteFailure(
+			ctx,
+			"search.page.target_missing",
+			intent.Work,
+			errors.New("page write requires a serving index"),
+		)
 	}
+
 	if err := searchdomain.ValidatePageText(intent.Page.Text); err != nil {
 		return 0, pageWriteFailure(ctx, "search.page.text_invalid", intent.Work, err)
 	}
+
 	written, err := a.putPage(ctx, intent)
 	if err != nil || intent.Work.Mirror == "" {
 		return written, err
 	}
+
 	mirrored := intent
 	mirrored.Work = mirrorWork(intent.Work)
 	extra, err := a.putPage(ctx, mirrored)
+
 	return written + extra, err
 }
 
 func (a *Adapter) putPage(ctx context.Context, intent searchdomain.WriteIntent) (int, error) {
 	held := intent.Pending != nil && intent.Pending.Index == intent.Work.Target
 	page := guardedPage{
-		documentID: intent.DocumentID, generation: intent.Work.Generation, holdCreate: held,
+		documentID: intent.DocumentID,
+		generation: intent.Work.Generation,
+		holdCreate: held,
 		encode: func(precondition pagePrecondition) ([]byte, error) {
 			return encodePageDocument(ctx, intent, precondition)
 		},
@@ -55,6 +66,7 @@ func (a *Adapter) putPage(ctx context.Context, intent searchdomain.WriteIntent) 
 		failure := pageWriteFailure(ctx, "search.page.write_failed", intent.Work, err)
 		return written, &searchdomain.PageWriteError{Index: intent.Work.Target, Err: failure}
 	}
+
 	return written, nil
 }
 
@@ -73,23 +85,35 @@ func (a *Adapter) UpdateAccess(ctx context.Context, intent searchdomain.AccessIn
 	if err != nil || intent.Work.Mirror == "" {
 		return accepted, err
 	}
+
 	mirrored, err := a.updateAccessIn(ctx, mirrorWork(intent.Work), intent)
+
 	return min(accepted, mirrored), err
 }
 
-func (a *Adapter) updateAccessIn(ctx context.Context, work searchdomain.Work, intent searchdomain.AccessIntent) (int, error) {
+func (a *Adapter) updateAccessIn(
+	ctx context.Context,
+	work searchdomain.Work,
+	intent searchdomain.AccessIntent,
+) (int, error) {
 	operations := make([]bulkOperation, 0, len(intent.Documents))
 	for _, document := range intent.Documents {
 		encoded, err := encodeAccessUpdate(ctx, work, document.DocumentID, intent.Access)
 		if err != nil {
 			return 0, pageWriteFailure(ctx, "search.access.encode_failed", work, err)
 		}
-		operations = append(operations, bulkOperation{documentID: document.DocumentID, encoded: encoded})
+
+		operations = append(
+			operations,
+			bulkOperation{documentID: document.DocumentID, encoded: encoded},
+		)
 	}
+
 	accepted, err := a.submitBulk(ctx, work.Target, operations, bulkAccess)
 	if err != nil {
 		return accepted, pageWriteFailure(ctx, "search.access.write_failed", work, err)
 	}
+
 	return accepted, nil
 }
 
@@ -107,24 +131,37 @@ func (a *Adapter) Retire(ctx context.Context, intent searchdomain.RetirementInte
 	if err != nil || intent.Work.Mirror == "" {
 		return accepted, err
 	}
+
 	mirrored, err := a.retireIn(ctx, mirrorWork(intent.Work), intent.Documents)
+
 	return min(accepted, mirrored), err
 }
 
-func (a *Adapter) retireIn(ctx context.Context, work searchdomain.Work, documents []searchdomain.IssuedDocument) (int, error) {
+func (a *Adapter) retireIn(
+	ctx context.Context,
+	work searchdomain.Work,
+	documents []searchdomain.IssuedDocument,
+) (int, error) {
 	pages := make([]guardedPage, 0, len(documents))
 	for _, document := range documents {
-		pages = append(pages, guardedPage{
-			documentID: document.DocumentID, generation: work.Generation, holdCreate: false,
-			encode: func(precondition pagePrecondition) ([]byte, error) {
-				return encodeRetirement(ctx, work, document, precondition)
+		pages = append(
+			pages,
+			guardedPage{
+				documentID: document.DocumentID,
+				generation: work.Generation,
+				holdCreate: false,
+				encode: func(precondition pagePrecondition) ([]byte, error) {
+					return encodeRetirement(ctx, work, document, precondition)
+				},
 			},
-		})
+		)
 	}
+
 	accepted, _, err := a.writeGuarded(ctx, work.Target, pages, staleSuperseded)
 	if err != nil {
 		return accepted, pageWriteFailure(ctx, "search.retirement.write_failed", work, err)
 	}
+
 	return accepted, nil
 }
 
@@ -143,26 +180,64 @@ func mirrorWork(work searchdomain.Work) searchdomain.Work {
 //   - An API error returns the request failure.
 //   - An HTTP error response returns the response details.
 func (a *Adapter) Refresh(ctx context.Context, index string) error {
-	response, err := a.api.Indices.Refresh(ctx, &opensearchapi.IndicesRefreshReq{Indices: []string{index}})
+	response, err := a.api.Indices.Refresh(
+		ctx,
+		&opensearchapi.IndicesRefreshReq{Indices: []string{index}},
+	)
 	if err != nil {
 		wrapped := fmt.Errorf("refresh OpenSearch index %s: %w", index, err)
-		telemetry.L(ctx).ErrorContext(ctx, "search.index.refresh_failed", slog.String("err", wrapped.Error()), slog.String("index", index))
+		telemetry.L(ctx).ErrorContext(
+			ctx,
+			"search.index.refresh_failed",
+			slog.String("err", wrapped.Error()),
+			slog.String("index", index),
+		)
+
 		return wrapped
 	}
+
 	if response.Inspect().Response != nil && response.Inspect().Response.IsError() {
-		wrapped := fmt.Errorf("refresh OpenSearch index %s: %s", index, response.Inspect().Response.String())
-		telemetry.L(ctx).ErrorContext(ctx, "search.index.refresh_rejected", slog.String("err", wrapped.Error()), slog.String("index", index))
+		wrapped := fmt.Errorf(
+			"refresh OpenSearch index %s: %s",
+			index,
+			response.Inspect().Response.String(),
+		)
+		telemetry.L(ctx).ErrorContext(
+			ctx,
+			"search.index.refresh_rejected",
+			slog.String("err", wrapped.Error()),
+			slog.String("index", index),
+		)
+
 		return wrapped
 	}
+
 	return nil
 }
 
 func pageWriteFailure(ctx context.Context, event string, work searchdomain.Work, err error) error {
-	wrapped := fmt.Errorf("write search pages for node %s at generation %d to %s: %w", work.NodeID, work.Generation, work.Target, err)
-	if errors.Is(err, searchdomain.ErrObsoleteWrite) || errors.Is(err, searchdomain.ErrPageWritePending) {
+	wrapped := fmt.Errorf(
+		"write search pages for node %s at generation %d to %s: %w",
+		work.NodeID,
+		work.Generation,
+		work.Target,
+		err,
+	)
+	if errors.Is(err, searchdomain.ErrObsoleteWrite) ||
+		errors.Is(err, searchdomain.ErrPageWritePending) {
 		return wrapped
 	}
-	telemetry.L(ctx).ErrorContext(ctx, event, slog.String("err", wrapped.Error()), slog.String("node_id", work.NodeID.String()),
-		slog.String("class", string(work.Class)), slog.Int64("generation", work.Generation), slog.String("index", work.Target), bulkAttr(err))
+
+	telemetry.L(ctx).ErrorContext(
+		ctx,
+		event,
+		slog.String("err", wrapped.Error()),
+		slog.String("node_id", work.NodeID.String()),
+		slog.String("class", string(work.Class)),
+		slog.Int64("generation", work.Generation),
+		slog.String("index", work.Target),
+		bulkAttr(err),
+	)
+
 	return wrapped
 }

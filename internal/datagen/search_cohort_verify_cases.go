@@ -14,8 +14,13 @@ func (s cohortSession) missingTargets(ctx context.Context, cases []SearchManifes
 	for _, testCase := range cases {
 		results, err := s.traverse(ctx, testCase.Query, testCase.NodeType, 0)
 		if err != nil {
-			slog.ErrorContext(ctx, "qa.datagen.cohort_search_failed", slog.String("query", testCase.Query),
-				slog.String("node_type", testCase.NodeType), slog.String("err", err.Error()))
+			slog.ErrorContext(
+				ctx,
+				"qa.datagen.cohort_search_failed",
+				slog.String("query", testCase.Query),
+				slog.String("node_type", testCase.NodeType),
+				slog.String("err", err.Error()),
+			)
 			missing += len(testCase.ExpectedIDs)
 			continue
 		}
@@ -33,8 +38,15 @@ func (s cohortSession) missingTargets(ctx context.Context, cases []SearchManifes
 // must return exactly the expected nodes.
 func (s cohortSession) checkCase(ctx context.Context, testCase SearchManifestCase) SearchCohortCase {
 	result := SearchCohortCase{
-		Query: testCase.Query, NodeType: testCase.NodeType, Match: testCase.Match, RankLimit: testCase.RankLimit,
-		Passed: false, Ranks: make([]int, len(testCase.ExpectedIDs)), Returned: 0, Unexpected: 0, Error: "",
+		Query:      testCase.Query,
+		NodeType:   testCase.NodeType,
+		Match:      testCase.Match,
+		RankLimit:  testCase.RankLimit,
+		Passed:     false,
+		Ranks:      make([]int, len(testCase.ExpectedIDs)),
+		Returned:   0,
+		Unexpected: 0,
+		Error:      "",
 	}
 	stopAfter := 0
 	if testCase.Match == matchRankedTargets {
@@ -84,23 +96,47 @@ func countUnexpected(results, expected []uuid.UUID) int {
 // identities. It rejects unresolved results, duplicate nodes, repeated cursors,
 // and pages above the public result or byte limit. When stopAfter is positive,
 // it stops after a page increases the node count to at least stopAfter.
-func (s cohortSession) traverse(ctx context.Context, query, nodeType string, stopAfter int) ([]uuid.UUID, error) {
+func (s cohortSession) traverse(ctx context.Context, query, nodeType string, stopAfter int) (
+	[]uuid.UUID,
+	error,
+) {
 	seen := make(map[uuid.UUID]struct{})
 	cursors := make(map[string]struct{})
 	ordered := make([]uuid.UUID, 0)
 	cursor := ""
 	for range maxSearchTraversalPages {
-		page, err := callTypedSearch(ctx, s.driver, SearchIdentities{Titles: s.titles, Resolve: nil}, s.token, s.entry, query, nodeType, cursor)
+		page, err := callTypedSearch(
+			ctx,
+			s.driver,
+			SearchIdentities{Titles: s.titles, Resolve: nil},
+			s.token,
+			s.entry,
+			query,
+			nodeType,
+			cursor,
+		)
 		if err != nil {
 			return nil, err
 		}
 		if len(page.IDs) > s.limits.MaxResults || page.ResponseBytes > s.limits.MaxResponseBytes {
-			return nil, fmt.Errorf("qa datagen: search %q of type %s returned %d nodes in %d bytes, above %d nodes or %d bytes",
-				query, nodeType, len(page.IDs), page.ResponseBytes, s.limits.MaxResults, s.limits.MaxResponseBytes)
+			return nil, fmt.Errorf(
+				"qa datagen: search %q of type %s returned %d nodes in %d bytes, above %d nodes or %d bytes",
+				query,
+				nodeType,
+				len(page.IDs),
+				page.ResponseBytes,
+				s.limits.MaxResults,
+				s.limits.MaxResponseBytes,
+			)
 		}
 		for _, nodeID := range page.IDs {
 			if _, duplicate := seen[nodeID]; duplicate {
-				return nil, fmt.Errorf("qa datagen: search %q of type %s returned node %s twice", query, nodeType, nodeID)
+				return nil, fmt.Errorf(
+					"qa datagen: search %q of type %s returned node %s twice",
+					query,
+					nodeType,
+					nodeID,
+				)
 			}
 			seen[nodeID] = struct{}{}
 			ordered = append(ordered, nodeID)
@@ -109,10 +145,19 @@ func (s cohortSession) traverse(ctx context.Context, query, nodeType string, sto
 			return ordered, nil
 		}
 		if _, repeated := cursors[page.Cursor]; repeated {
-			return nil, fmt.Errorf("qa datagen: search %q of type %s repeated a continuation cursor", query, nodeType)
+			return nil, fmt.Errorf(
+				"qa datagen: search %q of type %s repeated a continuation cursor",
+				query,
+				nodeType,
+			)
 		}
 		cursors[page.Cursor] = struct{}{}
 		cursor = page.Cursor
 	}
-	return nil, fmt.Errorf("qa datagen: search %q of type %s did not finish within %d pages", query, nodeType, maxSearchTraversalPages)
+	return nil, fmt.Errorf(
+		"qa datagen: search %q of type %s did not finish within %d pages",
+		query,
+		nodeType,
+		maxSearchTraversalPages,
+	)
 }

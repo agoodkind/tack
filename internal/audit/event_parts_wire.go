@@ -46,10 +46,17 @@ type messageProbe struct {
 // shard, part count, and transport digest.
 func newManifestMessage(event Event, count uint32, transportDigest string) transportMessage {
 	return transportMessage{
-		Message: messageKindManifest, FormatVersion: eventPartsFormatVersion,
-		EventID: event.EventID, OrgID: event.Context.OrgID, Shard: shardOf(event.Actor.ID, event.EventID),
-		PartCount: count, TransportDigest: transportDigest,
-		PartIndex: 0, PartDigest: "", Payload: nil, CommitVersion: "",
+		Message:         messageKindManifest,
+		FormatVersion:   eventPartsFormatVersion,
+		EventID:         event.EventID,
+		OrgID:           event.Context.OrgID,
+		Shard:           shardOf(event.Actor.ID, event.EventID),
+		PartCount:       count,
+		TransportDigest: transportDigest,
+		PartIndex:       0,
+		PartDigest:      "",
+		Payload:         nil,
+		CommitVersion:   "",
 	}
 }
 
@@ -58,9 +65,19 @@ func newManifestMessage(event Event, count uint32, transportDigest string) trans
 func encodeTransportMessage(message transportMessage) ([]byte, error) {
 	encoded, err := json.Marshal(message)
 	if err != nil {
-		slog.Error("audit.event_parts.message_encode_failed", slog.String("event_id", message.EventID.String()), slog.String("err", err.Error()))
-		return nil, fmt.Errorf("encode audit transport message for event %s: %w", message.EventID, err)
+		slog.Error(
+			"audit.event_parts.message_encode_failed",
+			slog.String("event_id", message.EventID.String()),
+			slog.String("err", err.Error()),
+		)
+
+		return nil, fmt.Errorf(
+			"encode audit transport message for event %s: %w",
+			message.EventID,
+			err,
+		)
 	}
+
 	return encoded, nil
 }
 
@@ -75,6 +92,7 @@ func (e EncodedEvent) Messages() ([][]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+
 	return append(messages, e.Header), nil
 }
 
@@ -84,6 +102,7 @@ func (e EncodedEvent) partMessages() ([][]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+
 	messages := make([][]byte, 0, len(e.Parts)+1)
 	for _, part := range e.Parts {
 		message := manifest
@@ -93,8 +112,10 @@ func (e EncodedEvent) partMessages() ([][]byte, error) {
 		if err != nil {
 			return nil, err
 		}
+
 		messages = append(messages, encoded)
 	}
+
 	return messages, nil
 }
 
@@ -110,14 +131,21 @@ func (e EncodedEvent) HeaderAndParts() ([]byte, [][]byte, error) {
 		parts, err := e.partMessages()
 		return e.Header, parts, err
 	}
+
 	if len(e.Parts) != 1 {
-		return nil, nil, fmt.Errorf("audit event %s: a single record requires exactly one part", e.EventID)
+		return nil, nil, fmt.Errorf(
+			"audit event %s: a single record requires exactly one part",
+			e.EventID,
+		)
 	}
+
 	envelope, err := decodeEventEnvelope(e.Parts[0].Payload)
 	if err != nil {
 		return nil, nil, fmt.Errorf("audit event %s: %s", e.EventID, err.Error())
 	}
+
 	eventJSON, err := MarshalEvent(envelope.Event)
+
 	return eventJSON, [][]byte{}, err
 }
 
@@ -130,9 +158,11 @@ func decodeEventEnvelope(payload []byte) (eventEnvelope, error) {
 	if err := decoder.Decode(&envelope); err != nil {
 		return eventEnvelope{}, fmt.Errorf("decode envelope: %s", err.Error())
 	}
+
 	if !decoderAtEnd(decoder) {
 		return eventEnvelope{}, errors.New("unexpected data after the event envelope")
 	}
+
 	return envelope, nil
 }
 
@@ -155,6 +185,7 @@ func (e EncodedEvent) Records() ([][]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+
 	return append(parts, header), nil
 }
 
@@ -180,20 +211,40 @@ func decodeTransportMessage(raw []byte) (transportMessage, bool, error) {
 	if !isTransport {
 		return message, false, nil
 	}
+
 	decoder := json.NewDecoder(bytes.NewReader(raw))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&message); err != nil {
-		return transportMessage{}, true, fmt.Errorf("decode audit transport message: %s", err.Error())
+		return transportMessage{}, true, fmt.Errorf(
+			"decode audit transport message: %s",
+			err.Error(),
+		)
 	}
+
 	if message.FormatVersion != eventPartsFormatVersion {
-		return transportMessage{}, true, fmt.Errorf("audit transport message %s uses unsupported format version %d", message.EventID, message.FormatVersion)
+		return transportMessage{}, true, fmt.Errorf(
+			"audit transport message %s uses unsupported format version %d",
+			message.EventID,
+			message.FormatVersion,
+		)
 	}
+
 	if message.Message != messageKindPart && message.Message != messageKindManifest {
-		return transportMessage{}, true, fmt.Errorf("audit transport message %s has unsupported kind %q", message.EventID, message.Message)
+		return transportMessage{}, true, fmt.Errorf(
+			"audit transport message %s has unsupported kind %q",
+			message.EventID,
+			message.Message,
+		)
 	}
-	if message.EventID == uuid.Nil || message.PartCount == 0 || !isSHA256Hex(message.TransportDigest) {
-		return transportMessage{}, true, fmt.Errorf("audit transport message %s has an invalid event ID, part count, or transport digest", message.EventID)
+
+	if message.EventID == uuid.Nil || message.PartCount == 0 ||
+		!isSHA256Hex(message.TransportDigest) {
+		return transportMessage{}, true, fmt.Errorf(
+			"audit transport message %s has an invalid event ID, part count, or transport digest",
+			message.EventID,
+		)
 	}
+
 	return message, true, nil
 }
 
@@ -203,8 +254,10 @@ func decodeManifestHeader(header []byte) (transportMessage, error) {
 	if err != nil {
 		return transportMessage{}, err
 	}
+
 	if !isTransport || message.Message != messageKindManifest {
 		return transportMessage{}, errors.New("audit event header is not a manifest message")
 	}
+
 	return message, nil
 }

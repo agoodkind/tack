@@ -45,11 +45,17 @@ func TestRuntimeAuditTopLevelCoverage(t *testing.T) {
 		}
 	}
 	if len(missing) > 0 {
-		t.Errorf("Discovered commands do not have coverage entries; each command requires an executable case or an exclusion:\n%s", strings.Join(missing, "\n"))
+		t.Errorf(
+			"Discovered commands do not have coverage entries; each command requires an executable case or an exclusion:\n%s",
+			strings.Join(missing, "\n"),
+		)
 	}
 	for _, key := range slices.Sorted(maps.Keys(cases)) {
 		if !slices.Contains(operations, key) {
-			t.Errorf("Command discovery did not include the command; the test requires it for coverage case %q", key)
+			t.Errorf(
+				"Command discovery did not include the command; the test requires it for coverage case %q",
+				key,
+			)
 		}
 	}
 	for _, key := range operations {
@@ -58,17 +64,30 @@ func TestRuntimeAuditTopLevelCoverage(t *testing.T) {
 			continue
 		}
 		if current, found := cases[key]; found {
-			t.Run(key, func(t *testing.T) {
-				operatorID := current.run(t, env)
-				if current.finalRead {
-					env.requireFinalReadEvent(t, operatorID, current.verb, current.outcome)
-					return
-				}
-				requireOutboxEvent(t, coverageEvidence{
-					orgID: audit.SystemOrgID(), requestID: "", actorID: operatorID, outcome: "", outbox: env.admin,
-					body: nil, targetID: uuid.Nil,
-				}, current.verb, current.outcome)
-			})
+			t.Run(
+				key,
+				func(t *testing.T) {
+					operatorID := current.run(t, env)
+					if current.finalRead {
+						env.requireFinalReadEvent(t, operatorID, current.verb, current.outcome)
+						return
+					}
+					requireOutboxEvent(
+						t,
+						coverageEvidence{
+							orgID:     audit.SystemOrgID(),
+							requestID: "",
+							actorID:   operatorID,
+							outcome:   "",
+							outbox:    env.admin,
+							body:      nil,
+							targetID:  uuid.Nil,
+						},
+						current.verb,
+						current.outcome,
+					)
+				},
+			)
 		}
 	}
 }
@@ -101,11 +120,19 @@ func (env *topLevelEnv) operations(t *testing.T) []string {
 
 func (env *topLevelEnv) completions(t *testing.T, path []string) []string {
 	t.Helper()
-	process := exec.CommandContext(t.Context(), env.binary, append(append([]string{"__complete"}, path...), "")...)
+	process := exec.CommandContext(
+		t.Context(),
+		env.binary,
+		append(append([]string{"__complete"}, path...), "")...,
+	)
 	process.Env = env.environment
 	output, err := process.Output()
 	if err != nil {
-		t.Fatalf("Command completion failed; the test requires command discovery for path %v: %v", path, err)
+		t.Fatalf(
+			"Command completion failed; the test requires command discovery for path %v: %v",
+			path,
+			err,
+		)
 	}
 	var names []string
 	scanner := bufio.NewScanner(strings.NewReader(string(output)))
@@ -122,12 +149,24 @@ func (env *topLevelEnv) completions(t *testing.T, path []string) []string {
 
 func (env *topLevelEnv) requireStaticHelp(t *testing.T, key string) {
 	t.Helper()
-	process := exec.CommandContext(t.Context(), env.binary, strings.Fields(strings.TrimPrefix(key, "command tack "))...)
-	process.Env = append(slices.Clone(env.environment),
-		"DATABASE_URL="+unreachableDatabaseURL, "AUDIT_OPERATOR_DSN="+unreachableDatabaseURL)
+	process := exec.CommandContext(
+		t.Context(),
+		env.binary,
+		strings.Fields(strings.TrimPrefix(key, "command tack "))...,
+	)
+	process.Env = append(
+		slices.Clone(env.environment),
+		"DATABASE_URL="+unreachableDatabaseURL,
+		"AUDIT_OPERATOR_DSN="+unreachableDatabaseURL,
+	)
 	output, err := process.CombinedOutput()
 	if err != nil || !strings.Contains(string(output), "Usage:") {
-		t.Fatalf("The command failed or did not print 'Usage:'; the test requires static help with unreachable database addresses for %s: %v\n%s", key, err, output)
+		t.Fatalf(
+			"The command failed or did not print 'Usage:'; the test requires static help with unreachable database addresses for %s: %v\n%s",
+			key,
+			err,
+			output,
+		)
 	}
 }
 
@@ -145,10 +184,17 @@ func (env *topLevelEnv) runServe(t *testing.T, args ...string) uuid.UUID {
 	}
 	time.Sleep(time.Second)
 	if err := process.Process.Signal(syscall.SIGTERM); err != nil {
-		t.Fatalf("Sending SIGTERM failed; the test requires the server to accept the shutdown signal: %v", err)
+		t.Fatalf(
+			"Sending SIGTERM failed; the test requires the server to accept the shutdown signal: %v",
+			err,
+		)
 	}
 	if err := process.Wait(); err != nil {
-		t.Fatalf("The server exited with an error; the test requires a successful exit after SIGTERM: %v\n%s", err, output.String())
+		t.Fatalf(
+			"The server exited with an error; the test requires a successful exit after SIGTERM: %v\n%s",
+			err,
+			output.String(),
+		)
 	}
 	return operatorID
 }

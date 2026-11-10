@@ -37,18 +37,32 @@ type Preview func(ctx context.Context, sink ResultSink) ([]audit.Target, error)
 //
 //   - A preview or audit error prevents replay.
 //   - Replay preserves the original writes and their order.
-func RunRecordedPreview(ctx context.Context, f *cli.Factory, spec audit.Spec, input json.RawMessage, preview Preview) error {
+func RunRecordedPreview(
+	ctx context.Context,
+	f *cli.Factory,
+	spec audit.Spec,
+	input json.RawMessage,
+	preview Preview,
+) error {
 	captured := &captureSink{writes: nil}
-	_, err := RunAuditedRead(ctx, f, spec, input, func(ctx context.Context) (audit.OperatorReadOutput, error) {
-		targets, err := preview(ctx, captured)
-		if err != nil {
-			return audit.OperatorReadOutput{}, err
-		}
-		return captured.output(targets), nil
-	})
+	_, err := RunAuditedRead(
+		ctx,
+		f,
+		spec,
+		input,
+		func(ctx context.Context) (audit.OperatorReadOutput, error) {
+			targets, err := preview(ctx, captured)
+			if err != nil {
+				return audit.OperatorReadOutput{}, err
+			}
+
+			return captured.output(targets), nil
+		},
+	)
 	if err != nil {
 		return err
 	}
+
 	return captured.replay(ctx, NewCLISink(f))
 }
 
@@ -61,13 +75,17 @@ func RunRecordedPreview(ctx context.Context, f *cli.Factory, spec audit.Spec, in
 //     record input.
 func PreviewSpec(spec audit.Spec) audit.Spec {
 	preview := audit.Spec{
-		Verb: spec.Verb, Reads: true, Class: audit.OperationRead,
-		Targets: commandTargets(spec.Verb), SafeInput: withoutInput,
+		Verb:                       spec.Verb,
+		Reads:                      true,
+		Class:                      audit.OperationRead,
+		Targets:                    commandTargets(spec.Verb),
+		SafeInput:                  withoutInput,
 		CreatesAuditInfrastructure: spec.CreatesAuditInfrastructure,
 	}
 	if spec.Targets != nil && spec.SafeInput != nil {
 		preview.Targets, preview.SafeInput = spec.Targets, spec.SafeInput
 	}
+
 	return preview
 }
 
@@ -75,9 +93,17 @@ func PreviewSpec(spec audit.Spec) audit.Spec {
 // resource of verb for every input.
 func commandTargets(verb string) func(context.Context, json.RawMessage) ([]audit.Target, error) {
 	target := audit.Target{
-		Kind: audit.TargetKindResource, NodeType: "", Reference: "", Name: "", URI: commandTargetPrefix + verb,
-		RelationType: "", ID: uuid.Nil, SourceID: uuid.Nil, TargetID: uuid.Nil,
+		Kind:         audit.TargetKindResource,
+		NodeType:     "",
+		Reference:    "",
+		Name:         "",
+		URI:          commandTargetPrefix + verb,
+		RelationType: "",
+		ID:           uuid.Nil,
+		SourceID:     uuid.Nil,
+		TargetID:     uuid.Nil,
 	}
+
 	return func(context.Context, json.RawMessage) ([]audit.Target, error) {
 		return []audit.Target{target}, nil
 	}
@@ -116,8 +142,11 @@ func (s *captureSink) output(targets []audit.Target) audit.OperatorReadOutput {
 	for _, write := range s.writes {
 		payloads = append(payloads, write.payload)
 	}
+
 	return audit.OperatorReadOutput{
-		Payload: bytes.Join(payloads, []byte("\n")), Format: previewFormat(s.writes), Targets: targets,
+		Payload: bytes.Join(payloads, []byte("\n")),
+		Format:  previewFormat(s.writes),
+		Targets: targets,
 	}
 }
 
@@ -127,6 +156,7 @@ func previewFormat(writes []capturedWrite) string {
 	if len(writes) == 1 && writes[0].isJSON {
 		return jsonPreviewFormat
 	}
+
 	return textPreviewFormat
 }
 
@@ -139,9 +169,11 @@ func (s *captureSink) replay(ctx context.Context, sink ResultSink) error {
 		} else {
 			err = sink.WriteText(ctx, string(write.payload))
 		}
+
 		if err != nil {
 			return loggedAuditError(ctx, "write preview output", err)
 		}
 	}
+
 	return nil
 }

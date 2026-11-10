@@ -74,12 +74,29 @@ func corpusMissing(stopContext context.Context, run searchRun, word string, node
 	identities := run.identities()
 	return func(ctx context.Context) ([]uuid.UUID, int, error) {
 		unavailable := 0
-		results, err := traversePages(word, run.limits, func(cursor string) (searchPage, error) {
-			page, _, err := retryUnavailable(stopContext, clock.Now().Add(searchConvergenceDeadline), &unavailable, func() (searchPage, error) {
-				return callSearch(ctx, run.driver, identities, run.token, run.entry, word, cursor)
-			})
-			return page, err
-		})
+		results, err := traversePages(
+			word,
+			run.limits,
+			func(cursor string) (searchPage, error) {
+				page, _, err := retryUnavailable(
+					stopContext,
+					clock.Now().Add(searchConvergenceDeadline),
+					&unavailable,
+					func() (searchPage, error) {
+						return callSearch(
+							ctx,
+							run.driver,
+							identities,
+							run.token,
+							run.entry,
+							word,
+							cursor,
+						)
+					},
+				)
+				return page, err
+			},
+		)
 		if err != nil {
 			return nil, unavailable, err
 		}
@@ -97,7 +114,13 @@ func corpusMissing(stopContext context.Context, run searchRun, word string, node
 // response. An unavailable response at the retry deadline fails the wait
 // immediately. If stopContext ends between checks or during unavailable
 // response retries, awaitCorpus returns errSearchMixedSetupStopped.
-func awaitCorpus(stopContext, callContext context.Context, description string, nodes []uuid.UUID, check corpusCheck) (int, int, error) {
+func awaitCorpus(
+	stopContext context.Context,
+	callContext context.Context,
+	description string,
+	nodes []uuid.UUID,
+	check corpusCheck,
+) (int, int, error) {
 	latest, fewest, progressed := nodes, len(nodes), clock.Now()
 	unavailable := 0
 	for checks := 1; ; checks++ {
@@ -122,7 +145,13 @@ func awaitCorpus(stopContext, callContext context.Context, description string, n
 			}
 		}
 		if clock.Now().Sub(progressed) >= searchMixedCorpusStall {
-			return checks, unavailable, corpusStalled(callContext, description, latest, len(nodes), err)
+			return checks, unavailable, corpusStalled(
+				callContext,
+				description,
+				latest,
+				len(nodes),
+				err,
+			)
 		}
 		timer := time.NewTimer(searchPollInterval)
 		select {
@@ -136,9 +165,20 @@ func awaitCorpus(stopContext, callContext context.Context, description string, n
 
 // corpusStalled reports the first node and the count of nodes that the latest
 // successful check omitted. It adds checkErr when the last check failed.
-func corpusStalled(ctx context.Context, description string, absent []uuid.UUID, total int, checkErr error) error {
-	stalled := fmt.Errorf("search omitted %d of %d corpus nodes and the omitted count did not decrease for %s; the first missing node is %s",
-		len(absent), total, searchMixedCorpusStall, absent[0])
+func corpusStalled(
+	ctx context.Context,
+	description string,
+	absent []uuid.UUID,
+	total int,
+	checkErr error,
+) error {
+	stalled := fmt.Errorf(
+		"search omitted %d of %d corpus nodes and the omitted count did not decrease for %s; the first missing node is %s",
+		len(absent),
+		total,
+		searchMixedCorpusStall,
+		absent[0],
+	)
 	if checkErr != nil {
 		stalled = errors.Join(stalled, checkErr)
 	}

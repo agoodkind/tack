@@ -104,32 +104,57 @@ type searchRecordValue interface {
 
 // readSearchRecord decodes the JSON record at key. It reports false when the
 // key is absent.
-func readSearchRecord[Record searchRecordValue](ctx context.Context, tr fdb.Transaction, key []byte, record *Record) (bool, error) {
+func readSearchRecord[Record searchRecordValue](
+	ctx context.Context,
+	tr fdb.Transaction,
+	key []byte,
+	record *Record,
+) (bool, error) {
 	countSessionRead(tr)
 	encoded, err := tr.Get(fdb.Key(key)).Get()
 	if err != nil {
 		return false, searchReadFailure(ctx, "read search record", err)
 	}
+
 	if len(encoded) == 0 {
 		return false, nil
 	}
+
 	if err := json.Unmarshal(encoded, record); err != nil {
 		wrapped := fmt.Errorf("decode search record: %w", err)
-		telemetry.L(ctx).ErrorContext(ctx, "search.record.decode_failed", slog.String("err", wrapped.Error()))
+		telemetry.L(ctx).ErrorContext(
+			ctx,
+			"search.record.decode_failed",
+			slog.String("err", wrapped.Error()),
+		)
+
 		return false, loggedSearchError{err: wrapped}
 	}
+
 	return true, nil
 }
 
 // writeSearchRecord encodes record as JSON at key.
-func writeSearchRecord[Record searchRecordValue](ctx context.Context, tr fdb.Transaction, key []byte, record Record) error {
+func writeSearchRecord[Record searchRecordValue](
+	ctx context.Context,
+	tr fdb.Transaction,
+	key []byte,
+	record Record,
+) error {
 	encoded, err := json.Marshal(record)
 	if err != nil {
 		wrapped := fmt.Errorf("encode search record: %w", err)
-		telemetry.L(ctx).ErrorContext(ctx, "search.record.encode_failed", slog.String("err", wrapped.Error()))
+		telemetry.L(ctx).ErrorContext(
+			ctx,
+			"search.record.encode_failed",
+			slog.String("err", wrapped.Error()),
+		)
+
 		return loggedSearchError{err: wrapped}
 	}
+
 	tr.Set(fdb.Key(key), encoded)
+
 	return nil
 }
 
@@ -140,9 +165,11 @@ func readSearchCounter(ctx context.Context, tr fdb.Transaction, key []byte) (int
 	if err != nil {
 		return 0, searchReadFailure(ctx, "read search counter", err)
 	}
+
 	if len(encoded) == 0 {
 		return 0, nil
 	}
+
 	return unpackCounter(ctx, encoded)
 }
 
@@ -152,13 +179,24 @@ func unpackCounter(ctx context.Context, encoded []byte) (int64, error) {
 	if err != nil {
 		return 0, searchReadFailure(ctx, "decode search counter", err)
 	}
+
 	if len(values) != 1 {
-		return 0, searchReadFailure(ctx, "decode search counter", fmt.Errorf("counter has %d values", len(values)))
+		return 0, searchReadFailure(
+			ctx,
+			"decode search counter",
+			fmt.Errorf("counter has %d values", len(values)),
+		)
 	}
+
 	value, ok := values[0].(int64)
 	if !ok || value < 0 {
-		return 0, searchReadFailure(ctx, "decode search counter", fmt.Errorf("counter value %v is not a nonnegative integer", values[0]))
+		return 0, searchReadFailure(
+			ctx,
+			"decode search counter",
+			fmt.Errorf("counter value %v is not a nonnegative integer", values[0]),
+		)
 	}
+
 	return value, nil
 }
 
@@ -172,11 +210,19 @@ func incrementSearchCounter(ctx context.Context, tr fdb.Transaction, key []byte)
 	if err != nil {
 		return 0, err
 	}
+
 	if current == math.MaxInt64 {
 		wrapped := fmt.Errorf("search counter overflows at %d", current)
-		telemetry.L(ctx).ErrorContext(ctx, "search.counter.overflow", slog.String("err", wrapped.Error()))
+		telemetry.L(ctx).ErrorContext(
+			ctx,
+			"search.counter.overflow",
+			slog.String("err", wrapped.Error()),
+		)
+
 		return 0, loggedSearchError{err: wrapped}
 	}
+
 	writeSearchCounter(tr, key, current+1)
+
 	return current + 1, nil
 }

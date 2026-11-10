@@ -65,19 +65,28 @@ func WriteJSONValue(ctx context.Context, sink ResultSink, value Result) error {
 		slog.ErrorContext(ctx, "clispec.marshal_failed", slog.String("err", err.Error()))
 		return fmt.Errorf("clispec: marshal result: %w", err)
 	}
+
 	if collector, ok := sink.(readTargetSink); ok {
 		if result, ok := value.(ReadResult); ok {
 			targets, err := result.AuditReadTargets()
 			if err != nil {
-				slog.ErrorContext(ctx, "clispec.read_targets_failed", slog.String("err", err.Error()))
+				slog.ErrorContext(
+					ctx,
+					"clispec.read_targets_failed",
+					slog.String("err", err.Error()),
+				)
+
 				return fmt.Errorf("clispec: collect read targets: %w", err)
 			}
+
 			collector.addReadTargets(targets)
 		}
 	}
+
 	if err := sink.WriteJSON(ctx, body); err != nil {
 		return fmt.Errorf("clispec: write result: %w", err)
 	}
+
 	return nil
 }
 
@@ -119,13 +128,16 @@ func (s *CLISink) WriteJSON(ctx context.Context, payload json.RawMessage) error 
 			slog.ErrorContext(ctx, "clispec.envelope_failed", slog.String("err", err.Error()))
 			return fmt.Errorf("clispec: envelope: %w", err)
 		}
+
 		return s.writeRaw(ctx, body)
 	}
+
 	var buf bytes.Buffer
 	if err := json.Indent(&buf, payload, "", "  "); err != nil {
 		slog.ErrorContext(ctx, "clispec.indent_failed", slog.String("err", err.Error()))
 		return fmt.Errorf("clispec: indent: %w", err)
 	}
+
 	return s.writeText(ctx, buf.String())
 }
 
@@ -144,13 +156,16 @@ func (s *CLISink) WriteText(ctx context.Context, body string) error {
 			slog.ErrorContext(ctx, "clispec.quote_failed", slog.String("err", err.Error()))
 			return fmt.Errorf("clispec: quote: %w", err)
 		}
+
 		out, err := response.Marshal(ctx, quoted)
 		if err != nil {
 			slog.ErrorContext(ctx, "clispec.envelope_failed", slog.String("err", err.Error()))
 			return fmt.Errorf("clispec: envelope: %w", err)
 		}
+
 		return s.writeRaw(ctx, out)
 	}
+
 	return s.writeText(ctx, body)
 }
 
@@ -161,9 +176,11 @@ func (s *CLISink) writeText(ctx context.Context, body string) error {
 	if !s.wrote {
 		out = response.Text(ctx, body)
 	}
+
 	if !strings.HasSuffix(out, "\n") {
 		out += "\n"
 	}
+
 	return s.writeRaw(ctx, []byte(out))
 }
 
@@ -173,5 +190,6 @@ func (s *CLISink) writeRaw(ctx context.Context, b []byte) error {
 		slog.ErrorContext(ctx, "clispec.write_failed", slog.String("err", err.Error()))
 		return fmt.Errorf("clispec: write output: %w", err)
 	}
+
 	return nil
 }

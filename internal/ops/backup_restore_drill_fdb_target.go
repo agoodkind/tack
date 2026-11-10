@@ -28,14 +28,20 @@ func parseFDBTargetTime(value string) (time.Time, error) {
 		if parseErr != nil {
 			continue
 		}
+
 		if _, err := fdbRestoreTimestampArg(at); err != nil {
 			return time.Time{}, err
 		}
+
 		return at, nil
 	}
-	return time.Time{}, fmt.Errorf("restore target time %q is not a time:"+
-		" write it as RFC 3339 (2026-08-30T01:07:23Z)"+
-		" or in FoundationDB's own form (2026/08/30.01:07:23+0000)", value)
+
+	return time.Time{}, fmt.Errorf(
+		"restore target time %q is not a time:"+
+			" write it as RFC 3339 (2026-08-30T01:07:23Z)"+
+			" or in FoundationDB's own form (2026/08/30.01:07:23+0000)",
+		value,
+	)
 }
 
 // fdbRestoreTimestampArg renders the --timestamp argument and rejects a
@@ -51,8 +57,12 @@ func fdbRestoreTimestampArg(at time.Time) (string, error) {
 			"restore target %s names a fraction of a second, which FoundationDB's"+
 				" --timestamp form %s cannot carry: name a whole second, and note that"+
 				" %s is the whole second before the moment given",
-			at.UTC().Format(time.RFC3339Nano), fdbTimestampArgForm, formatFDBTime(at))
+			at.UTC().Format(time.RFC3339Nano),
+			fdbTimestampArgForm,
+			formatFDBTime(at),
+		)
 	}
+
 	return formatFDBTime(at), nil
 }
 
@@ -63,8 +73,12 @@ func assertTargetWithinWindow(target time.Time, window fdbRestorableWindow) erro
 	if target.Before(window.Min) || target.After(window.Max) {
 		return fmt.Errorf(
 			"restore target %s is outside the backup's restorable window %s .. %s",
-			formatFDBTime(target), formatFDBTime(window.Min), formatFDBTime(window.Max))
+			formatFDBTime(target),
+			formatFDBTime(window.Min),
+			formatFDBTime(window.Max),
+		)
 	}
+
 	return nil
 }
 

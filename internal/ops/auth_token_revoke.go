@@ -38,39 +38,68 @@ func RevokeAuthToken(
 	if err != nil {
 		return AuthTokenRevocation{}, err
 	}
+
 	if err := postgres.NewTokenRepo(pool).Delete(ctx, revocation.OrgID, tokenID); err != nil {
-		slog.ErrorContext(ctx, "auth.token.revoke_failed",
-			slog.String("token_id", tokenID.String()), slog.String("err", err.Error()))
+		slog.ErrorContext(
+			ctx,
+			"auth.token.revoke_failed",
+			slog.String("token_id", tokenID.String()),
+			slog.String("err", err.Error()),
+		)
+
 		return AuthTokenRevocation{}, fmt.Errorf("revoke token %s: %w", tokenID, err)
 	}
-	slog.InfoContext(ctx, "auth.token.revoked",
+
+	slog.InfoContext(
+		ctx,
+		"auth.token.revoked",
 		slog.String("token_id", tokenID.String()),
-		slog.String("user_id", revocation.Holder.ID.String()))
+		slog.String("user_id", revocation.Holder.ID.String()),
+	)
+
 	return revocation, nil
 }
 
 // lookupAuthToken returns the token, user, and organization for a revocation or
 // its dry run. It includes inactive accounts because their tokens still
 // authenticate and may need revocation.
-func lookupAuthToken(ctx context.Context, pool *pgxpool.Pool, tokenID uuid.UUID) (AuthTokenRevocation, error) {
+func lookupAuthToken(
+	ctx context.Context,
+	pool *pgxpool.Pool,
+	tokenID uuid.UUID,
+) (AuthTokenRevocation, error) {
 	stored, err := postgres.NewTokenRepo(pool).GetByID(ctx, tokenID)
 	if err != nil {
 		if errors.Is(err, domain.ErrNotFound) {
 			return AuthTokenRevocation{}, fmt.Errorf("no token %s exists: %w", tokenID, err)
 		}
-		slog.ErrorContext(ctx, "auth.token.lookup_failed",
-			slog.String("token_id", tokenID.String()), slog.String("err", err.Error()))
+
+		slog.ErrorContext(
+			ctx,
+			"auth.token.lookup_failed",
+			slog.String("token_id", tokenID.String()),
+			slog.String("err", err.Error()),
+		)
+
 		return AuthTokenRevocation{}, fmt.Errorf("find token %s: %w", tokenID, err)
 	}
+
 	holder, err := postgres.NewUserRepo(pool).GetByIDIncludingInactive(ctx, stored.UserID)
 	if err != nil {
-		slog.ErrorContext(ctx, "auth.token.holder_lookup_failed",
-			slog.String("user_id", stored.UserID.String()), slog.String("err", err.Error()))
+		slog.ErrorContext(
+			ctx,
+			"auth.token.holder_lookup_failed",
+			slog.String("user_id", stored.UserID.String()),
+			slog.String("err", err.Error()),
+		)
+
 		return AuthTokenRevocation{}, fmt.Errorf("find the user holding token %s: %w", tokenID, err)
 	}
+
 	orgID, err := authTokenOrg(ctx, postgres.NewOrgMemberRepo(pool), holder.ID)
 	if err != nil {
 		return AuthTokenRevocation{}, err
 	}
+
 	return AuthTokenRevocation{Token: stored, Holder: holder, OrgID: orgID}, nil
 }

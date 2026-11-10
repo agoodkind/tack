@@ -55,6 +55,7 @@ func NewPartitionManager(store partitionStore, period time.Duration) *PartitionM
 	if period <= 0 {
 		period = 24 * time.Hour
 	}
+
 	return &PartitionManager{
 		store:     store,
 		period:    period,
@@ -89,6 +90,7 @@ func (m *PartitionManager) loop(ctx context.Context) {
 	// The startup maintenance run establishes headroom for a fresh or restarted
 	// consumer and creates missed weeks before the first tick.
 	m.runOnce(ctx)
+
 	for {
 		select {
 		case <-m.stop:
@@ -107,7 +109,10 @@ func (m *PartitionManager) runOnce(ctx context.Context) {
 	if err := m.maintain(ctx); err != nil {
 		maintained = false
 		telemetry.IncAuditPartitionMaintenance("error")
-		telemetry.L(ctx).Error("audit.partition.maintenance_failed", slog.String("err", err.Error()))
+		telemetry.L(ctx).Error(
+			"audit.partition.maintenance_failed",
+			slog.String("err", err.Error()),
+		)
 	} else {
 		telemetry.IncAuditPartitionMaintenance("ok")
 	}
@@ -117,17 +122,25 @@ func (m *PartitionManager) runOnce(ctx context.Context) {
 	// remaining future weeks alongside the maintenance error counter and log.
 	headroom, err := m.store.HeadroomWeeks(ctx, clock.Now().UTC())
 	if err != nil {
-		telemetry.L(ctx).Error("audit.partition.headroom_query_failed", slog.String("err", err.Error()))
+		telemetry.L(ctx).Error(
+			"audit.partition.headroom_query_failed",
+			slog.String("err", err.Error()),
+		)
+
 		return
 	}
+
 	telemetry.SetAuditPartitionHeadroomWeeks(int64(headroom))
 	if headroom < partitionHeadroomAlertFloor {
-		telemetry.L(ctx).Error("audit.partition.headroom_low",
+		telemetry.L(ctx).Error(
+			"audit.partition.headroom_low",
 			slog.Int("headroom_weeks", headroom),
 			slog.Int("floor_weeks", partitionHeadroomAlertFloor),
 		)
+
 		return
 	}
+
 	if maintained {
 		telemetry.L(ctx).Debug("audit.partition.maintained", slog.Int("headroom_weeks", headroom))
 	}
@@ -144,7 +157,9 @@ func (m *PartitionManager) Close() error {
 	default:
 		close(m.stop)
 	}
+
 	<-m.stopped
+
 	return nil
 }
 
@@ -166,19 +181,29 @@ func NewPGPartitionStore(pool *pgxpool.Pool) partitionStore {
 
 func (s *pgPartitionStore) HeadroomWeeks(ctx context.Context, now time.Time) (int, error) {
 	var count int
-	err := s.pool.QueryRow(ctx, `
+	err := s.pool.QueryRow(
+		ctx,
+		`
 		SELECT count(*) FROM pg_inherits i
 		JOIN pg_class c ON c.oid = i.inhrelid
 		JOIN pg_class p ON p.oid = i.inhparent
 		JOIN pg_namespace n ON n.oid = p.relnamespace
 		WHERE n.nspname = 'audit' AND p.relname = 'events'
 		AND (regexp_match(pg_get_expr(c.relpartbound, c.oid), 'FROM \(''([0-9 :.+-]+)'''))[1]::timestamptz > $1
-	`, now).Scan(&count)
+	`,
+		now,
+	).Scan(
+		&count,
+	)
 	if err != nil {
-		slog.ErrorContext(ctx, "audit.partition.headroom_query_failed",
+		slog.ErrorContext(
+			ctx,
+			"audit.partition.headroom_query_failed",
 			slog.String("err", err.Error()),
 		)
+
 		return 0, fmt.Errorf("headroom query: %w", err)
 	}
+
 	return count, nil
 }

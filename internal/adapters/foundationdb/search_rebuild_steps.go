@@ -18,16 +18,39 @@ import (
 //
 //   - A different stored generation rejects the update.
 //   - A different scan or verification cursor also rejects the update.
-func (s *SearchRebuildStore) AdvanceRebuild(ctx context.Context, work searchdomain.Work, read, next searchdomain.Rebuild) (err error) {
+func (s *SearchRebuildStore) AdvanceRebuild(
+	ctx context.Context,
+	work searchdomain.Work,
+	read searchdomain.Rebuild,
+	next searchdomain.Rebuild,
+) (err error) {
 	defer telemetry.FDBOp(ctx, "store.search_rebuild.advance")(&err)
-	err = s.rebuildStep(ctx, work, read, func(tr fdb.Transaction, _ searchWorkRecord) error {
-		return writeSearchRecord(ctx, tr, searchRebuildKey(), rebuildRecordFor(next))
-	})
+	err = s.rebuildStep(
+		ctx,
+		work,
+		read,
+		func(tr fdb.Transaction, _ searchWorkRecord) error {
+			return writeSearchRecord(ctx, tr, searchRebuildKey(), rebuildRecordFor(next))
+		},
+	)
 	if err != nil {
-		return searchStorageError(ctx, "search.rebuild.advance_failed", "advance index replacement "+read.ID.String(), uuid.Nil, err)
+		return searchStorageError(
+			ctx,
+			"search.rebuild.advance_failed",
+			"advance index replacement "+read.ID.String(),
+			uuid.Nil,
+			err,
+		)
 	}
-	telemetry.L(ctx).InfoContext(ctx, "search.rebuild.advanced", slog.String("rebuild_id", read.ID.String()),
-		slog.String("state", string(next.State)), slog.Bool("paused", next.Paused))
+
+	telemetry.L(ctx).InfoContext(
+		ctx,
+		"search.rebuild.advanced",
+		slog.String("rebuild_id", read.ID.String()),
+		slog.String("state", string(next.State)),
+		slog.Bool("paused", next.Paused),
+	)
+
 	return nil
 }
 
@@ -40,22 +63,46 @@ func (s *SearchRebuildStore) AdvanceRebuild(ctx context.Context, work searchdoma
 //
 //   - If another worker updates the replacement generation first,
 //     rebuildStep returns ErrWorkChanged for the older read.
-func (s *SearchRebuildStore) CompleteSwitch(ctx context.Context, work searchdomain.Work, read searchdomain.Rebuild) (err error) {
+func (s *SearchRebuildStore) CompleteSwitch(
+	ctx context.Context,
+	work searchdomain.Work,
+	read searchdomain.Rebuild,
+) (err error) {
 	defer telemetry.FDBOp(ctx, "store.search_rebuild.complete_switch")(&err)
-	err = s.rebuildStep(ctx, work, read, func(tr fdb.Transaction, _ searchWorkRecord) error {
-		if read.State != searchdomain.RebuildSwitching {
-			return searchdomain.ErrWorkChanged
-		}
-		tr.Set(fdb.Key(searchIndexKey()), []byte(read.TargetIndex))
-		next := read
-		next.State, next.Paused, next.VerifyCursor = searchdomain.RebuildRetiring, false, ""
-		return writeSearchRecord(ctx, tr, searchRebuildKey(), rebuildRecordFor(next))
-	})
+	err = s.rebuildStep(
+		ctx,
+		work,
+		read,
+		func(tr fdb.Transaction, _ searchWorkRecord) error {
+			if read.State != searchdomain.RebuildSwitching {
+				return searchdomain.ErrWorkChanged
+			}
+
+			tr.Set(fdb.Key(searchIndexKey()), []byte(read.TargetIndex))
+			next := read
+			next.State, next.Paused, next.VerifyCursor = searchdomain.RebuildRetiring, false, ""
+
+			return writeSearchRecord(ctx, tr, searchRebuildKey(), rebuildRecordFor(next))
+		},
+	)
 	if err != nil {
-		return searchStorageError(ctx, "search.rebuild.switch_failed", "record switched index "+read.TargetIndex, uuid.Nil, err)
+		return searchStorageError(
+			ctx,
+			"search.rebuild.switch_failed",
+			"record switched index "+read.TargetIndex,
+			uuid.Nil,
+			err,
+		)
 	}
-	telemetry.L(ctx).InfoContext(ctx, "search.rebuild.switched", slog.String("rebuild_id", read.ID.String()),
-		slog.String("index", read.TargetIndex), slog.String("retiring_index", read.SourceIndex))
+
+	telemetry.L(ctx).InfoContext(
+		ctx,
+		"search.rebuild.switched",
+		slog.String("rebuild_id", read.ID.String()),
+		slog.String("index", read.TargetIndex),
+		slog.String("retiring_index", read.SourceIndex),
+	)
+
 	return nil
 }
 
@@ -68,60 +115,113 @@ func (s *SearchRebuildStore) CompleteSwitch(ctx context.Context, work searchdoma
 //   - A failed replacement clears the target index's retirement time.
 //   - A successful replacement clears the source index's retirement time.
 //   - A remaining retirement attempt prevents completion.
-func (s *SearchRebuildStore) FinishRebuild(ctx context.Context, work searchdomain.Work, read searchdomain.Rebuild) (err error) {
+func (s *SearchRebuildStore) FinishRebuild(
+	ctx context.Context,
+	work searchdomain.Work,
+	read searchdomain.Rebuild,
+) (err error) {
 	defer telemetry.FDBOp(ctx, "store.search_rebuild.finish")(&err)
 	deleted := read.SourceIndex
 	if read.State == searchdomain.RebuildFailed {
 		deleted = read.TargetIndex
 	}
+
 	attempts, err := fdb.PrefixRange(searchRetireAttemptPrefix(deleted))
 	if err != nil {
-		return searchStorageError(ctx, "search.rebuild.finish_failed", "create retirement attempt range of index "+deleted, uuid.Nil, err)
+		return searchStorageError(
+			ctx,
+			"search.rebuild.finish_failed",
+			"create retirement attempt range of index "+deleted,
+			uuid.Nil,
+			err,
+		)
 	}
-	err = s.rebuildStep(ctx, work, read, func(tr fdb.Transaction, record searchWorkRecord) error {
-		remaining, readErr := tr.GetRange(attempts, fdb.RangeOptions{Limit: 1}).GetSliceWithError()
-		if readErr != nil {
-			return searchReadFailure(ctx, "read retirement attempts of index "+deleted, readErr)
-		}
-		if len(remaining) != 0 {
-			return errRetireAttemptsRemain
-		}
-		tr.Clear(fdb.Key(searchRebuildKey()))
-		tr.Clear(fdb.Key(searchRetiredSinceKey(deleted)))
-		clearSearchWork(tr, work, record)
-		return nil
-	})
+
+	err = s.rebuildStep(
+		ctx,
+		work,
+		read,
+		func(tr fdb.Transaction, record searchWorkRecord) error {
+			remaining, readErr := tr.GetRange(
+				attempts,
+				fdb.RangeOptions{Limit: 1},
+			).GetSliceWithError()
+			if readErr != nil {
+				return searchReadFailure(ctx, "read retirement attempts of index "+deleted, readErr)
+			}
+
+			if len(remaining) != 0 {
+				return errRetireAttemptsRemain
+			}
+
+			tr.Clear(fdb.Key(searchRebuildKey()))
+			tr.Clear(fdb.Key(searchRetiredSinceKey(deleted)))
+			clearSearchWork(tr, work, record)
+
+			return nil
+		},
+	)
 	if err != nil {
-		return searchStorageError(ctx, "search.rebuild.finish_failed", "finish index replacement "+read.ID.String(), uuid.Nil, err)
+		return searchStorageError(
+			ctx,
+			"search.rebuild.finish_failed",
+			"finish index replacement "+read.ID.String(),
+			uuid.Nil,
+			err,
+		)
 	}
-	telemetry.L(ctx).InfoContext(ctx, "search.rebuild.finished", slog.String("rebuild_id", read.ID.String()),
-		slog.String("state", string(read.State)), slog.String("deleted_index", deleted), slog.String("failure", read.Failure))
+
+	telemetry.L(ctx).InfoContext(
+		ctx,
+		"search.rebuild.finished",
+		slog.String("rebuild_id", read.ID.String()),
+		slog.String("state", string(read.State)),
+		slog.String("deleted_index", deleted),
+		slog.String("failure", read.Failure),
+	)
+
 	return nil
 }
 
 // rebuildStep verifies the rebuild claim and the stored state the worker
 // read, then applies step in the same transaction. step receives the
 // verified rebuild work record.
-func (s *SearchRebuildStore) rebuildStep(ctx context.Context, work searchdomain.Work, read searchdomain.Rebuild, step func(fdb.Transaction, searchWorkRecord) error) error {
-	return transactSearch(ctx, s.db, func(tr fdb.Transaction) error {
-		record, err := s.work.verifyClaim(ctx, tr, work)
-		if err != nil {
-			return err
-		}
-		stored, found, err := readRebuild(ctx, tr)
-		if err != nil {
-			return err
-		}
-		if !found || !sameRebuild(stored, read) {
-			return searchdomain.ErrWorkChanged
-		}
-		return step(tr, record)
-	})
+func (s *SearchRebuildStore) rebuildStep(
+	ctx context.Context,
+	work searchdomain.Work,
+	read searchdomain.Rebuild,
+	step func(fdb.Transaction, searchWorkRecord) error,
+) error {
+	return transactSearch(
+		ctx,
+		s.db,
+		func(tr fdb.Transaction) error {
+			record, err := s.work.verifyClaim(ctx, tr, work)
+			if err != nil {
+				return err
+			}
+
+			stored, found, err := readRebuild(ctx, tr)
+			if err != nil {
+				return err
+			}
+
+			if !found || !sameRebuild(stored, read) {
+				return searchdomain.ErrWorkChanged
+			}
+
+			return step(tr, record)
+		},
+	)
 }
 
 // sameRebuild reports whether two reads observed the same replacement step.
 func sameRebuild(left, right searchdomain.Rebuild) bool {
-	return left.ID == right.ID && left.State == right.State && left.Generation == right.Generation &&
-		left.ScanCursor == right.ScanCursor && left.VerifyCursor == right.VerifyCursor &&
-		left.ScanComplete == right.ScanComplete && left.Paused == right.Paused && left.PausedAt.Equal(right.PausedAt)
+	return left.ID == right.ID && left.State == right.State &&
+		left.Generation == right.Generation &&
+		left.ScanCursor == right.ScanCursor &&
+		left.VerifyCursor == right.VerifyCursor &&
+		left.ScanComplete == right.ScanComplete &&
+		left.Paused == right.Paused &&
+		left.PausedAt.Equal(right.PausedAt)
 }

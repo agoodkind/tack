@@ -16,6 +16,7 @@ func assertRefusesEmptyYBImage(t *testing.T, err error) {
 	if err == nil {
 		t.Fatal("an empty TACK_BACKUP_YB_IMAGE must stop the command before it runs a container")
 	}
+
 	if !strings.Contains(err.Error(), "TACK_BACKUP_YB_IMAGE") {
 		t.Fatalf("error must name TACK_BACKUP_YB_IMAGE, got: %v", err)
 	}
@@ -51,6 +52,7 @@ func TestRunBackupYBSnapshotExportRequiresImage(t *testing.T) {
 	if readErr != nil {
 		t.Fatalf("read %s: %v", root, readErr)
 	}
+
 	if len(entries) != 0 {
 		t.Fatalf("no stage directory may be created when the export cannot run, found %v", entries)
 	}

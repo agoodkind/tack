@@ -45,28 +45,50 @@ func RegisterSearch(s *mcpserver.MCPServer, nodes NodeTypeBinding, binding Searc
 		Description: "tack_search runs a ranked search over the nodes under one workspace. Each call returns at most 25 nodes. " +
 			"Pass the returned cursor with the same workspace, query, and node_type to continue.",
 		InputSchema: schema{
-			Fields: append(entryPointSchemaFields(resolver),
-				schemaField{Name: "query", Type: schemaString, Desc: "This argument is the search text.", Enum: nil},
-				schemaField{Name: "node_type", Type: schemaString, Desc: "This optional argument limits results to one node type key or slug.", Enum: nil},
-				schemaField{Name: searchCursorParam, Type: schemaString, Desc: "This optional argument accepts the cursor that the previous page returned.", Enum: nil},
+			Fields: append(
+				entryPointSchemaFields(resolver),
+				schemaField{
+					Name: "query",
+					Type: schemaString,
+					Desc: "This argument is the search text.",
+					Enum: nil,
+				},
+				schemaField{
+					Name: "node_type",
+					Type: schemaString,
+					Desc: "This optional argument limits results to one node type key or slug.",
+					Enum: nil,
+				},
+				schemaField{
+					Name: searchCursorParam,
+					Type: schemaString,
+					Desc: "This optional argument accepts the cursor that the previous page returned.",
+					Enum: nil,
+				},
 			),
 			Required: []string{resolver.EntryPointParamName(), "query"},
 		}.toMCP(),
 	}
 	allowed := allowedArgNames(tool.InputSchema)
-	handler := func(ctx context.Context, request mcpmcp.CallToolRequest) (*mcpmcp.CallToolResult, error) {
+	handler := func(ctx context.Context, request mcpmcp.CallToolRequest) (
+		*mcpmcp.CallToolResult,
+		error,
+	) {
 		if binding.Runner == nil || binding.Cursors == nil {
 			return searchUnavailable(ctx), nil
 		}
+
 		// A caller without an organization lacks an entry point type, and its
 		// schema uses "_reference" for the entry argument. Refuse the call
 		// before argument validation.
 		if !resolver.HasEntryPoint() {
 			return permissionDenied(), nil
 		}
+
 		if err := rejectUnknownArgs(request, tool.Name, allowed); err != nil {
 			return recoverableError(err.Error()), nil
 		}
+
 		return runSearch(ctx, request, nodes, binding), nil
 	}
 	s.AddTool(tool, wrapToolHandler(tool.Name, handler))
@@ -75,14 +97,26 @@ func RegisterSearch(s *mcpserver.MCPServer, nodes NodeTypeBinding, binding Searc
 // searchUnavailable notes the search_unavailable failure in the request
 // context for audit recording and returns the fixed unavailable response.
 func searchUnavailable(ctx context.Context) *mcpmcp.CallToolResult {
-	noteOutcome(ctx, audit.OutcomeFailed, "search_unavailable", "the search backend could not answer the request")
+	noteOutcome(
+		ctx,
+		audit.OutcomeFailed,
+		"search_unavailable",
+		"the search backend could not answer the request",
+	)
+
 	return searchUnavailableResult()
 }
 
 // searchRecordingFailed notes a failed read outcome in the request context
 // with code audit_recording_failed and returns the unavailable response.
 func searchRecordingFailed(ctx context.Context) *mcpmcp.CallToolResult {
-	noteOutcome(ctx, audit.OutcomeFailed, "audit_recording_failed", "the search could not save required audit evidence")
+	noteOutcome(
+		ctx,
+		audit.OutcomeFailed,
+		"audit_recording_failed",
+		"the search could not save required audit evidence",
+	)
+
 	return searchUnavailableResult()
 }
 

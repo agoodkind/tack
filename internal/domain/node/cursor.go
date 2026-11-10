@@ -30,13 +30,25 @@ func EncodeCursor(lastID uuid.UUID) string {
 func DecodeCursor(cursor string) (uuid.UUID, error) {
 	raw, err := base64.RawURLEncoding.DecodeString(cursor)
 	if err != nil {
-		slog.Warn("cursor.decode_failed", slog.String("cursor", cursor), slog.String("err", err.Error()))
+		slog.Warn(
+			"cursor.decode_failed",
+			slog.String("cursor", cursor),
+			slog.String("err", err.Error()),
+		)
+
 		return uuid.Nil, fmt.Errorf("decode cursor %q: %w", cursor, domain.ErrInvalidArgument)
 	}
+
 	lastID, err := uuid.FromBytes(raw)
 	if err != nil {
-		slog.Warn("cursor.decode_failed", slog.String("cursor", cursor), slog.String("err", err.Error()))
+		slog.Warn(
+			"cursor.decode_failed",
+			slog.String("cursor", cursor),
+			slog.String("err", err.Error()),
+		)
+
 		return uuid.Nil, fmt.Errorf("decode cursor %q: %w", cursor, domain.ErrInvalidArgument)
 	}
+
 	return lastID, nil
 }

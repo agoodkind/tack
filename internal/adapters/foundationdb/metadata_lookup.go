@@ -24,36 +24,51 @@ const maxIndexedMatches = 2
 // match, one point read. It returns nil when the index does not match a node
 // type and an error when several do.
 //
-//  - An empty index result returns nil.
-//  - One index match requires a point read of the node type.
-//  - Several index matches return an error.
-func (s *NodeTypeStore) TypeByKey(ctx context.Context, orgID uuid.UUID, typeKey string) (out *node.NodeType, err error) {
+//   - An empty index result returns nil.
+//   - One index match requires a point read of the node type.
+//   - Several index matches return an error.
+func (s *NodeTypeStore) TypeByKey(
+	ctx context.Context,
+	orgID uuid.UUID,
+	typeKey string,
+) (out *node.NodeType, err error) {
 	defer telemetry.FDBOp(ctx, "store.node_type.by_key")(&err)
 	var encoded []byte
-	err = runNodeReadTransaction(ctx, s.db, "node_type.by_key", func(tr fdb.Transaction) error {
-		typeIDs, readErr := indexedIDs(ctx, tr, nodeTypeByKeyPrefix(orgID, typeKey))
-		if readErr != nil || len(typeIDs) == 0 {
-			return readErr
-		}
-		if len(typeIDs) > 1 {
-			return fmt.Errorf("node type key %q is used by several node types", typeKey)
-		}
-		encoded, readErr = tr.Get(fdb.Key(nodeTypeDefKey(orgID, typeIDs[0]))).Get()
-		if readErr != nil {
-			return searchReadFailure(ctx, "read node type "+typeIDs[0].String(), readErr)
-		}
-		return nil
-	})
+	err = runNodeReadTransaction(
+		ctx,
+		s.db,
+		"node_type.by_key",
+		func(tr fdb.Transaction) error {
+			typeIDs, readErr := indexedIDs(ctx, tr, nodeTypeByKeyPrefix(orgID, typeKey))
+			if readErr != nil || len(typeIDs) == 0 {
+				return readErr
+			}
+
+			if len(typeIDs) > 1 {
+				return fmt.Errorf("node type key %q is used by several node types", typeKey)
+			}
+
+			encoded, readErr = tr.Get(fdb.Key(nodeTypeDefKey(orgID, typeIDs[0]))).Get()
+			if readErr != nil {
+				return searchReadFailure(ctx, "read node type "+typeIDs[0].String(), readErr)
+			}
+
+			return nil
+		},
+	)
 	if err != nil || len(encoded) == 0 {
 		return nil, err
 	}
+
 	var kind node.NodeType
 	if err := json.Unmarshal(encoded, &kind); err != nil {
 		return nil, nodeOperationFailure(ctx, "decode node type "+typeKey, err)
 	}
+
 	if kind.TypeKey != typeKey {
 		return nil, nil
 	}
+
 	return &kind, nil
 }
 
@@ -64,30 +79,48 @@ func (s *NodeTypeStore) TypeByKey(ctx context.Context, orgID uuid.UUID, typeKey 
 // does not return a definition. A duplicated name returns both definitions.
 // The text projection rejects duplicate definitions. It omits a property
 // without a definition and records a diagnostic.
-func readDefinitionsByName(ctx context.Context, tr fdb.Transaction, orgID uuid.UUID, names []string) ([]*node.PropertyDef, error) {
+func readDefinitionsByName(
+	ctx context.Context,
+	tr fdb.Transaction,
+	orgID uuid.UUID,
+	names []string,
+) ([]*node.PropertyDef, error) {
 	definitions := make([]*node.PropertyDef, 0, len(names))
 	for _, name := range names {
 		definitionIDs, err := indexedIDs(ctx, tr, propertyDefByNamePrefix(orgID, name))
 		if err != nil {
 			return nil, err
 		}
+
 		for _, definitionID := range definitionIDs {
 			encoded, err := tr.Get(fdb.Key(propertyDefKey(orgID, definitionID))).Get()
 			if err != nil {
-				return nil, searchReadFailure(ctx, "read property definition "+definitionID.String(), err)
+				return nil, searchReadFailure(
+					ctx,
+					"read property definition "+definitionID.String(),
+					err,
+				)
 			}
+
 			if len(encoded) == 0 {
 				continue
 			}
+
 			var definition node.PropertyDef
 			if err := json.Unmarshal(encoded, &definition); err != nil {
-				return nil, searchReadFailure(ctx, "decode property definition "+definitionID.String(), err)
+				return nil, searchReadFailure(
+					ctx,
+					"decode property definition "+definitionID.String(),
+					err,
+				)
 			}
+
 			if definition.Name == name {
 				definitions = append(definitions, &definition)
 			}
 		}
 	}
+
 	return definitions, nil
 }
 
@@ -98,18 +131,25 @@ func indexedIDs(ctx context.Context, tr fdb.Transaction, prefix []byte) ([]uuid.
 	if err != nil {
 		return nil, searchReadFailure(ctx, "create metadata index range", err)
 	}
-	items, err := tr.GetRange(keyRange, fdb.RangeOptions{Limit: maxIndexedMatches}).GetSliceWithError()
+
+	items, err := tr.GetRange(
+		keyRange,
+		fdb.RangeOptions{Limit: maxIndexedMatches},
+	).GetSliceWithError()
 	if err != nil {
 		return nil, searchReadFailure(ctx, "read metadata index", err)
 	}
+
 	identifiers := make([]uuid.UUID, 0, len(items))
 	for _, item := range items {
 		identifier, err := lastTupleID(ctx, item.Key)
 		if err != nil {
 			return nil, err
 		}
+
 		identifiers = append(identifiers, identifier)
 	}
+
 	return identifiers, nil
 }
 
@@ -119,16 +159,28 @@ func lastTupleID(ctx context.Context, key fdb.Key) (uuid.UUID, error) {
 	if err != nil {
 		return uuid.Nil, searchReadFailure(ctx, "unpack index key", err)
 	}
+
 	if len(values) == 0 {
-		return uuid.Nil, searchReadFailure(ctx, "decode index key", errors.New("index key has no tuple elements"))
+		return uuid.Nil, searchReadFailure(
+			ctx,
+			"decode index key",
+			errors.New("index key has no tuple elements"),
+		)
 	}
+
 	text, isText := values[len(values)-1].(string)
 	if !isText {
-		return uuid.Nil, searchReadFailure(ctx, "decode index key", errors.New("index key identifier is not a string"))
+		return uuid.Nil, searchReadFailure(
+			ctx,
+			"decode index key",
+			errors.New("index key identifier is not a string"),
+		)
 	}
+
 	identifier, err := uuid.Parse(text)
 	if err != nil {
 		return uuid.Nil, searchReadFailure(ctx, "parse index key identifier", err)
 	}
+
 	return identifier, nil
 }

@@ -72,6 +72,7 @@ func WriteLegacyRow(ctx context.Context, pool *pgxpool.Pool, in LegacyRowInput) 
 	if in.OrgID == uuid.Nil {
 		return LegacyRow{}, fmt.Errorf("write legacy ledger row: org id required")
 	}
+
 	eventID := in.EventID
 	if eventID == uuid.Nil {
 		fresh, err := uuid.NewV7()
@@ -79,8 +80,10 @@ func WriteLegacyRow(ctx context.Context, pool *pgxpool.Pool, in LegacyRowInput) 
 			slog.ErrorContext(ctx, "audit.legacy_row.id_failed", slog.String("err", err.Error()))
 			return LegacyRow{}, fmt.Errorf("write legacy ledger row: new event id: %w", err)
 		}
+
 		eventID = fresh
 	}
+
 	row := LegacyRow{
 		EventID:   eventID,
 		Shard:     shardOf(in.ActorID, eventID),
@@ -92,16 +95,19 @@ func WriteLegacyRow(ctx context.Context, pool *pgxpool.Pool, in LegacyRowInput) 
 		slog.ErrorContext(ctx, "audit.legacy_row.begin_failed", slog.String("err", err.Error()))
 		return LegacyRow{}, fmt.Errorf("write legacy ledger row: begin: %w", err)
 	}
+
 	defer func() { _ = transaction.Rollback(ctx) }()
 
 	row.Seq, err = appendLegacyChainRow(ctx, transaction, in, row)
 	if err != nil {
 		return LegacyRow{}, err
 	}
+
 	if err := transaction.Commit(ctx); err != nil {
 		slog.ErrorContext(ctx, "audit.legacy_row.commit_failed", slog.String("err", err.Error()))
 		return LegacyRow{}, fmt.Errorf("write legacy ledger row: commit: %w", err)
 	}
+
 	return row, nil
 }
 
@@ -118,13 +124,16 @@ func appendLegacyChainRow(
 	if err != nil {
 		return 0, err
 	}
+
 	if !claimed {
 		return 0, fmt.Errorf("write legacy ledger row: identity %s already projected", row.EventID)
 	}
+
 	head, err := readChainHead(ctx, tx, in.OrgID, row.Shard)
 	if err != nil {
 		return 0, err
 	}
+
 	seq := head.LastSeq + 1
 	event := legacyEvent(in, row)
 	contextJSON, err := json.Marshal(event.Context)
@@ -132,21 +141,31 @@ func appendLegacyChainRow(
 		slog.ErrorContext(ctx, "audit.legacy_row.context_failed", slog.String("err", err.Error()))
 		return 0, fmt.Errorf("write legacy ledger row: encode context: %w", err)
 	}
+
 	rowHash, err := hashRowForEvent(rowHashInput{
-		Event: event, EventID: row.EventID, Shard: row.Shard, Seq: seq,
-		PIIRef: uuid.Nil, ContextJSON: contextJSON, DeltaJSON: []byte("null"),
-		LastHash: head.LastHash, Version: auditHashVersion1,
+		Event:       event,
+		EventID:     row.EventID,
+		Shard:       row.Shard,
+		Seq:         seq,
+		PIIRef:      uuid.Nil,
+		ContextJSON: contextJSON,
+		DeltaJSON:   []byte("null"),
+		LastHash:    head.LastHash,
+		Version:     auditHashVersion1,
 	})
 	if err != nil {
 		slog.ErrorContext(ctx, "audit.legacy_row.hash_failed", slog.String("err", err.Error()))
 		return 0, fmt.Errorf("write legacy ledger row: hash: %w", err)
 	}
+
 	// The earlier writer ran before migration 006 added outcome, error, and
 	// extra. These columns contain SQL NULL for its rows. A nil byte slice and a
 	// nil string pointer bind as NULL.
 	var absentOutcome *string
 	var absentJSON []byte
-	_, err = tx.Exec(ctx, `
+	_, err = tx.Exec(
+		ctx,
+		`
 		INSERT INTO audit.events (
 			org_id, shard, event_time, event_id, seq,
 			actor_id, actor_kind, action, outcome, entity_kind, entity_id,
@@ -157,19 +176,36 @@ func appendLegacyChainRow(
 			$12, $13, $14, $15, $16, $17, $18, $19, $20
 		)
 	`,
-		in.OrgID, row.Shard, row.EventTime, row.EventID, seq,
-		in.ActorID, actorKindCode(ActorUser), event.Verb, absentOutcome,
-		event.Entity.Type, in.EntityID,
-		contextJSON, []byte("null"), piiRefArg(uuid.Nil), head.LastHash, rowHash,
-		absentJSON, absentJSON, auditHashVersion1, event.IdempotencyKey,
+		in.OrgID,
+		row.Shard,
+		row.EventTime,
+		row.EventID,
+		seq,
+		in.ActorID,
+		actorKindCode(ActorUser),
+		event.Verb,
+		absentOutcome,
+		event.Entity.Type,
+		in.EntityID,
+		contextJSON,
+		[]byte("null"),
+		piiRefArg(uuid.Nil),
+		head.LastHash,
+		rowHash,
+		absentJSON,
+		absentJSON,
+		auditHashVersion1,
+		event.IdempotencyKey,
 	)
 	if err != nil {
 		slog.ErrorContext(ctx, "audit.legacy_row.insert_failed", slog.String("err", err.Error()))
 		return 0, fmt.Errorf("write legacy ledger row: insert: %w", err)
 	}
+
 	if err := writeChainHead(ctx, tx, in.OrgID, row.Shard, head, seq, rowHash); err != nil {
 		return 0, err
 	}
+
 	return seq, nil
 }
 
@@ -181,25 +217,50 @@ func legacyEvent(in LegacyRowInput, row LegacyRow) Event {
 	if in.Action != "" {
 		verb = in.Action
 	}
+
 	entityKind := "node"
 	if in.Tool != "" {
 		entityKind = legacyEntityKind
 	}
+
 	return Event{
 		Verb:    verb,
 		EventID: row.EventID,
 		Actor: Actor{
-			Type: ActorUser, ID: in.ActorID, Email: "", Name: "", SessionID: "",
-			IP: "", UserAgent: "", RequestID: "", APITokenLabel: "",
+			Type:          ActorUser,
+			ID:            in.ActorID,
+			Email:         "",
+			Name:          "",
+			SessionID:     "",
+			IP:            "",
+			UserAgent:     "",
+			RequestID:     "",
+			APITokenLabel: "",
 		},
 		Entity: Entity{
-			Type: entityKind, NodeType: "", ID: in.EntityID, Identifier: "", Name: "",
+			Type:       entityKind,
+			NodeType:   "",
+			ID:         in.EntityID,
+			Identifier: "",
+			Name:       "",
 		},
 		Context: EventContext{
-			OrgID: in.OrgID, WorkspaceID: uuid.Nil, ScopeID: uuid.Nil, ParentID: uuid.Nil,
-			RequestID: "", TraceID: "", Source: SourceMCP, Tool: in.Tool, RPC: "", Reason: "",
+			OrgID:       in.OrgID,
+			WorkspaceID: uuid.Nil,
+			ScopeID:     uuid.Nil,
+			ParentID:    uuid.Nil,
+			RequestID:   "",
+			TraceID:     "",
+			Source:      SourceMCP,
+			Tool:        in.Tool,
+			RPC:         "",
+			Reason:      "",
 		},
-		Delta: nil, Outcome: "", Error: nil,
-		IdempotencyKey: "", OccurredAt: row.EventTime, Extra: nil,
+		Delta:          nil,
+		Outcome:        "",
+		Error:          nil,
+		IdempotencyKey: "",
+		OccurredAt:     row.EventTime,
+		Extra:          nil,
 	}
 }

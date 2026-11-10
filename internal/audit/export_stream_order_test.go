@@ -33,20 +33,30 @@ func TestExportRowOrderDoesNotChangeTheChainVerdict(t *testing.T) {
 	inFileOrder := exportedVerifyReport(t, orgID, chained)
 	scrambled := exportedVerifyReport(t, orgID, scrambledRows)
 
-	for name, report := range map[string]*VerifyReport{"chain order": inFileOrder, "scrambled": scrambled} {
+	for name, report := range map[string]*VerifyReport{
+		"chain order": inFileOrder,
+		"scrambled":   scrambled,
+	} {
 		if report.RowsScanned != shards*perShard {
 			t.Fatalf("%s: rows scanned = %d, want %d", name, report.RowsScanned, shards*perShard)
 		}
+
 		if report.HashMatches != shards*perShard {
 			t.Fatalf("%s: hash matches = %d, want %d", name, report.HashMatches, shards*perShard)
 		}
+
 		if len(report.ChainBreaks) != 0 {
 			t.Fatalf("%s: chain breaks = %v, want none", name, report.ChainBreaks)
 		}
+
 		if report.ChainGapCount != 0 {
-			t.Fatalf("%s: sequence gaps = %d, want 0; the row order must not invent a gap",
-				name, report.ChainGapCount)
+			t.Fatalf(
+				"%s: sequence gaps = %d, want 0; the row order must not invent a gap",
+				name,
+				report.ChainGapCount,
+			)
 		}
+
 		if verdict := report.Err(); verdict != nil {
 			t.Fatalf("%s: %v", name, verdict)
 		}
@@ -57,21 +67,28 @@ func TestExportRowOrderDoesNotChangeTheChainVerdict(t *testing.T) {
 func chainedLedgerRows(t *testing.T, orgID uuid.UUID, shards, perShard int) []Row {
 	t.Helper()
 	base := time.Now().UTC().Add(-time.Hour)
+
 	rows := make([]Row, 0, shards*perShard)
 	for shard := range shards {
 		var prevHash []byte
+
 		for seq := 1; seq <= perShard; seq++ {
 			row := Row{
-				OrgID:      orgID,
-				EventTime:  base.Add(time.Duration(shard*perShard+seq) * time.Millisecond).Truncate(time.Microsecond),
-				EventID:    uuid.Must(uuid.NewV7()),
-				Seq:        int64(seq),
-				Shard:      int16(shard),
-				ActorID:    uuid.Must(uuid.NewV7()),
-				ActorKind:  5,
-				Action:     "ops.test.export_order",
-				Outcome:    OutcomeOK,
-				EntityKind: "system", EntityID: orgID,
+				OrgID: orgID,
+				EventTime: base.Add(
+					time.Duration(shard*perShard+seq) * time.Millisecond,
+				).Truncate(
+					time.Microsecond,
+				),
+				EventID:     uuid.Must(uuid.NewV7()),
+				Seq:         int64(seq),
+				Shard:       int16(shard),
+				ActorID:     uuid.Must(uuid.NewV7()),
+				ActorKind:   5,
+				Action:      "ops.test.export_order",
+				Outcome:     OutcomeOK,
+				EntityKind:  "system",
+				EntityID:    orgID,
 				Context:     EventContext{OrgID: orgID, Source: SourceSystem},
 				PrevHash:    prevHash,
 				HashVersion: auditHashVersion3,
@@ -81,6 +98,7 @@ func chainedLedgerRows(t *testing.T, orgID uuid.UUID, shards, perShard int) []Ro
 			rows = append(rows, row)
 		}
 	}
+
 	return rows
 }
 
@@ -95,12 +113,15 @@ func chainedLedgerRows(t *testing.T, orgID uuid.UUID, shards, perShard int) []Ro
 func scrambleRowOrder(rows []Row) []Row {
 	pending := map[int16][]Row{}
 	shardOrder := make([]int16, 0)
+
 	for _, row := range rows {
 		if _, seen := pending[row.Shard]; !seen {
 			shardOrder = append(shardOrder, row.Shard)
 		}
+
 		pending[row.Shard] = append(pending[row.Shard], row)
 	}
+
 	for _, shard := range shardOrder {
 		// Rotate each shard by a different offset. Their sequences then wrap at
 		// different positions in the file.
@@ -114,10 +135,12 @@ func scrambleRowOrder(rows []Row) []Row {
 			if len(remaining) == 0 {
 				continue
 			}
+
 			scrambled = append(scrambled, remaining[0])
 			pending[shard] = remaining[1:]
 		}
 	}
+
 	return scrambled
 }
 
@@ -128,14 +151,17 @@ func rotatedReverse(rows []Row, offset int) []Row {
 	if len(rows) == 0 {
 		return rows
 	}
+
 	reversed := make([]Row, 0, len(rows))
 	for i := len(rows) - 1; i >= 0; i-- {
 		reversed = append(reversed, rows[i])
 	}
+
 	pivot := offset % len(reversed)
 	rotated := make([]Row, 0, len(reversed))
 	rotated = append(rotated, reversed[pivot:]...)
 	rotated = append(rotated, reversed[:pivot]...)
+
 	return rotated
 }
 
@@ -145,20 +171,30 @@ func rotatedReverse(rows []Row, offset int) []Row {
 // requires.
 func assertShardsInterleaved(t *testing.T, rows []Row) {
 	t.Helper()
+
 	for i := 1; i < len(rows); i++ {
 		if rows[i].Shard == rows[i-1].Shard {
-			t.Fatalf("rows %d and %d both come from shard %d, so the shards are not interleaved",
-				i-1, i, rows[i].Shard)
+			t.Fatalf(
+				"rows %d and %d both come from shard %d, so the shards are not interleaved",
+				i-1,
+				i,
+				rows[i].Shard,
+			)
 		}
 	}
+
 	seqByShard := map[int16][]int64{}
+
 	for _, row := range rows {
 		seqByShard[row.Shard] = append(seqByShard[row.Shard], row.Seq)
 	}
+
 	for shard, sequences := range seqByShard {
 		if slices.IsSorted(sequences) {
-			t.Fatalf("shard %d arrives in sequence order, so the file order is one a chain walk could use directly",
-				shard)
+			t.Fatalf(
+				"shard %d arrives in sequence order, so the file order is one a chain walk could use directly",
+				shard,
+			)
 		}
 	}
 }
@@ -173,18 +209,27 @@ func exportedVerifyReport(t *testing.T, orgID uuid.UUID, rows []Row) *VerifyRepo
 	if err != nil {
 		t.Fatalf("generate key: %v", err)
 	}
+
 	manifest, err := Export(
-		context.Background(), &sliceRowSource{rows: rows}, privateKey, "ed25519:test",
-		exportTestFilter(orgID), dir)
+		context.Background(),
+		&sliceRowSource{rows: rows},
+		privateKey,
+		"ed25519:test",
+		exportTestFilter(orgID),
+		dir,
+	)
 	if err != nil {
 		t.Fatalf("export: %v", err)
 	}
+
 	if manifest.RowCount != len(rows) {
 		t.Fatalf("manifest row count = %d, want %d", manifest.RowCount, len(rows))
 	}
+
 	report, err := VerifyBundle(dir, publicKey)
 	if err != nil {
 		t.Fatalf("verify: %v", err)
 	}
+
 	return report
 }

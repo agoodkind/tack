@@ -13,5 +13,6 @@ func newGroupCommand(g *Group) *cobra.Command {
 		},
 	}
 	cmd.RunE = func(cmd *cobra.Command, _ []string) error { return cmd.Help() }
+
 	return cmd
 }

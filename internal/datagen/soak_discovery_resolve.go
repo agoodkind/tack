@@ -69,7 +69,12 @@ func resolveCollectionItem(
 		return soakNode{}, loggedDiscoverySkip(ctx, singular, item, err)
 	case soakReferenceDirectProperty:
 		if item.referenceIsName() {
-			return soakNode{}, loggedDiscoverySkip(ctx, singular, item, nameLookupUnsupported(singular, item))
+			return soakNode{}, loggedDiscoverySkip(
+				ctx,
+				singular,
+				item,
+				nameLookupUnsupported(singular, item),
+			)
 		}
 	case soakReferenceScopedSequence:
 		if !isResolvableSequenceReference(item.Reference, scopeReference) {
@@ -82,19 +87,38 @@ func resolveCollectionItem(
 				recovery = nil
 			}
 			return lookupScopedCollectionItem(
-				ctx, driver, token, workspaceReference, singular, item, lookupReference, recovery,
+				ctx,
+				driver,
+				token,
+				workspaceReference,
+				singular,
+				item,
+				lookupReference,
+				recovery,
 			)
 		}
 	case soakReferenceWorkspaceScopedProperty, soakReferenceNestedScopedProperty:
 		lookupReference := scopedNameReference(item, scopeReference)
 		return lookupScopedCollectionItem(
-			ctx, driver, token, workspaceReference, singular, item, lookupReference, recovery,
+			ctx,
+			driver,
+			token,
+			workspaceReference,
+			singular,
+			item,
+			lookupReference,
+			recovery,
 		)
 	}
-	result, err := driver.Call(ctx, token, "tack_get_"+singular, ToolArguments{
+	result, err := driver.Call(
+		ctx,
+		token,
+		"tack_get_"+singular,
+		ToolArguments{
 		WorkspaceReference: workspaceReference,
 		NodeID:             item.Reference,
-	})
+		},
+	)
 	if err != nil {
 		wrapped := fmt.Errorf("qa datagen soak: get %s %q: %w", singular, item.Reference, err)
 		return soakNode{}, loggedDiscoverySkip(ctx, singular, item, wrapped)

@@ -17,20 +17,29 @@ import (
 // option (TACK-408). The returned database applies the timeout to every
 // transaction it creates.
 //
-//  - A positive transactionTimeout sets the database transaction timeout.
-//  - A zero or negative transactionTimeout leaves that option unset.
+//   - A positive transactionTimeout sets the database transaction timeout.
+//   - A zero or negative transactionTimeout leaves that option unset.
 func Open(clusterFile string, transactionTimeout time.Duration) (fdb.Database, error) {
 	if err := fdb.APIVersion(740); err != nil {
 		return fdb.Database{}, fmt.Errorf("fdb api version: %w", err)
 	}
+
 	db, err := fdb.OpenDatabase(clusterFile)
 	if err != nil {
 		return fdb.Database{}, fmt.Errorf("fdb open: %w", err)
 	}
+
 	if transactionTimeout > 0 {
-		if err := db.Options().SetTransactionTimeout(transactionTimeout.Milliseconds()); err != nil {
-			return fdb.Database{}, fmt.Errorf("fdb set transaction timeout %s: %w", transactionTimeout, err)
+		if err := db.Options().SetTransactionTimeout(
+			transactionTimeout.Milliseconds(),
+		); err != nil {
+			return fdb.Database{}, fmt.Errorf(
+				"fdb set transaction timeout %s: %w",
+				transactionTimeout,
+				err,
+			)
 		}
 	}
+
 	return db, nil
 }

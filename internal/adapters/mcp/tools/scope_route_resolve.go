@@ -30,14 +30,20 @@ func (target routeTarget) hasAlternativeParent() bool {
 
 // refuseParentProperty returns a recoverable error when props contains
 // parent_id and Parent and Scope have different IDs.
-func (target routeTarget) refuseParentProperty(props map[string]json.RawMessage) *mcpmcp.CallToolResult {
+func (target routeTarget) refuseParentProperty(
+	props map[string]json.RawMessage,
+) *mcpmcp.CallToolResult {
 	if !target.hasAlternativeParent() {
 		return nil
 	}
+
 	if _, present := props["parent_id"]; !present {
 		return nil
 	}
-	return recoverableError("Specify the parent with exactly one of " + target.ParentParam + " or properties.parent_id.")
+
+	return recoverableError(
+		"Specify the parent with exactly one of " + target.ParentParam + " or properties.parent_id.",
+	)
 }
 
 // createParentID returns Parent.ID when Parent and Scope have different IDs.
@@ -46,6 +52,7 @@ func (target routeTarget) createParentID(normalizedParentID uuid.UUID) uuid.UUID
 	if target.hasAlternativeParent() {
 		return target.Parent.ID
 	}
+
 	return normalizedParentID
 }
 
@@ -53,15 +60,19 @@ func (target routeTarget) createParentID(normalizedParentID uuid.UUID) uuid.UUID
 // one exists. It returns nil otherwise.
 func (route scopeRoute) chooseLeaf(args argMap) *scopeLeaf {
 	var chosen *scopeLeaf
+
 	for i := range route.Leaves {
 		if optionalScopeReference(args, route.Leaves[i].Level) == "" {
 			continue
 		}
+
 		if chosen != nil {
 			return nil
 		}
+
 		chosen = &route.Leaves[i]
 	}
+
 	return chosen
 }
 
@@ -70,13 +81,16 @@ func (route scopeRoute) chooseLeaf(args argMap) *scopeLeaf {
 func (route scopeRoute) splitChain(chosen *scopeLeaf) ([]ScopeLevel, bool) {
 	upper := make([]ScopeLevel, 0, len(chosen.Chain)+1)
 	hasAlternative := false
+
 	for _, level := range chosen.Chain {
 		if route.isLeafParam(level.ParamName) {
 			hasAlternative = true
 			continue
 		}
+
 		upper = append(upper, level)
 	}
+
 	return upper, hasAlternative
 }
 
@@ -91,17 +105,20 @@ func resolveLevels(
 	args argMap,
 ) (*node.NodeView, *mcpmcp.CallToolResult) {
 	current := start
+
 	for _, level := range levels {
 		reference, ok := requireScopeReference(args, level)
 		if !ok {
 			return nil, recoverableError(scopeReferenceRequiredMessage(level))
 		}
+
 		var err error
 		current, err = b.Resolver.ResolveScope(ctx, current, level, reference)
 		if err != nil {
 			return nil, classifyError(ctx, err)
 		}
 	}
+
 	return current, nil
 }
 
@@ -115,6 +132,7 @@ func resolveCreateTarget(
 	if !route.hasLevels() {
 		return routeTarget{Scope: ws, Parent: ws, ParentParam: ""}, nil
 	}
+
 	return resolveRouteScope(ctx, b, ws, route, args)
 }
 
@@ -133,58 +151,99 @@ func resolveRouteScope(
 		if early != nil {
 			return routeTarget{Scope: nil, Parent: nil, ParentParam: ""}, early
 		}
+
 		return routeTarget{Scope: scope, Parent: scope, ParentParam: ""}, nil
 	}
+
 	chosen := route.chooseLeaf(args)
 	if chosen == nil {
-		return routeTarget{Scope: nil, Parent: nil, ParentParam: ""}, recoverableError(route.exactlyOneMessage())
+		return routeTarget{
+			Scope:       nil,
+			Parent:      nil,
+			ParentParam: "",
+		}, recoverableError(route.exactlyOneMessage())
 	}
+
 	upper, hasAlternative := route.splitChain(chosen)
 	parent, early := resolveLevels(ctx, b, ws, append(upper, chosen.Level), args)
 	if early != nil {
 		return routeTarget{Scope: nil, Parent: nil, ParentParam: ""}, early
 	}
+
 	target := routeTarget{Scope: parent, Parent: parent, ParentParam: chosen.Level.ParamName}
 	if !hasAlternative {
 		return target, nil
 	}
+
 	scope, err := b.Resolver.ancestorOfType(ctx, parent, chosen.Chain[len(chosen.Chain)-1])
 	if err != nil {
 		return routeTarget{Scope: nil, Parent: nil, ParentParam: ""}, classifyError(ctx, err)
 	}
-	audit.SetScopeFields(ctx, audit.Scope{OrgID: uuid.Nil, WorkspaceID: uuid.Nil, ScopeID: scope.ID, ParentID: uuid.Nil})
+
+	audit.SetScopeFields(
+		ctx,
+		audit.Scope{OrgID: uuid.Nil, WorkspaceID: uuid.Nil, ScopeID: scope.ID, ParentID: uuid.Nil},
+	)
 	target.Scope = scope
+
 	return target, nil
 }
 
 // ancestorOfType returns the first parent_id ancestor with level.TypeKey.
 // It returns an error when a read fails or the parent chain ends or cycles
 // without a match.
-func (r *Resolver) ancestorOfType(ctx context.Context, start *node.NodeView, level ScopeLevel) (*node.NodeView, error) {
+func (r *Resolver) ancestorOfType(
+	ctx context.Context,
+	start *node.NodeView,
+	level ScopeLevel,
+) (*node.NodeView, error) {
 	visited := map[uuid.UUID]struct{}{start.ID: {}}
+
 	currentID := uuidProp(start, "parent_id")
 	for currentID != uuid.Nil {
 		if _, seen := visited[currentID]; seen {
 			break
 		}
+
 		visited[currentID] = struct{}{}
 		view, err := r.reader.Get(ctx, currentID)
 		if err != nil {
 			wrapped := fmt.Errorf("get ancestor %s of %s: %w", currentID, start.ID, err)
-			telemetry.L(ctx).ErrorContext(ctx, "resolver.scope.ancestor_read_failed",
-				slog.String("node_id", start.ID.String()), slog.String("err", wrapped.Error()))
+			telemetry.L(ctx).ErrorContext(
+				ctx,
+				"resolver.scope.ancestor_read_failed",
+				slog.String("node_id", start.ID.String()),
+				slog.String("err", wrapped.Error()),
+			)
+
 			return nil, wrapped
 		}
+
 		if view == nil {
 			break
 		}
+
 		if view.NodeType == level.TypeKey {
 			return view, nil
 		}
+
 		currentID = uuidProp(view, "parent_id")
 	}
-	err := fmt.Errorf("%s %s does not have a %s ancestor: %w", start.NodeType, start.ID, level.Slug, domain.ErrNotFound)
-	telemetry.L(ctx).InfoContext(ctx, "resolver.scope.ancestor_missing",
-		slog.String("node_id", start.ID.String()), slog.String("ancestor_type", level.TypeKey), slog.String("err", err.Error()))
+
+	err := fmt.Errorf(
+		"%s %s does not have a %s ancestor: %w",
+		start.NodeType,
+		start.ID,
+		level.Slug,
+		domain.ErrNotFound,
+	)
+	telemetry.L(ctx).InfoContext(
+		ctx,
+		"resolver.scope.ancestor_missing",
+		slog.String("node_id", start.ID.String()),
+		slog.String("ancestor_type", level.TypeKey),
+		slog.String("err", err.Error()),
+	)
+
 	return nil, err
 }

@@ -71,9 +71,14 @@ func beginExportActivity(ctx context.Context, dir string) *exportActivity {
 	lock := flock.New(filepath.Join(dir, exportActivityLockFile))
 	held, err := lock.TryRLockContext(ctx, exportActivityRetry)
 	if err != nil {
-		slog.DebugContext(ctx, "audit.export.activity_unavailable",
-			slog.String("dir", dir), slog.String("err", err.Error()))
+		slog.DebugContext(
+			ctx,
+			"audit.export.activity_unavailable",
+			slog.String("dir", dir),
+			slog.String("err", err.Error()),
+		)
 	}
+
 	return &exportActivity{lock: lock, held: held}
 }
 
@@ -83,6 +88,7 @@ func (a *exportActivity) end() {
 	if !a.held {
 		return
 	}
+
 	a.held = false
 	_ = a.lock.Unlock()
 }
@@ -103,34 +109,54 @@ func reclaimAbandonedExportFiles(ctx context.Context, dir string) {
 		slog.DebugContext(ctx, "audit.export.reclaim_deferred", slog.String("dir", dir))
 		return
 	}
+
 	defer func() { _ = lock.Unlock() }()
 
 	keep, ok := publishedEventsFileName(ctx, dir)
 	if !ok {
 		return
 	}
+
 	entries, err := os.ReadDir(dir)
 	if err != nil {
-		slog.ErrorContext(ctx, "audit.export.reclaim_failed",
-			slog.String("dir", dir), slog.String("err", err.Error()))
+		slog.ErrorContext(
+			ctx,
+			"audit.export.reclaim_failed",
+			slog.String("dir", dir),
+			slog.String("err", err.Error()),
+		)
+
 		return
 	}
+
 	removed := 0
+
 	for _, entry := range entries {
 		name := entry.Name()
 		if entry.IsDir() || name == keep || !exporterOwnedFile(name) {
 			continue
 		}
+
 		if err := os.Remove(filepath.Join(dir, name)); err != nil {
-			slog.ErrorContext(ctx, "audit.export.reclaim_failed",
-				slog.String("path", filepath.Join(dir, name)), slog.String("err", err.Error()))
+			slog.ErrorContext(
+				ctx,
+				"audit.export.reclaim_failed",
+				slog.String("path", filepath.Join(dir, name)),
+				slog.String("err", err.Error()),
+			)
 			continue
 		}
+
 		removed++
 	}
+
 	if removed > 0 {
-		slog.InfoContext(ctx, "audit.export.reclaimed",
-			slog.String("dir", dir), slog.Int("files", removed))
+		slog.InfoContext(
+			ctx,
+			"audit.export.reclaimed",
+			slog.String("dir", dir),
+			slog.Int("files", removed),
+		)
 	}
 }
 
@@ -148,17 +174,30 @@ func publishedEventsFileName(ctx context.Context, dir string) (string, bool) {
 	if _, err := os.Stat(filepath.Join(dir, exportManifestFile)); errors.Is(err, fs.ErrNotExist) {
 		return "", true
 	}
+
 	manifest, err := readExportManifest(dir)
 	if err != nil {
-		slog.ErrorContext(ctx, "audit.export.reclaim_skipped",
-			slog.String("dir", dir), slog.String("err", err.Error()))
+		slog.ErrorContext(
+			ctx,
+			"audit.export.reclaim_skipped",
+			slog.String("dir", dir),
+			slog.String("err", err.Error()),
+		)
+
 		return "", false
 	}
+
 	name, err := bundleEventsFileName(manifest)
 	if err != nil {
-		slog.ErrorContext(ctx, "audit.export.reclaim_skipped",
-			slog.String("dir", dir), slog.String("err", err.Error()))
+		slog.ErrorContext(
+			ctx,
+			"audit.export.reclaim_skipped",
+			slog.String("dir", dir),
+			slog.String("err", err.Error()),
+		)
+
 		return "", false
 	}
+
 	return name, true
 }

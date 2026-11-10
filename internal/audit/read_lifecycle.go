@@ -42,7 +42,9 @@ var (
 	ErrReadAdmissionExpired = errors.New("audit read: the admission retry deadline passed")
 	// ErrReadIdentityChanged reports that a final event changes fields that must
 	// match the admission template.
-	ErrReadIdentityChanged = errors.New("audit read: the final event changes fields that must match the admission template")
+	ErrReadIdentityChanged = errors.New(
+		"audit read: the final event changes fields that must match the admission template",
+	)
 )
 
 // ReadToken identifies one owner of one pending read.
@@ -123,16 +125,26 @@ func ValidateReadAdmission(admission ReadAdmission) error {
 	case admission.Token.EventID == uuid.Nil || admission.Token.Owner == uuid.Nil:
 		return errors.New("audit read admission: event ID and owner must not be nil")
 	case template.EventID != admission.Token.EventID:
-		return fmt.Errorf("audit read admission %s: template event ID differs from the token", admission.Token.EventID)
+		return fmt.Errorf(
+			"audit read admission %s: template event ID differs from the token",
+			admission.Token.EventID,
+		)
 	case eventContext.AuditFormatVersion != AuditFormatComplete:
 		return fmt.Errorf("audit read admission %s: template requires format 2", template.EventID)
 	case eventContext.OperationClass != OperationRead || eventContext.Phase != PhaseRead:
-		return fmt.Errorf("audit read admission %s: template requires the read class and phase", template.EventID)
+		return fmt.Errorf(
+			"audit read admission %s: template requires the read class and phase",
+			template.EventID,
+		)
 	case eventContext.OrgID == uuid.Nil || eventContext.OperationID == uuid.Nil || eventContext.StartedAt.IsZero():
-		return fmt.Errorf("audit read admission %s: template requires an organization, an operation, and a start time", template.EventID)
+		return fmt.Errorf(
+			"audit read admission %s: template requires an organization, an operation, and a start time",
+			template.EventID,
+		)
 	case eventContext.Target == nil:
 		return fmt.Errorf("audit read admission %s: template requires a target", template.EventID)
 	}
+
 	return nil
 }
 
@@ -147,23 +159,42 @@ func ValidateReadAdmission(admission ReadAdmission) error {
 func CheckReadCompletion(template Event, completion ReadCompletion) (EncodedEvent, error) {
 	final := completion.Event
 	if !sameReadIdentity(template, final) {
-		slog.Error("audit.read_lifecycle.identity_changed", slog.String("event_id", final.EventID.String()),
-			slog.String("err", ErrReadIdentityChanged.Error()))
-		return EncodedEvent{}, fmt.Errorf("check audit read %s: %w", final.EventID, ErrReadIdentityChanged)
+		slog.Error(
+			"audit.read_lifecycle.identity_changed",
+			slog.String("event_id", final.EventID.String()),
+			slog.String("err", ErrReadIdentityChanged.Error()),
+		)
+
+		return EncodedEvent{}, fmt.Errorf(
+			"check audit read %s: %w",
+			final.EventID,
+			ErrReadIdentityChanged,
+		)
 	}
+
 	if final.Outcome == OutcomeIncomplete {
-		return EncodedEvent{}, fmt.Errorf("check audit read %s: only recovery saves the incomplete outcome", final.EventID)
+		return EncodedEvent{}, fmt.Errorf(
+			"check audit read %s: only recovery saves the incomplete outcome",
+			final.EventID,
+		)
 	}
+
 	if err := ValidateEvent(final); err != nil {
 		return EncodedEvent{}, fmt.Errorf("check audit read %s: %s", final.EventID, err.Error())
 	}
+
 	encoded, err := EncodeEvent(final, completion.Targets)
 	if err != nil {
 		return EncodedEvent{}, err
 	}
+
 	if encoded.TransportDigest != completion.Digest {
-		return EncodedEvent{}, fmt.Errorf("check audit read %s: digest differs from the encoded event", final.EventID)
+		return EncodedEvent{}, fmt.Errorf(
+			"check audit read %s: digest differs from the encoded event",
+			final.EventID,
+		)
 	}
+
 	return encoded, nil
 }
 
@@ -171,12 +202,16 @@ func CheckReadCompletion(template Event, completion ReadCompletion) (EncodedEven
 // identity, operation context, and start time.
 func sameReadIdentity(template, final Event) bool {
 	templateContext, finalContext := template.Context, final.Context
-	return template.EventID == final.EventID && template.Verb == final.Verb && template.Actor == final.Actor &&
-		templateContext.OrgID == finalContext.OrgID && templateContext.OperationID == finalContext.OperationID &&
+
+	return template.EventID == final.EventID && template.Verb == final.Verb &&
+		template.Actor == final.Actor &&
+		templateContext.OrgID == finalContext.OrgID &&
+		templateContext.OperationID == finalContext.OperationID &&
 		templateContext.ParentOperationID == finalContext.ParentOperationID &&
 		templateContext.StartedAt.Equal(finalContext.StartedAt) &&
 		templateContext.AuditFormatVersion == finalContext.AuditFormatVersion &&
-		templateContext.OperationClass == finalContext.OperationClass && templateContext.Phase == finalContext.Phase
+		templateContext.OperationClass == finalContext.OperationClass &&
+		templateContext.Phase == finalContext.Phase
 }
 
 // ConfirmsReadCommit reports whether a terminal receipt confirms an earlier
@@ -187,7 +222,12 @@ func sameReadIdentity(template, final Event) bool {
 //
 //   - A matching owner and digest with OutcomeCompleted confirms the commit.
 //   - A matching owner and digest with OutcomeIncomplete does not confirm it.
-func ConfirmsReadCommit(receiptOwner uuid.UUID, receiptDigest string, receiptOutcome Outcome, completion ReadCompletion) bool {
+func ConfirmsReadCommit(
+	receiptOwner uuid.UUID,
+	receiptDigest string,
+	receiptOutcome Outcome,
+	completion ReadCompletion,
+) bool {
 	return receiptOwner == completion.Token.Owner && receiptDigest == completion.Digest &&
 		receiptOutcome != OutcomeIncomplete
 }

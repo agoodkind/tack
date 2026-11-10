@@ -26,33 +26,44 @@ func checkRowHash(row Row) (bool, string, error) {
 	// The ledger has written only versions 1 through the current version. Reject a
 	// different label as a forged version claim.
 	if row.HashVersion < auditHashVersion1 || row.HashVersion > auditHashVersionCurrent {
-		return false, fmt.Sprintf("claims hash version %d, which the ledger never wrote", row.HashVersion), nil
+		return false, fmt.Sprintf(
+			"claims hash version %d, which the ledger never wrote",
+			row.HashVersion,
+		), nil
 	}
+
 	// The database stores whole microseconds. The legacy search adds a remainder to
 	// that stored value. Accepting an existing remainder would let a forger
 	// subtract one nanosecond from a version 3 timestamp and relabel the row as
 	// legacy; the search could then recover the original instant and accept the
 	// edit. Reject that unstoreable legacy timestamp.
-	if row.HashVersion < auditHashVersion3 && row.EventTime.Nanosecond()%legacyNanosecondCandidates != 0 {
+	if row.HashVersion < auditHashVersion3 &&
+		row.EventTime.Nanosecond()%legacyNanosecondCandidates != 0 {
 		return false, fmt.Sprintf(
 			"claims hash version %d with a sub-microsecond timestamp the ledger cannot store",
-			row.HashVersion), nil
+			row.HashVersion,
+		), nil
 	}
+
 	// Validate the stored event contract without requiring protected payloads.
 	// Reject contract violations even when the row hash matches.
 	if reason := contractViolation(row); reason != "" {
 		return false, reason, nil
 	}
+
 	if row.HashVersion < auditHashVersion3 {
 		return checkLegacyRowHash(row)
 	}
+
 	expected, err := ComputeRowHash(row)
 	if err != nil {
 		return false, "", err
 	}
+
 	if bytesEqual(expected, row.RowHash) {
 		return true, "", nil
 	}
+
 	return checkZeroTokenIDRowHash(row)
 }
 
@@ -63,10 +74,12 @@ func contractViolation(row Row) string {
 	if row.Context.AuditFormatVersion == AuditFormatLegacy {
 		return ""
 	}
+
 	err := validateStoredEvent(exportEvent(row))
 	if err == nil {
 		return ""
 	}
+
 	return "event contract validation failed: " + err.Error()
 }
 
@@ -77,18 +90,27 @@ func checkLegacyRowHash(row Row) (bool, string, error) {
 	if err != nil {
 		return false, "", err
 	}
+
 	base := row.EventTime
+
 	for remainder := range legacyNanosecondCandidates {
 		input.Event.OccurredAt = base.Add(time.Duration(remainder) * time.Nanosecond)
 		expected, err := hashRowForEvent(input)
 		if err != nil {
-			slog.Error("audit.export.hash_failed", slog.String("event_id", row.EventID.String()), slog.String("err", err.Error()))
+			slog.Error(
+				"audit.export.hash_failed",
+				slog.String("event_id", row.EventID.String()),
+				slog.String("err", err.Error()),
+			)
+
 			return false, "", fmt.Errorf("verify hash row %s: %w", row.EventID, err)
 		}
+
 		if bytesEqual(expected, row.RowHash) {
 			return true, "", nil
 		}
 	}
+
 	return false, "hash mismatch", nil
 }
 
@@ -107,11 +129,18 @@ func ComputeRowHash(row Row) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+
 	hash, err := hashRowForEvent(input)
 	if err != nil {
-		slog.Error("audit.export.hash_failed", slog.String("event_id", row.EventID.String()), slog.String("err", err.Error()))
+		slog.Error(
+			"audit.export.hash_failed",
+			slog.String("event_id", row.EventID.String()),
+			slog.String("err", err.Error()),
+		)
+
 		return nil, fmt.Errorf("verify hash row %s: %w", row.EventID, err)
 	}
+
 	return hash, nil
 }
 
@@ -123,21 +152,39 @@ func rowHashInputFor(row Row) (rowHashInput, error) {
 	if row.PIIRef != nil {
 		piiRef = *row.PIIRef
 	}
+
 	contextJSON, err := json.Marshal(row.Context)
 	if err != nil {
-		slog.Error("audit.export.row_context_encode_failed", slog.String("event_id", row.EventID.String()), slog.String("err", err.Error()))
+		slog.Error(
+			"audit.export.row_context_encode_failed",
+			slog.String("event_id", row.EventID.String()),
+			slog.String("err", err.Error()),
+		)
+
 		return rowHashInput{}, fmt.Errorf("verify row %s context: %w", row.EventID, err)
 	}
+
 	deltaJSON, err := json.Marshal(row.Delta)
 	if err != nil {
-		slog.Error("audit.export.row_delta_encode_failed", slog.String("event_id", row.EventID.String()), slog.String("err", err.Error()))
+		slog.Error(
+			"audit.export.row_delta_encode_failed",
+			slog.String("event_id", row.EventID.String()),
+			slog.String("err", err.Error()),
+		)
+
 		return rowHashInput{}, fmt.Errorf("verify row %s delta: %w", row.EventID, err)
 	}
+
 	return rowHashInput{
-		Event:   exportEvent(row),
-		EventID: row.EventID, Shard: row.Shard, Seq: row.Seq,
-		PIIRef: piiRef, ContextJSON: contextJSON, DeltaJSON: deltaJSON,
-		LastHash: row.PrevHash, Version: row.HashVersion,
+		Event:       exportEvent(row),
+		EventID:     row.EventID,
+		Shard:       row.Shard,
+		Seq:         row.Seq,
+		PIIRef:      piiRef,
+		ContextJSON: contextJSON,
+		DeltaJSON:   deltaJSON,
+		LastHash:    row.PrevHash,
+		Version:     row.HashVersion,
 	}, nil
 }
 
@@ -148,18 +195,35 @@ func rowHashInputFor(row Row) (rowHashInput, error) {
 func exportEvent(row Row) Event {
 	context := row.Context
 	context.OrgID = row.OrgID
+
 	return Event{
-		Verb: row.Action, EventID: row.EventID,
+		Verb:    row.Action,
+		EventID: row.EventID,
 		Actor: Actor{
-			Type: actorTypeFromCode(row.ActorKind), ID: row.ActorID,
-			Email: "", Name: "", SessionID: "", IP: "", UserAgent: "", RequestID: "", APITokenLabel: "",
+			Type:          actorTypeFromCode(row.ActorKind),
+			ID:            row.ActorID,
+			Email:         "",
+			Name:          "",
+			SessionID:     "",
+			IP:            "",
+			UserAgent:     "",
+			RequestID:     "",
+			APITokenLabel: "",
 		},
 		Entity: Entity{
-			Type: row.EntityKind, NodeType: "", ID: row.EntityID, Identifier: "", Name: "",
+			Type:       row.EntityKind,
+			NodeType:   "",
+			ID:         row.EntityID,
+			Identifier: "",
+			Name:       "",
 		},
-		Context: context,
-		Delta:   row.Delta, Outcome: row.Outcome, Error: row.Error,
-		IdempotencyKey: row.IdempotencyKey, OccurredAt: row.EventTime, Extra: row.Extra,
+		Context:        context,
+		Delta:          row.Delta,
+		Outcome:        row.Outcome,
+		Error:          row.Error,
+		IdempotencyKey: row.IdempotencyKey,
+		OccurredAt:     row.EventTime,
+		Extra:          row.Extra,
 	}
 }
 
@@ -186,10 +250,12 @@ func bytesEqual(left, right []byte) bool {
 	if len(left) != len(right) {
 		return false
 	}
+
 	for i := range left {
 		if left[i] != right[i] {
 			return false
 		}
 	}
+
 	return true
 }

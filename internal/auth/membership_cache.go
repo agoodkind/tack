@@ -34,6 +34,7 @@ func NewCachedMembers(inner org.MemberRepository, lifetime time.Duration, size i
 	if size <= 0 {
 		size = 1
 	}
+
 	return &CachedMembers{inner: inner, cache: newEntryCache[[]uuid.UUID](size), lifetime: lifetime}
 }
 
@@ -45,7 +46,10 @@ func NewCachedMembers(inner org.MemberRepository, lifetime time.Duration, size i
 // The return values distinguish these outcomes:
 //   - A successful read returns the user's organization IDs and a nil error.
 //   - A failed read returns a nil slice and an error that includes userID.
-func (c *CachedMembers) ListOrgIDsForUser(ctx context.Context, userID uuid.UUID) ([]uuid.UUID, error) {
+func (c *CachedMembers) ListOrgIDsForUser(
+	ctx context.Context,
+	userID uuid.UUID,
+) ([]uuid.UUID, error) {
 	now := clock.Now()
 	key := userID.String()
 	if c.lifetime > 0 {
@@ -53,15 +57,23 @@ func (c *CachedMembers) ListOrgIDsForUser(ctx context.Context, userID uuid.UUID)
 			return copyOrgIDs(cached), nil
 		}
 	}
+
 	orgIDs, err := c.inner.ListOrgIDsForUser(ctx, userID)
 	if err != nil {
-		slog.ErrorContext(ctx, "auth.membership_read_failed",
-			slog.String("user_id", userID.String()), slog.String("err", err.Error()))
+		slog.ErrorContext(
+			ctx,
+			"auth.membership_read_failed",
+			slog.String("user_id", userID.String()),
+			slog.String("err", err.Error()),
+		)
+
 		return nil, fmt.Errorf("list org ids for user %s: %w", userID, err)
 	}
+
 	if c.lifetime > 0 {
 		c.cache.put(key, copyOrgIDs(orgIDs), now.Add(c.lifetime))
 	}
+
 	return orgIDs, nil
 }
 
@@ -71,6 +83,7 @@ func (c *CachedMembers) prime(userID uuid.UUID, orgIDs []uuid.UUID, now time.Tim
 	if c.lifetime <= 0 {
 		return
 	}
+
 	c.cache.put(userID.String(), copyOrgIDs(orgIDs), now.Add(c.lifetime))
 }
 
@@ -86,15 +99,22 @@ func (c *CachedMembers) prime(userID uuid.UUID, orgIDs []uuid.UUID, now time.Tim
 func (c *CachedMembers) ListMembers(ctx context.Context, orgID uuid.UUID) ([]*org.Member, error) {
 	members, err := c.inner.ListMembers(ctx, orgID)
 	if err != nil {
-		slog.ErrorContext(ctx, "auth.members_list_failed",
-			slog.String("org_id", orgID.String()), slog.String("err", err.Error()))
+		slog.ErrorContext(
+			ctx,
+			"auth.members_list_failed",
+			slog.String("org_id", orgID.String()),
+			slog.String("err", err.Error()),
+		)
+
 		return nil, fmt.Errorf("list members of %s: %w", orgID, err)
 	}
+
 	return members, nil
 }
 
 func copyOrgIDs(orgIDs []uuid.UUID) []uuid.UUID {
 	copied := make([]uuid.UUID, len(orgIDs))
 	copy(copied, orgIDs)
+
 	return copied
 }

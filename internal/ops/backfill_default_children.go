@@ -36,16 +36,29 @@ func runBackfillDefaultChildren(ctx context.Context, env *Env) error {
 	if err != nil {
 		return err
 	}
+
 	var failures []error
+
 	for orgID, types := range orgTypes {
 		failures = append(failures, backfillOrgDefaultChildren(ctx, env, orgID, types)...)
 	}
+
 	if len(failures) == 0 {
 		return nil
 	}
-	failed := fmt.Errorf("default children backfill failed %d operations: %w", len(failures), errors.Join(failures...))
-	env.Log.ErrorContext(ctx, "backfill.default_children_failed",
-		slog.Int("failures", len(failures)), slog.String("err", failed.Error()))
+
+	failed := fmt.Errorf(
+		"default children backfill failed %d operations: %w",
+		len(failures),
+		errors.Join(failures...),
+	)
+	env.Log.ErrorContext(
+		ctx,
+		"backfill.default_children_failed",
+		slog.Int("failures", len(failures)),
+		slog.String("err", failed.Error()),
+	)
+
 	return failed
 }
 
@@ -62,18 +75,24 @@ func dryRunBackfillDefaultChildren(ctx context.Context, env *Env) error {
 // property map in every organization. Any undeclared property stops the run
 // with one error before any write. On success, it returns the node types by
 // organization ID.
-func checkedDefaultChildTypes(ctx context.Context, env *Env) (map[uuid.UUID][]*node.NodeType, error) {
+func checkedDefaultChildTypes(
+	ctx context.Context,
+	env *Env,
+) (map[uuid.UUID][]*node.NodeType, error) {
 	orgIDs, err := listOrgIDs(ctx, env)
 	if err != nil {
 		return nil, err
 	}
+
 	orgTypes, err := listOrgNodeTypes(ctx, env, orgIDs)
 	if err != nil {
 		return nil, err
 	}
+
 	if err := checkDefaultChildProps(ctx, env, orgTypes); err != nil {
 		return nil, err
 	}
+
 	return orgTypes, nil
 }
 
@@ -82,7 +101,12 @@ func checkedDefaultChildTypes(ctx context.Context, env *Env) (map[uuid.UUID][]*n
 //
 // backfillOrgDefaultChildren continues with the remaining nodes after each
 // failure and returns a slice with one error per failed listing or creation.
-func backfillOrgDefaultChildren(ctx context.Context, env *Env, orgID uuid.UUID, types []*node.NodeType) []error {
+func backfillOrgDefaultChildren(
+	ctx context.Context,
+	env *Env,
+	orgID uuid.UUID,
+	types []*node.NodeType,
+) []error {
 	typeIndex := node.BuildTypeIndex(types)
 	var failures []error
 
@@ -91,55 +115,91 @@ func backfillOrgDefaultChildren(ctx context.Context, env *Env, orgID uuid.UUID, 
 			continue
 		}
 
-		parents, err := env.Stores.Views.List(ctx, node.NodeListQuery{
-			OrgID:    orgID,
-			NodeType: nt.TypeKey,
-		})
+		parents, err := env.Stores.Views.List(
+			ctx,
+			node.NodeListQuery{
+				OrgID:    orgID,
+				NodeType: nt.TypeKey,
+			},
+		)
 		if err != nil {
-			failures = append(failures, fmt.Errorf("list nodes of type %q in organization %s: %w", nt.TypeKey, orgID, err))
+			failures = append(
+				failures,
+				fmt.Errorf("list nodes of type %q in organization %s: %w", nt.TypeKey, orgID, err),
+			)
 			continue
 		}
 
 		created := 0
 		skipped := 0
+
 		for _, parent := range parents {
 			parentIDRaw, _ := json.Marshal(parent.ID.String())
+
 			for _, dc := range nt.DefaultChildren {
 				childType := typeIndex[dc.TypeKey]
 				if childType == nil {
-					env.Log.WarnContext(ctx, "backfill: unknown child type",
+					env.Log.WarnContext(
+						ctx,
+						"backfill: unknown child type",
 						slog.String("parent_type", nt.TypeKey),
-						slog.String("child_type", dc.TypeKey))
+						slog.String("child_type", dc.TypeKey),
+					)
 					continue
 				}
-				existing, err := env.Stores.Nodes.ListByProperty(ctx, orgID, dc.TypeKey, "parent_id", parentIDRaw)
+
+				existing, err := env.Stores.Nodes.ListByProperty(
+					ctx,
+					orgID,
+					dc.TypeKey,
+					"parent_id",
+					parentIDRaw,
+				)
 				if err != nil {
-					failures = append(failures, fmt.Errorf("list %s children of node %s: %w", dc.TypeKey, parent.ID, err))
+					failures = append(
+						failures,
+						fmt.Errorf("list %s children of node %s: %w", dc.TypeKey, parent.ID, err),
+					)
 					continue
 				}
+
 				if hasNamed(existing, dc.Name) {
 					skipped++
 					continue
 				}
+
 				child, view, rels := defaultChildRecords(orgID, parent.ID, dc)
 				// CreateAtomic indexes parent_id here. This backfill does not assign slug,
 				// identifier, or sequence values for resolution; the default child records use
 				// the declared properties and the generated parent_id and scope_id values.
-				if err := env.Stores.Nodes.CreateAtomic(ctx, child, view, rels, []string{"parent_id"}, nil, nil); err != nil {
-					failures = append(failures, fmt.Errorf("create default child %q under node %s: %w", dc.Name, parent.ID, err))
+				if err := env.Stores.Nodes.CreateAtomic(
+					ctx,
+					child,
+					view,
+					rels,
+					[]string{"parent_id"},
+					nil,
+					nil,
+				); err != nil {
+					failures = append(
+						failures,
+						fmt.Errorf(
+							"create default child %q under node %s: %w",
+							dc.Name,
+							parent.ID,
+							err,
+						),
+					)
 					continue
 				}
+
 				created++
 			}
 		}
 
-		env.Log.DebugContext(ctx, "backfill.type",
-			slog.String("org_id", orgID.String()),
-			slog.String("type", nt.TypeKey),
-			slog.Int("parents", len(parents)),
-			slog.Int("children_created", created),
-			slog.Int("children_skipped_existing", skipped))
+		logDefaultChildCounts(ctx, env, orgID, nt.TypeKey, len(parents), created, skipped)
 	}
+
 	return failures
 }
 
@@ -151,6 +211,7 @@ func hasNamed(candidates []*node.Node, name string) bool {
 			return true
 		}
 	}
+
 	return false
 }
 
@@ -160,7 +221,11 @@ func hasNamed(candidates []*node.Node, name string) bool {
 //
 // The ops package builds these records locally. The property check imports the
 // service package for validation.
-func defaultChildRecords(orgID, parentID uuid.UUID, dc node.DefaultChild) (*node.Node, *node.NodeView, []*node.Relationship) {
+func defaultChildRecords(
+	orgID uuid.UUID,
+	parentID uuid.UUID,
+	dc node.DefaultChild,
+) (*node.Node, *node.NodeView, []*node.Relationship) {
 	id := uuid.Must(uuid.NewV7())
 	now := clock.Now().UTC()
 
@@ -185,12 +250,15 @@ func defaultChildRecords(orgID, parentID uuid.UUID, dc node.DefaultChild) (*node
 		CreatedAt: now,
 		UpdatedAt: now,
 	}
-	rels := []*node.Relationship{{
-		OrgID:        orgID,
-		SourceID:     id,
-		RelationType: node.RelChildOf,
-		TargetID:     parentID,
-		CreatedAt:    now,
-	}}
+	rels := []*node.Relationship{
+		{
+			OrgID:        orgID,
+			SourceID:     id,
+			RelationType: node.RelChildOf,
+			TargetID:     parentID,
+			CreatedAt:    now,
+		},
+	}
+
 	return n, view, rels
 }

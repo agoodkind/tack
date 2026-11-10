@@ -33,12 +33,16 @@ type Scope struct {
 //
 //	ctx = WithScopeBuilder(ctx)
 func WithScopeBuilder(ctx context.Context) context.Context {
-	return context.WithValue(ctx, scopeKey{}, &Scope{
-		OrgID:       uuid.Nil,
-		WorkspaceID: uuid.Nil,
-		ScopeID:     uuid.Nil,
-		ParentID:    uuid.Nil,
-	})
+	return context.WithValue(
+		ctx,
+		scopeKey{},
+		&Scope{
+			OrgID:       uuid.Nil,
+			WorkspaceID: uuid.Nil,
+			ScopeID:     uuid.Nil,
+			ParentID:    uuid.Nil,
+		},
+	)
 }
 
 // SetScopeFields updates the [Scope] in ctx with nonzero fields from s.
@@ -52,15 +56,19 @@ func SetScopeFields(ctx context.Context, s Scope) {
 	if cur == nil {
 		return
 	}
+
 	if s.OrgID != uuid.Nil {
 		cur.OrgID = s.OrgID
 	}
+
 	if s.WorkspaceID != uuid.Nil {
 		cur.WorkspaceID = s.WorkspaceID
 	}
+
 	if s.ScopeID != uuid.Nil {
 		cur.ScopeID = s.ScopeID
 	}
+
 	if s.ParentID != uuid.Nil {
 		cur.ParentID = s.ParentID
 	}
@@ -82,6 +90,7 @@ func ScopeFromContext(ctx context.Context) Scope {
 			ParentID:    uuid.Nil,
 		}
 	}
+
 	return *cur
 }
 
@@ -93,13 +102,17 @@ func ScopeFromContext(ctx context.Context) Scope {
 //
 //	ctx = WithEntityBuilder(ctx)
 func WithEntityBuilder(ctx context.Context) context.Context {
-	return context.WithValue(ctx, entityKey{}, &Entity{
-		Type:       "",
-		NodeType:   "",
-		ID:         uuid.Nil,
-		Identifier: "",
-		Name:       "",
-	})
+	return context.WithValue(
+		ctx,
+		entityKey{},
+		&Entity{
+			Type:       "",
+			NodeType:   "",
+			ID:         uuid.Nil,
+			Identifier: "",
+			Name:       "",
+		},
+	)
 }
 
 // SetAuditEntity updates the [Entity] in ctx with nonzero fields from entity.
@@ -113,18 +126,23 @@ func SetAuditEntity(ctx context.Context, entity Entity) {
 	if current == nil {
 		return
 	}
+
 	if entity.Type != "" {
 		current.Type = entity.Type
 	}
+
 	if entity.NodeType != "" {
 		current.NodeType = entity.NodeType
 	}
+
 	if entity.ID != uuid.Nil {
 		current.ID = entity.ID
 	}
+
 	if entity.Identifier != "" {
 		current.Identifier = entity.Identifier
 	}
+
 	if entity.Name != "" {
 		current.Name = entity.Name
 	}
@@ -147,6 +165,7 @@ func EntityFromContext(ctx context.Context) Entity {
 			Name:       "",
 		}
 	}
+
 	return *current
 }
 
@@ -168,17 +187,24 @@ func (s CanonicalRecorder) Record(ctx context.Context, ev Event) error {
 	if ev.EventID == uuid.Nil {
 		ev.EventID = uuid.Must(uuid.NewV7())
 	}
+
 	if ev.OccurredAt.IsZero() {
 		ev.OccurredAt = clock.Now().UTC()
 	}
+
 	err := s.Inner.Record(ctx, ev)
 	if err != nil {
-		slog.ErrorContext(ctx, "audit.record_failed",
+		slog.ErrorContext(
+			ctx,
+			"audit.record_failed",
 			slog.String("verb", ev.Verb),
 			slog.String("event_id", ev.EventID.String()),
-			slog.String("err", err.Error()))
+			slog.String("err", err.Error()),
+		)
+
 		return fmt.Errorf("record audit event %s: %w", ev.Verb, err)
 	}
+
 	return nil
 }
 
@@ -196,10 +222,12 @@ func (s CanonicalRecorder) Close() error {
 			slog.Error("audit.recorder_close_failed", slog.String("err", err.Error()))
 			return fmt.Errorf("close audit recorder: %w", err)
 		}
+
 		return nil
 	case interface{ Close() }:
 		recorder.Close()
 	}
+
 	return nil
 }
 

@@ -51,29 +51,40 @@ type fdbRestoreWatch struct {
 func awaitFDBRestore(
 	ctx context.Context,
 	watch fdbRestoreWatch,
-	stallWindow, pollInterval, probeTimeout time.Duration,
+	stallWindow time.Duration,
+	pollInterval time.Duration,
+	probeTimeout time.Duration,
 ) (*fdbRestoreProgress, int, error) {
 	progress := newFDBRestoreProgress()
 	lastMoved := opsNow()
 	var lastStatusErr string
 	blindPolls := 0
+
 	for {
 		reading, err := readFDBRestore(ctx, watch, probeTimeout)
 		if ctx.Err() != nil {
 			return progress, 0, fdbRestoreWaitCancelled(ctx, progress)
 		}
+
 		if err != nil {
 			return progress, 0, err
 		}
+
 		if reading.done {
 			return progress, reading.exitCode, nil
 		}
+
 		switch {
 		case reading.timedOut:
 			blindPolls++
 			lastStatusErr = reading.statusErr.Error()
 			if blindPolls >= fdbDrillProbeTimeoutTolerance {
-				return progress, 0, fdbRestoreBlindError(blindPolls, probeTimeout, progress, lastStatusErr)
+				return progress, 0, fdbRestoreBlindError(
+					blindPolls,
+					probeTimeout,
+					progress,
+					lastStatusErr,
+				)
 			}
 		case reading.statusErr != nil:
 			blindPolls = 0
@@ -88,9 +99,11 @@ func awaitFDBRestore(
 			blindPolls = 0
 			lastStatusErr = ""
 		}
+
 		if stalled := opsNow().Sub(lastMoved); stalled >= stallWindow {
 			return progress, 0, fdbRestoreStallError(stalled, progress, lastStatusErr)
 		}
+
 		select {
 		case <-ctx.Done():
 			return progress, 0, fdbRestoreWaitCancelled(ctx, progress)
@@ -103,19 +116,32 @@ func awaitFDBRestore(
 // logs the restore's observed progress.
 func fdbRestoreWaitCancelled(ctx context.Context, progress *fdbRestoreProgress) error {
 	wrapped := fmt.Errorf("waiting for the FoundationDB restore: %w", ctx.Err())
-	telemetry.L(ctx).ErrorContext(ctx, "backup.restore_drill.fdb.wait_cancelled",
-		slog.String("err", wrapped.Error()), slog.String("progress", progress.summary()))
+	telemetry.L(ctx).ErrorContext(
+		ctx,
+		"backup.restore_drill.fdb.wait_cancelled",
+		slog.String("err", wrapped.Error()),
+		slog.String("progress", progress.summary()),
+	)
+
 	return wrapped
 }
 
 // fdbRestoreStallError reports the inactivity duration, each counter's
 // greatest observed progress, and the last failed status read. These details
 // distinguish an observed restore stall from an unreadable status.
-func fdbRestoreStallError(stalled time.Duration, progress *fdbRestoreProgress, lastStatusErr string) error {
-	message := fmt.Sprintf("the FoundationDB restore made no progress for %s: %s",
-		stalled.Round(time.Second), progress.summary())
+func fdbRestoreStallError(
+	stalled time.Duration,
+	progress *fdbRestoreProgress,
+	lastStatusErr string,
+) error {
+	message := fmt.Sprintf(
+		"the FoundationDB restore made no progress for %s: %s",
+		stalled.Round(time.Second),
+		progress.summary(),
+	)
 	if lastStatusErr != "" {
 		message += "; the last status read failed: " + lastStatusErr
 	}
+
 	return errors.New(message)
 }

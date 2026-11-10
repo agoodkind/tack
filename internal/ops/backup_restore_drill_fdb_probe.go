@@ -58,24 +58,53 @@ type fdbRestoreReading struct {
 // readFDBRestore collects one poll's reading. After an exit-probe timeout,
 // it skips the status probe. Both execs use the same access to the scratch
 // container, and a second probe would double the time without observation.
-func readFDBRestore(ctx context.Context, watch fdbRestoreWatch, probeTimeout time.Duration) (fdbRestoreReading, error) {
-	finished := runFDBRestoreProbe(ctx, probeTimeout, func(probeCtx context.Context) fdbRestoreReading {
-		exitCode, done, err := watch.Finished(probeCtx)
-		return fdbRestoreReading{exitCode: exitCode, done: done, status: "", statusErr: err, timedOut: false}
-	})
+func readFDBRestore(
+	ctx context.Context,
+	watch fdbRestoreWatch,
+	probeTimeout time.Duration,
+) (fdbRestoreReading, error) {
+	finished := runFDBRestoreProbe(
+		ctx,
+		probeTimeout,
+		func(probeCtx context.Context) fdbRestoreReading {
+			exitCode, done, err := watch.Finished(probeCtx)
+
+			return fdbRestoreReading{
+				exitCode:  exitCode,
+				done:      done,
+				status:    "",
+				statusErr: err,
+				timedOut:  false,
+			}
+		},
+	)
 	if finished.timedOut {
 		return finished, nil
 	}
+
 	if finished.statusErr != nil {
 		return finished, finished.statusErr
 	}
+
 	if finished.done {
 		return finished, nil
 	}
-	return runFDBRestoreProbe(ctx, probeTimeout, func(probeCtx context.Context) fdbRestoreReading {
-		status, err := watch.Status(probeCtx)
-		return fdbRestoreReading{exitCode: 0, done: false, status: status, statusErr: err, timedOut: false}
-	}), nil
+
+	return runFDBRestoreProbe(
+		ctx,
+		probeTimeout,
+		func(probeCtx context.Context) fdbRestoreReading {
+			status, err := watch.Status(probeCtx)
+
+			return fdbRestoreReading{
+				exitCode:  0,
+				done:      false,
+				status:    status,
+				statusErr: err,
+				timedOut:  false,
+			}
+		},
+	), nil
 }
 
 // runFDBRestoreProbe executes one probe with its own deadline and returns
@@ -98,8 +127,18 @@ func runFDBRestoreProbe(
 		defer func() {
 			if recovered := recover(); recovered != nil {
 				err := fmt.Errorf("the probe panicked: %v", recovered)
-				slog.ErrorContext(ctx, "backup.restore_drill.fdb.probe_panic", slog.String("err", err.Error()))
-				answered <- fdbRestoreReading{exitCode: 0, done: false, status: "", statusErr: err, timedOut: false}
+				slog.ErrorContext(
+					ctx,
+					"backup.restore_drill.fdb.probe_panic",
+					slog.String("err", err.Error()),
+				)
+				answered <- fdbRestoreReading{
+					exitCode:  0,
+					done:      false,
+					status:    "",
+					statusErr: err,
+					timedOut:  false,
+				}
 			}
 		}()
 		answered <- probe(probeCtx)
@@ -110,10 +149,25 @@ func runFDBRestoreProbe(
 	case <-probeCtx.Done():
 		if ctx.Err() != nil {
 			err := fmt.Errorf("the probe was cancelled: %w", ctx.Err())
-			return fdbRestoreReading{exitCode: 0, done: false, status: "", statusErr: err, timedOut: false}
+
+			return fdbRestoreReading{
+				exitCode:  0,
+				done:      false,
+				status:    "",
+				statusErr: err,
+				timedOut:  false,
+			}
 		}
+
 		err := fmt.Errorf("%w within %s", errFDBRestoreProbeTimedOut, timeout)
-		return fdbRestoreReading{exitCode: 0, done: false, status: "", statusErr: err, timedOut: true}
+
+		return fdbRestoreReading{
+			exitCode:  0,
+			done:      false,
+			status:    "",
+			statusErr: err,
+			timedOut:  true,
+		}
 	}
 }
 
@@ -124,24 +178,39 @@ func runFDBRestoreProbe(
 // context remains active counts as an answered failure.
 func classifyFDBRestoreProbeAnswer(
 	reading fdbRestoreReading,
-	probeCtx, ctx context.Context,
+	probeCtx context.Context,
+	ctx context.Context,
 	timeout time.Duration,
 ) fdbRestoreReading {
 	if ctx.Err() != nil || !errors.Is(probeCtx.Err(), context.DeadlineExceeded) {
 		return reading
 	}
+
 	if !errors.Is(reading.statusErr, context.DeadlineExceeded) {
 		return reading
 	}
+
 	err := fmt.Errorf("%w within %s: %w", errFDBRestoreProbeTimedOut, timeout, reading.statusErr)
+
 	return fdbRestoreReading{exitCode: 0, done: false, status: "", statusErr: err, timedOut: true}
 }
 
 // fdbRestoreBlindError reports consecutive polls with unanswered probes,
 // the greatest observed progress, and the last probe failure when the drill
 // can no longer observe the restore.
-func fdbRestoreBlindError(polls int, probeTimeout time.Duration, progress *fdbRestoreProgress, lastErr string) error {
-	return fmt.Errorf("the FoundationDB restore could not be observed: %d consecutive polls had a probe"+
-		" that did not answer within %s, so whether it is still moving is unknown; the furthest it was"+
-		" seen: %s; the last probe failed: %s", polls, probeTimeout, progress.summary(), lastErr)
+func fdbRestoreBlindError(
+	polls int,
+	probeTimeout time.Duration,
+	progress *fdbRestoreProgress,
+	lastErr string,
+) error {
+	return fmt.Errorf(
+		"the FoundationDB restore could not be observed: %d consecutive polls had a probe"+
+			" that did not answer within %s, so whether it is still moving is unknown; the furthest it was"+
+			" seen: %s; the last probe failed: %s",
+		polls,
+		probeTimeout,
+		progress.summary(),
+		lastErr,
+	)
 }

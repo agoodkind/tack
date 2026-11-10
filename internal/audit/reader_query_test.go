@@ -35,12 +35,15 @@ func TestBuildAuditQueryFiltersContextCorrelation(t *testing.T) {
 			t.Fatalf("query missing %q:\n%s", want, query)
 		}
 	}
+
 	if len(args) != 9 {
 		t.Fatalf("args len = %d, want 9", len(args))
 	}
+
 	if args[6] != filter.RequestID {
 		t.Fatalf("request arg = %v, want %s", args[6], filter.RequestID)
 	}
+
 	if args[7] != filter.TraceID {
 		t.Fatalf("trace arg = %v, want %s", args[7], filter.TraceID)
 	}
@@ -69,9 +72,11 @@ func TestBuildAuditQueryWithoutALimitAsksForEveryRow(t *testing.T) {
 	if strings.Contains(query, "LIMIT") {
 		t.Fatalf("a whole-range export carries a LIMIT:\n%s", query)
 	}
+
 	if strings.Contains(query, "ORDER BY") {
 		t.Fatalf("a whole-range export carries an ORDER BY:\n%s", query)
 	}
+
 	if len(args) != 3 {
 		t.Fatalf("args len = %d, want the org and the two time bounds", len(args))
 	}
@@ -88,6 +93,7 @@ func TestCanonicalizeCorrelationKeepsRequestIDInContext(t *testing.T) {
 	if ev.Context.RequestID != "req-from-actor" {
 		t.Fatalf("context request_id = %q", ev.Context.RequestID)
 	}
+
 	if hasPII(ev.Actor) {
 		t.Fatalf("actor request_id should not create audit.pii payload")
 	}

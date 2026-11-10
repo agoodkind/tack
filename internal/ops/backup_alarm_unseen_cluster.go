@@ -34,5 +34,6 @@ func backupAlarmWordsFor(fault backupStalenessMetric) backupAlarmWords {
 	if fault.Unknown == backupStalenessClusterUnseen {
 		return backupAlarmUnseenClusterWords
 	}
+
 	return backupAlarmVocabulary[fault.Name]
 }

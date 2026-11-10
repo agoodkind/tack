@@ -32,6 +32,7 @@ var repairClassCatalog = []RepairClassInfo{
 func RepairClasses() []RepairClassInfo {
 	classes := make([]RepairClassInfo, len(repairClassCatalog))
 	copy(classes, repairClassCatalog)
+
 	return classes
 }
 
@@ -46,11 +47,14 @@ func ParseRepairClass(rawValue string) (RepairClass, error) {
 	if trimmedValue == "" {
 		return "", fmt.Errorf("repair class is required: %w", domain.ErrInvalidArgument)
 	}
+
 	repairClass := RepairClass(trimmedValue)
+
 	for _, info := range repairClassCatalog {
 		if info.Class == repairClass {
 			return repairClass, nil
 		}
 	}
+
 	return "", fmt.Errorf("repair class %q: %w", trimmedValue, domain.ErrInvalidArgument)
 }

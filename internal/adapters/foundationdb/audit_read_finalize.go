@@ -34,7 +34,16 @@ func auditReadReceiptKey(eventID uuid.UUID) fdb.Key {
 }
 
 func auditReadCleanupKey(bucket uint16, published time.Time, eventID uuid.UUID) fdb.Key {
-	return fdb.Key(withPrefix(tuple.Tuple{keyAuditReadCleanup, int64(bucket), published.UnixNano(), eventID.String()}.Pack()))
+	return fdb.Key(
+		withPrefix(
+			tuple.Tuple{
+				keyAuditReadCleanup,
+				int64(bucket),
+				published.UnixNano(),
+				eventID.String(),
+			}.Pack(),
+		),
+	)
 }
 
 // FinalizeRead saves the final event in the outbox, saves its digest in a
@@ -48,50 +57,77 @@ func auditReadCleanupKey(bucket uint16, published time.Time, eventID uuid.UUID) 
 //	Committed retry: receipt owner and digest confirmation.
 func (s *AuditReadStore) FinalizeRead(ctx context.Context, completion audit.ReadCompletion) error {
 	token := completion.Token
-	err := transactAuditRead(ctx, s.db, func(tr fdb.Transaction) error {
-		pending, found, err := readAuditRecord[auditReadPending](tr, auditReadPendingKey(token.EventID))
-		if err != nil {
-			return err
-		}
-		if !found {
-			return confirmFinalized(tr, completion)
-		}
-		if pending.Owner != token.Owner || pending.Generation != token.Generation {
-			return audit.ErrReadOwnerLost
-		}
-		var template audit.Event
-		if err := json.Unmarshal(pending.Template, &template); err != nil {
-			return auditReadStepFailure("decode the pending template", err)
-		}
-		encoded, err := audit.CheckReadCompletion(template, completion)
-		if err != nil {
-			return auditReadStepFailure("check the final event", err)
-		}
-		if err := NewOutboxWriter(tr).WriteEncodedEvent(ctx, encoded); err != nil {
-			return err
-		}
-		clearPending(tr, token.EventID, pending)
-		return writeAuditRecord(tr, auditReadReceiptKey(token.EventID), auditReadReceipt{
-			Owner: token.Owner, Generation: token.Generation, Digest: encoded.TransportDigest,
-			Outcome: completion.Event.Outcome,
-		})
-	})
+	err := transactAuditRead(
+		ctx,
+		s.db,
+		func(tr fdb.Transaction) error {
+			pending, found, err := readAuditRecord[auditReadPending](
+				tr,
+				auditReadPendingKey(token.EventID),
+			)
+			if err != nil {
+				return err
+			}
+
+			if !found {
+				return confirmFinalized(tr, completion)
+			}
+
+			if pending.Owner != token.Owner || pending.Generation != token.Generation {
+				return audit.ErrReadOwnerLost
+			}
+
+			var template audit.Event
+			if err := json.Unmarshal(pending.Template, &template); err != nil {
+				return auditReadStepFailure("decode the pending template", err)
+			}
+
+			encoded, err := audit.CheckReadCompletion(template, completion)
+			if err != nil {
+				return auditReadStepFailure("check the final event", err)
+			}
+
+			if err := NewOutboxWriter(tr).WriteEncodedEvent(ctx, encoded); err != nil {
+				return err
+			}
+
+			clearPending(tr, token.EventID, pending)
+
+			return writeAuditRecord(
+				tr,
+				auditReadReceiptKey(token.EventID),
+				auditReadReceipt{
+					Owner:      token.Owner,
+					Generation: token.Generation,
+					Digest:     encoded.TransportDigest,
+					Outcome:    completion.Event.Outcome,
+				},
+			)
+		},
+	)
 	if err != nil {
 		return auditReadFailure(ctx, "finalize audit read", token.EventID, err)
 	}
+
 	return nil
 }
 
 // confirmFinalized accepts a retry only when the receipt matches the owner
 // and digest and records a terminal outcome other than incomplete.
 func confirmFinalized(tr fdb.Transaction, completion audit.ReadCompletion) error {
-	receipt, found, err := readAuditRecord[auditReadReceipt](tr, auditReadReceiptKey(completion.Token.EventID))
+	receipt, found, err := readAuditRecord[auditReadReceipt](
+		tr,
+		auditReadReceiptKey(completion.Token.EventID),
+	)
 	if err != nil {
 		return err
 	}
-	if !found || !audit.ConfirmsReadCommit(receipt.Owner, receipt.Digest, receipt.Outcome, completion) {
+
+	if !found ||
+		!audit.ConfirmsReadCommit(receipt.Owner, receipt.Digest, receipt.Outcome, completion) {
 		return audit.ErrReadOwnerLost
 	}
+
 	return nil
 }
 
@@ -101,17 +137,25 @@ func confirmFinalized(tr fdb.Transaction, completion audit.ReadCompletion) error
 // The acknowledgment must match the receipt digest. A published matching
 // receipt retains its original publication time after a retry.
 //
-//  - The transaction records the time for an unpublished matching receipt.
-//    It also schedules cleanup.
-//  - A published matching receipt does not change.
-//  - A different digest returns an error.
-func (s *AuditReadStore) AcknowledgePublished(ctx context.Context, reads []audit.PublishedRead) error {
-	err := transactAuditRead(ctx, s.db, func(tr fdb.Transaction) error {
-		return acknowledgeReads(tr, s.clock.Now(), reads)
-	})
+//   - The transaction records the time for an unpublished matching receipt.
+//     It also schedules cleanup.
+//   - A published matching receipt does not change.
+//   - A different digest returns an error.
+func (s *AuditReadStore) AcknowledgePublished(
+	ctx context.Context,
+	reads []audit.PublishedRead,
+) error {
+	err := transactAuditRead(
+		ctx,
+		s.db,
+		func(tr fdb.Transaction) error {
+			return acknowledgeReads(tr, s.clock.Now(), reads)
+		},
+	)
 	if err != nil {
 		return auditReadFailure(ctx, "acknowledge audit reads", uuid.Nil, err)
 	}
+
 	return nil
 }
 
@@ -127,21 +171,30 @@ func acknowledgeReads(tr fdb.Transaction, now time.Time, reads []audit.Published
 		if err != nil {
 			return err
 		}
+
 		if !found {
 			continue
 		}
+
 		if receipt.Digest != read.Digest {
-			return fmt.Errorf("acknowledge audit read %s: digest differs from the receipt digest", read.EventID)
+			return fmt.Errorf(
+				"acknowledge audit read %s: digest differs from the receipt digest",
+				read.EventID,
+			)
 		}
+
 		if !receipt.PublishedAt.IsZero() {
 			continue
 		}
+
 		receipt.PublishedAt = now
 		if err := writeAuditRecord(tr, key, receipt); err != nil {
 			return err
 		}
+
 		tr.Set(auditReadCleanupKey(audit.ReadBucket(read.EventID), now, read.EventID), nil)
 	}
+
 	return nil
 }
 
@@ -153,12 +206,15 @@ func readAuditRecord[Record auditRecord](tr fdb.Transaction, key fdb.Key) (Recor
 	if err != nil {
 		return record, false, auditReadStepFailure("read audit read record", err)
 	}
+
 	if len(encoded) == 0 {
 		return record, false, nil
 	}
+
 	if err := json.Unmarshal(encoded, &record); err != nil {
 		return record, false, auditReadStepFailure("decode audit read record", err)
 	}
+
 	return record, true, nil
 }
 
@@ -168,6 +224,8 @@ func writeAuditRecord[Record auditRecord](tr fdb.Transaction, key fdb.Key, recor
 	if err != nil {
 		return auditReadStepFailure("encode audit read record", err)
 	}
+
 	tr.Set(key, encoded)
+
 	return nil
 }

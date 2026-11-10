@@ -22,11 +22,17 @@ func marshalOpsOutboxVersionstampedKey() (fdb.Key, error) {
 // marshalOpsOutboxEntryKey packs a versionstamped outbox key with the given
 // user version.
 func marshalOpsOutboxEntryKey(userVersion uint16) (fdb.Key, error) {
-	key, err := tuple.Tuple{keyOpsOutbox, tuple.IncompleteVersionstamp(userVersion)}.PackWithVersionstamp(testPrefix)
+	key, err := tuple.Tuple{
+		keyOpsOutbox,
+		tuple.IncompleteVersionstamp(userVersion),
+	}.PackWithVersionstamp(
+		testPrefix,
+	)
 	if err != nil {
 		slog.Error("ops_outbox.key_pack_failed", slog.String("err", err.Error()))
 		return nil, fmt.Errorf("ops outbox versionstamped key: %w", err)
 	}
+
 	return fdb.Key(key), nil
 }
 
@@ -35,9 +41,20 @@ func marshalOpsOutboxEntryKey(userVersion uint16) (fdb.Key, error) {
 func encodedRecords(ctx context.Context, encoded audit.EncodedEvent) ([][]byte, error) {
 	records, err := encoded.Records()
 	if err != nil {
-		slog.ErrorContext(ctx, "ops_outbox.encoded_records_failed", slog.String("event_id", encoded.EventID.String()), slog.String("err", err.Error()))
-		return nil, fmt.Errorf("encode the ops outbox records of event %s: %w", encoded.EventID, err)
+		slog.ErrorContext(
+			ctx,
+			"ops_outbox.encoded_records_failed",
+			slog.String("event_id", encoded.EventID.String()),
+			slog.String("err", err.Error()),
+		)
+
+		return nil, fmt.Errorf(
+			"encode the ops outbox records of event %s: %w",
+			encoded.EventID,
+			err,
+		)
 	}
+
 	return records, nil
 }
 

@@ -45,20 +45,30 @@ func (a *Adapter) Provision(ctx context.Context) (ModelInfo, error) {
 	if err == nil && modelID == "" {
 		modelID, err = a.registerPinnedModel(ctx)
 	}
+
 	if err == nil {
 		err = a.deployModel(ctx, modelID)
 	}
+
 	if err == nil {
 		err = a.verifyModel(ctx, modelID)
 	}
+
 	if err != nil {
 		wrapped := fmt.Errorf("provision pinned OpenSearch model: %w", err)
 		if !isLoggedModelError(err) {
-			telemetry.L(ctx).ErrorContext(ctx, "search.model.provision_failed", slog.String("err", wrapped.Error()))
+			telemetry.L(ctx).ErrorContext(
+				ctx,
+				"search.model.provision_failed",
+				slog.String("err", wrapped.Error()),
+			)
 		}
+
 		return ModelInfo{}, wrapped
 	}
+
 	model := PinnedModel
 	model.ID = modelID
+
 	return model, nil
 }

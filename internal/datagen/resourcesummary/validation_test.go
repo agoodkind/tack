@@ -142,7 +142,9 @@ func TestSummarizeHostRejectsInvalidMeasurements(t *testing.T) {
 	windowStart := time.Date(2026, time.January, 1, 0, 0, 0, 0, time.UTC)
 	window := resourcesummary.Window{Start: windowStart, End: windowStart.Add(time.Minute)}
 	for _, scenario := range cases {
-		t.Run(scenario.name, func(t *testing.T) {
+		t.Run(
+			scenario.name,
+			func(t *testing.T) {
 			path := writeChangedFixture(t, samplerFixture, scenario.change)
 
 			got, err := resourcesummary.SummarizeHost(t.Context(), path, window, searchGuestID)
@@ -153,6 +155,7 @@ func TestSummarizeHostRejectsInvalidMeasurements(t *testing.T) {
 			if err.Error() != scenario.wantError {
 				t.Errorf("error = %q, want %q", err.Error(), scenario.wantError)
 			}
-		})
+			},
+		)
 	}
 }

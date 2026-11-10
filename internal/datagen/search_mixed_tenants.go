@@ -31,7 +31,10 @@ func selectSearchMixedTenants(identities Identities) []*searchMixedTenant {
 			continue
 		}
 		seen[workspace.OrgID] = struct{}{}
-		tenants = append(tenants, &searchMixedTenant{workspace: workspace, project: strings.ToUpper(opaqueKey("m"))})
+		tenants = append(
+			tenants,
+			&searchMixedTenant{workspace: workspace, project: strings.ToUpper(opaqueKey("m"))},
+		)
 	}
 	return tenants
 }
@@ -44,13 +47,31 @@ func (m *searchMixed) createProjects(ctx context.Context) error {
 	for index, tenant := range m.tenants {
 		properties := newProperties()
 		properties.setString("identifier", tenant.project)
-		result, err := m.driver(index).Call(ctx, tenant.token(), "tack_create_project", ToolArguments{
-			WorkspaceReference: tenant.entry(), ProjectReference: "", IssueReference: "",
-			Name: "Search mixed load " + m.runKey, Properties: properties, NodeID: "", Query: "", NodeType: "",
-			Direction: "", SourceID: "", RelationType: "", TargetID: "",
-		})
+		result, err := m.driver(index).Call(
+			ctx,
+			tenant.token(),
+			"tack_create_project",
+			ToolArguments{
+				WorkspaceReference: tenant.entry(),
+				ProjectReference:   "",
+				IssueReference:     "",
+				Name:               "Search mixed load " + m.runKey,
+				Properties:         properties,
+				NodeID:             "",
+				Query:              "",
+				NodeType:           "",
+				Direction:          "",
+				SourceID:           "",
+				RelationType:       "",
+				TargetID:           "",
+			},
+		)
 		if err != nil {
-			return loggedError(ctx, "qa datagen search-mixed: the command could not create a project in "+tenant.entry(), err)
+			return loggedError(
+				ctx,
+				"qa datagen search-mixed: the command could not create a project in "+tenant.entry(),
+				err,
+			)
 		}
 		if err := m.registerCreated(ctx, result); err != nil {
 			return err
@@ -69,21 +90,40 @@ func (m *searchMixed) newSearchMixedLoads(ctx context.Context, plannedSearches i
 			continue
 		}
 		planned := int(m.options.Duration * time.Duration(rate) / time.Minute)
-		queries, err := newSearchLoadQueries(ctx, m.options.Seed+int64(index), tenant.workspace, max(planned, 1))
+		queries, err := newSearchLoadQueries(
+			ctx,
+			m.options.Seed+int64(index),
+			tenant.workspace,
+			max(planned, 1),
+		)
 		if err != nil {
 			return err
 		}
-		m.loads = append(m.loads, &searchLoad{
-			drivers: []*Driver{m.driver(index)}, token: tenant.token(), entry: tenant.entry(),
+		m.loads = append(
+			m.loads,
+			&searchLoad{
+				drivers: []*Driver{m.driver(index)},
+				token:   tenant.token(),
+				entry:   tenant.entry(),
 			options: SearchLoadOptions{
-				Seed: m.options.Seed, Rate: rate, Duration: m.options.Duration,
-				Concurrency: share(m.options.Concurrency, count, index), Commit: true,
+					Seed:        m.options.Seed,
+					Rate:        rate,
+					Duration:    m.options.Duration,
+					Concurrency: share(m.options.Concurrency, count, index),
+					Commit:      true,
 			},
-			queries: queries, stats: m.loadStats,
-		})
+				queries: queries,
+				stats:   m.loadStats,
+			},
+		)
 	}
 	if len(m.loads) == 0 {
-		return fmt.Errorf("qa datagen search-mixed: rate %d does not schedule any searches for %d tenants with %d planned searches", m.options.Rate, count, plannedSearches)
+		return fmt.Errorf(
+			"qa datagen search-mixed: rate %d does not schedule any searches for %d tenants with %d planned searches",
+			m.options.Rate,
+			count,
+			plannedSearches,
+		)
 	}
 	return nil
 }

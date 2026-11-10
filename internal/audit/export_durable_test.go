@@ -41,18 +41,29 @@ func TestAnExportRefusesToPublishRowsItCouldNotMakeDurable(t *testing.T) {
 		if index != rows-1 {
 			return
 		}
+
 		if renameErr := os.Rename(dir, moved); renameErr != nil {
 			t.Errorf("take the bundle directory away: %v", renameErr)
 		}
 	}
 
-	manifest, err := Export(context.Background(), exportTestRows(t, orgID, rows, takeTheDirectoryAway),
-		privateKey, "ed25519:test", exportTestFilter(orgID), dir)
+	manifest, err := Export(
+		context.Background(),
+		exportTestRows(t, orgID, rows, takeTheDirectoryAway),
+		privateKey,
+		"ed25519:test",
+		exportTestFilter(orgID),
+		dir,
+	)
 	if err == nil {
 		t.Fatalf("the export reported success for rows it could not make durable: %+v", manifest)
 	}
+
 	if !strings.Contains(err.Error(), "sync dir") {
-		t.Fatalf("err = %v, want the export stopped at the durability barrier before publishing", err)
+		t.Fatalf(
+			"err = %v, want the export stopped at the durability barrier before publishing",
+			err,
+		)
 	}
 
 	// The export must not publish a manifest for rows without a durable directory
@@ -60,6 +71,7 @@ func TestAnExportRefusesToPublishRowsItCouldNotMakeDurable(t *testing.T) {
 	if _, statErr := os.Stat(filepath.Join(moved, exportManifestFile)); statErr == nil {
 		t.Fatal("the export published a manifest for rows it could not make durable")
 	}
+
 	if _, statErr := os.Stat(filepath.Join(dir, exportManifestFile)); statErr == nil {
 		t.Fatal("the export published a manifest into a directory it had already lost")
 	}
@@ -79,18 +91,27 @@ func TestAnExportPublishesRowsAndManifestThatBothSurvive(t *testing.T) {
 		t.Fatalf("generate key: %v", err)
 	}
 
-	manifest, err := Export(context.Background(), exportTestRows(t, orgID, 50, nil),
-		privateKey, "ed25519:test", exportTestFilter(orgID), dir)
+	manifest, err := Export(
+		context.Background(),
+		exportTestRows(t, orgID, 50, nil),
+		privateKey,
+		"ed25519:test",
+		exportTestFilter(orgID),
+		dir,
+	)
 	if err != nil {
 		t.Fatalf("the durability barriers failed the export on this filesystem: %v", err)
 	}
+
 	if _, statErr := os.Stat(filepath.Join(dir, manifest.EventsFile)); statErr != nil {
 		t.Fatalf("the published rows are missing: %v", statErr)
 	}
+
 	report, err := VerifyBundle(dir, publicKey)
 	if err != nil {
 		t.Fatalf("verify: %v", err)
 	}
+
 	if verdict := report.Err(); verdict != nil {
 		t.Fatalf("the bundle written through the durability barriers does not verify: %v", verdict)
 	}

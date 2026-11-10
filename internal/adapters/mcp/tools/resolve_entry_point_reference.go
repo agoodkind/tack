@@ -14,7 +14,9 @@ func (r *Resolver) livesUnderEntryPoint(nt *node.NodeType) bool {
 	if len(nt.CanLiveUnder) == 0 {
 		return false
 	}
+
 	parent := r.typeIndex[nt.CanLiveUnder[0]]
+
 	return parent != nil && parent.Features.Has(node.FeatureIsEntryPoint)
 }
 
@@ -33,5 +35,13 @@ func (r *Resolver) resolveEntryPointScopedReference(
 	if err != nil {
 		return uuid.Nil, err
 	}
-	return r.resolveNodeWithinScope(ctx, entryPoint.OrgID, entryPoint.ID, nt.TypeKey, propName, localRef)
+
+	return r.resolveNodeWithinScope(
+		ctx,
+		entryPoint.OrgID,
+		entryPoint.ID,
+		nt.TypeKey,
+		propName,
+		localRef,
+	)
 }

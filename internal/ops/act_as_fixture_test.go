@@ -43,12 +43,19 @@ func newActAsFixture(t *testing.T, operatorFlags []string) actAsFixture {
 	pool := testenv.LedgerPool(t, testenv.Ledger(t))
 	stores := actAsStores(t)
 	nodes, err := service.NewNodeService(
-		stores.Nodes, stores.Views, stores.NodeTypes, stores.PropertyDefs,
-		stores.Relationships, stores.NodeDeleter, postgres.NewOrgMemberRepo(pool), stores.Relationships,
+		stores.Nodes,
+		stores.Views,
+		stores.NodeTypes,
+		stores.PropertyDefs,
+		stores.Relationships,
+		stores.NodeDeleter,
+		postgres.NewOrgMemberRepo(pool),
+		stores.Relationships,
 	)
 	if err != nil {
 		t.Fatalf("build the node service: %v", err)
 	}
+
 	orgID := writeActAsOrg(t, stores, "act-as-member-org")
 	outsideOrgID := writeActAsOrg(t, stores, "act-as-outside-org")
 	workspaceID := createActAsScope(t, nodes, "workspace", "Main", orgID)
@@ -56,48 +63,85 @@ func newActAsFixture(t *testing.T, operatorFlags []string) actAsFixture {
 	users := postgres.NewUserRepo(pool)
 	members := postgres.NewOrgMemberRepo(pool)
 	member := seedActAsMember(t, pool, users, members, orgID)
+
 	return actAsFixture{
 		deps: actAsDeps{
-			outbox: audit.NewPoolOutbox(pool), identity: flagOperatorSource(t, operatorFlags),
-			users: users, members: members, reader: stores.Views, nodes: nodes,
+			outbox:   audit.NewPoolOutbox(pool),
+			identity: flagOperatorSource(t, operatorFlags),
+			users:    users,
+			members:  members,
+			reader:   stores.Views,
+			nodes:    nodes,
 		},
-		pool: pool, stores: stores, user: member, orgID: orgID,
-		parentID: projectID, outsideParentID: outsideOrgID,
+		pool:            pool,
+		stores:          stores,
+		user:            member,
+		orgID:           orgID,
+		parentID:        projectID,
+		outsideParentID: outsideOrgID,
 	}
 }
 
 // seedActAsMember creates a user with a unique email and adds the user to orgID
 // through the production repositories. Test cleanup deletes the user and
 // membership.
-func seedActAsMember(t *testing.T, pool *pgxpool.Pool, users *postgres.UserRepo, members *postgres.OrgMemberRepo, orgID uuid.UUID) *user.User {
+func seedActAsMember(
+	t *testing.T,
+	pool *pgxpool.Pool,
+	users *postgres.UserRepo,
+	members *postgres.OrgMemberRepo,
+	orgID uuid.UUID,
+) *user.User {
 	t.Helper()
-	created, err := users.Create(actAsFixtureContext(t), &user.User{
-		ID: uuid.Must(uuid.NewV7()), Email: "act-as-" + uuid.NewString()[:8] + "@example.test",
-		DisplayName: "Member", AvatarURL: nil,
-	})
+	created, err := users.Create(
+		actAsFixtureContext(t),
+		&user.User{
+			ID:          uuid.Must(uuid.NewV7()),
+			Email:       "act-as-" + uuid.NewString()[:8] + "@example.test",
+			DisplayName: "Member",
+			AvatarURL:   nil,
+		},
+	)
 	if err != nil {
 		t.Fatalf("create the member user: %v", err)
 	}
+
 	t.Cleanup(func() {
-		_, _ = pool.Exec(context.WithoutCancel(t.Context()), `DELETE FROM users WHERE id = $1`, created.ID)
+		_, _ = pool.Exec(
+			context.WithoutCancel(t.Context()),
+			`DELETE FROM users WHERE id = $1`,
+			created.ID,
+		)
 	})
 	membership := &org.Member{ID: uuid.Nil, OrgID: orgID, UserID: created.ID, Role: actAsMemberRole}
 	if err := members.AddMember(actAsFixtureContext(t), membership); err != nil {
 		t.Fatalf("add the member to org %s: %v", orgID, err)
 	}
+
 	return created
 }
 
 func actAsInput(f actAsFixture, email, reason string) actAsCreateInput {
-	return actAsCreateInput{Email: email, Reason: reason, ParentID: f.parentID.String(), NodeType: "issue", Name: "Fix the board"}
+	return actAsCreateInput{
+		Email:    email,
+		Reason:   reason,
+		ParentID: f.parentID.String(),
+		NodeType: "issue",
+		Name:     "Fix the board",
+	}
 }
 
 // actAsGrantRows reads the fixture user's grant events from the operator
 // outbox.
 func actAsGrantRows(t *testing.T, f actAsFixture) []audit.Event {
 	t.Helper()
-	filter := opsoutbox.Filter{Verb: audit.VerbOpsActAsGrant, Path: []string{"entity", "id"}, Value: f.user.ID.String()}
+	filter := opsoutbox.Filter{
+		Verb:  audit.VerbOpsActAsGrant,
+		Path:  []string{"entity", "id"},
+		Value: f.user.ID.String(),
+	}
 	deleteOutboxRowsAfterTest(t, f.pool, filter)
+
 	return opsoutbox.Events(t, f.pool, filter)
 }
 
@@ -109,14 +153,17 @@ func actAsCreatedNode(t *testing.T, f actAsFixture, report *bytes.Buffer) *node.
 	if err := json.Unmarshal(report.Bytes(), &result); err != nil {
 		t.Fatalf("decode the report: %v\n%s", err, report.String())
 	}
+
 	nodeID, err := uuid.Parse(result.NodeID)
 	if err != nil {
 		t.Fatalf("report node_id %q: %v", result.NodeID, err)
 	}
+
 	view, err := f.stores.Views.Get(t.Context(), nodeID)
 	if err != nil || view == nil {
 		t.Fatalf("read node %s back: view %+v, err %v", nodeID, view, err)
 	}
+
 	return view
 }
 
@@ -125,14 +172,17 @@ func actAsCreatedNode(t *testing.T, f actAsFixture, report *bytes.Buffer) *node.
 func actAsUserRow(t *testing.T, f actAsFixture, nodeID uuid.UUID) audit.Event {
 	t.Helper()
 	var matches []audit.Event
+
 	for _, row := range actAsOutboxRows(t, f.stores) {
 		if row.Verb == string(audit.VerbNodeCreate) && row.Entity.ID == nodeID {
 			matches = append(matches, row)
 		}
 	}
+
 	if len(matches) != 1 {
 		t.Fatalf("node.create rows for %s = %+v, want one", nodeID, matches)
 	}
+
 	return matches[0]
 }
 
@@ -145,6 +195,7 @@ func actAsRowProvenance(t *testing.T, row audit.Event) audit.ActProvenance {
 	if err := json.Unmarshal(row.Extra, &extra); err != nil {
 		t.Fatalf("decode the user row's extra: %v", err)
 	}
+
 	return extra.ActAs
 }
 
@@ -158,14 +209,20 @@ func requireNoActAsWrite(t *testing.T, f actAsFixture) {
 	t.Helper()
 	grants := actAsGrantRows(t, f)
 	var userRows []audit.Event
+
 	for _, row := range actAsOutboxRows(t, f.stores) {
 		if row.Actor.ID == f.user.ID {
 			userRows = append(userRows, row)
 		}
 	}
+
 	issues := actAsIssues(t, f.stores, f.orgID)
 	if len(grants) != 0 || len(userRows) != 0 || len(issues) != 0 {
-		t.Fatalf("recorded %d grant rows and %d user rows and created %d issues, want none",
-			len(grants), len(userRows), len(issues))
+		t.Fatalf(
+			"recorded %d grant rows and %d user rows and created %d issues, want none",
+			len(grants),
+			len(userRows),
+			len(issues),
+		)
 	}
 }

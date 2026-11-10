@@ -18,13 +18,15 @@ type MemoryRecorder struct {
 
 func NewMemoryRecorder() *MemoryRecorder { return &MemoryRecorder{} }
 
-func (m *MemoryRecorder) Record(_ context.Context, ev Event) error {
-	if ev.OccurredAt.IsZero() {
-		ev.OccurredAt = clock.Now().UTC()
+func (m *MemoryRecorder) Record(_ context.Context, event Event) error {
+	if event.OccurredAt.IsZero() {
+		event.OccurredAt = clock.Now().UTC()
 	}
+
 	m.mu.Lock()
-	m.events = append(m.events, ev)
+	m.events = append(m.events, event)
 	m.mu.Unlock()
+
 	return nil
 }
 
@@ -40,6 +42,7 @@ func (m *MemoryRecorder) Events() []Event {
 	defer m.mu.Unlock()
 	out := make([]Event, len(m.events))
 	copy(out, m.events)
+
 	return out
 }
 
@@ -84,9 +87,11 @@ type UnwiredRecorder struct{}
 //   - The return value always equals ErrRecorderUnwired.
 //   - The log event uses audit.recorder_unwired.
 func (UnwiredRecorder) Record(_ context.Context, ev Event) error {
-	slog.Error("audit.recorder_unwired",
+	slog.Error(
+		"audit.recorder_unwired",
 		slog.String("verb", ev.Verb),
 		slog.String("err", ErrRecorderUnwired.Error()),
 	)
+
 	return ErrRecorderUnwired
 }

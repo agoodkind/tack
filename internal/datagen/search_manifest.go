@@ -85,7 +85,10 @@ type searchManifestSource struct {
 //
 //   - Semantic queries identify expected ranked targets.
 //   - Continuation and final-page queries identify exact expected nodes.
-func PrepareSearchManifest(ctx context.Context, cfg *config.Config, seed int64, corpus []byte) (SearchManifest, error) {
+func PrepareSearchManifest(ctx context.Context, cfg *config.Config, seed int64, corpus []byte) (
+	SearchManifest,
+	error,
+) {
 	if err := ValidateTarget(cfg); err != nil {
 		return SearchManifest{}, err
 	}
@@ -104,14 +107,23 @@ func PrepareSearchManifest(ctx context.Context, cfg *config.Config, seed int64, 
 	}
 	defer closeMembers()
 	manifest := SearchManifest{
-		OrgID: workspace.OrgID, WorkspaceReference: workspace.Slug,
-		ActorEmail: workspace.Actors[0].Email, CorpusSHA256: approvedSearchCorpusSHA256,
-		Nodes:      make([]SearchManifestNode, 0, len(rows)+searchContinuationNodes+2),
-		Cases:      make([]SearchManifestCase, 0, 8),
-		Types:      make([]SearchManifestType, 0, 3),
-		Properties: make([]SearchManifestProperty, 0, 6),
+		OrgID:              workspace.OrgID,
+		WorkspaceReference: workspace.Slug,
+		ActorEmail:         workspace.Actors[0].Email,
+		CorpusSHA256:       approvedSearchCorpusSHA256,
+		Nodes:              make([]SearchManifestNode, 0, len(rows)+searchContinuationNodes+2),
+		Cases:              make([]SearchManifestCase, 0, 8),
+		Types:              make([]SearchManifestType, 0, 3),
+		Properties:         make([]SearchManifestProperty, 0, 6),
 	}
-	if err := prepareSemanticManifest(ctx, stores, members, workspace, rows, &manifest); err != nil {
+	if err := prepareSemanticManifest(
+		ctx,
+		stores,
+		members,
+		workspace,
+		rows,
+		&manifest,
+	); err != nil {
 		return manifest, err
 	}
 	if err := prepareTraversalManifest(ctx, stores, members, workspace, &manifest); err != nil {
@@ -127,18 +139,29 @@ func loadApprovedSearchCorpus(ctx context.Context, corpus []byte) ([]searchManif
 	}
 	digest := sha256.Sum256(contents)
 	if hex.EncodeToString(digest[:]) != approvedSearchCorpusSHA256 {
-		return nil, fmt.Errorf("qa datagen: semantic corpus %q does not match approved SHA256", source)
+		return nil, fmt.Errorf(
+			"qa datagen: semantic corpus %q does not match approved SHA256",
+			source,
+		)
 	}
 	var rows []searchManifestSource
 	if err := json.Unmarshal(contents, &rows); err != nil {
-		return nil, loggedError(ctx, fmt.Sprintf("qa datagen: decode semantic corpus %q", source), err)
+		return nil, loggedError(
+			ctx,
+			fmt.Sprintf("qa datagen: decode semantic corpus %q", source),
+			err,
+		)
 	}
 	return rows, nil
 }
 
 func prepareSemanticManifest(
-	ctx context.Context, stores *fdbadapter.Stores, members org.MemberRepository, workspace WorkspaceIdentity,
-	rows []searchManifestSource, manifest *SearchManifest,
+	ctx context.Context,
+	stores *fdbadapter.Stores,
+	members org.MemberRepository,
+	workspace WorkspaceIdentity,
+	rows []searchManifestSource,
+	manifest *SearchManifest,
 ) error {
 	fixture, err := newSearchFixtureWithManifest(ctx, stores, members, workspace, manifest)
 	if err != nil {
@@ -157,9 +180,16 @@ func prepareSemanticManifest(
 		}
 	}
 	for position, query := range queries {
-		manifest.Cases = append(manifest.Cases, SearchManifestCase{
-			Query: query, NodeType: fixture.typeKey, ExpectedIDs: targets[position], Match: "ranked_targets", RankLimit: 25,
-		})
+		manifest.Cases = append(
+			manifest.Cases,
+			SearchManifestCase{
+				Query:       query,
+				NodeType:    fixture.typeKey,
+				ExpectedIDs: targets[position],
+				Match:       "ranked_targets",
+				RankLimit:   25,
+			},
+		)
 	}
 	return nil
 }

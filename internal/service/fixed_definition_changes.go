@@ -67,22 +67,43 @@ type FixedNodeTypeChange struct {
 // assigns a new projection. definitionChange compares the Search pointers
 // to detect a Search change and uses [slices.Equal] to detect an
 // AppliesToFeatures change.
-func definitionChange(outcome FixedOutcome, stored, corrected *node.PropertyDef) FixedDefinitionChange {
+func definitionChange(
+	outcome FixedOutcome,
+	stored *node.PropertyDef,
+	corrected *node.PropertyDef,
+) FixedDefinitionChange {
 	change := FixedDefinitionChange{
-		OrgID: stored.OrgID, PropertyDefID: stored.ID, Name: stored.Name, Outcome: outcome, Search: nil, AppliesToFeatures: nil,
+		OrgID:             stored.OrgID,
+		PropertyDefID:     stored.ID,
+		Name:              stored.Name,
+		Outcome:           outcome,
+		Search:            nil,
+		AppliesToFeatures: nil,
 	}
 	if stored.Search != corrected.Search {
 		change.Search = &FixedSearchChange{Before: stored.Search, After: corrected.Search}
 	}
+
 	if !slices.Equal(stored.AppliesToFeatures, corrected.AppliesToFeatures) {
-		change.AppliesToFeatures = &FixedListChange{Before: stored.AppliesToFeatures, After: corrected.AppliesToFeatures}
+		change.AppliesToFeatures = &FixedListChange{
+			Before: stored.AppliesToFeatures,
+			After:  corrected.AppliesToFeatures,
+		}
 	}
+
 	return change
 }
 
 func nodeTypeChange(outcome FixedOutcome, stored, corrected *node.NodeType) FixedNodeTypeChange {
 	return FixedNodeTypeChange{
-		OrgID: stored.OrgID, NodeTypeID: stored.ID, TypeKey: stored.TypeKey, Outcome: outcome,
-		CanLiveUnder: FixedListChange{Before: stored.CanLiveUnder, After: corrected.CanLiveUnder}, Reason: "",
+		OrgID:      stored.OrgID,
+		NodeTypeID: stored.ID,
+		TypeKey:    stored.TypeKey,
+		Outcome:    outcome,
+		CanLiveUnder: FixedListChange{
+			Before: stored.CanLiveUnder,
+			After:  corrected.CanLiveUnder,
+		},
+		Reason: "",
 	}
 }

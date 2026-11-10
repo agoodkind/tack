@@ -93,7 +93,9 @@ func TestSummarizeRunRejectsInvalidTotals(t *testing.T) {
 		},
 	}
 	for _, scenario := range cases {
-		t.Run(scenario.name, func(t *testing.T) {
+		t.Run(
+			scenario.name,
+			func(t *testing.T) {
 			path := writeChangedFixture(t, runLogFixture, scenario.change)
 
 			got, err := resourcesummary.SummarizeRun(t.Context(), path)
@@ -104,6 +106,7 @@ func TestSummarizeRunRejectsInvalidTotals(t *testing.T) {
 			if err.Error() != scenario.wantError {
 				t.Errorf("error = %q, want %q", err.Error(), scenario.wantError)
 			}
-		})
+			},
+		)
 	}
 }

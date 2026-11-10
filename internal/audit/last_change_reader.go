@@ -45,6 +45,7 @@ func (filter NodeHistoryFilter) rowLimit() int {
 	if filter.rowLimitOverride <= 0 || filter.rowLimitOverride > LastChangeRowLimit {
 		return LastChangeRowLimit
 	}
+
 	return filter.rowLimitOverride
 }
 
@@ -77,20 +78,29 @@ type historyPosition struct {
 //	if err == nil && read.Truncated {
 //		cursor = read.NextCursor
 //	}
-func (r *Reader) ReadNodeHistory(ctx context.Context, filter NodeHistoryFilter, cursor string, visit func(Row) error) (NodeHistoryRead, error) {
+func (r *Reader) ReadNodeHistory(
+	ctx context.Context,
+	filter NodeHistoryFilter,
+	cursor string,
+	visit func(Row) error,
+) (NodeHistoryRead, error) {
 	result := NodeHistoryRead{RowsRead: 0, Truncated: false, NextCursor: ""}
 	if err := r.checkNodeHistoryFilter(filter); err != nil {
 		return result, err
 	}
+
 	position := historyPosition{eventTime: filter.Latest, seq: 0, eventID: uuid.Nil}
 	if cursor != "" {
 		resumed, err := unmarshalHistoryCursor(ctx, cursor)
 		if err != nil {
 			return result, err
 		}
+
 		position = resumed
 	}
+
 	rowLimit := filter.rowLimit()
+
 	for {
 		// The extra row is a probe. It separates a read of exactly rowLimit
 		// rows from a truncated read, and the loop below returns at the probe
@@ -100,19 +110,35 @@ func (r *Reader) ReadNodeHistory(ctx context.Context, filter NodeHistoryFilter, 
 		if err != nil {
 			return result, err
 		}
+
 		for _, row := range rows {
 			if result.RowsRead == rowLimit {
 				result.Truncated = true
 				result.NextCursor = marshalHistoryCursor(position)
+
 				return result, nil
 			}
+
 			if err := visit(row); err != nil {
-				slog.ErrorContext(ctx, "audit.node_history.visit_failed", slog.String("event_id", row.EventID.String()), slog.String("err", err.Error()))
-				return result, fmt.Errorf("read the history of node %s: row %s: %w", filter.NodeID, row.EventID, err)
+				slog.ErrorContext(
+					ctx,
+					"audit.node_history.visit_failed",
+					slog.String("event_id", row.EventID.String()),
+					slog.String("err", err.Error()),
+				)
+
+				return result, fmt.Errorf(
+					"read the history of node %s: row %s: %w",
+					filter.NodeID,
+					row.EventID,
+					err,
+				)
 			}
+
 			result.RowsRead++
 			position = historyPosition{eventTime: row.EventTime, seq: row.Seq, eventID: row.EventID}
 		}
+
 		if len(rows) < limit {
 			return result, nil
 		}
@@ -123,36 +149,71 @@ func (r *Reader) checkNodeHistoryFilter(filter NodeHistoryFilter) error {
 	if r == nil || r.pool == nil {
 		return errors.New("audit reader not configured")
 	}
+
 	if filter.OrgID == uuid.Nil || filter.NodeID == uuid.Nil {
 		return errors.New("audit node history: org_id and node_id required")
 	}
+
 	if filter.Oldest.IsZero() || !filter.Latest.After(filter.Oldest) {
 		return errors.New("audit node history: latest must be after oldest")
 	}
+
 	return nil
 }
 
 // nodeHistoryPage reads at most limit rows that precede position.
-func (r *Reader) nodeHistoryPage(ctx context.Context, filter NodeHistoryFilter, position historyPosition, limit int) ([]Row, error) {
-	rows, err := r.pool.Rows(r.pool.unsanitized.Query(ctx, nodeHistoryPageStatement,
-		filter.OrgID, filter.NodeID, filter.NodeID.String(), filter.Oldest,
-		position.eventTime, position.seq, position.eventID, limit))
+func (r *Reader) nodeHistoryPage(
+	ctx context.Context,
+	filter NodeHistoryFilter,
+	position historyPosition,
+	limit int,
+) ([]Row, error) {
+	rows, err := r.pool.Rows(
+		r.pool.unsanitized.Query(
+			ctx,
+			nodeHistoryPageStatement,
+			filter.OrgID,
+			filter.NodeID,
+			filter.NodeID.String(),
+			filter.Oldest,
+			position.eventTime,
+			position.seq,
+			position.eventID,
+			limit,
+		),
+	)
 	if err != nil {
-		slog.ErrorContext(ctx, "audit.node_history.query_failed", slog.String("node_id", filter.NodeID.String()), slog.String("err", err.Error()))
+		slog.ErrorContext(
+			ctx,
+			"audit.node_history.query_failed",
+			slog.String("node_id", filter.NodeID.String()),
+			slog.String("err", err.Error()),
+		)
+
 		return nil, fmt.Errorf("query the history of node %s: %w", filter.NodeID, err)
 	}
 	defer rows.Close()
 	page := make([]Row, 0, limit)
+
 	for rows.Next() {
 		row, err := readAuditRow(rows)
 		if err != nil {
 			return nil, err
 		}
+
 		page = append(page, row)
 	}
+
 	if err := rows.Err(); err != nil {
-		slog.ErrorContext(ctx, "audit.node_history.rows_failed", slog.String("node_id", filter.NodeID.String()), slog.String("err", err.Error()))
+		slog.ErrorContext(
+			ctx,
+			"audit.node_history.rows_failed",
+			slog.String("node_id", filter.NodeID.String()),
+			slog.String("err", err.Error()),
+		)
+
 		return nil, fmt.Errorf("read the history rows of node %s: %w", filter.NodeID, err)
 	}
+
 	return page, nil
 }

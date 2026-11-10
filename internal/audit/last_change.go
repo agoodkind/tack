@@ -101,14 +101,17 @@ func ValidateFieldPath(path string) error {
 	if !strings.HasPrefix(path, "/") {
 		return fmt.Errorf("field path %q must start with /", path)
 	}
+
 	for position := range len(path) {
 		if path[position] != '~' {
 			continue
 		}
+
 		if position+1 >= len(path) || (path[position+1] != '0' && path[position+1] != '1') {
 			return fmt.Errorf("field path %q has a ~ that does not start ~0 or ~1", path)
 		}
 	}
+
 	return nil
 }
 

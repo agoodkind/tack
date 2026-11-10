@@ -31,7 +31,11 @@ func retentionFDBTestConfig(t *testing.T, cfg *config.Config) string {
 	return retentionFDBTestConfigWithKnobs(t, cfg, nil)
 }
 
-func retentionFDBTestConfigWithKnobs(t *testing.T, cfg *config.Config, knobs map[string]string) string {
+func retentionFDBTestConfigWithKnobs(
+	t *testing.T,
+	cfg *config.Config,
+	knobs map[string]string,
+) string {
 	t.Helper()
 	cluster := testenv.FreshFoundationDBWithKnobs(t, knobs)
 	cfg.BackupFDBImage = "foundationdb/foundationdb:7.4.6"
@@ -63,22 +67,43 @@ func retentionFDBTestAgent(t *testing.T, cluster string) {
 		t.Fatal(err)
 	}
 	defer cli.Close()
-	created, err := cli.ExecCreate(t.Context(), testenv.FoundationDBContainer(cluster), client.ExecCreateOptions{
-		Cmd: []string{"backup_agent", "-C", "/var/fdb/fdb.cluster", "--logdir", "/var/fdb/logs"},
-	})
+	created, err := cli.ExecCreate(
+		t.Context(),
+		testenv.FoundationDBContainer(cluster),
+		client.ExecCreateOptions{
+			Cmd: []string{
+				"backup_agent",
+				"-C",
+				"/var/fdb/fdb.cluster",
+				"--logdir",
+				"/var/fdb/logs",
+			},
+		},
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := cli.ExecStart(t.Context(), created.ID, client.ExecStartOptions{Detach: true}); err != nil {
+	if _, err := cli.ExecStart(
+		t.Context(),
+		created.ID,
+		client.ExecStartOptions{Detach: true},
+	); err != nil {
 		t.Fatal(err)
 	}
 }
 
 func retentionFDBTestURL(cfg *config.Config, name string) string {
-	query := url.Values{"bucket": {cfg.BackupS3BucketMain}, "region": {cfg.BackupS3Region}, "secure_connection": {"0"}}
+	query := url.Values{
+		"bucket":            {cfg.BackupS3BucketMain},
+		"region":            {cfg.BackupS3Region},
+		"secure_connection": {"0"},
+	}
 	destination := url.URL{
-		Scheme: "blobstore", Host: strings.TrimPrefix(cfg.BackupS3Endpoint, "http://"), Path: "/" + name,
-		User: url.UserPassword(cfg.BackupS3AccessKey, cfg.BackupS3SecretKey), RawQuery: query.Encode(),
+		Scheme:   "blobstore",
+		Host:     strings.TrimPrefix(cfg.BackupS3Endpoint, "http://"),
+		Path:     "/" + name,
+		User:     url.UserPassword(cfg.BackupS3AccessKey, cfg.BackupS3SecretKey),
+		RawQuery: query.Encode(),
 	}
 	return destination.String()
 }
@@ -88,29 +113,62 @@ func retentionFDBTestStart(t *testing.T, cfg *config.Config, cluster string) str
 	return retentionFDBTestStartEvery(t, cfg, cluster, "5")
 }
 
-func retentionFDBTestStartEvery(t *testing.T, cfg *config.Config, cluster, snapshotSeconds string) string {
+func retentionFDBTestStartEvery(
+	t *testing.T,
+	cfg *config.Config,
+	cluster string,
+	snapshotSeconds string,
+) string {
 	t.Helper()
 	name := time.Now().UTC().Format("20060102T150405Z")
-	retentionFDBTestExec(t, cfg, cluster, []string{
-		"fdbbackup", "start", "-C", "/var/fdb/fdb.cluster",
-		"-d", retentionFDBTestURL(cfg, name), "-z", "--snapshot-interval", snapshotSeconds,
-	})
+	retentionFDBTestExec(
+		t,
+		cfg,
+		cluster,
+		[]string{
+			"fdbbackup",
+			"start",
+			"-C",
+			"/var/fdb/fdb.cluster",
+			"-d",
+			retentionFDBTestURL(cfg, name),
+			"-z",
+			"--snapshot-interval",
+			snapshotSeconds,
+		},
+	)
 	return name
 }
 
 // retentionFDBTestWindow waits until backup name supports restoration past
 // version after. It returns the restorable versions from describe without
 // --version-timestamps.
-func retentionFDBTestWindow(t *testing.T, cfg *config.Config, cluster, name string, after int64) retentionFDBWindow {
+func retentionFDBTestWindow(
+	t *testing.T,
+	cfg *config.Config,
+	cluster string,
+	name string,
+	after int64,
+) retentionFDBWindow {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(t.Context(), 4*time.Minute)
 	defer cancel()
 	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
 	for {
-		output := retentionFDBTestExec(t, cfg, cluster, []string{
-			"fdbbackup", "describe", "-d", retentionFDBTestURL(cfg, name), "-C", "/var/fdb/fdb.cluster",
-		})
+		output := retentionFDBTestExec(
+			t,
+			cfg,
+			cluster,
+			[]string{
+				"fdbbackup",
+				"describe",
+				"-d",
+				retentionFDBTestURL(cfg, name),
+				"-C",
+				"/var/fdb/fdb.cluster",
+			},
+		)
 		minVersion, maxVersion, restorable, err := ops.RestorableVersionsFromDescribe(output)
 		if err != nil {
 			t.Fatalf("read the restorable window of backup %s: %v", name, err)
@@ -120,13 +178,22 @@ func retentionFDBTestWindow(t *testing.T, cfg *config.Config, cluster, name stri
 		}
 		select {
 		case <-ctx.Done():
-			t.Fatalf("backup %s did not establish a restorable window after version %d", name, after)
+			t.Fatalf(
+				"backup %s did not establish a restorable window after version %d",
+				name,
+				after,
+			)
 		case <-ticker.C:
 		}
 	}
 }
 
-func retentionFDBTestExec(t *testing.T, cfg *config.Config, cluster string, command []string) string {
+func retentionFDBTestExec(
+	t *testing.T,
+	cfg *config.Config,
+	cluster string,
+	command []string,
+) string {
 	t.Helper()
 	output, exitCode := retentionFDBTestExecResult(t, cfg, cluster, command)
 	if exitCode != 0 {
@@ -138,16 +205,27 @@ func retentionFDBTestExec(t *testing.T, cfg *config.Config, cluster string, comm
 // retentionFDBTestExecResult runs command in the cluster container. It returns
 // the output after redacting object store credentials, along with the exit
 // code.
-func retentionFDBTestExecResult(t *testing.T, cfg *config.Config, cluster string, command []string) (string, int) {
+func retentionFDBTestExecResult(
+	t *testing.T,
+	cfg *config.Config,
+	cluster string,
+	command []string,
+) (string, int) {
 	t.Helper()
 	cli, err := client.New(client.FromEnv)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer cli.Close()
-	created, err := cli.ExecCreate(t.Context(), testenv.FoundationDBContainer(cluster), client.ExecCreateOptions{
-		Cmd: command, AttachStdout: true, AttachStderr: true,
-	})
+	created, err := cli.ExecCreate(
+		t.Context(),
+		testenv.FoundationDBContainer(cluster),
+		client.ExecCreateOptions{
+			Cmd:          command,
+			AttachStdout: true,
+			AttachStderr: true,
+		},
+	)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -14,14 +14,21 @@ import (
 // deletion passes nil for encoded, and this function leaves the result
 // digest from write.Next unchanged. The repair deletion caller starts with
 // an empty result digest.
-func advanceMutationCheckpoint(ctx context.Context, tr fdb.Transaction, write *node.CheckpointWrite, encoded []byte) error {
+func advanceMutationCheckpoint(
+	ctx context.Context,
+	tr fdb.Transaction,
+	write *node.CheckpointWrite,
+	encoded []byte,
+) error {
 	if write == nil {
 		return nil
 	}
+
 	next := write.Next
 	if next.Phase == node.RepairPhaseCompleted && encoded != nil {
 		digest := node.PrimaryDigest(encoded)
 		next.ResultDigest = hex.EncodeToString(digest[:])
 	}
+
 	return advanceRepairCheckpoint(ctx, tr, write.Previous, next)
 }

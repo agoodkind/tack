@@ -22,18 +22,27 @@ func TestSchemaToMCPClosesAdditionalProperties(t *testing.T) {
 		s    schema
 	}{
 		{name: "empty", s: schema{}},
-		{name: "populated", s: schema{
-			Fields:   []schemaField{{Name: "a", Type: schemaString}, {Name: "b", Type: schemaObject}},
-			Required: []string{"a"},
-		}},
+		{
+			name: "populated",
+			s: schema{
+				Fields: []schemaField{
+					{Name: "a", Type: schemaString},
+					{Name: "b", Type: schemaObject},
+				},
+				Required: []string{"a"},
+			},
+		},
 	}
 	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			got := tc.s.toMCP()
-			if got.AdditionalProperties != false {
-				t.Fatalf("AdditionalProperties = %v, want false", got.AdditionalProperties)
-			}
-		})
+		t.Run(
+			tc.name,
+			func(t *testing.T) {
+				got := tc.s.toMCP()
+				if got.AdditionalProperties != false {
+					t.Fatalf("AdditionalProperties = %v, want false", got.AdditionalProperties)
+				}
+			},
+		)
 	}
 }
 
@@ -44,19 +53,30 @@ func TestUpdateToolSchemaClosesAdditionalProperties(t *testing.T) {
 	resolver := &Resolver{entryPointSlug: "workspace"}
 	tool := updateTool(issueType, "issue", "workspace_reference", resolver)
 	if tool.InputSchema.AdditionalProperties != false {
-		t.Fatalf("update tool AdditionalProperties = %v, want false", tool.InputSchema.AdditionalProperties)
+		t.Fatalf(
+			"update tool AdditionalProperties = %v, want false",
+			tool.InputSchema.AdditionalProperties,
+		)
 	}
 }
 
 // TestRejectUnknownArgsAcceptsDeclaredKeys checks that rejectUnknownArgs
 // accepts arguments when every key appears in the allowed set.
 func TestRejectUnknownArgsAcceptsDeclaredKeys(t *testing.T) {
-	req := callToolReq("tack_update_issue", map[string]any{
-		"node_id":    "OSS-71",
-		"name":       "new name",
-		"properties": map[string]any{"description": "x"},
-	})
-	allowed := map[string]struct{}{"node_id": {}, "name": {}, "properties": {}, "workspace_reference": {}}
+	req := callToolReq(
+		"tack_update_issue",
+		map[string]any{
+			"node_id":    "OSS-71",
+			"name":       "new name",
+			"properties": map[string]any{"description": "x"},
+		},
+	)
+	allowed := map[string]struct{}{
+		"node_id":             {},
+		"name":                {},
+		"properties":          {},
+		"workspace_reference": {},
+	}
 	if err := rejectUnknownArgs(req, "tack_update_issue", allowed); err != nil {
 		t.Fatalf("rejectUnknownArgs returned %v, want nil", err)
 	}
@@ -77,16 +97,26 @@ func TestRejectUnknownArgsAcceptsEmptyArguments(t *testing.T) {
 // reject a top-level description on tack_update_issue rather than silently
 // omit the supplied description.
 func TestRejectUnknownArgsRejectsUndeclaredKey(t *testing.T) {
-	req := callToolReq("tack_update_issue", map[string]any{
-		"node_id":     "OSS-71",
-		"description": "x",
-	})
-	allowed := map[string]struct{}{"node_id": {}, "name": {}, "properties": {}, "workspace_reference": {}}
+	req := callToolReq(
+		"tack_update_issue",
+		map[string]any{
+			"node_id":     "OSS-71",
+			"description": "x",
+		},
+	)
+	allowed := map[string]struct{}{
+		"node_id":             {},
+		"name":                {},
+		"properties":          {},
+		"workspace_reference": {},
+	}
 	err := rejectUnknownArgs(req, "tack_update_issue", allowed)
 	if err == nil {
 		t.Fatal("rejectUnknownArgs returned nil for unknown key")
 	}
+
 	msg := err.Error()
+
 	for _, want := range []string{
 		`"description"`,
 		"tack_update_issue",
@@ -102,16 +132,20 @@ func TestRejectUnknownArgsRejectsUndeclaredKey(t *testing.T) {
 // reports every unknown key in sorted order. The caller can correct all
 // rejected keys after one response.
 func TestRejectUnknownArgsListsAllUnknownKeysSorted(t *testing.T) {
-	req := callToolReq("tack_update_issue", map[string]any{
-		"node_id": "OSS-71",
-		"zeta":    "x",
-		"alpha":   "y",
-	})
+	req := callToolReq(
+		"tack_update_issue",
+		map[string]any{
+			"node_id": "OSS-71",
+			"zeta":    "x",
+			"alpha":   "y",
+		},
+	)
 	allowed := map[string]struct{}{"node_id": {}, "name": {}, "properties": {}}
 	err := rejectUnknownArgs(req, "tack_update_issue", allowed)
 	if err == nil {
 		t.Fatal("rejectUnknownArgs returned nil")
 	}
+
 	msg := err.Error()
 	want := `"alpha", "zeta"`
 	if !strings.Contains(msg, want) {
@@ -128,14 +162,24 @@ func TestNormalizeUpdatePropsRejectsUnknownProperty(t *testing.T) {
 	issueID := uuid.New()
 	issueType := &node.NodeType{TypeKey: "issue", Slug: "issue"}
 	existing := &node.NodeView{
-		ID: issueID, OrgID: orgID, NodeType: "issue",
-		Props: map[string]json.RawMessage{"scope_id": mustRaw(t, projectID.String())},
+		ID:       issueID,
+		OrgID:    orgID,
+		NodeType: "issue",
+		Props:    map[string]json.RawMessage{"scope_id": mustRaw(t, projectID.String())},
 	}
 	resolver := &Resolver{typeIndex: map[string]*node.NodeType{"issue": issueType}}
-	_, _, err := normalizeUpdateProps(context.Background(), NodeTypeBinding{
-		PropertyDefs: &fakePropertyDefs{defs: []*node.PropertyDef{{Name: "priority", Type: node.PropertyTypeText}}},
-		Resolver:     resolver,
-	}, issueType, existing, map[string]json.RawMessage{"descrption": mustRaw(t, "typo")})
+	_, _, err := normalizeUpdateProps(
+		context.Background(),
+		NodeTypeBinding{
+			PropertyDefs: &fakePropertyDefs{
+				defs: []*node.PropertyDef{{Name: "priority", Type: node.PropertyTypeText}},
+			},
+			Resolver: resolver,
+		},
+		issueType,
+		existing,
+		map[string]json.RawMessage{"descrption": mustRaw(t, "typo")},
+	)
 	if !errors.Is(err, domain.ErrInvalidArgument) {
 		t.Fatalf("normalizeUpdateProps unknown property err = %v, want ErrInvalidArgument", err)
 	}

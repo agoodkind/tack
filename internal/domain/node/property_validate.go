@@ -52,45 +52,76 @@ type ResultGraph struct {
 //   - The parent must belong to the same organization.
 //   - Types must contain the parent's node type.
 //   - [LivesUnder] must accept the child and parent types.
-func (s Schema) ValidateResult(typeKey string, props map[string]json.RawMessage, graph ResultGraph) PropertyResult {
+func (s Schema) ValidateResult(
+	typeKey string,
+	props map[string]json.RawMessage,
+	graph ResultGraph,
+) PropertyResult {
 	result := s.Interpret(typeKey, props)
 	nodeType := s.Types[typeKey]
 	if nodeType == nil || len(result.Failures) > 0 {
 		return result
 	}
+
 	rejected := make(map[string]bool, len(result.Invalid))
 	for _, issue := range result.Invalid {
 		rejected[issue.Property] = true
 	}
+
 	for _, definition := range s.sortedDefinitions() {
 		if !PropertyAppliesTo(definition, nodeType) || rejected[definition.Name] {
 			continue
 		}
+
 		raw, present := result.Valid[definition.Name]
 		if definition.Required && !present {
-			result.Invalid = append(result.Invalid, PropertyIssue{Property: definition.Name, Code: PropertyIssueRequired, Reason: "the property is required"})
+			result.Invalid = append(
+				result.Invalid,
+				PropertyIssue{
+					Property: definition.Name,
+					Code:     PropertyIssueRequired,
+					Reason:   "the property is required",
+				},
+			)
 			continue
 		}
-		if !present || definition.Type != PropertyTypeUUID || definition.ReferenceTargetTypeKey == "" {
+
+		if !present || definition.Type != PropertyTypeUUID ||
+			definition.ReferenceTargetTypeKey == "" {
 			continue
 		}
+
 		if reason := referenceReason(definition, raw, graph); reason != "" {
 			delete(result.Valid, definition.Name)
-			result.Invalid = append(result.Invalid, PropertyIssue{Property: definition.Name, Code: PropertyIssueReference, Reason: reason})
+			result.Invalid = append(
+				result.Invalid,
+				PropertyIssue{
+					Property: definition.Name,
+					Code:     PropertyIssueReference,
+					Reason:   reason,
+				},
+			)
 		}
 	}
+
 	if rejected[parentIDName] {
 		return result
 	}
+
 	reason, failure := s.parentReason(nodeType, props[parentIDName], graph)
 	if failure != nil {
 		result.Failures = append(result.Failures, *failure)
 		return result
 	}
+
 	if reason != "" {
 		delete(result.Valid, parentIDName)
-		result.Invalid = append(result.Invalid, PropertyIssue{Property: parentIDName, Code: PropertyIssueParent, Reason: reason})
+		result.Invalid = append(
+			result.Invalid,
+			PropertyIssue{Property: parentIDName, Code: PropertyIssueParent, Reason: reason},
+		)
 	}
+
 	return result
 }
 
@@ -103,7 +134,12 @@ func (s Schema) sortedDefinitions() []*PropertyDef {
 			definitions = append(definitions, definition)
 		}
 	}
-	slices.SortFunc(definitions, func(left, right *PropertyDef) int { return strings.Compare(left.Name, right.Name) })
+
+	slices.SortFunc(
+		definitions,
+		func(left, right *PropertyDef) int { return strings.Compare(left.Name, right.Name) },
+	)
+
 	return definitions
 }
 
@@ -115,9 +151,16 @@ func referenceReason(definition *PropertyDef, raw json.RawMessage, graph ResultG
 	if !target.Found || target.OrgID != graph.OrgID {
 		return fmt.Sprintf("the node %s does not exist in the organization", targetID)
 	}
+
 	if target.NodeType != definition.ReferenceTargetTypeKey {
-		return fmt.Sprintf("the node %s has type %q, and the definition requires type %q", targetID, target.NodeType, definition.ReferenceTargetTypeKey)
+		return fmt.Sprintf(
+			"the node %s has type %q, and the definition requires type %q",
+			targetID,
+			target.NodeType,
+			definition.ReferenceTargetTypeKey,
+		)
 	}
+
 	return ""
 }
 
@@ -125,34 +168,65 @@ func referenceReason(definition *PropertyDef, raw json.RawMessage, graph ResultG
 // do not form a valid parent for a node of nodeType. It returns an empty
 // string for a valid parent and a read failure when Types does not contain
 // the parent's node type.
-func (s Schema) parentReason(nodeType *NodeType, raw json.RawMessage, graph ResultGraph) (string, *ReadFailure) {
+func (s Schema) parentReason(
+	nodeType *NodeType,
+	raw json.RawMessage,
+	graph ResultGraph,
+) (string, *ReadFailure) {
 	if len(raw) == 0 {
 		if len(graph.ChildOf) > 0 {
-			return fmt.Sprintf("the node has child_of edges to %v without parent_id", graph.ChildOf), nil
+			return fmt.Sprintf(
+				"the node has child_of edges to %v without parent_id",
+				graph.ChildOf,
+			), nil
 		}
+
 		if len(nodeType.CanLiveUnder) > 0 {
-			return fmt.Sprintf("node type %q requires a parent of type %v", nodeType.TypeKey, nodeType.CanLiveUnder), nil
+			return fmt.Sprintf(
+				"node type %q requires a parent of type %v",
+				nodeType.TypeKey,
+				nodeType.CanLiveUnder,
+			), nil
 		}
+
 		return "", nil
 	}
+
 	parentID := resultReferenceID(raw)
 	if parentID == uuid.Nil {
 		return "the value is not a node ID", nil
 	}
+
 	if len(graph.ChildOf) != 1 || graph.ChildOf[0] != parentID {
-		return fmt.Sprintf("parent_id %s differs from the child_of edges to %v", parentID, graph.ChildOf), nil
+		return fmt.Sprintf(
+			"parent_id %s differs from the child_of edges to %v",
+			parentID,
+			graph.ChildOf,
+		), nil
 	}
+
 	parent := graph.Targets[parentID]
 	if !parent.Found || parent.OrgID != graph.OrgID {
 		return fmt.Sprintf("the parent %s does not exist in the organization", parentID), nil
 	}
+
 	parentType := s.Types[parent.NodeType]
 	if parentType == nil {
-		return "", &ReadFailure{Subject: "node type " + parent.NodeType + " of parent " + parentID.String(), Reason: "the schema does not contain it"}
+		return "", &ReadFailure{
+			Subject: "node type " + parent.NodeType + " of parent " + parentID.String(),
+			Reason:  "the schema does not contain it",
+		}
 	}
+
 	if !LivesUnder(nodeType, parentType) {
-		return fmt.Sprintf("node type %q cannot live under the parent %s of type %q", nodeType.TypeKey, parentID, parentType.TypeKey), nil
+		return fmt.Sprintf(
+			"node type %q cannot live under the parent %s of type %q",
+			nodeType.TypeKey,
+			parentID,
+			parentType.TypeKey,
+		), nil
 	}
+
 	return "", nil
 }
 
@@ -164,9 +238,11 @@ func resultReferenceID(raw json.RawMessage) uuid.UUID {
 	if json.Unmarshal(raw, &text) != nil {
 		return uuid.Nil
 	}
+
 	parsed, err := uuid.Parse(text)
 	if err != nil {
 		return uuid.Nil
 	}
+
 	return parsed
 }

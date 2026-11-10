@@ -71,13 +71,21 @@ func (run *scalingRun) waitForConsumed(t *testing.T, admin *pgxpool.Pool, topic,
 	ledgerDSN := testenv.Ledger(t)
 	reader, err := audit.NewReader(t.Context(), ledgerDSN)
 	if err != nil {
-		t.Fatalf("Opening the audit reader failed; the scaling run requires committed consumer offsets: %v", err)
+		t.Fatalf(
+			"Opening the audit reader failed; the scaling run requires committed consumer offsets: %v",
+			err,
+		)
 	}
 	defer reader.Close()
 	brokers := testenv.Kafka(t)
-	waitFor(t, "consumption of every scaling record", func() bool {
-		return run.outboxEntries(t) == 0 && outboxRecordCount(t, admin) == 0 && topicConsumed(t, reader, brokers, topic, group)
-	})
+	waitFor(
+		t,
+		"consumption of every scaling record",
+		func() bool {
+			return run.outboxEntries(t) == 0 && outboxRecordCount(t, admin) == 0 &&
+				topicConsumed(t, reader, brokers, topic, group)
+		},
+	)
 }
 
 // startCrashingRelay starts a relay that cancels its context after crashAfter
@@ -88,13 +96,19 @@ func (run *scalingRun) startCrashingRelay(t *testing.T, topic string) {
 	relayContext, crash := context.WithCancel(t.Context())
 	t.Cleanup(crash)
 	var produced atomic.Int64
-	run.openRelay(t, topic, func(context.Context, uuid.UUID) error {
-		if produced.Add(1) < int64(run.crashAfter) {
-			return nil
-		}
-		crash()
-		return errRelayCrashed
-	}).Start(relayContext)
+	run.openRelay(
+		t,
+		topic,
+		func(context.Context, uuid.UUID) error {
+			if produced.Add(1) < int64(run.crashAfter) {
+				return nil
+			}
+			crash()
+			return errRelayCrashed
+		},
+	).Start(
+		relayContext,
+	)
 	deadline := scalingDeadline()
 	for produced.Load() == 0 && clock.Now().Before(deadline) {
 		time.Sleep(10 * time.Millisecond)
@@ -108,12 +122,22 @@ func (run *scalingRun) startCrashingRelay(t *testing.T, topic string) {
 // registers cleanup to close it.
 func startScalingConsumer(t *testing.T, topic, group string) {
 	t.Helper()
-	consumer, err := audit.NewConsumer(t.Context(), audit.ConsumerConfig{
-		Brokers: []string{testenv.Kafka(t)}, Topic: topic, GroupID: group,
-		BatchSize: 32, PollInterval: 100 * time.Millisecond, YugabyteDSN: testenv.Ledger(t),
-	})
+	consumer, err := audit.NewConsumer(
+		t.Context(),
+		audit.ConsumerConfig{
+			Brokers:      []string{testenv.Kafka(t)},
+			Topic:        topic,
+			GroupID:      group,
+			BatchSize:    32,
+			PollInterval: 100 * time.Millisecond,
+			YugabyteDSN:  testenv.Ledger(t),
+		},
+	)
 	if err != nil {
-		t.Fatalf("Creating an audit consumer failed; the scaling run requires one consumer per app instance: %v", err)
+		t.Fatalf(
+			"Creating an audit consumer failed; the scaling run requires one consumer per app instance: %v",
+			err,
+		)
 	}
 	consumer.Start(t.Context())
 	t.Cleanup(func() { _ = consumer.Close() })
@@ -123,17 +147,34 @@ func startScalingConsumer(t *testing.T, topic, group string) {
 // afterProduce callback. The relay adds one to the run's lease acquisitions
 // each time it acquires the lease. Test cleanup closes the relay and its
 // YugabyteDB pool.
-func (run *scalingRun) openRelay(t *testing.T, topic string, afterProduce func(context.Context, uuid.UUID) error) *audit.Relay {
+func (run *scalingRun) openRelay(
+	t *testing.T,
+	topic string,
+	afterProduce func(context.Context, uuid.UUID) error,
+) *audit.Relay {
 	t.Helper()
-	opened, err := auditrelay.Open(t.Context(), auditrelay.Config{
-		Brokers: []string{testenv.Kafka(t)}, Topic: topic, YugabyteDSN: testenv.Ledger(t),
-		FDBClusterFile: run.server.clusterFile, FDBTransactionTimeout: 5 * time.Second,
-		PollInterval: 100 * time.Millisecond, BatchSize: scalingRelayBatch,
-		LeaseDuration: scalingLeaseDuration, AfterProduce: afterProduce,
-		AfterLeaseAcquired: func(context.Context) { run.leaseAcquisitions.Add(1) },
-	})
+	opened, err := auditrelay.Open(
+		t.Context(),
+		auditrelay.Config{
+			Brokers: []string{
+				testenv.Kafka(t),
+			},
+			Topic:                 topic,
+			YugabyteDSN:           testenv.Ledger(t),
+			FDBClusterFile:        run.server.clusterFile,
+			FDBTransactionTimeout: 5 * time.Second,
+			PollInterval:          100 * time.Millisecond,
+			BatchSize:             scalingRelayBatch,
+			LeaseDuration:         scalingLeaseDuration,
+			AfterProduce:          afterProduce,
+			AfterLeaseAcquired:    func(context.Context) { run.leaseAcquisitions.Add(1) },
+		},
+	)
 	if err != nil {
-		t.Fatalf("Opening an audit relay failed; the scaling run requires one relay per app instance: %v", err)
+		t.Fatalf(
+			"Opening an audit relay failed; the scaling run requires one relay per app instance: %v",
+			err,
+		)
 	}
 	t.Cleanup(opened.Pool.Close)
 	t.Cleanup(func() { _ = opened.Relay.Close() })
@@ -149,12 +190,25 @@ func requireFlatBroker(t *testing.T, baseline, result scalingResult, rollbackRec
 	extraRecords := result.takeovers*scalingRelayBatch + rollbackRecords
 	published := int64(result.backlog) + result.yugabyteBacklog
 	if result.brokerRecords < published || result.brokerRecords > published+extraRecords {
-		t.Errorf("The broker record count is outside the expected range for run %s: %d records for %d FoundationDB and %d YugabyteDB outbox entries; %d lease takeovers; allowed extra %d",
-			result.label, result.brokerRecords, result.backlog, result.yugabyteBacklog, result.takeovers, extraRecords)
+		t.Errorf(
+			"The broker record count is outside the expected range for run %s: %d records for %d FoundationDB and %d YugabyteDB outbox entries; %d lease takeovers; allowed extra %d",
+			result.label,
+			result.brokerRecords,
+			result.backlog,
+			result.yugabyteBacklog,
+			result.takeovers,
+			extraRecords,
+		)
 	}
 	perRecord := float64(baseline.brokerBytes) / float64(max(baseline.brokerRecords, 1))
 	limit := float64(baseline.brokerBytes)*scalingBrokerTolerance + perRecord*float64(extraRecords)
 	if float64(result.brokerBytes) > limit {
-		t.Errorf("The broker byte count exceeds the allowed limit for run %s: %d bytes; baseline %d bytes; limit %.0f bytes", result.label, result.brokerBytes, baseline.brokerBytes, limit)
+		t.Errorf(
+			"The broker byte count exceeds the allowed limit for run %s: %d bytes; baseline %d bytes; limit %.0f bytes",
+			result.label,
+			result.brokerBytes,
+			baseline.brokerBytes,
+			limit,
+		)
 	}
 }

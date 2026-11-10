@@ -15,13 +15,23 @@ import (
 // nodeOperationFailure logs an error as node.transaction_failed with
 // operation and details, then returns an error prefixed with operation. It
 // returns err unchanged when an earlier operation already logged it.
-func nodeOperationFailure(ctx context.Context, operation string, err error, details ...slog.Attr) error {
+func nodeOperationFailure(
+	ctx context.Context,
+	operation string,
+	err error,
+	details ...slog.Attr,
+) error {
 	if searchFailureWasLogged(err) {
 		return err
 	}
+
 	wrapped := fmt.Errorf("%s: %w", operation, err)
-	attributes := append([]slog.Attr{slog.String("err", wrapped.Error()), slog.String("operation", operation)}, details...)
+	attributes := append(
+		[]slog.Attr{slog.String("err", wrapped.Error()), slog.String("operation", operation)},
+		details...,
+	)
 	telemetry.L(ctx).LogAttrs(ctx, slog.LevelError, "node.transaction_failed", attributes...)
+
 	return loggedSearchError{err: wrapped}
 }
 
@@ -30,19 +40,30 @@ func nodeOperationFailure(ctx context.Context, operation string, err error, deta
 // attempts together. The function cancels the transaction before returning
 // and prefixes errors with operation. If OnError reports a transaction
 // timeout, the returned error wraps domain.ErrConflict.
-func runNodeMutation(ctx context.Context, database fdb.Database, operation string, apply func(fdb.Transaction) error) error {
+func runNodeMutation(
+	ctx context.Context,
+	database fdb.Database,
+	operation string,
+	apply func(fdb.Transaction) error,
+) error {
 	err := runNodeAttempts(ctx, database, operation, apply)
 	var refused *retryRefusedError
 	if errors.As(err, &refused) {
 		return retryFailure(ctx, operation, refused.err, refused.attempts)
 	}
+
 	return err
 }
 
 // runNodeAttempts runs apply in one FoundationDB transaction as
 // runNodeMutation does. When OnError refuses a retry, it returns a
 // *retryRefusedError that it has not logged. It logs every other error.
-func runNodeAttempts(ctx context.Context, database fdb.Database, operation string, apply func(fdb.Transaction) error) error {
+func runNodeAttempts(
+	ctx context.Context,
+	database fdb.Database,
+	operation string,
+	apply func(fdb.Transaction) error,
+) error {
 	created := clock.Now()
 	transaction, err := database.CreateTransaction()
 	if err != nil {
@@ -50,10 +71,12 @@ func runNodeAttempts(ctx context.Context, database fdb.Database, operation strin
 	}
 	defer transaction.Cancel()
 	attempts := newTransactionAttempts(created)
+
 	for {
 		if err := ctx.Err(); err != nil {
 			return nodeOperationFailure(ctx, operation, fmt.Errorf("check context: %w", err))
 		}
+
 		attempts.start()
 		attemptErr := apply(transaction)
 		if attemptErr == nil {
@@ -61,15 +84,18 @@ func runNodeAttempts(ctx context.Context, database fdb.Database, operation strin
 				attemptErr = fmt.Errorf("commit transaction: %w", commitErr)
 			}
 		}
+
 		if attemptErr == nil {
 			return nil
 		}
+
 		// The retry check runs first. A logged error can wrap a retryable
 		// FoundationDB error.
 		var databaseErr fdb.Error
 		if !errors.As(attemptErr, &databaseErr) {
 			return nodeOperationFailure(ctx, operation, attemptErr)
 		}
+
 		attempts.recordError(databaseErr.Code)
 		if retryErr := transaction.OnError(databaseErr).Get(); retryErr != nil {
 			return &retryRefusedError{err: retryErr, attempts: attempts}
@@ -89,39 +115,67 @@ const transactionTimedOut = 1031
 // The timeout log adds the attempt count, elapsed time since transaction
 // creation, and attempt error codes from attempts. Otherwise, the error
 // includes the text "retry transaction".
-func retryFailure(ctx context.Context, operation string, retryErr error, attempts *transactionAttempts) error {
+func retryFailure(
+	ctx context.Context,
+	operation string,
+	retryErr error,
+	attempts *transactionAttempts,
+) error {
 	var databaseErr fdb.Error
 	if errors.As(retryErr, &databaseErr) && databaseErr.Code == transactionTimedOut {
-		return nodeOperationFailure(ctx, operation,
-			fmt.Errorf("transaction contention: the retries exceeded the transaction timeout: %w: %w", retryErr, domain.ErrConflict),
-			attempts.logAttributes()...)
+		return nodeOperationFailure(
+			ctx,
+			operation,
+			fmt.Errorf(
+				"transaction contention: the retries exceeded the transaction timeout: %w: %w",
+				retryErr,
+				domain.ErrConflict,
+			),
+			attempts.logAttributes()...,
+		)
 	}
+
 	return nodeOperationFailure(ctx, operation, fmt.Errorf("retry transaction: %w", retryErr))
 }
 
-func runNodeReadTransaction(ctx context.Context, database fdb.Database, operation string, read func(fdb.Transaction) error) error {
+func runNodeReadTransaction(
+	ctx context.Context,
+	database fdb.Database,
+	operation string,
+	read func(fdb.Transaction) error,
+) error {
 	for {
 		if err := ctx.Err(); err != nil {
 			return nodeOperationFailure(ctx, operation, fmt.Errorf("check context: %w", err))
 		}
+
 		transaction, err := database.CreateTransaction()
 		if err != nil {
 			return nodeOperationFailure(ctx, operation, fmt.Errorf("create transaction: %w", err))
 		}
+
 		readErr := read(transaction)
 		if readErr == nil {
 			transaction.Cancel()
 			return nil
 		}
+
 		var databaseErr fdb.Error
 		if !errors.As(readErr, &databaseErr) {
 			transaction.Cancel()
 			return nodeOperationFailure(ctx, operation, readErr)
 		}
+
 		if retryErr := transaction.OnError(databaseErr).Get(); retryErr != nil {
 			transaction.Cancel()
-			return nodeOperationFailure(ctx, operation, fmt.Errorf("retry transaction: %w", retryErr))
+
+			return nodeOperationFailure(
+				ctx,
+				operation,
+				fmt.Errorf("retry transaction: %w", retryErr),
+			)
 		}
+
 		transaction.Cancel()
 	}
 }

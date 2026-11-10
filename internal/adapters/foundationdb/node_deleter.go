@@ -16,7 +16,7 @@ type NodeDeleteStore struct {
 // The returned store retains the supplied NodeStore. Its direct deletion
 // method uses this call:
 //
-//  - DeleteNode calls nodes.Delete.
+//   - DeleteNode calls nodes.Delete.
 func NewNodeDeleteStore(nodes *NodeStore) *NodeDeleteStore {
 	return &NodeDeleteStore{nodes: nodes}
 }
@@ -26,8 +26,8 @@ func NewNodeDeleteStore(nodes *NodeStore) *NodeDeleteStore {
 // It passes the supplied context and identifiers to the underlying store.
 // The arguments identify the deletion:
 //
-//  - orgID selects the organization.
-//  - nodeID selects the node.
+//   - orgID selects the organization.
+//   - nodeID selects the node.
 func (s *NodeDeleteStore) DeleteNode(ctx context.Context, orgID, nodeID uuid.UUID) error {
 	return s.nodes.Delete(ctx, orgID, nodeID)
 }

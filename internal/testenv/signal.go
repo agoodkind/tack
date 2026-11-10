@@ -24,13 +24,24 @@ func releaseOnSignal(ctx context.Context) {
 	go func() {
 		defer func() {
 			if recovered := recover(); recovered != nil {
-				slog.ErrorContext(ctx, "testenv.signal.release_panicked", slog.String("err", fmt.Sprint(recovered)))
+				slog.ErrorContext(
+					ctx,
+					"testenv.signal.release_panicked",
+					slog.String("err", fmt.Sprint(recovered)),
+				)
 			}
 		}()
 		received := <-signals
-		releaseContext, cancel := context.WithTimeout(context.WithoutCancel(ctx), engineReleaseTimeout)
+		releaseContext, cancel := context.WithTimeout(
+			context.WithoutCancel(ctx),
+			engineReleaseTimeout,
+		)
 		defer cancel()
-		slog.InfoContext(releaseContext, "testenv.signal.received", slog.String("signal", received.String()))
+		slog.InfoContext(
+			releaseContext,
+			"testenv.signal.received",
+			slog.String("signal", received.String()),
+		)
 		_ = Release(releaseContext)
 		signal.Reset(received)
 		if number, isSignal := received.(unix.Signal); isSignal {

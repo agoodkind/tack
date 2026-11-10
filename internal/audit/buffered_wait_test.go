@@ -39,16 +39,23 @@ func TestBufferedWithoutOverflowRefusesWhileRetainedEventsFillTheQueue(t *testin
 	if err != nil {
 		t.Fatalf("kfake.NewCluster: %v", err)
 	}
+
 	t.Cleanup(cluster.Close)
 	stop := refuseProduces(cluster)
 	t.Cleanup(stop)
-	buffered := audit.NewBufferedRecorder(context.Background(), newRetainKafka(t, cluster), nil,
-		audit.BufferedConfig{Capacity: 1, BatchSize: 1, FlushInterval: 20 * time.Millisecond})
+	buffered := audit.NewBufferedRecorder(
+		context.Background(),
+		newRetainKafka(t, cluster),
+		nil,
+		audit.BufferedConfig{Capacity: 1, BatchSize: 1, FlushInterval: 20 * time.Millisecond},
+	)
 
 	if err := buffered.Record(context.Background(), retainReadEvent("retained")); err != nil {
 		t.Fatalf("record: %v", err)
 	}
+
 	logs.waitFor(t, "audit.buffer.delivery_retained")
+
 	for _, suffix := range []string{"first-refused", "later-refused"} {
 		if err := recordWithin(t, buffered, retainReadEvent(suffix)); err == nil {
 			t.Fatalf("Record accepted %s while the retained event filled the queue", suffix)

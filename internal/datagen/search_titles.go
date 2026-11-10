@@ -68,7 +68,15 @@ func (i SearchIdentities) IDs(ctx context.Context, items []SearchItem) ([]uuid.U
 			}
 			nodeID, err = i.Resolve(ctx, item)
 			if err != nil {
-				return nil, loggedError(ctx, fmt.Sprintf("qa datagen: resolve search result %q of type %q", item.Title, item.NodeType), err)
+				return nil, loggedError(
+					ctx,
+					fmt.Sprintf(
+						"qa datagen: resolve search result %q of type %q",
+						item.Title,
+						item.NodeType,
+					),
+					err,
+				)
 			}
 		}
 		nodeIDs = append(nodeIDs, nodeID)
@@ -91,7 +99,11 @@ type SearchTitles struct {
 //	titles := NewSearchTitles()
 //	titles.Add(SearchItem{Title: "Sample", NodeType: "example"}, nodeID)
 func NewSearchTitles() *SearchTitles {
-	return &SearchTitles{mutex: sync.Mutex{}, ids: map[string]uuid.UUID{}, shared: map[string]bool{}}
+	return &SearchTitles{
+		mutex:  sync.Mutex{},
+		ids:    map[string]uuid.UUID{},
+		shared: map[string]bool{},
+	}
 }
 
 // Add records nodeID for item's title and node type.
@@ -140,7 +152,10 @@ func SearchResultItems(text string) []SearchItem {
 	items := make([]SearchItem, 0, len(blocks))
 	for _, block := range blocks {
 		lines := strings.Split(block, "\n")
-		item := SearchItem{Title: unquoteSearchValue(strings.TrimPrefix(lines[0], searchItemPrefix)), NodeType: ""}
+		item := SearchItem{
+			Title:    unquoteSearchValue(strings.TrimPrefix(lines[0], searchItemPrefix)),
+			NodeType: "",
+		}
 		for _, line := range lines[1:] {
 			if nodeType, found := strings.CutPrefix(line, searchTypeField); found {
 				item.NodeType = unquoteSearchValue(nodeType)

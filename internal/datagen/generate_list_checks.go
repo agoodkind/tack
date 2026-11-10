@@ -21,7 +21,11 @@ const (
 // project. It fails if the first response omits a cursor when the scale
 // requires more issues than one page, or if the second page repeats a
 // reference from the first.
-func (g *Generator) verifyListPaging(ctx context.Context, workspace WorkspaceIdentity, projectReference string) error {
+func (g *Generator) verifyListPaging(
+	ctx context.Context,
+	workspace WorkspaceIdentity,
+	projectReference string,
+) error {
 	if g.dryRun {
 		return nil
 	}
@@ -35,7 +39,11 @@ func (g *Generator) verifyListPaging(ctx context.Context, workspace WorkspaceIde
 	cursor := nextCursor(first.Text())
 	if cursor == "" {
 		if g.scale.IssuesPerProject > listPagingCheckLimit {
-			return fmt.Errorf("qa datagen: tack_list_issues printed no cursor for %d issues at limit %d", g.scale.IssuesPerProject, listPagingCheckLimit)
+			return fmt.Errorf(
+				"qa datagen: tack_list_issues printed no cursor for %d issues at limit %d",
+				g.scale.IssuesPerProject,
+				listPagingCheckLimit,
+			)
 		}
 		return nil
 	}
@@ -53,7 +61,11 @@ func (g *Generator) verifyListPaging(ctx context.Context, workspace WorkspaceIde
 			return fmt.Errorf("qa datagen: tack_list_issues second page repeats %s", reference)
 		}
 	}
-	slog.InfoContext(ctx, "qa.datagen.list_paging_verified", slog.String("project", projectReference))
+	slog.InfoContext(
+		ctx,
+		"qa.datagen.list_paging_verified",
+		slog.String("project", projectReference),
+	)
 	return nil
 }
 

@@ -118,7 +118,12 @@ type NodeRepository interface {
 
 	// LookupReference returns the node that owns a rendered reference.
 	// It returns uuid.Nil and nil when the lookup does not find an owner.
-	LookupReference(ctx context.Context, orgID uuid.UUID, templateName, encoded string) (uuid.UUID, error)
+	LookupReference(
+		ctx context.Context,
+		orgID uuid.UUID,
+		templateName string,
+		encoded string,
+	) (uuid.UUID, error)
 
 	// CreateAtomic writes a new node and its initial relationships in one
 	// FoundationDB transaction. NodeService.Create calls CreateAtomic. When the
@@ -154,7 +159,12 @@ type NodeRepository interface {
 	// (orgID, scopeNodeID, nodeType) and returns its next value. The scopeNodeID
 	// identifies the container, typically a project node, within which sequence
 	// numbers are unique.
-	AllocateSequence(ctx context.Context, orgID, scopeNodeID uuid.UUID, nodeType string) (int64, error)
+	AllocateSequence(
+		ctx context.Context,
+		orgID uuid.UUID,
+		scopeNodeID uuid.UUID,
+		nodeType string,
+	) (int64, error)
 
 	// AllocateSequenceByKey atomically increments the counter at counterKey and
 	// returns the next value.
@@ -165,7 +175,11 @@ type NodeRepository interface {
 
 	// LookupIdempotencyKey returns the record for (orgID, key). It returns a nil
 	// record and nil error when the key does not have a record.
-	LookupIdempotencyKey(ctx context.Context, orgID uuid.UUID, key string) (*IdempotencyRecord, error)
+	LookupIdempotencyKey(
+		ctx context.Context,
+		orgID uuid.UUID,
+		key string,
+	) (*IdempotencyRecord, error)
 }
 
 // RelationshipRepository manages edges between nodes. Relationship records
@@ -173,13 +187,29 @@ type NodeRepository interface {
 // nodes, containment, watchers, mentions, reactions, and comments.
 type RelationshipRepository interface {
 	Add(ctx context.Context, rel *Relationship) error
-	Remove(ctx context.Context, orgID, sourceID uuid.UUID, relationType string, targetID uuid.UUID) error
+	Remove(
+		ctx context.Context,
+		orgID uuid.UUID,
+		sourceID uuid.UUID,
+		relationType string,
+		targetID uuid.UUID,
+	) error
 
 	// ListBySource returns relationships with sourceID as their source. A
 	// nonempty relationType filters the results; an empty string accepts all types.
-	ListBySource(ctx context.Context, orgID, sourceID uuid.UUID, relationType string) ([]*Relationship, error)
+	ListBySource(
+		ctx context.Context,
+		orgID uuid.UUID,
+		sourceID uuid.UUID,
+		relationType string,
+	) ([]*Relationship, error)
 
 	// ListByTarget returns relationships with targetID as their target. A
 	// nonempty relationType filters the results; an empty string accepts all types.
-	ListByTarget(ctx context.Context, orgID, targetID uuid.UUID, relationType string) ([]*Relationship, error)
+	ListByTarget(
+		ctx context.Context,
+		orgID uuid.UUID,
+		targetID uuid.UUID,
+		relationType string,
+	) ([]*Relationship, error)
 }

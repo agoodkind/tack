@@ -37,11 +37,24 @@ type Param[I Input] struct {
 //
 //	StringParam("name", "Set the name.", "", true,
 //		func(input *nameInput, value string) { input.Name = value })
-func StringParam[I Input](flag, description, def string, required bool, set func(*I, string)) Param[I] {
+func StringParam[I Input](
+	flag string,
+	description string,
+	def string,
+	required bool,
+	set func(*I, string),
+) Param[I] {
 	return Param[I]{
-		Kind: kindString, Flag: flag, Description: description, Required: required,
-		DefaultStr: def, DefaultInt: 0, DefaultBool: false,
-		bindString: set, bindInt: nil, bindBool: nil,
+		Kind:        kindString,
+		Flag:        flag,
+		Description: description,
+		Required:    required,
+		DefaultStr:  def,
+		DefaultInt:  0,
+		DefaultBool: false,
+		bindString:  set,
+		bindInt:     nil,
+		bindBool:    nil,
 	}
 }
 
@@ -57,9 +70,16 @@ func StringParam[I Input](flag, description, def string, required bool, set func
 //		func(input *countInput, value int) { input.Count = value })
 func IntParam[I Input](flag, description string, def int, set func(*I, int)) Param[I] {
 	return Param[I]{
-		Kind: kindInt, Flag: flag, Description: description, Required: false,
-		DefaultStr: "", DefaultInt: def, DefaultBool: false,
-		bindString: nil, bindInt: set, bindBool: nil,
+		Kind:        kindInt,
+		Flag:        flag,
+		Description: description,
+		Required:    false,
+		DefaultStr:  "",
+		DefaultInt:  def,
+		DefaultBool: false,
+		bindString:  nil,
+		bindInt:     set,
+		bindBool:    nil,
 	}
 }
 
@@ -75,8 +95,15 @@ func IntParam[I Input](flag, description string, def int, set func(*I, int)) Par
 //		func(input *enabledInput, value bool) { input.Enabled = value })
 func BoolParam[I Input](flag, description string, def bool, set func(*I, bool)) Param[I] {
 	return Param[I]{
-		Kind: kindBool, Flag: flag, Description: description, Required: false,
-		DefaultStr: "", DefaultInt: 0, DefaultBool: def,
-		bindString: nil, bindInt: nil, bindBool: set,
+		Kind:        kindBool,
+		Flag:        flag,
+		Description: description,
+		Required:    false,
+		DefaultStr:  "",
+		DefaultInt:  0,
+		DefaultBool: def,
+		bindString:  nil,
+		bindInt:     nil,
+		bindBool:    set,
 	}
 }

@@ -33,12 +33,18 @@ var activeSessionObserver atomic.Pointer[sessionObserver]
 //
 //   - A successful tracked transaction reports its measurements once.
 //   - A failed transaction removes its observation without reporting it.
-func SetSessionObserver(report func(operation string, sessionID uuid.UUID, bytes int64, reads int)) {
+func SetSessionObserver(
+	report func(operation string, sessionID uuid.UUID, bytes int64, reads int),
+) {
 	if report == nil {
 		activeSessionObserver.Store(nil)
 		return
 	}
-	activeSessionObserver.Store(&sessionObserver{report: report, mutex: sync.Mutex{}, transactions: map[fdb.ReadTransaction]sessionObservation{}})
+	activeSessionObserver.Store(&sessionObserver{
+		report:       report,
+		mutex:        sync.Mutex{},
+		transactions: map[fdb.ReadTransaction]sessionObservation{},
+	})
 }
 
 func countSessionRead(tr fdb.ReadTransaction) {

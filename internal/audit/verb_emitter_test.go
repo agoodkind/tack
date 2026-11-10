@@ -39,23 +39,38 @@ var unemittedVerbs = map[Verb]string{
 func TestEveryDeclaredVerbHasAnEmitter(t *testing.T) {
 	declared := declaredVerbs(t)
 	if len(declared) < 50 {
-		t.Fatalf("found %d declared verbs, want the whole taxonomy: the parse is wrong", len(declared))
+		t.Fatalf(
+			"found %d declared verbs, want the whole taxonomy: the parse is wrong",
+			len(declared),
+		)
 	}
+
 	referenced := verbNamesReferencedOutsideDeclarations(t)
 
 	for name, verb := range declared {
 		if referenced[name] {
 			if reason, exempt := unemittedVerbs[verb]; exempt {
-				t.Errorf("verb %s (%q) is recorded somewhere but still listed as unemitted (%q): delete the entry",
-					name, verb, reason)
+				t.Errorf(
+					"verb %s (%q) is recorded somewhere but still listed as unemitted (%q): delete the entry",
+					name,
+					verb,
+					reason,
+				)
 			}
+
 			continue
 		}
+
 		if _, exempt := unemittedVerbs[verb]; exempt {
 			continue
 		}
-		t.Errorf("verb %s (%q) is declared but nothing records it: wire an emitter, delete the verb, "+
-			"or add it to unemittedVerbs with the ticket that will build the feature", name, verb)
+
+		t.Errorf(
+			"verb %s (%q) is declared but nothing records it: wire an emitter, delete the verb, "+
+				"or add it to unemittedVerbs with the ticket that will build the feature",
+			name,
+			verb,
+		)
 	}
 }
 
@@ -64,14 +79,17 @@ func TestEveryDeclaredVerbHasAnEmitter(t *testing.T) {
 // future verb with the same value.
 func TestUnemittedVerbsAreAllDeclared(t *testing.T) {
 	declared := declaredVerbs(t)
+
 	values := make(map[Verb]bool, len(declared))
 	for _, verb := range declared {
 		values[verb] = true
 	}
+
 	for verb, reason := range unemittedVerbs {
 		if !values[verb] {
 			t.Errorf("unemittedVerbs lists %q (%q) which verbs.go no longer declares", verb, reason)
 		}
+
 		if reason == "" {
 			t.Errorf("unemittedVerbs entry %q has no reason", verb)
 		}
@@ -87,26 +105,32 @@ func declaredVerbs(t *testing.T) map[string]Verb {
 	if err != nil {
 		t.Fatalf("parse verbs.go: %v", err)
 	}
+
 	declared := map[string]Verb{}
+
 	for _, decl := range parsed.Decls {
 		general, ok := decl.(*ast.GenDecl)
 		if !ok || general.Tok != token.CONST {
 			continue
 		}
+
 		for _, spec := range general.Specs {
 			value, ok := spec.(*ast.ValueSpec)
 			if !ok || len(value.Names) != len(value.Values) {
 				continue
 			}
+
 			for index, name := range value.Names {
 				literal, ok := value.Values[index].(*ast.BasicLit)
 				if !ok || literal.Kind != token.STRING {
 					continue
 				}
+
 				declared[name.Name] = Verb(strings.Trim(literal.Value, `"`))
 			}
 		}
 	}
+
 	return declared
 }
 
@@ -126,33 +150,44 @@ func verbNamesReferencedOutsideDeclarations(t *testing.T) map[string]bool {
 	collectVerbMapEntries(t, referenced)
 
 	root := filepath.Join("..", "..")
-	walkErr := filepath.WalkDir(root, func(path string, entry os.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if entry.IsDir() {
-			// Engine users own the data directories under .testenv. Entering those
-			// directories can fail with permission denied.
-			switch entry.Name() {
-			case ".git", ".testenv", "node_modules":
-				return filepath.SkipDir
+	walkErr := filepath.WalkDir(
+		root,
+		func(path string, entry os.DirEntry, err error) error {
+			if err != nil {
+				return err
 			}
+
+			if entry.IsDir() {
+				// Engine users own the data directories under .testenv. Entering those
+				// directories can fail with permission denied.
+				switch entry.Name() {
+				case ".git", ".testenv", "node_modules":
+					return filepath.SkipDir
+				}
+
+				return nil
+			}
+
+			if !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+				return nil
+			}
+
+			if filepath.Base(path) == "verbs.go" &&
+				strings.Contains(path, filepath.Join("internal", "audit")) {
+				return nil
+			}
+
+			for _, name := range verbIdentifiers(t, path) {
+				referenced[name] = true
+			}
+
 			return nil
-		}
-		if !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
-			return nil
-		}
-		if filepath.Base(path) == "verbs.go" && strings.Contains(path, filepath.Join("internal", "audit")) {
-			return nil
-		}
-		for _, name := range verbIdentifiers(t, path) {
-			referenced[name] = true
-		}
-		return nil
-	})
+		},
+	)
 	if walkErr != nil {
 		t.Fatalf("read every Go file in the repository: %v", walkErr)
 	}
+
 	return referenced
 }
 
@@ -177,30 +212,41 @@ func collectVerbMapEntries(t *testing.T, referenced map[string]bool) {
 	if err != nil {
 		t.Fatalf("parse verbs.go: %v", err)
 	}
+
 	found := false
+
 	for _, decl := range parsed.Decls {
 		general, ok := decl.(*ast.GenDecl)
 		if !ok || general.Tok != token.VAR {
 			continue
 		}
+
 		for _, spec := range general.Specs {
 			value, ok := spec.(*ast.ValueSpec)
 			if !ok || len(value.Names) != 1 || !toolRoutingMaps[value.Names[0].Name] {
 				continue
 			}
+
 			found = true
-			ast.Inspect(value, func(n ast.Node) bool {
-				ident, ok := n.(*ast.Ident)
-				if ok && strings.HasPrefix(ident.Name, "Verb") {
-					referenced[ident.Name] = true
-				}
-				return true
-			})
+			ast.Inspect(
+				value,
+				func(n ast.Node) bool {
+					ident, ok := n.(*ast.Ident)
+					if ok && strings.HasPrefix(ident.Name, "Verb") {
+						referenced[ident.Name] = true
+					}
+
+					return true
+				},
+			)
 		}
 	}
+
 	if !found {
-		t.Fatalf("found none of the tool routing maps %v in verbs.go: they were renamed and this test now proves nothing",
-			toolRoutingMaps)
+		t.Fatalf(
+			"found none of the tool routing maps %v in verbs.go: they were renamed and this test now proves nothing",
+			toolRoutingMaps,
+		)
 	}
 }
 
@@ -219,13 +265,19 @@ func verbIdentifiers(t *testing.T, path string) []string {
 		// skipping the file and reducing its search.
 		t.Fatalf("parse %s: %v", path, err)
 	}
+
 	var names []string
-	ast.Inspect(parsed, func(n ast.Node) bool {
-		ident, ok := n.(*ast.Ident)
-		if ok && strings.HasPrefix(ident.Name, "Verb") && len(ident.Name) > len("Verb") {
-			names = append(names, ident.Name)
-		}
-		return true
-	})
+	ast.Inspect(
+		parsed,
+		func(n ast.Node) bool {
+			ident, ok := n.(*ast.Ident)
+			if ok && strings.HasPrefix(ident.Name, "Verb") && len(ident.Name) > len("Verb") {
+				names = append(names, ident.Name)
+			}
+
+			return true
+		},
+	)
+
 	return names
 }

@@ -49,58 +49,89 @@ type recoveredAttempt struct {
 // transaction. For each record that is not active, it writes an incomplete
 // event and clears the record. It reports whether an active record or more
 // records can remain.
-func (s *SearchRebuildStore) recoverRetireAttempts(ctx context.Context, index string, limit int) (bool, error) {
+func (s *SearchRebuildStore) recoverRetireAttempts(
+	ctx context.Context,
+	index string,
+	limit int,
+) (bool, error) {
 	keyRange, err := fdb.PrefixRange(searchRetireAttemptPrefix(index))
 	if err != nil {
 		return true, sessionFailure(ctx, retireAttemptRecoverOperation, uuid.Nil, err)
 	}
+
 	recovered, remain := 0, false
-	err = transactSession(ctx, s.db, s.work.clock, retireAttemptRecoverOperation, uuid.Nil, func(tr fdb.Transaction) error {
-		items, readErr := tr.GetRange(keyRange, fdb.RangeOptions{Limit: limit}).GetSliceWithError()
-		if readErr != nil {
-			return sessionStepError{operation: "read retirement attempts", err: readErr}
-		}
-		recovered, remain = 0, len(items) == limit
-		writer := NewOutboxWriter(tr)
-		now := s.work.clock.Now()
-		valueBytes := 0
-		for _, item := range items {
-			if valueBytes >= retireRecoveryValueBytes {
-				remain = true
-				break
+	err = transactSession(
+		ctx,
+		s.db,
+		s.work.clock,
+		retireAttemptRecoverOperation,
+		uuid.Nil,
+		func(tr fdb.Transaction) error {
+			items, readErr := tr.GetRange(
+				keyRange,
+				fdb.RangeOptions{Limit: limit},
+			).GetSliceWithError()
+			if readErr != nil {
+				return sessionStepError{operation: "read retirement attempts", err: readErr}
 			}
-			attempt, encodeErr := recoveredRetireEvent(ctx, item, now)
-			if encodeErr != nil {
-				return encodeErr
-			}
-			if attempt.active {
-				remain = true
-				if attempt.observed != nil {
-					tr.Set(item.Key, attempt.observed)
-					valueBytes += len(attempt.observed)
+
+			recovered, remain = 0, len(items) == limit
+			writer := NewOutboxWriter(tr)
+			now := s.work.clock.Now()
+			valueBytes := 0
+
+			for _, item := range items {
+				if valueBytes >= retireRecoveryValueBytes {
+					remain = true
+					break
 				}
-				continue
-			}
-			valueBytes += len(item.Value)
-			if writeErr := writer.WriteEncodedEvent(ctx, attempt.encoded); writeErr != nil {
-				return writeErr
-			}
-			for _, retained := range attempt.retained {
-				if writeErr := writer.WriteEventJSON(ctx, retained); writeErr != nil {
+
+				attempt, encodeErr := recoveredRetireEvent(ctx, item, now)
+				if encodeErr != nil {
+					return encodeErr
+				}
+
+				if attempt.active {
+					remain = true
+					if attempt.observed != nil {
+						tr.Set(item.Key, attempt.observed)
+						valueBytes += len(attempt.observed)
+					}
+
+					continue
+				}
+
+				valueBytes += len(item.Value)
+				if writeErr := writer.WriteEncodedEvent(ctx, attempt.encoded); writeErr != nil {
 					return writeErr
 				}
+
+				for _, retained := range attempt.retained {
+					if writeErr := writer.WriteEventJSON(ctx, retained); writeErr != nil {
+						return writeErr
+					}
+				}
+
+				tr.Clear(item.Key)
+				recovered++
 			}
-			tr.Clear(item.Key)
-			recovered++
-		}
-		return nil
-	})
+
+			return nil
+		},
+	)
 	if err != nil {
 		return true, err
 	}
+
 	if recovered > 0 {
-		slog.InfoContext(ctx, "search.session.retire_attempts_recovered", slog.String("index", index), slog.Int("count", recovered))
+		slog.InfoContext(
+			ctx,
+			"search.session.retire_attempts_recovered",
+			slog.String("index", index),
+			slog.Int("count", recovered),
+		)
 	}
+
 	return remain, nil
 }
 
@@ -109,32 +140,60 @@ func (s *SearchRebuildStore) recoverRetireAttempts(ctx context.Context, index st
 // record is active. If decoding, validation, or encoding fails, the function
 // logs the record and returns the events from invalidRetireEvents. An
 // invalid record does not stop index retirement.
-func recoveredRetireEvent(ctx context.Context, item fdb.KeyValue, now time.Time) (recoveredAttempt, error) {
+func recoveredRetireEvent(
+	ctx context.Context,
+	item fdb.KeyValue,
+	now time.Time,
+) (recoveredAttempt, error) {
 	var attempt recoveredAttempt
 	sessionID, step, eventID, err := parseRetireAttemptKey(item.Key)
 	if err != nil {
-		slog.ErrorContext(ctx, "search.session.retire_attempt_invalid", slog.String("err", err.Error()), slog.String("session_id", sessionID.String()))
-		return invalidRetireEvents(ctx, uuid.Nil, searchdomain.CleanupClose, uuid.NewSHA1(uuid.NameSpaceOID, item.Key), item)
+		slog.ErrorContext(
+			ctx,
+			"search.session.retire_attempt_invalid",
+			slog.String("err", err.Error()),
+			slog.String("session_id", sessionID.String()),
+		)
+
+		return invalidRetireEvents(
+			ctx,
+			uuid.Nil,
+			searchdomain.CleanupClose,
+			uuid.NewSHA1(uuid.NameSpaceOID, item.Key),
+			item,
+		)
 	}
+
 	var record retireAttemptRecord
 	var event audit.Event
 	readErr := json.Unmarshal(item.Value, &record)
 	if readErr == nil {
 		readErr = json.Unmarshal(record.Event, &event)
 	}
+
 	if readErr == nil {
 		attempt.active, attempt.observed, readErr = observeRetireAttempt(record, now)
 	}
+
 	if readErr == nil && attempt.active {
 		return attempt, nil
 	}
+
 	if readErr == nil {
 		attempt.encoded, readErr = incompleteRetireEvent(event, record, eventID, now)
 	}
+
 	if readErr == nil {
 		return attempt, nil
 	}
-	slog.ErrorContext(ctx, "search.session.retire_attempt_invalid", slog.String("err", readErr.Error()), slog.String("session_id", sessionID.String()))
+
+	slog.ErrorContext(
+		ctx,
+		"search.session.retire_attempt_invalid",
+		slog.String("err", readErr.Error()),
+		slog.String("session_id", sessionID.String()),
+	)
+
 	return invalidRetireEvents(ctx, sessionID, step, eventID, item)
 }
 
@@ -148,8 +207,12 @@ func retireResultEvent(event audit.Event, now time.Time, cause error) audit.Even
 	var uncertain commitUncertainError
 	if errors.As(cause, &uncertain) {
 		event.Outcome = audit.OutcomeIncomplete
-		event.Error = &audit.EventError{Code: retireResultUncertainCode, Message: retireResultUncertainMessage}
+		event.Error = &audit.EventError{
+			Code:    retireResultUncertainCode,
+			Message: retireResultUncertainMessage,
+		}
 	}
+
 	return event
 }
 
@@ -158,6 +221,7 @@ func attemptCompletion(event audit.Event, now time.Time) time.Time {
 	if completed.Before(event.Context.StartedAt) {
 		return event.Context.StartedAt
 	}
+
 	return completed
 }
 
@@ -166,28 +230,54 @@ func attemptCompletion(event audit.Event, now time.Time) time.Time {
 // operation ID, start time, and occurrence time and sets the completion
 // time. It derives the new event ID from eventID. A late attempt owner can
 // still save the failed event under the original event ID.
-func incompleteRetireEvent(event audit.Event, record retireAttemptRecord, eventID uuid.UUID, now time.Time) (audit.EncodedEvent, error) {
+func incompleteRetireEvent(
+	event audit.Event,
+	record retireAttemptRecord,
+	eventID uuid.UUID,
+	now time.Time,
+) (audit.EncodedEvent, error) {
 	event.EventID = uuid.NewSHA1(eventID, []byte(retireAttemptIncompleteName))
 	event.Outcome = audit.OutcomeIncomplete
-	event.Error = &audit.EventError{Code: retireResultNotSavedCode, Message: retireResultNotSavedMessage}
+	event.Error = &audit.EventError{
+		Code:    retireResultNotSavedCode,
+		Message: retireResultNotSavedMessage,
+	}
 	event.Context.CompletedAt = attemptCompletion(event, now)
 	var err error
 	if record.CleanupFailure != "" {
-		if event.Extra, err = addEvidenceField(event.Extra, retireEvidenceCleanupField, record.CleanupFailure); err != nil {
+		if event.Extra, err = addEvidenceField(
+			event.Extra,
+			retireEvidenceCleanupField,
+			record.CleanupFailure,
+		); err != nil {
 			return audit.EncodedEvent{}, err
 		}
 	}
+
 	if record.RecordingFailure != "" {
-		if event.Extra, err = addEvidenceField(event.Extra, retireEvidenceRecordingField, record.RecordingFailure); err != nil {
+		if event.Extra, err = addEvidenceField(
+			event.Extra,
+			retireEvidenceRecordingField,
+			record.RecordingFailure,
+		); err != nil {
 			return audit.EncodedEvent{}, err
 		}
 	}
+
 	if err := audit.ValidateEvent(event); err != nil {
-		return audit.EncodedEvent{}, sessionStepError{operation: "validate retirement attempt event", err: err}
+		return audit.EncodedEvent{}, sessionStepError{
+			operation: "validate retirement attempt event",
+			err:       err,
+		}
 	}
+
 	encoded, err := audit.EncodeEvent(event, nil)
 	if err != nil {
-		return audit.EncodedEvent{}, sessionStepError{operation: "encode retirement attempt event", err: err}
+		return audit.EncodedEvent{}, sessionStepError{
+			operation: "encode retirement attempt event",
+			err:       err,
+		}
 	}
+
 	return encoded, nil
 }

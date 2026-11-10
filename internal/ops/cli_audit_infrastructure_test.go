@@ -58,14 +58,20 @@ const (
 // Every other command requires its audit record before execution.
 func TestOnlyProvisionAndAuditBootstrapCreateAuditInfrastructure(t *testing.T) {
 	node := testenv.StartEmptyLedger(t, "tack-test-audit-gate-"+uuid.NewString()[:8])
-	cfg := &config.Config{DatabaseURL: node.DSN, AuditOperatorDSN: node.DSN, AuditOperatorPassword: uuid.NewString()}
+	cfg := &config.Config{
+		DatabaseURL:           node.DSN,
+		AuditOperatorDSN:      node.DSN,
+		AuditOperatorPassword: uuid.NewString(),
+	}
 
 	creators := map[string]string{}
+
 	for _, path := range auditedCommandPaths(t) {
 		outboxPool, err := pgxpool.New(t.Context(), closedOutboxDSN)
 		if err != nil {
 			t.Fatalf("open the operator outbox pool: %v", err)
 		}
+
 		factory := &cli.Factory{Cfg: cfg, In: nil, Out: &bytes.Buffer{}, Err: &bytes.Buffer{}}
 		t.Cleanup(factory.CloseAuditOutbox)
 		root := executeGateRoot(t, factory)
@@ -75,27 +81,43 @@ func TestOnlyProvisionAndAuditBootstrapCreateAuditInfrastructure(t *testing.T) {
 		if err != nil {
 			t.Fatalf("find %v: %v", path, err)
 		}
+
 		args := append(slices.Clone(path), placeholderArguments(leaf)...)
-		args = append(args, "--execute", "--operator-id", gateOperatorID,
-			"--operator-email", "gate@example.test", "--operator-name", "Gate Test")
+		args = append(
+			args,
+			"--execute",
+			"--operator-id",
+			gateOperatorID,
+			"--operator-email",
+			"gate@example.test",
+			"--operator-name",
+			"Gate Test",
+		)
 		root.SetArgs(args)
 		runErr := root.Execute()
 		message := ""
 		if runErr != nil {
 			message = runErr.Error()
 		}
+
 		if strings.Join(path, " ") == "ops audit seed-roles" {
 			var postgresError *pgconn.PgError
 			if !errors.As(runErr, &postgresError) || postgresError.Code != "42P01" {
 				t.Errorf("seed-roles did not reach the missing outbox table: %v", runErr)
 			}
 		}
+
 		switch {
 		case strings.Contains(message, unwiredProbeError):
 			creators[strings.Join(path, " ")] = leaf.Annotations[clispec.AuditVerbAnnotation]
-		case strings.Contains(message, readRecordError), strings.Contains(message, intentRecordError):
+		case strings.Contains(message, readRecordError),
+			strings.Contains(message, intentRecordError):
 		default:
-			t.Errorf("%v stopped with %q, want a failed record before the command body", path, message)
+			t.Errorf(
+				"%v stopped with %q, want a failed record before the command body",
+				path,
+				message,
+			)
 		}
 	}
 
@@ -106,12 +128,21 @@ func TestOnlyProvisionAndAuditBootstrapCreateAuditInfrastructure(t *testing.T) {
 	if !maps.Equal(creators, want) {
 		t.Fatalf("commands that create the audit infrastructure = %v, want %v", creators, want)
 	}
+
 	ledger, err := pgxpool.New(t.Context(), node.DSN)
 	if err != nil {
 		t.Fatalf("open the disposable ledger: %v", err)
 	}
+
 	t.Cleanup(ledger.Close)
-	roles := []string{"tack_audit_writer", "tack_audit_reader", "tack_audit_redactor", "tack_audit_operator", "tack_app", "tack_migrator"}
+	roles := []string{
+		"tack_audit_writer",
+		"tack_audit_reader",
+		"tack_audit_redactor",
+		"tack_audit_operator",
+		"tack_app",
+		"tack_migrator",
+	}
 	rows, err := ledger.Query(t.Context(), gateRoleStateQuery, roles, []string{})
 	if err != nil {
 		t.Fatalf("read the disposable login roles: %v", err)
@@ -120,6 +151,7 @@ func TestOnlyProvisionAndAuditBootstrapCreateAuditInfrastructure(t *testing.T) {
 	if rows.Next() {
 		t.Fatal("seed-roles changed a login role without recording intent")
 	}
+
 	if err := rows.Err(); err != nil {
 		t.Fatalf("read the disposable login roles: %v", err)
 	}
@@ -137,6 +169,7 @@ func auditedCommandPaths(t *testing.T) [][]string {
 		if command.Annotations[clispec.AuditVerbAnnotation] != "" {
 			paths = append(paths, slices.Clone(path))
 		}
+
 		for _, child := range command.Commands() {
 			walk(child, append(slices.Clone(path), child.Name()))
 		}
@@ -145,6 +178,7 @@ func auditedCommandPaths(t *testing.T) [][]string {
 	if len(paths) == 0 {
 		t.Fatal("the rendered tree has no audited command")
 	}
+
 	return paths
 }
 
@@ -153,13 +187,16 @@ func auditedCommandPaths(t *testing.T) [][]string {
 // invoke the shared audit check.
 func placeholderArguments(command *cobra.Command) []string {
 	var values []string
+
 	for range strings.Fields(command.Use)[1:] {
 		values = append(values, "placeholder")
 	}
+
 	command.Flags().VisitAll(func(flag *pflag.Flag) {
 		if _, required := flag.Annotations[cobra.BashCompOneRequiredFlag]; required {
 			values = append(values, "--"+flag.Name+"=placeholder")
 		}
 	})
+
 	return values
 }

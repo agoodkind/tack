@@ -35,7 +35,9 @@ func (r *bufferRoom) tryAdmit(ev Event) bool {
 	if !r.hasRoom() {
 		return false
 	}
+
 	r.queue <- ev
+
 	return true
 }
 
@@ -63,10 +65,13 @@ func (r *bufferRoom) admitOrWait(ev Event) (admission, <-chan struct{}) {
 		r.queue <- ev
 		return admitted, nil
 	}
+
 	if r.retained > 0 {
 		return refusedRetained, nil
 	}
+
 	r.waiting++
+
 	return mustWait, r.opened
 }
 
@@ -101,6 +106,7 @@ func (r *bufferRoom) wake() {
 	if r.waiting == 0 || !r.hasRoom() {
 		return
 	}
+
 	close(r.opened)
 	r.opened = make(chan struct{})
 }

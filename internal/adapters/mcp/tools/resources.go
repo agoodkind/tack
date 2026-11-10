@@ -53,15 +53,23 @@ func gettingStartedHandler(
 	nodeTypes []*node.NodeType,
 	propertyDefs []*node.PropertyDef,
 ) func(context.Context, mcpmcp.ReadResourceRequest) ([]mcpmcp.ResourceContents, error) {
-	return func(ctx context.Context, _ mcpmcp.ReadResourceRequest) ([]mcpmcp.ResourceContents, error) {
+	return func(ctx context.Context, _ mcpmcp.ReadResourceRequest) (
+		[]mcpmcp.ResourceContents,
+		error,
+	) {
 		// Record the identified caller's resource read before rendering content.
 		// TACK-340 added this requirement after the handler ignored its context
 		// and did not emit mcp.resource_read.
 		if err := recordResourceRead(ctx, gettingStartedURI, resolver); err != nil {
 			return nil, err
 		}
+
 		return []mcpmcp.ResourceContents{
-			mcpmcp.TextResourceContents{URI: gettingStartedURI, MIMEType: "text/markdown", Text: buildGettingStartedText(resolver, nodeTypes, propertyDefs)},
+			mcpmcp.TextResourceContents{
+				URI:      gettingStartedURI,
+				MIMEType: "text/markdown",
+				Text:     buildGettingStartedText(resolver, nodeTypes, propertyDefs),
+			},
 		}, nil
 	}
 }
@@ -80,28 +88,43 @@ func recordResourceRead(ctx context.Context, uri string, resolver *Resolver) err
 	if audit.HasReadCollector(ctx) {
 		return nil
 	}
+
 	recorder, err := requireAuditRecorder(ctx)
 	if err != nil {
 		logRecorderMissing(ctx, "resource:"+uri)
 		return err
 	}
+
 	actor := audit.Actor{
-		Type: audit.ActorUser, ID: uuid.Nil, Email: "", Name: "", SessionID: "",
-		IP: "", UserAgent: "", RequestID: telemetry.RequestID(ctx), APITokenLabel: "",
+		Type:          audit.ActorUser,
+		ID:            uuid.Nil,
+		Email:         "",
+		Name:          "",
+		SessionID:     "",
+		IP:            "",
+		UserAgent:     "",
+		RequestID:     telemetry.RequestID(ctx),
+		APITokenLabel: "",
 	}
 	if userID, found := auth.UserID(ctx); found {
 		actor.ID = userID
 	}
+
 	scope := audit.ScopeFromContext(ctx)
 	if scope.OrgID == uuid.Nil {
 		scope.OrgID = readerSoleOrg(ctx, resolver)
 	}
+
 	event := audit.Event{
 		EventID: uuid.Nil,
 		Verb:    string(audit.VerbMCPResourceRead),
 		Actor:   actor,
 		Entity: audit.Entity{
-			Type: "mcp_resource", NodeType: "", ID: uuid.Nil, Identifier: "", Name: uri,
+			Type:       "mcp_resource",
+			NodeType:   "",
+			ID:         uuid.Nil,
+			Identifier: "",
+			Name:       uri,
 		},
 		Context: audit.EventContext{
 			Source:      audit.SourceMCP,
@@ -123,10 +146,13 @@ func recordResourceRead(ctx context.Context, uri string, resolver *Resolver) err
 		Extra:          nil,
 	}
 	if err := recorder.Record(ctx, event); err != nil {
-		telemetry.L(ctx).Warn("audit.record_failed",
+		telemetry.L(ctx).Warn(
+			"audit.record_failed",
 			slog.String("resource", uri),
-			slog.String("err", err.Error()))
+			slog.String("err", err.Error()),
+		)
 	}
+
 	return nil
 }
 
@@ -138,13 +164,16 @@ func readerSoleOrg(ctx context.Context, resolver *Resolver) uuid.UUID {
 	if resolver == nil || resolver.members == nil {
 		return uuid.Nil
 	}
+
 	orgIDs, err := resolver.callerOrgIDs(ctx)
 	if err != nil {
 		telemetry.L(ctx).Warn("audit.resource_org_stamp_failed", slog.String("err", err.Error()))
 		return uuid.Nil
 	}
+
 	if len(orgIDs) == 1 {
 		return orgIDs[0]
 	}
+
 	return uuid.Nil
 }

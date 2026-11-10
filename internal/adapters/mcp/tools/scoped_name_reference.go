@@ -22,21 +22,26 @@ func (rc *renderCtx) scopedNameIdentifierFor(view *node.NodeView, nodeType *node
 	if view.Name == "" || !rc.livesOneLevelUnderEntryPoint(nodeType) {
 		return ""
 	}
+
 	parentID := uuidProp(view, "parent_id")
 	if parentID == uuid.Nil {
 		return ""
 	}
+
 	if scopeID := uuidProp(view, "scope_id"); scopeID != uuid.Nil && scopeID != parentID {
 		return ""
 	}
+
 	parent, err := rc.reader.Get(rc.ctx, parentID)
 	if err != nil || parent == nil || parent.NodeType != nodeType.CanLiveUnder[0] {
 		return ""
 	}
+
 	parentIdent := rc.nodeIdentifier(parentID)
 	if parentIdent == "" {
 		return ""
 	}
+
 	return parentIdent + scopedNodeRefSeparator + view.Name
 }
 
@@ -47,10 +52,13 @@ func (rc *renderCtx) livesOneLevelUnderEntryPoint(nodeType *node.NodeType) bool 
 	if len(nodeType.CanLiveUnder) == 0 {
 		return false
 	}
+
 	parentType := rc.typeIndex[nodeType.CanLiveUnder[0]]
 	if parentType == nil || len(parentType.CanLiveUnder) == 0 {
 		return false
 	}
+
 	grandparentType := rc.typeIndex[parentType.CanLiveUnder[0]]
+
 	return grandparentType != nil && grandparentType.Features.Has(node.FeatureIsEntryPoint)
 }

@@ -63,18 +63,37 @@ func readAuditRow(rows pgx.Rows) (Row, error) {
 	var outcome *string
 	var contextRaw, deltaRaw, errorRaw, extraRaw []byte
 	if err := rows.Scan(
-		&row.OrgID, &row.EventTime, &row.EventID, &row.Seq, &row.Shard,
-		&row.ActorID, &row.ActorKind, &row.Action, &outcome,
-		&row.EntityKind, &row.EntityID, &contextRaw, &deltaRaw, &errorRaw, &extraRaw, &row.PIIRef,
-		&row.PrevHash, &row.RowHash, &row.HashVersion, &row.IdempotencyKey,
+		&row.OrgID,
+		&row.EventTime,
+		&row.EventID,
+		&row.Seq,
+		&row.Shard,
+		&row.ActorID,
+		&row.ActorKind,
+		&row.Action,
+		&outcome,
+		&row.EntityKind,
+		&row.EntityID,
+		&contextRaw,
+		&deltaRaw,
+		&errorRaw,
+		&extraRaw,
+		&row.PIIRef,
+		&row.PrevHash,
+		&row.RowHash,
+		&row.HashVersion,
+		&row.IdempotencyKey,
 	); err != nil {
 		slog.Error("audit.row.scan_failed", slog.String("err", err.Error()))
 		return row, fmt.Errorf("audit row scan: %w", err)
 	}
+
 	if err := unmarshalRowPayloads(&row, contextRaw, deltaRaw, errorRaw, extraRaw); err != nil {
 		return row, err
 	}
+
 	row.Outcome = outcomeFromColumn(outcome)
+
 	return row, nil
 }
 
@@ -91,17 +110,29 @@ type rowPayloadTarget interface {
 // The original comment records that ledger writers used these types from the
 // first row. That historical format explains the strict rejection of unknown
 // fields.
-func unmarshalRowPayload[T rowPayloadTarget](eventID uuid.UUID, column string, raw []byte, dst T) error {
+func unmarshalRowPayload[T rowPayloadTarget](
+	eventID uuid.UUID,
+	column string,
+	raw []byte,
+	dst T,
+) error {
 	if len(raw) == 0 {
 		return nil
 	}
+
 	decoder := json.NewDecoder(bytes.NewReader(raw))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(dst); err != nil {
-		slog.Error("audit.row.payload_decode_failed",
-			slog.String("event_id", eventID.String()), slog.String("column", column), slog.String("err", err.Error()))
+		slog.Error(
+			"audit.row.payload_decode_failed",
+			slog.String("event_id", eventID.String()),
+			slog.String("column", column),
+			slog.String("err", err.Error()),
+		)
+
 		return fmt.Errorf("audit row %s %s: %w", eventID, column, err)
 	}
+
 	return nil
 }
 
@@ -111,14 +142,18 @@ func unmarshalRowPayloads(row *Row, contextRaw, deltaRaw, errorRaw, extraRaw []b
 	if err := unmarshalRowPayload(row.EventID, "context", contextRaw, &row.Context); err != nil {
 		return err
 	}
+
 	if err := unmarshalRowPayload(row.EventID, "delta", deltaRaw, &row.Delta); err != nil {
 		return err
 	}
+
 	if err := unmarshalRowPayload(row.EventID, "error", errorRaw, &row.Error); err != nil {
 		return err
 	}
+
 	if len(extraRaw) != 0 {
 		row.Extra = json.RawMessage(extraRaw)
 	}
+
 	return nil
 }

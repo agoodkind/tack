@@ -17,8 +17,10 @@ func runInventoryCheck(t *testing.T, fixture *placementFixture, node string) (st
 	script := ybInventoryCheckScript(
 		filepath.Join(fixture.layout.ExportRoot, node),
 		filepath.Join(fixture.artifactDir, ybDrillInventoryName(node)),
-		t.TempDir())
+		t.TempDir(),
+	)
 	out, err := exec.CommandContext(t.Context(), fixture.shell, "-c", script).CombinedOutput()
+
 	return string(out), err
 }
 
@@ -31,54 +33,79 @@ func runInventoryCheck(t *testing.T, fixture *placementFixture, node string) (st
 // inventory. The comparison must fail on the read instead of reporting zero
 // missing files.
 func TestYBInventoryCheckFailsWhenTheInventoryCannotBeRead(t *testing.T) {
-	eachPlacementShell(t, func(t *testing.T, shell string) {
-		const exportSnap = "expsnap"
-		fixture := newPlacementFixture(t, shell, 2)
-		for _, remap := range fixture.remaps {
-			fixture.stageTablet(t, remap, "yb1", exportSnap, "CURRENT", "000123.sst")
-		}
-		fixture.archive(t, "yb1", exportSnap)
-		if err := os.Remove(filepath.Join(fixture.tabletSourceDir(fixture.remaps[0], "yb1", exportSnap), "000123.sst")); err != nil {
-			t.Fatalf("take one archived file out of the extraction: %v", err)
-		}
-		if err := os.Remove(filepath.Join(fixture.artifactDir, ybDrillInventoryName("yb1"))); err != nil {
-			t.Fatalf("take the staged inventory away: %v", err)
-		}
+	eachPlacementShell(
+		t,
+		func(t *testing.T, shell string) {
+			const exportSnap = "expsnap"
 
-		out, err := runInventoryCheck(t, fixture, "yb1")
+			fixture := newPlacementFixture(t, shell, 2)
+			for _, remap := range fixture.remaps {
+				fixture.stageTablet(t, remap, "yb1", exportSnap, "CURRENT", "000123.sst")
+			}
 
-		if err == nil {
-			t.Fatalf("a check whose inventory could not be read passed, reporting: %q", out)
-		}
-		if strings.Contains(out, "missing 0") {
-			t.Fatalf("a check whose inventory could not be read reported nothing missing: %q", out)
-		}
-	})
+			fixture.archive(t, "yb1", exportSnap)
+			if err := os.Remove(
+				filepath.Join(
+					fixture.tabletSourceDir(fixture.remaps[0], "yb1", exportSnap),
+					"000123.sst",
+				),
+			); err != nil {
+				t.Fatalf("take one archived file out of the extraction: %v", err)
+			}
+
+			if err := os.Remove(
+				filepath.Join(fixture.artifactDir, ybDrillInventoryName("yb1")),
+			); err != nil {
+				t.Fatalf("take the staged inventory away: %v", err)
+			}
+
+			out, err := runInventoryCheck(t, fixture, "yb1")
+			if err == nil {
+				t.Fatalf("a check whose inventory could not be read passed, reporting: %q", out)
+			}
+
+			if strings.Contains(out, "missing 0") {
+				t.Fatalf(
+					"a check whose inventory could not be read reported nothing missing: %q",
+					out,
+				)
+			}
+		},
+	)
 }
 
 // TestYBInventoryCheckStillReportsTheMissingFile checks the successful
 // comparison after the pipeline correction. The result must identify the one
 // removed file and the size that the archive recorded.
 func TestYBInventoryCheckStillReportsTheMissingFile(t *testing.T) {
-	eachPlacementShell(t, func(t *testing.T, shell string) {
-		const exportSnap = "expsnap"
-		fixture := newPlacementFixture(t, shell, 2)
-		for _, remap := range fixture.remaps {
-			fixture.stageTablet(t, remap, "yb1", exportSnap, "CURRENT", "000123.sst")
-		}
-		inventory := fixture.archive(t, "yb1", exportSnap)
-		gone := filepath.Join(fixture.tabletSourceDir(fixture.remaps[1], "yb1", exportSnap), "000123.sst")
-		if err := os.Remove(gone); err != nil {
-			t.Fatalf("take one archived file out of the extraction: %v", err)
-		}
+	eachPlacementShell(
+		t,
+		func(t *testing.T, shell string) {
+			const exportSnap = "expsnap"
 
-		missing := fixture.check(t, inventory)
+			fixture := newPlacementFixture(t, shell, 2)
+			for _, remap := range fixture.remaps {
+				fixture.stageTablet(t, remap, "yb1", exportSnap, "CURRENT", "000123.sst")
+			}
 
-		wantPath := ybTabletSourceDir(fixture.remaps[1], exportSnap) + "/000123.sst"
-		if len(missing) != 1 || missing[0].Path != wantPath || missing[0].Size != int64(len("yb1:000123.sst")) {
-			t.Fatalf("missing = %+v, want only %s at its archived size", missing, wantPath)
-		}
-	})
+			inventory := fixture.archive(t, "yb1", exportSnap)
+			gone := filepath.Join(
+				fixture.tabletSourceDir(fixture.remaps[1], "yb1", exportSnap),
+				"000123.sst",
+			)
+			if err := os.Remove(gone); err != nil {
+				t.Fatalf("take one archived file out of the extraction: %v", err)
+			}
+
+			missing := fixture.check(t, inventory)
+
+			wantPath := ybTabletSourceDir(fixture.remaps[1], exportSnap) + "/000123.sst"
+			if len(missing) != 1 || missing[0].Path != wantPath ||
+				missing[0].Size != int64(len("yb1:000123.sst")) {
+				t.Fatalf("missing = %+v, want only %s at its archived size", missing, wantPath)
+			}
+		},
+	)
 }
 
 // TestParseYBInventoryCheckRefusesWhatItCannotAttribute requires the parser
@@ -96,11 +123,14 @@ func TestParseYBInventoryCheckRefusesWhatItCannotAttribute(t *testing.T) {
 		{name: "count disagrees with the lines", out: "missing 2\ntable-a/x\t3\n"},
 		{name: "an unreadable line", out: "missing 1\ntable-a/x\n"},
 	} {
-		t.Run(tc.name, func(t *testing.T) {
-			if _, err := parseYBInventoryCheck("yb1", tc.out); err == nil {
-				t.Fatalf("reading %q as an extraction check must fail", tc.out)
-			}
-		})
+		t.Run(
+			tc.name,
+			func(t *testing.T) {
+				if _, err := parseYBInventoryCheck("yb1", tc.out); err == nil {
+					t.Fatalf("reading %q as an extraction check must fail", tc.out)
+				}
+			},
+		)
 	}
 }
 
@@ -112,10 +142,15 @@ func TestParseYBInventoryCheckReadsAWholeRun(t *testing.T) {
 	if err != nil || len(missing) != 0 {
 		t.Fatalf("whole extraction = %v, %v; want none missing", missing, err)
 	}
-	missing, err = parseYBInventoryCheck("yb1", "missing 2\ntable-a/t.snapshots/s/CURRENT\t3\ntable-a/t.snapshots/s/x\t9\n")
+
+	missing, err = parseYBInventoryCheck(
+		"yb1",
+		"missing 2\ntable-a/t.snapshots/s/CURRENT\t3\ntable-a/t.snapshots/s/x\t9\n",
+	)
 	if err != nil {
 		t.Fatalf("parseYBInventoryCheck: %v", err)
 	}
+
 	want := []ybArchivedFile{
 		{Path: "table-a/t.snapshots/s/CURRENT", Size: 3},
 		{Path: "table-a/t.snapshots/s/x", Size: 9},

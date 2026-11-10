@@ -49,12 +49,23 @@ func TestRuntimeAuditTokenUseSurvivesBrokerOutage(t *testing.T) {
 		t.Fatalf("tools/list status = %d, want 200: %s", response.status, response.body)
 	}
 
-	outage, err := auditrelay.Open(t.Context(), auditrelay.Config{
-		Brokers: []string{tokenUseUnreachableBroker}, Topic: stack.topic, YugabyteDSN: testenv.Ledger(t),
-		FDBClusterFile: server.clusterFile, FDBTransactionTimeout: tokenUseOutboxTimeout,
-		PollInterval: tokenUseRelayPoll, BatchSize: tokenUseRelayBatch,
-		LeaseDuration: 0, AfterProduce: nil, AfterLeaseAcquired: nil,
-	})
+	outage, err := auditrelay.Open(
+		t.Context(),
+		auditrelay.Config{
+			Brokers: []string{
+				tokenUseUnreachableBroker,
+			},
+			Topic:                 stack.topic,
+			YugabyteDSN:           testenv.Ledger(t),
+			FDBClusterFile:        server.clusterFile,
+			FDBTransactionTimeout: tokenUseOutboxTimeout,
+			PollInterval:          tokenUseRelayPoll,
+			BatchSize:             tokenUseRelayBatch,
+			LeaseDuration:         0,
+			AfterProduce:          nil,
+			AfterLeaseAcquired:    nil,
+		},
+	)
 	if err != nil {
 		t.Fatalf("auditrelay.Open failed for the unreachable broker: %v", err)
 	}
@@ -82,7 +93,12 @@ func TestRuntimeAuditTokenUseSurvivesBrokerOutage(t *testing.T) {
 
 // requireNoLedgerTokenUsed checks that the ledger does not contain an
 // auth.token_used row for requestID.
-func requireNoLedgerTokenUsed(t *testing.T, reader *audit.Reader, orgID uuid.UUID, requestID string) {
+func requireNoLedgerTokenUsed(
+	t *testing.T,
+	reader *audit.Reader,
+	orgID uuid.UUID,
+	requestID string,
+) {
 	t.Helper()
 
 	rows := tokenUsedRows(t, reader, orgID, requestID)

@@ -26,22 +26,42 @@ type chainHeadState struct {
 
 // readChainHead reads one (org, shard) chain head inside tx. Writers use this
 // function and writeChainHead for the shared chain protocol.
-func readChainHead(ctx context.Context, tx pgx.Tx, orgID uuid.UUID, shard int16) (chainHeadState, error) {
+func readChainHead(
+	ctx context.Context,
+	tx pgx.Tx,
+	orgID uuid.UUID,
+	shard int16,
+) (chainHeadState, error) {
 	head := chainHeadState{LastSeq: 0, LastHash: []byte{}, Exists: true}
-	err := tx.QueryRow(ctx, `
+	err := tx.QueryRow(
+		ctx,
+		`
 		SELECT last_seq, last_hash FROM audit.chain_heads
 		WHERE org_id = $1 AND shard = $2
-	`, orgID, shard).Scan(&head.LastSeq, &head.LastHash)
+	`,
+		orgID,
+		shard,
+	).Scan(
+		&head.LastSeq,
+		&head.LastHash,
+	)
 	switch {
 	case errors.Is(err, pgx.ErrNoRows):
 		return chainHeadState{LastSeq: 0, LastHash: []byte{}, Exists: false}, nil
 	case err != nil:
 		slog.ErrorContext(ctx, "audit.chain.head_read_failed", slog.String("err", err.Error()))
-		return chainHeadState{LastSeq: 0, LastHash: nil, Exists: false}, fmt.Errorf("chain head read: %w", err)
+
+		return chainHeadState{
+			LastSeq:  0,
+			LastHash: nil,
+			Exists:   false,
+		}, fmt.Errorf("chain head read: %w", err)
 	}
+
 	if head.LastHash == nil {
 		head.LastHash = []byte{}
 	}
+
 	return head, nil
 }
 
@@ -60,24 +80,42 @@ func writeChainHead(
 	var tag pgconn.CommandTag
 	var err error
 	if head.Exists {
-		tag, err = tx.Exec(ctx, `
+		tag, err = tx.Exec(
+			ctx,
+			`
 			UPDATE audit.chain_heads
 			SET last_seq = $3, last_hash = $4, updated_at = now()
 			WHERE org_id = $1 AND shard = $2 AND last_seq = $5
-		`, orgID, shard, seq, rowHash, head.LastSeq)
+		`,
+			orgID,
+			shard,
+			seq,
+			rowHash,
+			head.LastSeq,
+		)
 	} else {
-		tag, err = tx.Exec(ctx, `
+		tag, err = tx.Exec(
+			ctx,
+			`
 			INSERT INTO audit.chain_heads (org_id, shard, last_seq, last_hash, updated_at)
 			VALUES ($1, $2, $3, $4, now())
 			ON CONFLICT (org_id, shard) DO NOTHING
-		`, orgID, shard, seq, rowHash)
+		`,
+			orgID,
+			shard,
+			seq,
+			rowHash,
+		)
 	}
+
 	if err != nil {
 		slog.ErrorContext(ctx, "audit.chain.head_write_failed", slog.String("err", err.Error()))
 		return fmt.Errorf("chain head write: %w", err)
 	}
+
 	if tag.RowsAffected() == 0 {
 		return errChainConflict
 	}
+
 	return nil
 }

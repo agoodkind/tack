@@ -19,6 +19,7 @@ func (r *Resolver) referenceSearchRoots(ctx context.Context) ([]*node.NodeView, 
 	if !ok {
 		return nil, fmt.Errorf("unauthenticated")
 	}
+
 	return r.WorkspacesForUser(ctx, userID)
 }
 
@@ -27,63 +28,87 @@ func (r *Resolver) referenceScopeLevel(nt *node.NodeType) (ScopeLevel, bool) {
 	if len(chain) == 0 {
 		return ScopeLevel{}, false
 	}
+
 	return chain[0], true
 }
 
-func (r *Resolver) nodeBelongsToScope(ctx context.Context, candidate *node.Node, scopeID uuid.UUID) bool {
+func (r *Resolver) nodeBelongsToScope(
+	ctx context.Context,
+	candidate *node.Node,
+	scopeID uuid.UUID,
+) bool {
 	if candidate == nil || scopeID == uuid.Nil {
 		return false
 	}
+
 	if got := rawUUID(candidate.Props, "scope_id"); got == scopeID {
 		return true
 	}
+
 	parentID := rawUUID(candidate.Props, "parent_id")
 	if parentID == uuid.Nil {
 		return false
 	}
+
 	if parentID == scopeID {
 		return true
 	}
+
 	return r.parentChainContains(ctx, parentID, scopeID)
 }
 
 func (r *Resolver) parentChainContains(ctx context.Context, startID, wantID uuid.UUID) bool {
 	currentID := startID
 	visited := map[uuid.UUID]struct{}{}
+
 	for currentID != uuid.Nil {
 		if currentID == wantID {
 			return true
 		}
+
 		if _, seen := visited[currentID]; seen {
 			return false
 		}
+
 		visited[currentID] = struct{}{}
 		currentView, err := r.reader.Get(ctx, currentID)
 		if err != nil || currentView == nil {
 			return false
 		}
+
 		currentID = uuidProp(currentView, "parent_id")
 	}
+
 	return false
 }
 
-func viewBelongsToScope(ctx context.Context, resolver *Resolver, view *node.NodeView, scopeID uuid.UUID) bool {
+func viewBelongsToScope(
+	ctx context.Context,
+	resolver *Resolver,
+	view *node.NodeView,
+	scopeID uuid.UUID,
+) bool {
 	if view == nil || scopeID == uuid.Nil {
 		return false
 	}
+
 	if view.ID == scopeID {
 		return true
 	}
+
 	if uuidProp(view, "scope_id") == scopeID {
 		return true
 	}
+
 	parentID := uuidProp(view, "parent_id")
 	if parentID == uuid.Nil {
 		return false
 	}
+
 	if parentID == scopeID {
 		return true
 	}
+
 	return resolver.parentChainContains(ctx, parentID, scopeID)
 }
 
@@ -91,10 +116,13 @@ func matchesReferenceProperty(view *node.NodeView, propName, input string) bool 
 	if view == nil {
 		return false
 	}
+
 	if propName == "name" && strings.EqualFold(view.Name, input) {
 		return true
 	}
+
 	value := stringProp(view, propName)
+
 	return value != "" && strings.EqualFold(value, input)
 }
 
@@ -107,10 +135,12 @@ func uniqueMatch(matches map[uuid.UUID]struct{}, kind, input string) (uuid.UUID,
 			return id, nil
 		}
 	}
+
 	candidates := make([]string, 0, len(matches))
 	for id := range matches {
 		candidates = append(candidates, id.String())
 	}
+
 	sort.Strings(candidates)
 	err := fmt.Errorf(
 		"%s %q matched multiple nodes (%s): %w",
@@ -119,27 +149,51 @@ func uniqueMatch(matches map[uuid.UUID]struct{}, kind, input string) (uuid.UUID,
 		strings.Join(candidates, ", "),
 		domain.ErrInvalidArgument,
 	)
-	slog.Error("reference.match_ambiguous",
+	slog.Error(
+		"reference.match_ambiguous",
 		slog.String("kind", kind),
 		slog.String("input", input),
 		slog.String("candidates", strings.Join(candidates, ", ")),
 		slog.Any("err", err),
 	)
+
 	return uuid.Nil, err
 }
 
 func invalidTypedNodeIDError(nt *node.NodeType, input string) error {
 	switch nt.Reference.Strategy {
 	case node.ReferenceUUIDOnly:
-		return invalidReferenceError{err: fmt.Errorf("invalid node_id %q: use a UUID: %w", input, domain.ErrInvalidArgument)}
+		return invalidReferenceError{
+			err: fmt.Errorf("invalid node_id %q: use a UUID: %w", input, domain.ErrInvalidArgument),
+		}
 	case node.ReferenceScopedSequence:
-		return invalidReferenceError{err: fmt.Errorf("invalid node_id %q: use a UUID or sequence reference like TACK-65: %w", input, domain.ErrInvalidArgument)}
+		return invalidReferenceError{
+			err: fmt.Errorf(
+				"invalid node_id %q: use a UUID or sequence reference like TACK-65: %w",
+				input,
+				domain.ErrInvalidArgument,
+			),
+		}
 	case node.ReferenceDirectProperty:
-		return invalidReferenceError{err: fmt.Errorf("invalid node_id %q: use a UUID or declared reference like TACK: %w", input, domain.ErrInvalidArgument)}
+		return invalidReferenceError{
+			err: fmt.Errorf(
+				"invalid node_id %q: use a UUID or declared reference like TACK: %w",
+				input,
+				domain.ErrInvalidArgument,
+			),
+		}
 	case node.ReferenceScopedProperty:
-		return invalidReferenceError{err: fmt.Errorf("invalid node_id %q: use a UUID or scoped reference like CLYDE::In Progress: %w", input, domain.ErrInvalidArgument)}
+		return invalidReferenceError{
+			err: fmt.Errorf(
+				"invalid node_id %q: use a UUID or scoped reference like CLYDE::In Progress: %w",
+				input,
+				domain.ErrInvalidArgument,
+			),
+		}
 	default:
-		return invalidReferenceError{err: fmt.Errorf("invalid node_id %q: use a UUID: %w", input, domain.ErrInvalidArgument)}
+		return invalidReferenceError{
+			err: fmt.Errorf("invalid node_id %q: use a UUID: %w", input, domain.ErrInvalidArgument),
+		}
 	}
 }
 
@@ -148,14 +202,17 @@ func rawUUID(props map[string]json.RawMessage, key string) uuid.UUID {
 	if !ok || len(raw) == 0 {
 		return uuid.Nil
 	}
+
 	var value string
 	if err := json.Unmarshal(raw, &value); err != nil {
 		return uuid.Nil
 	}
+
 	id, err := uuid.Parse(value)
 	if err != nil {
 		return uuid.Nil
 	}
+
 	return id
 }
 
@@ -163,14 +220,17 @@ func referenceLookupValues(input string) []json.RawMessage {
 	values := []string{input, strings.ToUpper(input), strings.ToLower(input)}
 	out := make([]json.RawMessage, 0, len(values))
 	seen := map[string]struct{}{}
+
 	for _, value := range values {
 		raw, _ := json.Marshal(value)
 		key := string(raw)
 		if _, ok := seen[key]; ok {
 			continue
 		}
+
 		seen[key] = struct{}{}
 		out = append(out, raw)
 	}
+
 	return out
 }

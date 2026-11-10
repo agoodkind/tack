@@ -31,16 +31,25 @@ func TestOpenBoundsATransactionByTheTimeoutItWasGiven(t *testing.T) {
 
 	err = readAfterWaiting(database, shortTimeout*3)
 	if err == nil {
-		t.Fatalf("a read %s into a %s bound succeeded, want the transaction refused past the bound",
-			shortTimeout*3, shortTimeout)
+		t.Fatalf(
+			"a read %s into a %s bound succeeded, want the transaction refused past the bound",
+			shortTimeout*3,
+			shortTimeout,
+		)
 	}
+
 	var fdbErr fdb.Error
 	if !errors.As(err, &fdbErr) {
 		t.Fatalf("the read after the timeout returned %T (%v), want an fdb.Error", err, err)
 	}
+
 	if fdbErr.Code != fdbErrorTransactionTimedOut {
-		t.Fatalf("the read after the timeout returned FoundationDB error %d (%v), want %d",
-			fdbErr.Code, err, fdbErrorTransactionTimedOut)
+		t.Fatalf(
+			"the read after the timeout returned FoundationDB error %d (%v), want %d",
+			fdbErr.Code,
+			err,
+			fdbErrorTransactionTimedOut,
+		)
 	}
 }
 
@@ -52,11 +61,14 @@ func readAfterWaiting(database fdb.Database, wait time.Duration) error {
 	if err != nil {
 		return err
 	}
+
 	probe := fdb.Key("tack-test:timeout-probe")
 	if _, err := transaction.Get(probe).Get(); err != nil {
 		return err
 	}
+
 	time.Sleep(wait)
 	_, err = transaction.Get(probe).Get()
+
 	return err
 }

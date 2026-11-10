@@ -110,7 +110,12 @@ const RankingVersion = "2"
 // The function calls [RankedSessionBinding] with [RankingVersion].
 //
 //   - The arguments supply the principal, authority, entry point, and query.
-func SessionBinding(principalID, authorityID, entryPointID uuid.UUID, query Query) [sha256.Size]byte {
+func SessionBinding(
+	principalID uuid.UUID,
+	authorityID uuid.UUID,
+	entryPointID uuid.UUID,
+	query Query,
+) [sha256.Size]byte {
 	return RankedSessionBinding(RankingVersion, principalID, authorityID, entryPointID, query)
 }
 
@@ -122,7 +127,13 @@ func SessionBinding(principalID, authorityID, entryPointID uuid.UUID, query Quer
 //   - The identity includes principal, permission authority, and entry point.
 //   - Query identity includes text, node type, index, and access version.
 //   - Each access key contributes a separate length-prefixed value.
-func RankedSessionBinding(rankingVersion string, principalID, authorityID, entryPointID uuid.UUID, query Query) [sha256.Size]byte {
+func RankedSessionBinding(
+	rankingVersion string,
+	principalID uuid.UUID,
+	authorityID uuid.UUID,
+	entryPointID uuid.UUID,
+	query Query,
+) [sha256.Size]byte {
 	var identity bytes.Buffer
 	writeIdentityPart(&identity, []byte(rankingVersion))
 	writeIdentityPart(&identity, []byte(strconv.FormatInt(query.Generation, 10)))
@@ -133,8 +144,10 @@ func RankedSessionBinding(rankingVersion string, principalID, authorityID, entry
 	writeIdentityPart(&identity, []byte(query.NodeType))
 	writeIdentityPart(&identity, []byte(query.Index))
 	writeIdentityPart(&identity, []byte(query.Access.Version))
+
 	for _, key := range query.Access.Keys {
 		writeIdentityPart(&identity, []byte(key))
 	}
+
 	return sha256.Sum256(identity.Bytes())
 }

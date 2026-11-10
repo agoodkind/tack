@@ -89,10 +89,12 @@ func ybDuplicateRoleName(sqlState, message string) string {
 	if sqlState != ybDuplicateObjectSQLState {
 		return ""
 	}
+
 	match := ybDuplicateRoleMessagePattern.FindStringSubmatch(message)
 	if match == nil {
 		return ""
 	}
+
 	return match[1]
 }
 
@@ -114,21 +116,26 @@ func ybDuplicateRoleName(sqlState, message string) string {
 // drill.
 func classifyYBRolesApply(stderr, rolesFilePath string) ybRolesApplyReport {
 	report := ybRolesApplyReport{AlreadyPresent: nil, Unexpected: nil}
+
 	for _, diagnostic := range ybRenderedDiagnostics(stderr, rolesFilePath) {
 		if diagnostic.SQLState == "" {
 			report.Unexpected = append(report.Unexpected, diagnostic.Line)
 			continue
 		}
+
 		if !ybSQLStateIsFailure(diagnostic.SQLState) {
 			continue
 		}
+
 		role := ybDuplicateRoleName(diagnostic.SQLState, diagnostic.Message)
 		if role == "" {
 			report.Unexpected = append(report.Unexpected, diagnostic.Line)
 			continue
 		}
+
 		report.AlreadyPresent = append(report.AlreadyPresent, role)
 	}
+
 	return report
 }
 
@@ -161,35 +168,84 @@ func ybRolesApplyEnv(password string) []string {
 // failures must fail here rather than produce a ledger that callers cannot
 // read. VERBOSITY=verbose includes the SQLSTATE required for classification on
 // every diagnostic.
-func applyYBDrillRoles(ctx context.Context, r *restoreDrillCtx, containerName, database string) error {
+func applyYBDrillRoles(
+	ctx context.Context,
+	r *restoreDrillCtx,
+	containerName string,
+	database string,
+) error {
 	logger := telemetry.L(ctx)
 	rolesFilePath := ybDrillArtifactPath(ybSnapshotRolesObject)
 	cmd := []string{
-		"ysqlsh", "-h", ybScratchHost(containerName), "-p", drillLedgerPort,
-		"-U", database, "-d", database,
-		"-v", "VERBOSITY=verbose", "-q", "-f", rolesFilePath,
+		"ysqlsh",
+		"-h",
+		ybScratchHost(containerName),
+		"-p",
+		drillLedgerPort,
+		"-U",
+		database,
+		"-d",
+		database,
+		"-v",
+		"VERBOSITY=verbose",
+		"-q",
+		"-f",
+		rolesFilePath,
 	}
-	exitCode, stderr, err := containerExecStreaming(ctx, r.Cli, containerName, cmd,
-		ybRolesApplyEnv(r.YBPass), devNull{})
+	exitCode, stderr, err := containerExecStreaming(
+		ctx,
+		r.Cli,
+		containerName,
+		cmd,
+		ybRolesApplyEnv(r.YBPass),
+		devNull{},
+	)
 	if err != nil {
 		wrapped := fmt.Errorf("apply the export's roles file: %w", err)
-		logger.ErrorContext(ctx, "backup.restore_drill.yb.failed", slog.String("err", wrapped.Error()))
+		logger.ErrorContext(
+			ctx,
+			"backup.restore_drill.yb.failed",
+			slog.String("err", wrapped.Error()),
+		)
+
 		return wrapped
 	}
+
 	if exitCode != 0 {
-		wrapped := fmt.Errorf("apply the export's roles file: ysqlsh exited %d: %s",
-			exitCode, strings.TrimSpace(stderr))
-		logger.ErrorContext(ctx, "backup.restore_drill.yb.failed", slog.String("err", wrapped.Error()))
+		wrapped := fmt.Errorf(
+			"apply the export's roles file: ysqlsh exited %d: %s",
+			exitCode,
+			strings.TrimSpace(stderr),
+		)
+		logger.ErrorContext(
+			ctx,
+			"backup.restore_drill.yb.failed",
+			slog.String("err", wrapped.Error()),
+		)
+
 		return wrapped
 	}
+
 	report := classifyYBRolesApply(stderr, rolesFilePath)
 	if len(report.Unexpected) > 0 {
-		wrapped := fmt.Errorf("the export's roles file did not apply cleanly: %s",
-			strings.Join(report.Unexpected, "; "))
-		logger.ErrorContext(ctx, "backup.restore_drill.yb.failed", slog.String("err", wrapped.Error()))
+		wrapped := fmt.Errorf(
+			"the export's roles file did not apply cleanly: %s",
+			strings.Join(report.Unexpected, "; "),
+		)
+		logger.ErrorContext(
+			ctx,
+			"backup.restore_drill.yb.failed",
+			slog.String("err", wrapped.Error()),
+		)
+
 		return wrapped
 	}
-	logger.InfoContext(ctx, "backup.restore_drill.yb.roles_applied",
-		slog.Any("already_present", report.AlreadyPresent))
+
+	logger.InfoContext(
+		ctx,
+		"backup.restore_drill.yb.roles_applied",
+		slog.Any("already_present", report.AlreadyPresent),
+	)
+
 	return nil
 }

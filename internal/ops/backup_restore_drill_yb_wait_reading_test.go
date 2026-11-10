@@ -19,14 +19,25 @@ func TestAwaitYBScratchEndsOnACrashLoopThatKeepsWritingBytes(t *testing.T) {
 	advanceClockPerRead(t, ybWaitTestClockStep)
 	recordLedgerWaits(t)
 	engine := &scriptedYBScratch{
-		readyAfter: 1000, counters: risingTablets(1000), running: true,
-		failReason: "yugabyted restarted a crashed master or tablet server 1 time(s)", failAfter: 3,
+		readyAfter: 1000,
+		counters:   risingTablets(1000),
+		running:    true,
+		failReason: "yugabyted restarted a crashed master or tablet server 1 time(s)",
+		failAfter:  3,
 	}
 
-	_, err := awaitYBScratch(context.Background(), "start", engine.watch(), ybWaitTestStall, ybWaitTestPoll, ybWaitTestProbe)
+	_, err := awaitYBScratch(
+		context.Background(),
+		"start",
+		engine.watch(),
+		ybWaitTestStall,
+		ybWaitTestPoll,
+		ybWaitTestProbe,
+	)
 	if err == nil || !strings.Contains(err.Error(), "start: yugabyted restarted a crashed master") {
 		t.Fatalf("err = %v, want the restart named", err)
 	}
+
 	if engine.polls != 3 {
 		t.Fatalf("polls = %d, want the wait to end at the first failure reading", engine.polls)
 	}
@@ -51,12 +62,20 @@ func TestAwaitYBScratchSurvivesAProbeThatNeverAnswers(t *testing.T) {
 
 	done := make(chan error, 1)
 	go func() {
-		_, err := awaitYBScratch(context.Background(), "start", watch, ybWaitTestStall, ybWaitTestPoll, 10*time.Millisecond)
+		_, err := awaitYBScratch(
+			context.Background(),
+			"start",
+			watch,
+			ybWaitTestStall,
+			ybWaitTestPoll,
+			10*time.Millisecond,
+		)
 		done <- err
 	}()
 	select {
 	case err := <-done:
-		if err == nil || !strings.Contains(err.Error(), "progress read: context deadline exceeded") {
+		if err == nil ||
+			!strings.Contains(err.Error(), "progress read: context deadline exceeded") {
 			t.Fatalf("err = %v, want a stall naming the probe deadline", err)
 		}
 	case <-time.After(10 * time.Second):
@@ -76,7 +95,14 @@ func TestAwaitYBScratchKeepsWaitingThroughAFailedInspect(t *testing.T) {
 		return false, errors.New("inspect tack-rtyb: connection refused")
 	}
 
-	if _, err := awaitYBScratch(context.Background(), "start", watch, ybWaitTestStall, ybWaitTestPoll, ybWaitTestProbe); err != nil {
+	if _, err := awaitYBScratch(
+		context.Background(),
+		"start",
+		watch,
+		ybWaitTestStall,
+		ybWaitTestPoll,
+		ybWaitTestProbe,
+	); err != nil {
 		t.Fatalf("a failed inspect must not end the wait: %v", err)
 	}
 }
@@ -94,15 +120,28 @@ func TestAwaitYBScratchEndsWhenItCannotCheckForFailure(t *testing.T) {
 		return "", errors.New("count yugabyted restarts: exec create: no such file")
 	}
 
-	_, err := awaitYBScratch(context.Background(), "start", watch, ybWaitTestStall, ybWaitTestPoll, ybWaitTestProbe)
+	_, err := awaitYBScratch(
+		context.Background(),
+		"start",
+		watch,
+		ybWaitTestStall,
+		ybWaitTestPoll,
+		ybWaitTestProbe,
+	)
 	if err == nil {
 		t.Fatal("a wait that cannot check for failure must not run on")
 	}
-	for _, want := range []string{"could not check whether the scratch yugabyted failed", "3 polls in a row", "exec create: no such file"} {
+
+	for _, want := range []string{
+		"could not check whether the scratch yugabyted failed",
+		"3 polls in a row",
+		"exec create: no such file",
+	} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("error %q lacks %q", err, want)
 		}
 	}
+
 	if engine.polls > 3 {
 		t.Fatalf("polls = %d, want the wait to end at the tolerance", engine.polls)
 	}
@@ -120,13 +159,22 @@ func TestAwaitYBScratchForgetsARecoveredReadError(t *testing.T) {
 		if engine.polls == 0 {
 			return false, errors.New("exec create: no such container")
 		}
+
 		return false, nil
 	}
 
-	_, err := awaitYBScratch(context.Background(), "start", watch, ybWaitTestStall, ybWaitTestPoll, ybWaitTestProbe)
+	_, err := awaitYBScratch(
+		context.Background(),
+		"start",
+		watch,
+		ybWaitTestStall,
+		ybWaitTestPoll,
+		ybWaitTestProbe,
+	)
 	if err == nil || !strings.Contains(err.Error(), "no progress for") {
 		t.Fatalf("err = %v, want a stall", err)
 	}
+
 	if strings.Contains(err.Error(), "no such container") {
 		t.Fatalf("stall %q names a read that recovered", err)
 	}
@@ -144,8 +192,16 @@ func TestAwaitYBScratchCarriesAReadinessErrorIntoTheStall(t *testing.T) {
 		return false, errors.New("exec create: no such container")
 	}
 
-	_, err := awaitYBScratch(context.Background(), "start", watch, ybWaitTestStall, ybWaitTestPoll, ybWaitTestProbe)
-	if err == nil || !strings.Contains(err.Error(), "readiness check: exec create: no such container") {
+	_, err := awaitYBScratch(
+		context.Background(),
+		"start",
+		watch,
+		ybWaitTestStall,
+		ybWaitTestPoll,
+		ybWaitTestProbe,
+	)
+	if err == nil ||
+		!strings.Contains(err.Error(), "readiness check: exec create: no such container") {
 		t.Fatalf("err = %v, want the readiness error in the stall", err)
 	}
 }

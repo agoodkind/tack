@@ -39,32 +39,52 @@ func TestRestoreDrillYugabyteScratchLivesUnderBackupRoot(t *testing.T) {
 	if !drillRunIDPattern.MatchString(runID) {
 		t.Fatalf("run id %q does not have the shape the drill gives its runs", runID)
 	}
+
 	drill := &restoreDrillCtx{Cfg: cfg, Cli: cli, RunID: runID, YBPass: "drill-" + runID}
 	t.Cleanup(func() { cleanupRestoreDrill(ctx, drill) })
 	stageDir := filepath.Join(cfg.BackupRoot, "restore-drill-yb-"+runID)
 	if err := os.MkdirAll(stageDir, 0o755); err != nil {
 		t.Fatalf("mkdir stage: %v", err)
 	}
+
 	const database = "tack"
 	name := "tack-rtyb-" + runID
 
 	if err := startScratchYugabyte(ctx, drill, name, database, stageDir); err != nil {
 		t.Fatalf("start the scratch yugabyted: %v", err)
 	}
-	watch := newYBScratchWatch(drill, name, "", []string{"PGPASSWORD=" + drill.YBPass},
-		ysqlshArgs(ybScratchHost(name), database, "select 1"))
-	took, err := awaitYBScratch(ctx, "scratch yugabyted start", watch,
-		ybScratchStallWindow, ybScratchPollInterval, ybScratchProbeTimeout)
+
+	watch := newYBScratchWatch(
+		drill,
+		name,
+		"",
+		[]string{"PGPASSWORD=" + drill.YBPass},
+		ysqlshArgs(ybScratchHost(name), database, "select 1"),
+	)
+	took, err := awaitYBScratch(
+		ctx,
+		"scratch yugabyted start",
+		watch,
+		ybScratchStallWindow,
+		ybScratchPollInterval,
+		ybScratchProbeTimeout,
+	)
 	if err != nil {
-		t.Fatalf("the scratch yugabyted never answered from a base directory under the backup root: %v", err)
+		t.Fatalf(
+			"the scratch yugabyted never answered from a base directory under the backup root: %v",
+			err,
+		)
 	}
+
 	t.Logf("the scratch yugabyted for container %s answered after %s", name, took)
 
 	runDir := drillScratchRunDir(drill)
 	baseDir := filepath.Join(runDir, "yb")
 	requireScratchBind(t, scratchMounts(ctx, t, cli, name), "/home/yugabyte/var", baseDir)
 	if !holdsEntries(t, baseDir) {
-		t.Fatal("the ready scratch yugabyted wrote nothing into its base directory under the backup root")
+		t.Fatal(
+			"the ready scratch yugabyted wrote nothing into its base directory under the backup root",
+		)
 	}
 
 	cleanupRestoreDrill(ctx, drill)

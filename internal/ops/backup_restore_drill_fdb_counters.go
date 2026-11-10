@@ -48,14 +48,17 @@ var fdbRestoreFallingCounters = map[string]bool{
 // condition. Errors and logs use the parsed counters rather than raw status.
 func parseFDBRestoreProgress(status string) map[string]int64 {
 	counters := map[string]int64{}
+
 	fields := strings.Fields(status)
-	for i, field := range fields {
+	for fieldIndex, field := range fields {
 		label, isLabel := strings.CutSuffix(field, ":")
-		if !isLabel || i+1 == len(fields) {
+		if !isLabel || fieldIndex+1 == len(fields) {
 			continue
 		}
-		recordFDBRestoreCounter(counters, normalizeFDBCounterName(label), fields[i+1])
+
+		recordFDBRestoreCounter(counters, normalizeFDBCounterName(label), fields[fieldIndex+1])
 	}
+
 	return counters
 }
 
@@ -77,10 +80,12 @@ func recordFDBCounterValue(counters map[string]int64, name, value string) {
 	if !fdbRestoreRisingCounters[name] && !fdbRestoreFallingCounters[name] {
 		return
 	}
+
 	parsed, err := strconv.ParseInt(value, 10, 64)
 	if err != nil {
 		return
 	}
+
 	if existing, seen := counters[name]; !seen || parsed > existing {
 		counters[name] = parsed
 	}
@@ -91,11 +96,13 @@ func recordFDBCounterValue(counters map[string]int64, name, value string) {
 // the parser from recognizing that counter.
 func normalizeFDBCounterName(label string) string {
 	var name strings.Builder
+
 	for _, symbol := range strings.ToLower(label) {
 		if (symbol >= 'a' && symbol <= 'z') || (symbol >= '0' && symbol <= '9') {
 			name.WriteRune(symbol)
 		}
 	}
+
 	return name.String()
 }
 
@@ -117,6 +124,7 @@ func newFDBRestoreProgress() *fdbRestoreProgress {
 // the restore has begun reporting that counter.
 func (p *fdbRestoreProgress) observe(status string) bool {
 	advanced := false
+
 	for name, value := range parseFDBRestoreProgress(status) {
 		var moved bool
 		if fdbRestoreFallingCounters[name] {
@@ -124,10 +132,12 @@ func (p *fdbRestoreProgress) observe(status string) bool {
 		} else {
 			moved = p.observeRise(name, value)
 		}
+
 		if moved {
 			advanced = true
 		}
 	}
+
 	return advanced
 }
 
@@ -139,7 +149,9 @@ func (p *fdbRestoreProgress) observeRise(name string, value int64) bool {
 	if seen && value <= previous {
 		return false
 	}
+
 	p.highWater[name] = value
+
 	return true
 }
 
@@ -154,11 +166,14 @@ func (p *fdbRestoreProgress) observeFall(name string, value int64) bool {
 	if value < 0 {
 		return false
 	}
+
 	previous, seen := p.lowWater[name]
 	if seen && value >= previous {
 		return false
 	}
+
 	p.lowWater[name] = value
+
 	return true
 }
 
@@ -173,9 +188,11 @@ func (p *fdbRestoreProgress) summary() string {
 	if len(marks) == 0 {
 		return "no progress counters were ever readable from fdbrestore status"
 	}
+
 	parts := make([]string, 0, len(marks))
 	for _, name := range slices.Sorted(maps.Keys(marks)) {
 		parts = append(parts, name+"="+strconv.FormatInt(marks[name], 10))
 	}
+
 	return strings.Join(parts, " ")
 }

@@ -31,10 +31,15 @@ func lookupScopedCollectionItem(
 	lookupReference string,
 	recovery *discoveryDefinition,
 ) (soakNode, error) {
-	result, err := driver.Call(ctx, token, "tack_get_"+singular, ToolArguments{
+	result, err := driver.Call(
+		ctx,
+		token,
+		"tack_get_"+singular,
+		ToolArguments{
 		WorkspaceReference: workspaceReference,
 		NodeID:             lookupReference,
-	})
+		},
+	)
 	if err == nil {
 		return matchedCollectionNode(ctx, singular, item, result)
 	}
@@ -71,16 +76,9 @@ func recoverCollectionItem(
 	item collectionItem,
 	recovery *discoveryDefinition,
 ) (soakNode, error) {
-	result, err := driver.Call(
-		ctx, recovery.token, "tack_create_"+singular, recovery.arguments,
-	)
+	result, err := driver.Call(ctx, recovery.token, "tack_create_"+singular, recovery.arguments)
 	if err != nil {
-		wrapped := fmt.Errorf(
-			"qa datagen soak: recover %s %q: %w",
-			singular,
-			item.Name,
-			err,
-		)
+		wrapped := fmt.Errorf("qa datagen soak: recover %s %q: %w", singular, item.Name, err)
 		return soakNode{}, loggedDiscoverySkip(ctx, singular, item, wrapped)
 	}
 	resolved, err := resolvedCollectionNode(singular, item, result)

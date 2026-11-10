@@ -25,8 +25,12 @@ func TestFlagOperatorSourceReturnsFlagValues(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
+
 	want := audit.OperatorPrincipal{
-		ID: operatorID, Email: "operator@example.com", Name: "Operator User", Source: "flag",
+		ID:     operatorID,
+		Email:  "operator@example.com",
+		Name:   "Operator User",
+		Source: "flag",
 	}
 	if principal != want {
 		t.Fatalf("principal = %+v, want %+v", principal, want)
@@ -56,6 +60,7 @@ func TestNewOperatorSourcePrefersFlags(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
+
 	if principal.Source != "flag" || principal.ID.String() != operatorID {
 		t.Fatalf("principal = %+v", principal)
 	}
@@ -86,24 +91,31 @@ func TestFlagOperatorSourceRejectsUnattributableIdentity(t *testing.T) {
 		},
 	}
 	for _, testCase := range cases {
-		t.Run(testCase.name, func(t *testing.T) {
-			factory := &Factory{Cfg: nil, In: nil, Out: nil, Err: nil}
-			root := &cobra.Command{Use: "tack"}
-			factory.RegisterGlobalFlags(root)
-			if err := root.ParseFlags([]string{
-				"--operator-id", testCase.operatorID,
-				"--operator-email", testCase.email,
-			}); err != nil {
-				t.Fatalf("parse flags: %v", err)
-			}
-			_, err := FlagOperatorSource{Factory: factory}.Resolve(t.Context())
-			if err == nil {
-				t.Fatal("identity accepted, want it refused")
-			}
-			if !strings.Contains(err.Error(), testCase.want) {
-				t.Fatalf("error = %v, want it to mention %q", err, testCase.want)
-			}
-		})
+		t.Run(
+			testCase.name,
+			func(t *testing.T) {
+				factory := &Factory{Cfg: nil, In: nil, Out: nil, Err: nil}
+				root := &cobra.Command{Use: "tack"}
+				factory.RegisterGlobalFlags(root)
+				if err := root.ParseFlags([]string{
+					"--operator-id",
+					testCase.operatorID,
+					"--operator-email",
+					testCase.email,
+				}); err != nil {
+					t.Fatalf("parse flags: %v", err)
+				}
+
+				_, err := FlagOperatorSource{Factory: factory}.Resolve(t.Context())
+				if err == nil {
+					t.Fatal("identity accepted, want it refused")
+				}
+
+				if !strings.Contains(err.Error(), testCase.want) {
+					t.Fatalf("error = %v, want it to mention %q", err, testCase.want)
+				}
+			},
+		)
 	}
 }
 
@@ -118,7 +130,12 @@ func TestNewOperatorSourceReadsFlagsAtResolveTime(t *testing.T) {
 
 	wantID := "019dd222-440e-729a-a442-281aaf73ca30"
 	root.SetArgs([]string{"--operator-id", wantID, "--operator-email", "ops@goodkind.io"})
-	if err := root.ParseFlags([]string{"--operator-id", wantID, "--operator-email", "ops@goodkind.io"}); err != nil {
+	if err := root.ParseFlags([]string{
+		"--operator-id",
+		wantID,
+		"--operator-email",
+		"ops@goodkind.io",
+	}); err != nil {
 		t.Fatalf("parse flags: %v", err)
 	}
 
@@ -126,9 +143,11 @@ func TestNewOperatorSourceReadsFlagsAtResolveTime(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
 	}
+
 	if principal.ID.String() != wantID {
 		t.Fatalf("id = %s, want %s", principal.ID, wantID)
 	}
+
 	if principal.Source != "flag" {
 		t.Fatalf("source = %q, want flag", principal.Source)
 	}
@@ -140,23 +159,31 @@ func TestFactoryParsesOperatorFlags(t *testing.T) {
 	root := &cobra.Command{Use: "tack", Run: func(*cobra.Command, []string) {}}
 	factory.RegisterGlobalFlags(root)
 	root.SetArgs([]string{
-		"--operator-id", operatorID.String(),
-		"--operator-email", "operator@example.com",
-		"--operator-name", "Operator User",
-		"--deploy-commit", "  tack-443-deploy-commit  ",
+		"--operator-id",
+		operatorID.String(),
+		"--operator-email",
+		"operator@example.com",
+		"--operator-name",
+		"Operator User",
+		"--deploy-commit",
+		"  tack-443-deploy-commit  ",
 		"--execute",
 	})
 
 	if err := root.Execute(); err != nil {
 		t.Fatalf("Execute: %v", err)
 	}
+
 	gotID, gotEmail, gotName := factory.Operator()
-	if gotID != operatorID.String() || gotEmail != "operator@example.com" || gotName != "Operator User" {
+	if gotID != operatorID.String() || gotEmail != "operator@example.com" ||
+		gotName != "Operator User" {
 		t.Fatalf("operator = %q, %q, %q", gotID, gotEmail, gotName)
 	}
+
 	if !factory.Execute() {
 		t.Fatal("Execute = false, want true")
 	}
+
 	if factory.DeployCommit() != "tack-443-deploy-commit" {
 		t.Fatalf("deploy commit = %q", factory.DeployCommit())
 	}

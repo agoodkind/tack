@@ -24,16 +24,20 @@ func readGettingStarted(t *testing.T, ctx context.Context, resolver *tools.Resol
 	server := mcpserver.NewMCPServer("tack", "0.2.0")
 	tools.RegisterResources(server, nil, resolver, nil, nil)
 	body, err := json.Marshal(map[string]any{
-		"jsonrpc": "2.0", "id": 1, "method": "resources/read",
-		"params": map[string]any{"uri": gettingStartedURI},
+		"jsonrpc": "2.0",
+		"id":      1,
+		"method":  "resources/read",
+		"params":  map[string]any{"uri": gettingStartedURI},
 	})
 	if err != nil {
 		t.Fatalf("marshal request: %v", err)
 	}
+
 	encoded, err := json.Marshal(server.HandleMessage(ctx, body))
 	if err != nil {
 		t.Fatalf("marshal response: %v", err)
 	}
+
 	var response struct {
 		Result struct {
 			Contents []json.RawMessage `json:"contents"`
@@ -45,6 +49,7 @@ func readGettingStarted(t *testing.T, ctx context.Context, resolver *tools.Resol
 	if err := json.Unmarshal(encoded, &response); err != nil {
 		t.Fatalf("decode response: %v\n%s", err, encoded)
 	}
+
 	if response.Error != nil || len(response.Result.Contents) != 1 {
 		t.Fatalf("resources/read = %s, want the one markdown document", encoded)
 	}
@@ -54,14 +59,21 @@ func readGettingStarted(t *testing.T, ctx context.Context, resolver *tools.Resol
 func resourceReadEvent(t *testing.T, recorder *audit.MemoryRecorder) audit.Event {
 	t.Helper()
 	var found []audit.Event
+
 	for _, event := range recorder.Events() {
 		if event.Verb == string(audit.VerbMCPResourceRead) {
 			found = append(found, event)
 		}
 	}
+
 	if len(found) != 1 {
-		t.Fatalf("recorder stored %d mcp.resource_read events, want 1: %+v", len(found), recorder.Events())
+		t.Fatalf(
+			"recorder stored %d mcp.resource_read events, want 1: %+v",
+			len(found),
+			recorder.Events(),
+		)
 	}
+
 	return found[0]
 }
 
@@ -84,9 +96,16 @@ func TestResourceReadRecordsTheRead(t *testing.T) {
 	readGettingStarted(t, ctx, tools.NewResolver(nil, nil, nil, nil))
 
 	event := resourceReadEvent(t, recorder)
-	if event.Actor.ID != actorID || event.Entity.Type != "mcp_resource" || event.Entity.Name != gettingStartedURI {
-		t.Fatalf("mcp.resource_read actor = %s, entity = %s %q; want %s, mcp_resource %q",
-			event.Actor.ID, event.Entity.Type, event.Entity.Name, actorID, gettingStartedURI)
+	if event.Actor.ID != actorID || event.Entity.Type != "mcp_resource" ||
+		event.Entity.Name != gettingStartedURI {
+		t.Fatalf(
+			"mcp.resource_read actor = %s, entity = %s %q; want %s, mcp_resource %q",
+			event.Actor.ID,
+			event.Entity.Type,
+			event.Entity.Name,
+			actorID,
+			gettingStartedURI,
+		)
 	}
 }
 
@@ -104,6 +123,7 @@ func TestResourceReadRecordsTheRead(t *testing.T) {
 //   - With two memberships, the event records the nil organization.
 func TestResourceReadCarriesTheReadersSoleOrg(t *testing.T) {
 	orgID := uuid.New()
+
 	cases := map[string]struct {
 		orgs []uuid.UUID
 		want uuid.UUID
@@ -113,19 +133,26 @@ func TestResourceReadCarriesTheReadersSoleOrg(t *testing.T) {
 		"none": {orgs: nil, want: uuid.Nil},
 	}
 	for name, tc := range cases {
-		t.Run(name, func(t *testing.T) {
-			recorder := audit.NewMemoryRecorder()
-			// The request attaches its membership as the auth middleware does. The
-			// resolver reads the membership from the context and does not query the
-			// membership repository.
-			ctx := auth.WithOrgMembership(auth.WithUser(t.Context(), uuid.New()), tc.orgs)
-			ctx = tools.WithAuditRecorder(ctx, recorder)
+		t.Run(
+			name,
+			func(t *testing.T) {
+				recorder := audit.NewMemoryRecorder()
+				// The request attaches its membership as the auth middleware does. The
+				// resolver reads the membership from the context and does not query the
+				// membership repository.
+				ctx := auth.WithOrgMembership(auth.WithUser(t.Context(), uuid.New()), tc.orgs)
+				ctx = tools.WithAuditRecorder(ctx, recorder)
 
-			readGettingStarted(t, ctx, tools.NewResolver(nil, nil, postgres.NewOrgMemberRepo(nil), nil))
+				readGettingStarted(
+					t,
+					ctx,
+					tools.NewResolver(nil, nil, postgres.NewOrgMemberRepo(nil), nil),
+				)
 
-			if got := resourceReadEvent(t, recorder).Context.OrgID; got != tc.want {
-				t.Fatalf("resource_read org = %s, want %s", got, tc.want)
-			}
-		})
+				if got := resourceReadEvent(t, recorder).Context.OrgID; got != tc.want {
+					t.Fatalf("resource_read org = %s, want %s", got, tc.want)
+				}
+			},
+		)
 	}
 }

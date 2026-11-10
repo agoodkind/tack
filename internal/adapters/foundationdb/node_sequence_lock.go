@@ -32,6 +32,7 @@ func newSequenceLockSet() *sequenceLockSet {
 	for i := range stripes {
 		stripes[i] = make(chan struct{}, 1)
 	}
+
 	return &sequenceLockSet{seed: maphash.MakeSeed(), stripes: stripes}
 }
 
@@ -47,6 +48,7 @@ func (set *sequenceLockSet) acquire(ctx context.Context, key fdb.Key) (func(), e
 	case <-ctx.Done():
 		wrapped := fmt.Errorf("wait for the lock of sequence counter %q: %w", key, ctx.Err())
 		slog.ErrorContext(ctx, "node.sequence_lock_failed", slog.String("err", wrapped.Error()))
+
 		return nil, loggedSearchError{err: wrapped}
 	}
 }

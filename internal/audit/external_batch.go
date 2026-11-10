@@ -56,23 +56,40 @@ func NewBatchAppendOutbox(appender OutboxBatchAppender) BatchAppendOutbox {
 //	err := outbox.WriteOutboxBatch(ctx, []Event{intent, stepIntent})
 func (o BatchAppendOutbox) WriteOutboxBatch(ctx context.Context, events []Event) error {
 	if o.batchAppender == nil {
-		return serviceRunFailure(ctx, "append the audit events", uuid.Nil, errors.New("the outbox appender is nil"))
+		return serviceRunFailure(
+			ctx,
+			"append the audit events",
+			uuid.Nil,
+			errors.New("the outbox appender is nil"),
+		)
 	}
+
 	records := make([]json.RawMessage, 0, len(events))
 	for _, event := range events {
 		encoded, err := MarshalEvent(event)
 		if err != nil {
 			return serviceRunFailure(ctx, "encode the audit event", event.EventID, err)
 		}
+
 		if !FitsSingleRecord(encoded) {
-			return serviceRunFailure(ctx, "append the audit event", event.EventID,
-				fmt.Errorf("the event has %d bytes and does not fit in one outbox record", len(encoded)))
+			return serviceRunFailure(
+				ctx,
+				"append the audit event",
+				event.EventID,
+				fmt.Errorf(
+					"the event has %d bytes and does not fit in one outbox record",
+					len(encoded),
+				),
+			)
 		}
+
 		records = append(records, encoded)
 	}
+
 	if err := o.batchAppender.AppendBatch(ctx, records); err != nil {
 		return serviceRunFailure(ctx, "append the audit events", uuid.Nil, err)
 	}
+
 	return nil
 }
 
@@ -102,21 +119,27 @@ func RunExternalStep(
 	if outbox == nil {
 		return intentFailure(ctx, intent, errors.New("audit outbox is nil"))
 	}
+
 	if err := validateExternalIntent(intent); err != nil {
 		return intentFailure(ctx, intent, err)
 	}
+
 	if step.Context.Target == nil {
 		return intentFailure(ctx, intent, errors.New("step requires a target"))
 	}
+
 	steps := newStepRecorder(outbox, intent)
 	now := clock.Now().UTC()
 	stepIntent, err := steps.intentEvent(step, now)
 	if err != nil {
 		return intentFailure(ctx, intent, err)
 	}
+
 	if err := outbox.WriteOutboxBatch(ctx, []Event{intent, stepIntent}); err != nil {
 		return intentFailure(ctx, intent, err)
 	}
+
 	steps.noteBegun(*step.Context.Target, now)
+
 	return finishExternal(ctx, outbox, intent, steps, run)
 }

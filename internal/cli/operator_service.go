@@ -52,14 +52,18 @@ func (s ServiceOperatorSource) Resolve(ctx context.Context) (audit.OperatorPrinc
 	if s.Factory == nil {
 		err := errors.New("operator service source has no factory")
 		slog.ErrorContext(ctx, "operator.service.factory_missing", slog.String("err", err.Error()))
+
 		return audit.OperatorPrincipal{}, err
 	}
+
 	serviceName := strings.TrimSpace(s.Factory.OperatorService())
 	if serviceName == "" {
 		err := errors.New("operator-service is required for service identity")
 		slog.ErrorContext(ctx, "operator.service.name_missing", slog.String("err", err.Error()))
+
 		return audit.OperatorPrincipal{}, err
 	}
+
 	return audit.OperatorPrincipal{
 		ID:         ServiceActorID(serviceName),
 		Email:      "",

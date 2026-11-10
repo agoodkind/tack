@@ -38,14 +38,21 @@ func (r *TokenRepo) Validate(ctx context.Context, raw string) (*token.Token, err
 
 	t := &token.Token{}
 	err := r.db.QueryRow(ctx, q, hashToken(raw)).Scan(
-		&t.ID, &t.UserID, &t.Label, &t.LastUsed, &t.ExpiresAt, &t.CreatedAt,
+		&t.ID,
+		&t.UserID,
+		&t.Label,
+		&t.LastUsed,
+		&t.ExpiresAt,
+		&t.CreatedAt,
 	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, domain.ErrUnauthenticated
 		}
+
 		return nil, fmt.Errorf("token validate: %w", err)
 	}
+
 	return t, nil
 }
 
@@ -63,13 +70,23 @@ func (r *TokenRepo) List(ctx context.Context, userID uuid.UUID) ([]*token.Token,
 	defer rows.Close()
 
 	var tokens []*token.Token
+
 	for rows.Next() {
 		t := &token.Token{}
-		if err := rows.Scan(&t.ID, &t.UserID, &t.Label, &t.LastUsed, &t.ExpiresAt, &t.CreatedAt); err != nil {
+		if err := rows.Scan(
+			&t.ID,
+			&t.UserID,
+			&t.Label,
+			&t.LastUsed,
+			&t.ExpiresAt,
+			&t.CreatedAt,
+		); err != nil {
 			return nil, err
 		}
+
 		tokens = append(tokens, t)
 	}
+
 	return tokens, rows.Err()
 }
 
@@ -86,15 +103,28 @@ func (r *TokenRepo) GetByID(ctx context.Context, id uuid.UUID) (*token.Token, er
 
 	t := &token.Token{}
 	err := r.db.QueryRow(ctx, q, id).Scan(
-		&t.ID, &t.UserID, &t.Label, &t.LastUsed, &t.ExpiresAt, &t.CreatedAt,
+		&t.ID,
+		&t.UserID,
+		&t.Label,
+		&t.LastUsed,
+		&t.ExpiresAt,
+		&t.CreatedAt,
 	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, domain.ErrNotFound
 		}
-		slog.ErrorContext(ctx, "token.get_failed", slog.String("token_id", id.String()), slog.String("err", err.Error()))
+
+		slog.ErrorContext(
+			ctx,
+			"token.get_failed",
+			slog.String("token_id", id.String()),
+			slog.String("err", err.Error()),
+		)
+
 		return nil, fmt.Errorf("token get: %w", err)
 	}
+
 	return t, nil
 }
 

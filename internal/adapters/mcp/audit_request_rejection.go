@@ -33,6 +33,7 @@ func organizationUnavailable() *responseCapture {
 	capture.Header().Set("Content-Type", "application/json")
 	capture.WriteHeader(http.StatusServiceUnavailable)
 	_, _ = capture.Write([]byte(organizationUnavailableBody))
+
 	return capture
 }
 
@@ -40,6 +41,7 @@ func rejectionVerb(reason string) audit.Verb {
 	if reason == auth.RejectionMissingAuthorization {
 		return audit.VerbAuthLoginFailed
 	}
+
 	return audit.VerbAuthTokenRejected
 }
 

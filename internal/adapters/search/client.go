@@ -40,30 +40,68 @@ func New(ctx context.Context, cfg Config) (*Adapter, error) {
 	if err := cfg.Validate(ctx); err != nil {
 		wrapped := fmt.Errorf("create OpenSearch client: %w", err)
 		if !isLoggedModelError(err) {
-			telemetry.L(ctx).ErrorContext(ctx, "search.client.create_failed", slog.String("err", wrapped.Error()))
+			telemetry.L(ctx).ErrorContext(
+				ctx,
+				"search.client.create_failed",
+				slog.String("err", wrapped.Error()),
+			)
 		}
+
 		return nil, wrapped
 	}
+
 	observer := newEndpointObserver()
 	api, err := opensearchapi.NewClient(opensearchapi.Config{Client: cfg.ClientConfig(observer)})
 	if err != nil {
 		wrapped := fmt.Errorf("create OpenSearch client: %w", err)
-		telemetry.L(ctx).ErrorContext(ctx, "search.client.create_failed", slog.String("err", wrapped.Error()))
+		telemetry.L(ctx).ErrorContext(
+			ctx,
+			"search.client.create_failed",
+			slog.String("err", wrapped.Error()),
+		)
+
 		return nil, wrapped
 	}
+
 	predictClient, err := opensearch.NewClient(cfg.predictClientConfig(observer))
 	if err != nil {
-		wrapped := fmt.Errorf("create OpenSearch predict client: %w", errors.Join(err, api.Client.Close()))
-		telemetry.L(ctx).ErrorContext(ctx, "search.client.create_failed", slog.String("err", wrapped.Error()))
+		wrapped := fmt.Errorf(
+			"create OpenSearch predict client: %w",
+			errors.Join(err, api.Client.Close()),
+		)
+		telemetry.L(ctx).ErrorContext(
+			ctx,
+			"search.client.create_failed",
+			slog.String("err", wrapped.Error()),
+		)
+
 		return nil, wrapped
 	}
-	snapshotAPI, err := opensearchapi.NewClient(opensearchapi.Config{Client: cfg.snapshotClientConfig(observer)})
+
+	snapshotAPI, err := opensearchapi.NewClient(opensearchapi.Config{
+		Client: cfg.snapshotClientConfig(observer),
+	})
 	if err != nil {
-		wrapped := fmt.Errorf("create OpenSearch snapshot client: %w", errors.Join(err, api.Client.Close(), predictClient.Close()))
-		telemetry.L(ctx).ErrorContext(ctx, "search.client.create_failed", slog.String("err", wrapped.Error()))
+		wrapped := fmt.Errorf(
+			"create OpenSearch snapshot client: %w",
+			errors.Join(err, api.Client.Close(), predictClient.Close()),
+		)
+		telemetry.L(ctx).ErrorContext(
+			ctx,
+			"search.client.create_failed",
+			slog.String("err", wrapped.Error()),
+		)
+
 		return nil, wrapped
 	}
-	return &Adapter{client: api.Client, api: api, predictClient: predictClient, snapshotAPI: snapshotAPI, observer: observer}, nil
+
+	return &Adapter{
+		client:        api.Client,
+		api:           api,
+		predictClient: predictClient,
+		snapshotAPI:   snapshotAPI,
+		observer:      observer,
+	}, nil
 }
 
 // Close stops the transport resources of all three official clients.
@@ -74,11 +112,21 @@ func New(ctx context.Context, cfg Config) (*Adapter, error) {
 //  2. Close the predict client.
 //  3. Close the point in time client.
 func (a *Adapter) Close(ctx context.Context) error {
-	if err := errors.Join(a.client.Close(), a.predictClient.Close(), a.snapshotAPI.Client.Close()); err != nil {
+	if err := errors.Join(
+		a.client.Close(),
+		a.predictClient.Close(),
+		a.snapshotAPI.Client.Close(),
+	); err != nil {
 		wrapped := fmt.Errorf("close OpenSearch client: %w", err)
-		telemetry.L(ctx).ErrorContext(ctx, "search.client.close_failed", slog.String("err", wrapped.Error()))
+		telemetry.L(ctx).ErrorContext(
+			ctx,
+			"search.client.close_failed",
+			slog.String("err", wrapped.Error()),
+		)
+
 		return wrapped
 	}
+
 	return nil
 }
 
@@ -93,35 +141,84 @@ func (a *Adapter) CreateIndex(ctx context.Context, index string, spec IndexSpec)
 	if err := spec.Validate(ctx); err != nil {
 		wrapped := fmt.Errorf("validate OpenSearch index %q: %w", index, err)
 		if !isLoggedModelError(err) {
-			telemetry.L(ctx).ErrorContext(ctx, "search.index.invalid", slog.String("err", wrapped.Error()), slog.String("index", index))
+			telemetry.L(ctx).ErrorContext(
+				ctx,
+				"search.index.invalid",
+				slog.String("err", wrapped.Error()),
+				slog.String("index", index),
+			)
 		}
+
 		return wrapped
 	}
+
 	mapping, err := spec.Mapping(ctx)
 	if err != nil {
 		wrapped := fmt.Errorf("build OpenSearch mapping for %q: %w", index, err)
 		if !isLoggedModelError(err) {
-			telemetry.L(ctx).ErrorContext(ctx, "search.index.encode_failed", slog.String("err", wrapped.Error()), slog.String("index", index))
+			telemetry.L(ctx).ErrorContext(
+				ctx,
+				"search.index.encode_failed",
+				slog.String("err", wrapped.Error()),
+				slog.String("index", index),
+			)
 		}
+
 		return wrapped
 	}
-	body, err := json.Marshal(indexBody{Settings: indexSettings{NumberOfShards: spec.Primaries, NumberOfRoutingShards: spec.RoutingShards, NumberOfReplicas: spec.Replicas}, Mappings: mapping})
+
+	body, err := json.Marshal(indexBody{
+		Settings: indexSettings{
+			NumberOfShards:        spec.Primaries,
+			NumberOfRoutingShards: spec.RoutingShards,
+			NumberOfReplicas:      spec.Replicas,
+		},
+		Mappings: mapping,
+	})
 	if err != nil {
 		wrapped := fmt.Errorf("encode OpenSearch mapping: %w", err)
-		telemetry.L(ctx).ErrorContext(ctx, "search.index.encode_failed", slog.String("err", wrapped.Error()), slog.String("index", index))
+		telemetry.L(ctx).ErrorContext(
+			ctx,
+			"search.index.encode_failed",
+			slog.String("err", wrapped.Error()),
+			slog.String("index", index),
+		)
+
 		return wrapped
 	}
-	response, err := a.api.Indices.Create(ctx, opensearchapi.IndicesCreateReq{Index: index, BodyReader: bytes.NewReader(body)})
+
+	response, err := a.api.Indices.Create(
+		ctx,
+		opensearchapi.IndicesCreateReq{Index: index, BodyReader: bytes.NewReader(body)},
+	)
 	if err != nil {
 		wrapped := fmt.Errorf("create OpenSearch index %q: %w", index, err)
-		telemetry.L(ctx).ErrorContext(ctx, "search.index.create_failed", slog.String("err", wrapped.Error()), slog.String("index", index))
+		telemetry.L(ctx).ErrorContext(
+			ctx,
+			"search.index.create_failed",
+			slog.String("err", wrapped.Error()),
+			slog.String("index", index),
+		)
+
 		return wrapped
 	}
+
 	if response.Inspect().Response != nil && response.Inspect().Response.IsError() {
-		wrapped := fmt.Errorf("create OpenSearch index %q: %s", index, response.Inspect().Response.String())
-		telemetry.L(ctx).ErrorContext(ctx, "search.index.create_rejected", slog.String("err", wrapped.Error()), slog.String("index", index))
+		wrapped := fmt.Errorf(
+			"create OpenSearch index %q: %s",
+			index,
+			response.Inspect().Response.String(),
+		)
+		telemetry.L(ctx).ErrorContext(
+			ctx,
+			"search.index.create_rejected",
+			slog.String("err", wrapped.Error()),
+			slog.String("index", index),
+		)
+
 		return wrapped
 	}
+
 	return nil
 }
 
@@ -134,26 +231,70 @@ func (a *Adapter) CreateIndex(ctx context.Context, index string, spec IndexSpec)
 func (a *Adapter) SetReplicas(ctx context.Context, index string, replicas int) error {
 	if replicas < 0 {
 		wrapped := errors.New("OpenSearch replicas must be nonnegative")
-		telemetry.L(ctx).ErrorContext(ctx, "search.replicas.invalid", slog.String("err", wrapped.Error()), slog.String("index", index))
+		telemetry.L(ctx).ErrorContext(
+			ctx,
+			"search.replicas.invalid",
+			slog.String("err", wrapped.Error()),
+			slog.String("index", index),
+		)
+
 		return wrapped
 	}
-	body, err := json.Marshal(indexSettingsBody{Index: indexSettings{NumberOfShards: 0, NumberOfRoutingShards: 0, NumberOfReplicas: replicas}})
+
+	body, err := json.Marshal(indexSettingsBody{
+		Index: indexSettings{
+			NumberOfShards:        0,
+			NumberOfRoutingShards: 0,
+			NumberOfReplicas:      replicas,
+		},
+	})
 	if err != nil {
 		wrapped := fmt.Errorf("encode OpenSearch settings: %w", err)
-		telemetry.L(ctx).ErrorContext(ctx, "search.replicas.encode_failed", slog.String("err", wrapped.Error()), slog.String("index", index))
+		telemetry.L(ctx).ErrorContext(
+			ctx,
+			"search.replicas.encode_failed",
+			slog.String("err", wrapped.Error()),
+			slog.String("index", index),
+		)
+
 		return wrapped
 	}
-	response, err := a.api.Indices.PutSettings(ctx, &opensearchapi.IndicesPutSettingsReq{Indices: []string{index}, BodyReader: bytes.NewReader(body)})
+
+	response, err := a.api.Indices.PutSettings(
+		ctx,
+		&opensearchapi.IndicesPutSettingsReq{
+			Indices:    []string{index},
+			BodyReader: bytes.NewReader(body),
+		},
+	)
 	if err != nil {
 		wrapped := fmt.Errorf("set OpenSearch replicas for %q: %w", index, err)
-		telemetry.L(ctx).ErrorContext(ctx, "search.replicas.update_failed", slog.String("err", wrapped.Error()), slog.String("index", index))
+		telemetry.L(ctx).ErrorContext(
+			ctx,
+			"search.replicas.update_failed",
+			slog.String("err", wrapped.Error()),
+			slog.String("index", index),
+		)
+
 		return wrapped
 	}
+
 	if response.Inspect().Response != nil && response.Inspect().Response.IsError() {
-		wrapped := fmt.Errorf("set OpenSearch replicas for %q: %s", index, response.Inspect().Response.String())
-		telemetry.L(ctx).ErrorContext(ctx, "search.replicas.update_rejected", slog.String("err", wrapped.Error()), slog.String("index", index))
+		wrapped := fmt.Errorf(
+			"set OpenSearch replicas for %q: %s",
+			index,
+			response.Inspect().Response.String(),
+		)
+		telemetry.L(ctx).ErrorContext(
+			ctx,
+			"search.replicas.update_rejected",
+			slog.String("err", wrapped.Error()),
+			slog.String("index", index),
+		)
+
 		return wrapped
 	}
+
 	return nil
 }
 
@@ -165,32 +306,67 @@ func (a *Adapter) SetReplicas(ctx context.Context, index string, replicas int) e
 //  2. Read model_id.
 //  3. Read tokenizer_sha256.
 func (a *Adapter) IndexInfo(ctx context.Context, index string) (IndexInfo, error) {
-	response, err := a.api.Indices.GetMapping(ctx, &opensearchapi.IndicesGetMappingReq{Indices: []string{index}})
+	response, err := a.api.Indices.GetMapping(
+		ctx,
+		&opensearchapi.IndicesGetMappingReq{Indices: []string{index}},
+	)
 	if err != nil {
-		wrapped := fmt.Errorf("read OpenSearch mapping %q: %w", index, engineCause(ctx, response.Inspect().Response, err))
-		telemetry.L(ctx).ErrorContext(ctx, "search.mapping.read_failed", slog.String("err", wrapped.Error()), slog.String("index", index))
+		wrapped := fmt.Errorf(
+			"read OpenSearch mapping %q: %w",
+			index,
+			engineCause(ctx, response.Inspect().Response, err),
+		)
+		telemetry.L(ctx).ErrorContext(
+			ctx,
+			"search.mapping.read_failed",
+			slog.String("err", wrapped.Error()),
+			slog.String("index", index),
+		)
+
 		return IndexInfo{}, wrapped
 	}
+
 	var indices map[string]struct {
 		Mappings json.RawMessage `json:"mappings"`
 	}
 	if err := json.NewDecoder(response.RawBody()).Decode(&indices); err != nil {
-		return IndexInfo{}, engineFailure(ctx, "search.mapping.decode_failed", "decode mapping "+index, index, err)
+		return IndexInfo{}, engineFailure(
+			ctx,
+			"search.mapping.decode_failed",
+			"decode mapping "+index,
+			index,
+			err,
+		)
 	}
+
 	entry, ok := indices[index]
 	if !ok {
 		wrapped := fmt.Errorf("OpenSearch mapping %q is absent", index)
-		telemetry.L(ctx).ErrorContext(ctx, "search.mapping.absent", slog.String("err", wrapped.Error()), slog.String("index", index))
+		telemetry.L(ctx).ErrorContext(
+			ctx,
+			"search.mapping.absent",
+			slog.String("err", wrapped.Error()),
+			slog.String("index", index),
+		)
+
 		return IndexInfo{}, wrapped
 	}
+
 	var mapping struct {
 		Meta mappingMeta `json:"_meta"`
 	}
 	if err := json.Unmarshal(entry.Mappings, &mapping); err != nil {
 		wrapped := fmt.Errorf("decode OpenSearch mapping %q: %w", index, err)
-		telemetry.L(ctx).ErrorContext(ctx, "search.mapping.decode_failed", slog.String("err", wrapped.Error()), slog.String("index", index))
+		telemetry.L(ctx).ErrorContext(
+			ctx,
+			"search.mapping.decode_failed",
+			slog.String("err", wrapped.Error()),
+			slog.String("index", index),
+		)
+
 		return IndexInfo{}, wrapped
 	}
+
 	return IndexInfo{
 		MappingVersion:  mapping.Meta.MappingVersion,
 		ModelID:         mapping.Meta.ModelID,
@@ -209,21 +385,41 @@ func (a *Adapter) Ping(ctx context.Context) error {
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, "/", nil)
 	if err != nil {
 		wrapped := fmt.Errorf("create OpenSearch ping request: %w", err)
-		telemetry.L(ctx).ErrorContext(ctx, "search.ping.request_failed", slog.String("err", wrapped.Error()))
+		telemetry.L(ctx).ErrorContext(
+			ctx,
+			"search.ping.request_failed",
+			slog.String("err", wrapped.Error()),
+		)
+
 		return wrapped
 	}
+
 	response, err := a.client.Stream(request)
 	if err != nil {
 		wrapped := fmt.Errorf("ping OpenSearch: %w", err)
-		telemetry.L(ctx).ErrorContext(ctx, "search.ping.failed", slog.String("err", wrapped.Error()))
+		telemetry.L(ctx).ErrorContext(
+			ctx,
+			"search.ping.failed",
+			slog.String("err", wrapped.Error()),
+		)
+
 		return wrapped
 	}
+
 	if response.StatusCode >= http.StatusBadRequest {
 		_ = response.Body.Close()
 		wrapped := fmt.Errorf("ping OpenSearch: status %s", response.Status)
-		telemetry.L(ctx).ErrorContext(ctx, "search.ping.rejected", slog.String("err", wrapped.Error()), slog.Int("status_code", response.StatusCode))
+		telemetry.L(ctx).ErrorContext(
+			ctx,
+			"search.ping.rejected",
+			slog.String("err", wrapped.Error()),
+			slog.Int("status_code", response.StatusCode),
+		)
+
 		return wrapped
 	}
+
 	_ = response.Body.Close()
+
 	return nil
 }

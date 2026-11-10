@@ -16,8 +16,13 @@ func TestBackupStatusMarkerRoundTrip(t *testing.T) {
 	store := newBackupTestStore(t, nil)
 	at := time.Date(2026, 8, 29, 3, 30, 0, 0, time.UTC)
 
-	if err := writeBackupStatusMarker(ctx, store.putBytes, backupStalenessRehearsalName, at,
-		"restore drill rt20260829T033000Z passed: fdb, yugabyte"); err != nil {
+	if err := writeBackupStatusMarker(
+		ctx,
+		store.putBytes,
+		backupStalenessRehearsalName,
+		at,
+		"restore drill rt20260829T033000Z passed: fdb, yugabyte",
+	); err != nil {
 		t.Fatalf("writeBackupStatusMarker: %v", err)
 	}
 
@@ -25,6 +30,7 @@ func TestBackupStatusMarkerRoundTrip(t *testing.T) {
 	if !ok {
 		t.Fatal("marker landed under an unexpected key")
 	}
+
 	wantBody := `{"at":"2026-08-29T03:30:00Z","detail":"restore drill rt20260829T033000Z passed: fdb, yugabyte"}`
 	if string(body) != wantBody {
 		t.Fatalf("marker body mismatch:\n got=%s\nwant=%s", body, wantBody)
@@ -34,12 +40,15 @@ func TestBackupStatusMarkerRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("readBackupStatusMarker: %v", err)
 	}
+
 	if !found {
 		t.Fatal("the marker just written must be found")
 	}
+
 	if !marker.At.Equal(at) {
 		t.Fatalf("marker at = %s, want %s", marker.At, at)
 	}
+
 	if !strings.Contains(marker.Detail, "passed: fdb, yugabyte") {
 		t.Fatalf("marker detail = %q", marker.Detail)
 	}
@@ -53,19 +62,31 @@ func TestBackupStatusMarkerWrittenInUTC(t *testing.T) {
 	zone := time.FixedZone("PDT", -7*60*60)
 	at := time.Date(2026, 8, 29, 3, 30, 0, 0, zone)
 
-	if err := writeBackupStatusMarker(ctx, store.putBytes, backupStalenessReplicationName, at, "0 dead nodes"); err != nil {
+	if err := writeBackupStatusMarker(
+		ctx,
+		store.putBytes,
+		backupStalenessReplicationName,
+		at,
+		"0 dead nodes",
+	); err != nil {
 		t.Fatalf("writeBackupStatusMarker: %v", err)
 	}
+
 	stored, _ := store.object("backup-status/replication.json")
 	body := string(stored)
 	if !strings.Contains(body, `"at":"2026-08-29T10:30:00Z"`) {
 		t.Fatalf("marker must store UTC, got %s", body)
 	}
 
-	marker, found, err := readBackupStatusMarker(ctx, store.getBytes, backupStalenessReplicationName)
+	marker, found, err := readBackupStatusMarker(
+		ctx,
+		store.getBytes,
+		backupStalenessReplicationName,
+	)
 	if err != nil || !found {
 		t.Fatalf("readBackupStatusMarker: %v found=%v", err, found)
 	}
+
 	if !marker.At.Equal(at) {
 		t.Fatalf("marker at = %s, want the same instant as %s", marker.At, at)
 	}
@@ -74,14 +95,19 @@ func TestBackupStatusMarkerWrittenInUTC(t *testing.T) {
 // TestReadBackupStatusMarkerAbsent checks that a mechanism without a recorded
 // success returns an absent marker without an error or a zero-time success.
 func TestReadBackupStatusMarkerAbsent(t *testing.T) {
-	marker, found, err := readBackupStatusMarker(context.Background(), newBackupTestStore(t, nil).getBytes,
-		backupStalenessRehearsalName)
+	marker, found, err := readBackupStatusMarker(
+		context.Background(),
+		newBackupTestStore(t, nil).getBytes,
+		backupStalenessRehearsalName,
+	)
 	if err != nil {
 		t.Fatalf("a missing marker is a state, not an error: %v", err)
 	}
+
 	if found {
 		t.Fatal("no marker was written, so none may be found")
 	}
+
 	if !marker.At.IsZero() {
 		t.Fatalf("absent marker carries a timestamp: %s", marker.At)
 	}
@@ -94,8 +120,11 @@ func TestReadBackupStatusMarkerRejectsUndatedMarker(t *testing.T) {
 	store := newBackupTestStore(t, nil)
 	store.put(backupStatusKey(backupStalenessReplicationName), []byte(`{"detail":"no timestamp"}`))
 
-	if _, found, err := readBackupStatusMarker(context.Background(), store.getBytes,
-		backupStalenessReplicationName); err == nil || found {
+	if _, found, err := readBackupStatusMarker(
+		context.Background(),
+		store.getBytes,
+		backupStalenessReplicationName,
+	); err == nil || found {
 		t.Fatalf("an undated marker must be an error, got found=%v err=%v", found, err)
 	}
 }
@@ -110,10 +139,13 @@ func TestGetObjectBytesRefusesAnOversizedObject(t *testing.T) {
 	oversized := bytes.Repeat([]byte("x"), smallObjectMaxBytes+1)
 	atLimit := bytes.Repeat([]byte("y"), smallObjectMaxBytes)
 
-	store := newBackupTestStore(t, map[string][]byte{
-		key:               oversized,
-		"backup-status/2": atLimit,
-	})
+	store := newBackupTestStore(
+		t,
+		map[string][]byte{
+			key:               oversized,
+			"backup-status/2": atLimit,
+		},
+	)
 	client, cfg := store.client, store.config()
 
 	if _, err := getObjectBytes(ctx, client, cfg.BackupS3BucketMain, key); err == nil {
@@ -126,6 +158,7 @@ func TestGetObjectBytesRefusesAnOversizedObject(t *testing.T) {
 	if err != nil {
 		t.Fatalf("an object exactly at the limit must still read: %v", err)
 	}
+
 	if len(body) != smallObjectMaxBytes {
 		t.Fatalf("read %d bytes, want %d", len(body), smallObjectMaxBytes)
 	}
@@ -141,8 +174,12 @@ func TestRestoreDrillRehearsalMarkerIsReadBackByTheCheck(t *testing.T) {
 
 	ctx := context.Background()
 	store := newBackupTestStore(t, nil)
-	if err := recordRestoreDrillRehearsal(ctx, store.putBytes, "rt20260829T060000Z-42",
-		[]string{"fdb", "yugabyte"}); err != nil {
+	if err := recordRestoreDrillRehearsal(
+		ctx,
+		store.putBytes,
+		"rt20260829T060000Z-42",
+		[]string{"fdb", "yugabyte"},
+	); err != nil {
 		t.Fatalf("recordRestoreDrillRehearsal: %v", err)
 	}
 
@@ -150,16 +187,24 @@ func TestRestoreDrillRehearsalMarkerIsReadBackByTheCheck(t *testing.T) {
 	if err != nil || !found {
 		t.Fatalf("the check must find the drill's marker: found=%v err=%v", found, err)
 	}
+
 	if !marker.At.Equal(drilledAt) {
 		t.Fatalf("marker at = %s, want the drill's clock %s", marker.At, drilledAt)
 	}
+
 	if marker.Detail != "restore drill rt20260829T060000Z-42 passed: fdb, yugabyte" {
 		t.Fatalf("marker detail = %q", marker.Detail)
 	}
 
 	// The report computes the rehearsal age from this marker's timestamp.
-	metric := knownBackupStalenessMetric(ctx, backupStalenessRehearsalName,
-		drilledAt.Add(2*time.Hour), marker.At, 8*24*time.Hour, marker.Detail)
+	metric := knownBackupStalenessMetric(
+		ctx,
+		backupStalenessRehearsalName,
+		drilledAt.Add(2*time.Hour),
+		marker.At,
+		8*24*time.Hour,
+		marker.Detail,
+	)
 	if metric.stale() {
 		t.Fatal("a drill two hours old must not read as stale")
 	}

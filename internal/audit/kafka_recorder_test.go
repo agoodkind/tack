@@ -21,14 +21,13 @@ const (
 // it during test cleanup.
 func newFakeCluster(t *testing.T) *kfake.Cluster {
 	t.Helper()
-	cluster, err := kfake.NewCluster(
-		kfake.NumBrokers(1),
-		kfake.SeedTopics(1, testKafkaTopic),
-	)
+	cluster, err := kfake.NewCluster(kfake.NumBrokers(1), kfake.SeedTopics(1, testKafkaTopic))
 	if err != nil {
 		t.Fatalf("kfake.NewCluster: %v", err)
 	}
+
 	t.Cleanup(cluster.Close)
+
 	return cluster
 }
 
@@ -43,7 +42,9 @@ func newKafkaRecorderForTest(t *testing.T, cluster *kfake.Cluster) *KafkaRecorde
 	if err != nil {
 		t.Fatalf("NewKafkaRecorder: %v", err)
 	}
+
 	t.Cleanup(func() { _ = rec.Close() })
+
 	return rec
 }
 
@@ -86,6 +87,7 @@ func consumeRecords(t *testing.T, brokers []string, topic string, want int) []*k
 		t.Fatalf("consumer client: %v", err)
 	}
 	defer cl.Close()
+
 	got := make([]*kgo.Record, 0, want)
 	for len(got) < want {
 		fs := cl.PollFetches(ctx)
@@ -95,18 +97,22 @@ func consumeRecords(t *testing.T, brokers []string, topic string, want int) []*k
 					t.Fatalf("consume timeout: got %d/%d", len(got), want)
 				}
 			}
+
 			t.Fatalf("consume errors: %v", errs)
 		}
+
 		fs.EachRecord(func(r *kgo.Record) {
 			got = append(got, r)
 		})
 	}
+
 	return got
 }
 
 func TestKafkaRecorderProducesAndCommits(t *testing.T) {
 	cluster := newFakeCluster(t)
 	rec := newKafkaRecorderForTest(t, cluster)
+
 	const total = 100
 	for i := 0; i < total; i++ {
 		ev := makeEvent(strconv.Itoa(i))
@@ -114,6 +120,7 @@ func TestKafkaRecorderProducesAndCommits(t *testing.T) {
 			t.Fatalf("Record %d: %v", i, err)
 		}
 	}
+
 	records := consumeRecords(t, cluster.ListenAddrs(), testKafkaTopic, total)
 	if len(records) != total {
 		t.Fatalf("consumed %d records, want %d", len(records), total)
@@ -131,6 +138,7 @@ func TestKafkaRecorderReturnsErrorOnBrokerDown(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewKafkaRecorder: %v", err)
 	}
+
 	t.Cleanup(func() { _ = rec.Close() })
 	cluster.Close()
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -148,32 +156,41 @@ func TestKafkaRecorderPayloadShape(t *testing.T) {
 	if err := rec.Record(context.Background(), ev); err != nil {
 		t.Fatalf("Record: %v", err)
 	}
+
 	records := consumeRecords(t, cluster.ListenAddrs(), testKafkaTopic, 1)
 	if len(records) != 1 {
 		t.Fatalf("consumed %d records, want 1", len(records))
 	}
+
 	var got Event
 	if err := json.Unmarshal(records[0].Value, &got); err != nil {
 		t.Fatalf("unmarshal value: %v", err)
 	}
+
 	if got.Verb != ev.Verb {
 		t.Errorf("verb: got %q, want %q", got.Verb, ev.Verb)
 	}
+
 	if got.Actor.ID != ev.Actor.ID {
 		t.Errorf("actor.id: got %v, want %v", got.Actor.ID, ev.Actor.ID)
 	}
+
 	if got.Entity.ID != ev.Entity.ID {
 		t.Errorf("entity.id: got %v, want %v", got.Entity.ID, ev.Entity.ID)
 	}
+
 	if got.Context.OrgID != ev.Context.OrgID {
 		t.Errorf("context.org_id: got %v, want %v", got.Context.OrgID, ev.Context.OrgID)
 	}
+
 	if got.Context.Tool != ev.Context.Tool {
 		t.Errorf("context.tool: got %q, want %q", got.Context.Tool, ev.Context.Tool)
 	}
+
 	if !got.OccurredAt.Equal(ev.OccurredAt) {
 		t.Errorf("occurred_at: got %v, want %v", got.OccurredAt, ev.OccurredAt)
 	}
+
 	if got.Outcome != ev.Outcome {
 		t.Errorf("outcome: got %q, want %q", got.Outcome, ev.Outcome)
 	}
@@ -183,6 +200,7 @@ func TestKafkaRecorderRequiresBrokers(t *testing.T) {
 	if _, err := NewKafkaRecorder(KafkaConfig{Topic: testKafkaTopic}); err == nil {
 		t.Fatal("NewKafkaRecorder: expected error when brokers are empty")
 	}
+
 	if _, err := NewKafkaRecorder(KafkaConfig{Brokers: []string{"127.0.0.1:9092"}}); err == nil {
 		t.Fatal("NewKafkaRecorder: expected error when topic is empty")
 	}
@@ -212,6 +230,7 @@ func TestSplitBrokers(t *testing.T) {
 		if len(got) != len(tc.want) {
 			t.Fatalf("SplitBrokers(%q): len got %d, want %d", tc.in, len(got), len(tc.want))
 		}
+
 		for i := range got {
 			if got[i] != tc.want[i] {
 				t.Fatalf("SplitBrokers(%q)[%d]: got %q, want %q", tc.in, i, got[i], tc.want[i])

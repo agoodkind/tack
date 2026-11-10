@@ -15,35 +15,60 @@ import (
 
 var fenceIncrement = []byte{1, 0, 0, 0, 0, 0, 0, 0}
 
-// fenceNodeMutation reads the activation record in tr with an ordinary read
+// fenceNodeMutation reads the activation record in transaction with an ordinary read
 // and atomically increments the node's write fence bucket epoch. If
-// activation commits after tr's read version and before tr commits, tr
+// activation commits after transaction's read version and before transaction commits, transaction
 // conflicts. The retried mutation reads the active record. The function
 // reports whether strict validation is active.
-func fenceNodeMutation(ctx context.Context, tr fdb.Transaction, orgID, nodeID uuid.UUID) (bool, error) {
-	activation, err := readStrictActivation(ctx, tr)
+func fenceNodeMutation(
+	ctx context.Context,
+	transaction fdb.Transaction,
+	orgID uuid.UUID,
+	nodeID uuid.UUID,
+) (bool, error) {
+	activation, err := readStrictActivation(ctx, transaction)
 	if err != nil {
 		return false, err
 	}
-	tr.Add(fdb.Key(writeFenceBucketKey(node.WriteFenceBucket(orgID, nodeID))), fenceIncrement)
+
+	transaction.Add(
+		fdb.Key(writeFenceBucketKey(node.WriteFenceBucket(orgID, nodeID))),
+		fenceIncrement,
+	)
+
 	return activation.Active, nil
 }
 
-// readStrictActivation reads the activation record in tr. It treats an
+// readStrictActivation reads the activation record in transaction. It treats an
 // absent record as inactive.
-func readStrictActivation(ctx context.Context, tr fdb.ReadTransaction) (node.StrictActivation, error) {
-	inactive := node.StrictActivation{Active: false, ActivatedAt: time.Time{}, ScanID: uuid.Nil, RecordsValidated: 0}
-	encoded, err := tr.Get(fdb.Key(strictActivationKey())).Get()
+func readStrictActivation(
+	ctx context.Context,
+	transaction fdb.ReadTransaction,
+) (node.StrictActivation, error) {
+	inactive := node.StrictActivation{
+		Active:           false,
+		ActivatedAt:      time.Time{},
+		ScanID:           uuid.Nil,
+		RecordsValidated: 0,
+	}
+	encoded, err := transaction.Get(fdb.Key(strictActivationKey())).Get()
 	if err != nil {
 		return inactive, searchReadFailure(ctx, "read the strict validation activation record", err)
 	}
+
 	if len(encoded) == 0 {
 		return inactive, nil
 	}
+
 	var activation node.StrictActivation
 	if err := json.Unmarshal(encoded, &activation); err != nil {
-		return inactive, searchReadFailure(ctx, "decode the strict validation activation record", err)
+		return inactive, searchReadFailure(
+			ctx,
+			"decode the strict validation activation record",
+			err,
+		)
 	}
+
 	return activation, nil
 }
 
@@ -54,14 +79,17 @@ func decodeFenceEpoch(ctx context.Context, bucket int, encoded []byte) (int64, e
 	if len(encoded) == 0 {
 		return 0, nil
 	}
+
 	if len(encoded) != len(fenceIncrement) {
 		err := fmt.Errorf("write fence bucket %d epoch has %d bytes", bucket, len(encoded))
 		return 0, searchReadFailure(ctx, "decode the write fence epoch", err)
 	}
+
 	value := binary.LittleEndian.Uint64(encoded)
 	if value > math.MaxInt64 {
 		err := fmt.Errorf("write fence bucket %d epoch %d exceeds the signed range", bucket, value)
 		return 0, searchReadFailure(ctx, "decode the write fence epoch", err)
 	}
+
 	return int64(value), nil
 }

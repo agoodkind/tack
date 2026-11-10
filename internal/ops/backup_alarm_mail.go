@@ -44,16 +44,29 @@ var backupAlarmSendFunc = sendBackupAlarmMail
 // The boolean result does not replace the run's staleness error. Send failures
 // log their reasons at Error level; an unset recipient logs a warning without
 // attempting a send.
-func mailBackupStalenessAlarm(ctx context.Context, cfg *config.Config, faults []backupStalenessMetric) bool {
+func mailBackupStalenessAlarm(
+	ctx context.Context,
+	cfg *config.Config,
+	faults []backupStalenessMetric,
+) bool {
 	logger := telemetry.L(ctx)
+
 	names := make([]string, 0, len(faults))
 	for _, fault := range faults {
 		names = append(names, fault.Name)
 	}
+
 	if cfg.BackupAlarmEmail == "" {
-		logger.WarnContext(ctx, "backup.staleness.alarm_recipient_unset",
-			slog.String("reason", "TACK_BACKUP_ALARM_EMAIL is empty, so the fault was printed but not mailed"),
-			slog.Any("metrics", names))
+		logger.WarnContext(
+			ctx,
+			"backup.staleness.alarm_recipient_unset",
+			slog.String(
+				"reason",
+				"TACK_BACKUP_ALARM_EMAIL is empty, so the fault was printed but not mailed",
+			),
+			slog.Any("metrics", names),
+		)
+
 		return false
 	}
 
@@ -69,15 +82,24 @@ func mailBackupStalenessAlarm(ctx context.Context, cfg *config.Config, faults []
 		Caller: backupAlarmCaller,
 	}
 	if err := backupAlarmSendFunc(ctx, cfg, message); err != nil {
-		logger.ErrorContext(ctx, "backup.staleness.alarm_undelivered",
+		logger.ErrorContext(
+			ctx,
+			"backup.staleness.alarm_undelivered",
 			slog.String("to", cfg.BackupAlarmEmail),
 			slog.Any("metrics", names),
-			slog.String("err", err.Error()))
+			slog.String("err", err.Error()),
+		)
+
 		return false
 	}
-	logger.InfoContext(ctx, "backup.staleness.alarm_sent",
+
+	logger.InfoContext(
+		ctx,
+		"backup.staleness.alarm_sent",
 		slog.String("to", cfg.BackupAlarmEmail),
-		slog.Any("metrics", names))
+		slog.Any("metrics", names),
+	)
+
 	return true
 }
 
@@ -93,11 +115,16 @@ func sendBackupAlarmMail(ctx context.Context, cfg *config.Config, message mailer
 		wrapped := fmt.Errorf("mail backup staleness alarm to %s: %w", message.To, err)
 		// This log records the account file and transport error. The caller logs the
 		// alarm result for the affected run.
-		telemetry.L(ctx).ErrorContext(ctx, "backup.staleness.alarm_transport_failed",
+		telemetry.L(ctx).ErrorContext(
+			ctx,
+			"backup.staleness.alarm_transport_failed",
 			slog.String("msmtprc", cfg.BackupAlarmMsmtprcPath),
-			slog.String("err", wrapped.Error()))
+			slog.String("err", wrapped.Error()),
+		)
+
 		return wrapped
 	}
+
 	return nil
 }
 
@@ -107,8 +134,10 @@ func backupAlarmHost() string {
 	if err != nil {
 		return backupAlarmUnknownHost
 	}
+
 	if strings.TrimSpace(host) == "" {
 		return backupAlarmUnknownHost
 	}
+
 	return host
 }

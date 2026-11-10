@@ -39,6 +39,7 @@ func (s *scriptedYBScratch) watch() ybScratchWatch {
 			if s.failReason != "" && s.polls >= s.failAfter {
 				return s.failReason, nil
 			}
+
 			return "", nil
 		},
 		Ready: func(context.Context) (bool, error) {
@@ -50,6 +51,7 @@ func (s *scriptedYBScratch) watch() ybScratchWatch {
 			if s.progressErr != nil {
 				return nil, s.progressErr
 			}
+
 			return counters, nil
 		},
 	}
@@ -62,6 +64,7 @@ func risingTablets(polls int) []map[string]int64 {
 	for i := range polls {
 		counters = append(counters, map[string]int64{"sst_files": int64(i)})
 	}
+
 	return counters
 }
 
@@ -79,10 +82,18 @@ func TestAwaitYBScratchLetsASlowRestorationRunPastAnyFixedBudget(t *testing.T) {
 	recordLedgerWaits(t)
 	engine := &scriptedYBScratch{readyAfter: polls, counters: risingTablets(polls), running: true}
 
-	took, err := awaitYBScratch(context.Background(), "restore", engine.watch(), ybWaitTestStall, ybWaitTestPoll, ybWaitTestProbe)
+	took, err := awaitYBScratch(
+		context.Background(),
+		"restore",
+		engine.watch(),
+		ybWaitTestStall,
+		ybWaitTestPoll,
+		ybWaitTestProbe,
+	)
 	if err != nil {
 		t.Fatalf("a restoration that keeps landing files must be waited for: %v", err)
 	}
+
 	if took < 3*time.Hour {
 		t.Fatalf("took = %s, want a wait that outlived any fixed budget", took)
 	}
@@ -94,18 +105,35 @@ func TestAwaitYBScratchLetsASlowRestorationRunPastAnyFixedBudget(t *testing.T) {
 func TestAwaitYBScratchFailsAnEngineThatStoppedMoving(t *testing.T) {
 	advanceClockPerRead(t, ybWaitTestClockStep)
 	recordLedgerWaits(t)
-	frozen := []map[string]int64{{"sst_files": 3, "running_tablets": 9}, {"sst_files": 12, "running_tablets": 9}}
+	frozen := []map[string]int64{
+		{"sst_files": 3, "running_tablets": 9},
+		{"sst_files": 12, "running_tablets": 9},
+	}
 	engine := &scriptedYBScratch{readyAfter: 1000, counters: frozen, running: true}
 
-	_, err := awaitYBScratch(context.Background(), "restore", engine.watch(), ybWaitTestStall, ybWaitTestPoll, ybWaitTestProbe)
+	_, err := awaitYBScratch(
+		context.Background(),
+		"restore",
+		engine.watch(),
+		ybWaitTestStall,
+		ybWaitTestPoll,
+		ybWaitTestProbe,
+	)
 	if err == nil {
 		t.Fatal("an engine whose counters stopped rising must be reported as stalled")
 	}
-	for _, want := range []string{"restore:", "no progress for", "running_tablets=9", "sst_files=12"} {
+
+	for _, want := range []string{
+		"restore:",
+		"no progress for",
+		"running_tablets=9",
+		"sst_files=12",
+	} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("stall error %q lacks %q", err, want)
 		}
 	}
+
 	if engine.polls > 12 {
 		t.Fatalf("polls = %d, want the wait to stop soon after the window", engine.polls)
 	}
@@ -118,13 +146,22 @@ func TestAwaitYBScratchIgnoresACounterThatFallsAndRecovers(t *testing.T) {
 	const polls = 60
 	advanceClockPerRead(t, ybWaitTestClockStep)
 	recordLedgerWaits(t)
+
 	counters := make([]map[string]int64, 0, polls)
 	for i := range polls {
 		counters = append(counters, map[string]int64{"running_tablets": int64(10 + i%3)})
 	}
+
 	engine := &scriptedYBScratch{readyAfter: polls, counters: counters, running: true}
 
-	_, err := awaitYBScratch(context.Background(), "start", engine.watch(), ybWaitTestStall, ybWaitTestPoll, ybWaitTestProbe)
+	_, err := awaitYBScratch(
+		context.Background(),
+		"start",
+		engine.watch(),
+		ybWaitTestStall,
+		ybWaitTestPoll,
+		ybWaitTestProbe,
+	)
 	if err == nil || !strings.Contains(err.Error(), "no progress for") {
 		t.Fatalf("err = %v, want a stall for a counter that only returns to its mark", err)
 	}
@@ -137,15 +174,28 @@ func TestAwaitYBScratchNamesAnEngineItCouldNotRead(t *testing.T) {
 	advanceClockPerRead(t, ybWaitTestClockStep)
 	recordLedgerWaits(t)
 	engine := &scriptedYBScratch{
-		readyAfter: 1000, counters: risingTablets(1), running: true,
+		readyAfter:  1000,
+		counters:    risingTablets(1),
+		running:     true,
 		progressErr: errors.New("exec create: context deadline exceeded"),
 	}
 
-	_, err := awaitYBScratch(context.Background(), "start", engine.watch(), ybWaitTestStall, ybWaitTestPoll, ybWaitTestProbe)
+	_, err := awaitYBScratch(
+		context.Background(),
+		"start",
+		engine.watch(),
+		ybWaitTestStall,
+		ybWaitTestPoll,
+		ybWaitTestProbe,
+	)
 	if err == nil {
 		t.Fatal("an engine the drill cannot read must not be waited for forever")
 	}
-	for _, want := range []string{"no progress counter was ever readable", "progress read: exec create: context deadline exceeded"} {
+
+	for _, want := range []string{
+		"no progress counter was ever readable",
+		"progress read: exec create: context deadline exceeded",
+	} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("stall error %q lacks %q", err, want)
 		}
@@ -159,10 +209,18 @@ func TestAwaitYBScratchEndsWhenTheContainerExits(t *testing.T) {
 	recordLedgerWaits(t)
 	engine := &scriptedYBScratch{readyAfter: 1000, counters: risingTablets(50), running: false}
 
-	_, err := awaitYBScratch(context.Background(), "start", engine.watch(), ybWaitTestStall, ybWaitTestPoll, ybWaitTestProbe)
+	_, err := awaitYBScratch(
+		context.Background(),
+		"start",
+		engine.watch(),
+		ybWaitTestStall,
+		ybWaitTestPoll,
+		ybWaitTestProbe,
+	)
 	if err == nil || !strings.Contains(err.Error(), "is not running") {
 		t.Fatalf("err = %v, want the exited container named", err)
 	}
+
 	if engine.polls != 0 {
 		t.Fatalf("polls = %d, want the wait to end before reading progress", engine.polls)
 	}

@@ -60,9 +60,12 @@ func findExactTag(
 		return "", false, &os.PathError{Op: "read Git tags", Path: root, Err: err}
 	}
 
-	slices.SortFunc(tags, func(left, right *plumbing.Reference) int {
-		return strings.Compare(left.Name().String(), right.Name().String())
-	})
+	slices.SortFunc(
+		tags,
+		func(left, right *plumbing.Reference) int {
+			return strings.Compare(left.Name().String(), right.Name().String())
+		},
+	)
 
 	var best exactTag
 
@@ -105,11 +108,20 @@ func classifyTag(
 		return none, false, nil
 	}
 
-	candidate := exactTag{name: name, priority: annotatedTagPriority, date: outer.Tagger.When.Unix()}
+	candidate := exactTag{
+		name:     name,
+		priority: annotatedTagPriority,
+		date:     outer.Tagger.When.Unix(),
+	}
+
 	for {
 		next, err := outer.Object()
 		if err != nil {
-			return none, false, &os.PathError{Op: "read Git tag " + name + " target", Path: root, Err: err}
+			return none, false, &os.PathError{
+				Op:   "read Git tag " + name + " target",
+				Path: root,
+				Err:  err,
+			}
 		}
 
 		nested, isTag := next.(*object.Tag)

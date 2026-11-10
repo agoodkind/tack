@@ -25,16 +25,23 @@ func (health *searchMixedFoundationDBSample) complete() bool {
 	if health == nil || health.PerformanceLimitedBy == nil || *health.PerformanceLimitedBy == "" {
 		return false
 	}
+
 	required := []*float64{
-		health.WorstQueueBytesStorageServer, health.WorstQueueBytesLogServer,
-		health.WorstDurabilityLagStorageServerSeconds, health.TransactionsPerSecondLimit,
-		health.ReleasedTransactionsPerSecond, health.CommitSeconds, health.MaxRunLoopBusy, health.MaxDiskBusy,
+		health.WorstQueueBytesStorageServer,
+		health.WorstQueueBytesLogServer,
+		health.WorstDurabilityLagStorageServerSeconds,
+		health.TransactionsPerSecondLimit,
+		health.ReleasedTransactionsPerSecond,
+		health.CommitSeconds,
+		health.MaxRunLoopBusy,
+		health.MaxDiskBusy,
 	}
 	for _, value := range required {
 		if value == nil || *value < 0 {
 			return false
 		}
 	}
+
 	return true
 }
 
@@ -42,10 +49,15 @@ func (health *searchMixedFoundationDBSample) complete() bool {
 // FoundationDB cluster health.
 func requireSearchMixedFoundationDB(t *testing.T, output []byte, envelope searchMixedOutput) {
 	t.Helper()
+
 	for _, sample := range envelope.Result.Samples {
 		if sample.FoundationDB.complete() {
 			return
 		}
 	}
-	t.Fatalf("qa datagen search-mixed: at least one sample must report the FoundationDB performance limit, a non-negative commit latency, and non-negative queue, lag, rate, and busy values: %s", output)
+
+	t.Fatalf(
+		"qa datagen search-mixed: at least one sample must report the FoundationDB performance limit, a non-negative commit latency, and non-negative queue, lag, rate, and busy values: %s",
+		output,
+	)
 }

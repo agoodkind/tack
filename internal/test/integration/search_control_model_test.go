@@ -47,60 +47,98 @@ type mismatchTask struct {
 func registerMismatchModel(t *testing.T, client *opensearchapi.Client) string {
 	t.Helper()
 	deadline := clock.Now().Add(mismatchRegistrationWindow)
+
 	for {
 		task := runMismatchRegistration(t, client, deadline)
 		if task.ModelID != "" {
 			t.Cleanup(func() { deleteMismatchModel(t, client, task.ModelID) })
 		}
+
 		if task.State == "COMPLETED" && task.ModelID != "" {
 			return task.ModelID
 		}
+
 		retryAt := clock.Now().Add(mismatchBreakerInterval)
 		if !strings.Contains(task.Error, mlBreakerOpenText) || retryAt.After(deadline) {
 			t.Fatalf("mismatch model registration ended in state %q: %s", task.State, task.Error)
 		}
+
 		waitUntil(t, retryAt)
 	}
 }
 
 // runMismatchRegistration starts one registration task and polls it until it
 // leaves the CREATED and RUNNING states. It fails the test at deadline.
-func runMismatchRegistration(t *testing.T, client *opensearchapi.Client, deadline time.Time) mismatchTask {
+func runMismatchRegistration(
+	t *testing.T,
+	client *opensearchapi.Client,
+	deadline time.Time,
+) mismatchTask {
 	t.Helper()
-	body := fmt.Sprintf(`{"name":%q,"version":%q,"model_format":"TORCH_SCRIPT"}`, mismatchModelName, mismatchModelVersion)
+	body := fmt.Sprintf(
+		`{"name":%q,"version":%q,"model_format":"TORCH_SCRIPT"}`,
+		mismatchModelName,
+		mismatchModelVersion,
+	)
 	var started struct {
 		TaskID string `json:"task_id"`
 	}
-	registered := requireNativeML(t, client, http.MethodPost, nativeMLRequest{path: "/_plugins/_ml/models/_register", body: []byte(body)})
+	registered := requireNativeML(
+		t,
+		client,
+		http.MethodPost,
+		nativeMLRequest{path: "/_plugins/_ml/models/_register", body: []byte(body)},
+	)
 	if err := json.Unmarshal(registered, &started); err != nil || started.TaskID == "" {
 		t.Fatalf("register mismatch model returned no task: %s, error=%v", registered, err)
 	}
+
 	for {
 		var task mismatchTask
-		taskBody := requireNativeML(t, client, http.MethodGet, nativeMLRequest{path: "/_plugins/_ml/tasks/" + url.PathEscape(started.TaskID), body: nil})
+		taskBody := requireNativeML(
+			t,
+			client,
+			http.MethodGet,
+			nativeMLRequest{
+				path: "/_plugins/_ml/tasks/" + url.PathEscape(started.TaskID),
+				body: nil,
+			},
+		)
 		if err := json.Unmarshal(taskBody, &task); err != nil {
 			t.Fatal(err)
 		}
+
 		if task.State != "CREATED" && task.State != "RUNNING" {
 			return task
 		}
+
 		if clock.Now().After(deadline) {
 			t.Fatalf("mismatch model registration task %s is still %s", started.TaskID, task.State)
 		}
+
 		waitUntil(t, clock.Now().Add(time.Second))
 	}
 }
 
 func deleteMismatchModel(t *testing.T, client *opensearchapi.Client, modelID string) {
 	t.Helper()
-	ctx, cancel := context.WithTimeout(context.WithoutCancel(WithTestOperation(t, t.Context())), time.Minute)
+	ctx, cancel := context.WithTimeout(
+		context.WithoutCancel(WithTestOperation(t, t.Context())),
+		time.Minute,
+	)
 	defer cancel()
-	response, err := opensearch.Execute[json.RawMessage](ctx, client.Client, http.MethodDelete,
-		nativeMLRequest{path: nativeModelPath(modelID, ""), body: nil}, nil)
+	response, err := opensearch.Execute[json.RawMessage](
+		ctx,
+		client.Client,
+		http.MethodDelete,
+		nativeMLRequest{path: nativeModelPath(modelID, ""), body: nil},
+		nil,
+	)
 	if err != nil {
 		t.Errorf("delete mismatch model %s: %v", modelID, err)
 		return
 	}
+
 	if response.IsError() {
 		t.Errorf("delete mismatch model %s: %v", modelID, opensearch.ParseError(response))
 	}

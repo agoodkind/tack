@@ -56,12 +56,20 @@ func New(version string) func() provider.Provider {
 	}
 }
 
-func (p *tackProvider) Metadata(_ context.Context, _ provider.MetadataRequest, resp *provider.MetadataResponse) {
+func (p *tackProvider) Metadata(
+	_ context.Context,
+	_ provider.MetadataRequest,
+	resp *provider.MetadataResponse,
+) {
 	resp.TypeName = providerTypeName
 	resp.Version = p.version
 }
 
-func (p *tackProvider) Schema(_ context.Context, _ provider.SchemaRequest, resp *provider.SchemaResponse) {
+func (p *tackProvider) Schema(
+	_ context.Context,
+	_ provider.SchemaRequest,
+	resp *provider.SchemaResponse,
+) {
 	resp.Schema = schema.Schema{
 		Description: "The provider manages the migration version of the ledger database of a Tack installation " +
 			"with the tack_schema resource. It runs commands in the Tack guest by calling the Proxmox VE API " +
@@ -101,52 +109,74 @@ func (p *tackProvider) Schema(_ context.Context, _ provider.SchemaRequest, resp 
 	}
 }
 
-func (p *tackProvider) Configure(ctx context.Context, req provider.ConfigureRequest, resp *provider.ConfigureResponse) {
+func (p *tackProvider) Configure(
+	ctx context.Context,
+	req provider.ConfigureRequest,
+	resp *provider.ConfigureResponse,
+) {
 	var config providerModel
 	resp.Diagnostics.Append(req.Config.Get(ctx, &config)...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
+
 	if config.Nodes.IsUnknown() {
-		resp.Diagnostics.AddError("Unknown provider configuration",
-			"The nodes argument must be known when the provider runs Configure.")
+		resp.Diagnostics.AddError(
+			"Unknown provider configuration",
+			"The nodes argument must be known when the provider runs Configure.",
+		)
+
 		return
 	}
+
 	flags, err := operatorFlags(config.Operator)
 	if err != nil {
 		slog.ErrorContext(ctx, "provider.configure_failed", slog.String("err", err.Error()))
 		resp.Diagnostics.AddError("Invalid operator configuration", err.Error())
+
 		return
 	}
+
 	nodes, err := nodeConfigs(ctx, config.Nodes)
 	if err != nil {
 		slog.ErrorContext(ctx, "provider.configure_failed", slog.String("err", err.Error()))
 		resp.Diagnostics.AddError("Invalid provider configuration", err.Error())
+
 		return
 	}
+
 	client, err := transport.NewClient(nodes, transport.DefaultMaxRequests)
 	if err != nil {
 		slog.ErrorContext(ctx, "provider.configure_failed", slog.String("err", err.Error()))
 		resp.Diagnostics.AddError("Invalid provider configuration", err.Error())
+
 		return
 	}
+
 	slog.InfoContext(ctx, "provider.configured", slog.Int("nodes", len(nodes)))
 	resp.ResourceData = &providerData{client: client, operatorFlags: flags}
 }
 
-func nodeConfigs(ctx context.Context, nodesValue types.Map) (map[string]transport.NodeConfig, error) {
+func nodeConfigs(
+	ctx context.Context,
+	nodesValue types.Map,
+) (map[string]transport.NodeConfig, error) {
 	nodeModels := make(map[string]nodeModel, len(nodesValue.Elements()))
 	if diags := nodesValue.ElementsAs(ctx, &nodeModels, false); diags.HasError() {
 		return nil, fmt.Errorf("read the nodes argument: %s", diagnosticsText(diags))
 	}
+
 	nodes := make(map[string]transport.NodeConfig, len(nodeModels))
 	for name, model := range nodeModels {
 		if model.Endpoint.IsUnknown() || model.APIToken.IsUnknown() || model.Insecure.IsUnknown() ||
 			model.NodeName.IsUnknown() {
 			return nil, fmt.Errorf(
 				"the endpoint, api_token, insecure, and node_name arguments of node %q must be known "+
-					"when the provider runs Configure", name)
+					"when the provider runs Configure",
+				name,
+			)
 		}
+
 		nodes[name] = transport.NodeConfig{
 			Endpoint: model.Endpoint.ValueString(),
 			APIToken: model.APIToken.ValueString(),
@@ -154,6 +184,7 @@ func nodeConfigs(ctx context.Context, nodesValue types.Map) (map[string]transpor
 			NodeName: model.NodeName.ValueString(),
 		}
 	}
+
 	return nodes, nil
 }
 

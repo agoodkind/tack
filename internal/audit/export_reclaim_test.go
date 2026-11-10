@@ -33,32 +33,43 @@ func TestAVerifyWhoseRowsWereReclaimedFailsRatherThanPassing(t *testing.T) {
 		{name: "a bundle that declares none", rows: 0},
 	}
 	for _, size := range sizes {
-		t.Run(size.name, func(t *testing.T) {
-			dir := t.TempDir()
-			orgID := uuid.Must(uuid.NewV7())
-			publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
-			if err != nil {
-				t.Fatalf("generate key: %v", err)
-			}
-			manifest, err := Export(context.Background(), exportTestRows(t, orgID, size.rows, nil),
-				privateKey, "ed25519:test", exportTestFilter(orgID), dir)
-			if err != nil {
-				t.Fatalf("export: %v", err)
-			}
-			if manifest.RowCount != size.rows {
-				t.Fatalf("row count = %d, want %d", manifest.RowCount, size.rows)
-			}
+		t.Run(
+			size.name,
+			func(t *testing.T) {
+				dir := t.TempDir()
+				orgID := uuid.Must(uuid.NewV7())
+				publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
+				if err != nil {
+					t.Fatalf("generate key: %v", err)
+				}
 
-			// Delete the selected rows as cleanup does after another export supersedes the
-			// bundle. This reproduces deletion before the reader opens the rows.
-			if err := os.Remove(filepath.Join(dir, manifest.EventsFile)); err != nil {
-				t.Fatalf("free the rows the manifest names: %v", err)
-			}
+				manifest, err := Export(
+					context.Background(),
+					exportTestRows(t, orgID, size.rows, nil),
+					privateKey,
+					"ed25519:test",
+					exportTestFilter(orgID),
+					dir,
+				)
+				if err != nil {
+					t.Fatalf("export: %v", err)
+				}
 
-			report, err := VerifyBundle(dir, publicKey)
-			if err == nil {
-				t.Fatalf("the verifier reported on a bundle whose rows are gone: %+v", report)
-			}
-		})
+				if manifest.RowCount != size.rows {
+					t.Fatalf("row count = %d, want %d", manifest.RowCount, size.rows)
+				}
+
+				// Delete the selected rows as cleanup does after another export supersedes the
+				// bundle. This reproduces deletion before the reader opens the rows.
+				if err := os.Remove(filepath.Join(dir, manifest.EventsFile)); err != nil {
+					t.Fatalf("free the rows the manifest names: %v", err)
+				}
+
+				report, err := VerifyBundle(dir, publicKey)
+				if err == nil {
+					t.Fatalf("the verifier reported on a bundle whose rows are gone: %+v", report)
+				}
+			},
+		)
 	}
 }

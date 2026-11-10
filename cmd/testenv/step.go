@@ -88,8 +88,10 @@ func runStep(body func(*cliStep)) int {
 	if !step.failed.Load() {
 		return 0
 	}
+
 	if err := testenv.Release(step.Context()); err != nil {
 		slog.Error("testenv.release_failed", slog.String("err", err.Error()))
 	}
+
 	return 1
 }

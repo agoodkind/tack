@@ -62,9 +62,11 @@ func (r *restoreDrillCtx) trackContainer(name string) {
 func cleanupRestoreDrill(ctx context.Context, r *restoreDrillCtx) {
 	bg, cancel := context.WithTimeout(context.WithoutCancel(ctx), 90*time.Second)
 	defer cancel()
+
 	for _, name := range r.containerNames {
 		awaitBackupContainerRemoval(bg, r.Cli, name)
 	}
+
 	removeDrillScratch(ctx, r)
 	releaseDrillRun(r)
 }
@@ -94,7 +96,11 @@ type RestoreDrillOptions struct {
 //   - The marker dates the drill for ops backup staleness-check.
 //   - A marker-write failure fails the drill without rerunning restore legs.
 //   - The marker writer uses its own retry policy.
-func RunBackupRestoreDrill(ctx context.Context, cfg *config.Config, opts RestoreDrillOptions) error {
+func RunBackupRestoreDrill(
+	ctx context.Context,
+	cfg *config.Config,
+	opts RestoreDrillOptions,
+) error {
 	lock, lockErr := lockBackupOperation(ctx, cfg.BackupRoot)
 	if lockErr != nil {
 		return lockErr
@@ -103,8 +109,11 @@ func RunBackupRestoreDrill(ctx context.Context, cfg *config.Config, opts Restore
 	ctx = withBackupOperationLock(ctx)
 	logger := telemetry.L(ctx)
 	if cfg.BackupS3Endpoint == "" || cfg.BackupS3AccessKey == "" || cfg.BackupS3SecretKey == "" {
-		err := fmt.Errorf("restore-drill: TACK_BACKUP_S3_ENDPOINT, _ACCESS_KEY_ID, and _SECRET_ACCESS_KEY are required")
+		err := fmt.Errorf(
+			"restore-drill: TACK_BACKUP_S3_ENDPOINT, _ACCESS_KEY_ID, and _SECRET_ACCESS_KEY are required",
+		)
 		logger.ErrorContext(ctx, "backup.restore_drill.failed", slog.String("err", err.Error()))
+
 		return err
 	}
 
@@ -144,9 +153,12 @@ func RunBackupRestoreDrill(ctx context.Context, cfg *config.Config, opts Restore
 			logger.InfoContext(ctx, "backup.restore_drill.leg_ok", slog.String("leg", "fdb"))
 		}
 	} else {
-		logger.WarnContext(ctx, "backup.restore_drill.leg_skipped",
+		logger.WarnContext(
+			ctx,
+			"backup.restore_drill.leg_skipped",
 			slog.String("leg", "fdb"),
-			slog.String("reason", "TACK_BACKUP_FDB_CONTINUOUS is false"))
+			slog.String("reason", "TACK_BACKUP_FDB_CONTINUOUS is false"),
+		)
 	}
 
 	if legErr := restoreDrillYugabyte(ctx, rctx); legErr != nil {
@@ -157,10 +169,16 @@ func RunBackupRestoreDrill(ctx context.Context, cfg *config.Config, opts Restore
 	}
 
 	if len(failures) > 0 {
-		err := fmt.Errorf("restore-drill: %d leg(s) failed: %s", len(failures), strings.Join(failures, "; "))
+		err := fmt.Errorf(
+			"restore-drill: %d leg(s) failed: %s",
+			len(failures),
+			strings.Join(failures, "; "),
+		)
 		logger.ErrorContext(ctx, "backup.restore_drill.failed", slog.String("err", err.Error()))
+
 		return err
 	}
+
 	s3Client := newBackupS3Client(cfg)
 	markerPut := func(key string, body []byte) error {
 		return putObjectBytes(ctx, s3Client, cfg.BackupS3BucketMain, key, body)
@@ -168,7 +186,9 @@ func RunBackupRestoreDrill(ctx context.Context, cfg *config.Config, opts Restore
 	if err := recordRestoreDrillRehearsal(ctx, markerPut, rctx.RunID, passed); err != nil {
 		return err
 	}
+
 	logger.InfoContext(ctx, "backup.restore_drill.ok", slog.String("run_id", rctx.RunID))
+
 	return nil
 }
 

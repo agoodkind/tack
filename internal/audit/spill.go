@@ -60,6 +60,7 @@ func (s *SpillRecorder) Record(ctx context.Context, ev Event) error {
 		s.noteRecovered(ctx)
 		return nil
 	}
+
 	return s.spill(ctx, ev, primaryErr)
 }
 
@@ -75,6 +76,7 @@ func (s *SpillRecorder) spill(ctx context.Context, ev Event, primaryErr error) e
 		telemetry.IncAuditDropped(ev.Verb, "spill_marshal")
 		return errors.Join(primaryErr, marshalErr)
 	}
+
 	// The spill uses its own deadline and does not inherit request cancellation.
 	// An expired request can cause the primary failure after the product write
 	// commits; reusing that cancellation would also fail the spill. The context
@@ -83,26 +85,43 @@ func (s *SpillRecorder) spill(ctx context.Context, ev Event, primaryErr error) e
 	defer cancel()
 	if spillErr := s.Spill.Append(spillCtx, payload); spillErr != nil {
 		telemetry.IncAuditDropped(ev.Verb, "spill")
-		slog.ErrorContext(ctx, "audit.spill_failed",
+		slog.ErrorContext(
+			ctx,
+			"audit.spill_failed",
 			slog.String("verb", ev.Verb),
 			slog.String("event_id", ev.EventID.String()),
 			slog.String("primary_err", primaryErr.Error()),
-			slog.String("err", spillErr.Error()))
-		return fmt.Errorf("audit spill after primary failure: %w", errors.Join(primaryErr, spillErr))
+			slog.String("err", spillErr.Error()),
+		)
+
+		return fmt.Errorf(
+			"audit spill after primary failure: %w",
+			errors.Join(primaryErr, spillErr),
+		)
 	}
+
 	telemetry.IncAuditSpilled(ev.Verb)
 	count := s.spilled.Add(1)
 	if s.inOutage.CompareAndSwap(false, true) {
-		slog.ErrorContext(ctx, "audit.outage_began",
+		slog.ErrorContext(
+			ctx,
+			"audit.outage_began",
 			slog.String("verb", ev.Verb),
 			slog.String("event_id", ev.EventID.String()),
-			slog.String("err", primaryErr.Error()))
+			slog.String("err", primaryErr.Error()),
+		)
+
 		return nil
 	}
-	slog.DebugContext(ctx, "audit.spilled",
+
+	slog.DebugContext(
+		ctx,
+		"audit.spilled",
 		slog.String("verb", ev.Verb),
 		slog.String("event_id", ev.EventID.String()),
-		slog.Int64("spilled_this_outage", count))
+		slog.Int64("spilled_this_outage", count),
+	)
+
 	return nil
 }
 
@@ -112,8 +131,8 @@ func (s *SpillRecorder) noteRecovered(ctx context.Context) {
 	if !s.inOutage.CompareAndSwap(true, false) {
 		return
 	}
-	slog.InfoContext(ctx, "audit.outage_ended",
-		slog.Int64("spilled", s.spilled.Swap(0)))
+
+	slog.InfoContext(ctx, "audit.outage_ended", slog.Int64("spilled", s.spilled.Swap(0)))
 }
 
 // Close closes Primary when it supports closing.
@@ -132,5 +151,6 @@ func (s *SpillRecorder) Close() error {
 	case interface{ Close() }:
 		recorder.Close()
 	}
+
 	return nil
 }

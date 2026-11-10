@@ -173,19 +173,38 @@ func RunSearchMixed(
 		return unmeasuredSearchMixedSummary(options, true, plannedSearches, plannedWrites), nil
 	}
 	if plannedSearches < 1 || plannedWrites < 1 {
-		return SearchMixedSummary{}, fmt.Errorf("qa datagen search-mixed: schedule requires at least one search and one write: rate %d, write rate %d, duration %s", options.Rate, options.WriteRate, options.Duration)
+		return SearchMixedSummary{}, fmt.Errorf(
+			"qa datagen search-mixed: schedule requires at least one search and one write: rate %d, write rate %d, duration %s",
+			options.Rate,
+			options.WriteRate,
+			options.Duration,
+		)
 	}
 	if err := ValidateTarget(cfg); err != nil {
 		return SearchMixedSummary{}, err
 	}
 	if !cfg.SearchPublicEnabled {
-		return SearchMixedSummary{}, loggedError(callContext, "qa datagen search-mixed: this command requires public search", errPublicSearchDisabled)
+		return SearchMixedSummary{}, loggedError(
+			callContext,
+			"qa datagen search-mixed: this command requires public search",
+			errPublicSearchDisabled,
+		)
 	}
 	corpusIndex := &searchMixedCorpusIndex{}
-	mixed, closeMixed, err := newSearchMixed(scheduleContext, callContext, cfg, options, plannedSearches, corpusIndex)
+	mixed, closeMixed, err := newSearchMixed(
+		scheduleContext,
+		callContext,
+		cfg,
+		options,
+		plannedSearches,
+		corpusIndex,
+	)
 	if errors.Is(err, errSearchMixedSetupStopped) {
-		slog.InfoContext(callContext, "qa.datagen.search_mixed_setup_stopped",
-			slog.String("cause", context.Cause(scheduleContext).Error()))
+		slog.InfoContext(
+			callContext,
+			"qa.datagen.search_mixed_setup_stopped",
+			slog.String("cause", context.Cause(scheduleContext).Error()),
+		)
 		summary := unmeasuredSearchMixedSummary(options, false, plannedSearches, plannedWrites)
 		summary.Stopped, summary.SkippedPhases = true, searchMixedPhaseNames(options.Rebuild != nil)
 		summary.CorpusIndex = corpusIndex.snapshot()
@@ -200,11 +219,20 @@ func RunSearchMixed(
 	if err != nil {
 		return summary, err
 	}
-	slog.InfoContext(callContext, "qa.datagen.search_mixed_finished", slog.Int("rate", options.Rate),
-		slog.Int("write_rate", options.WriteRate), slog.Int("completed", summary.Search.Completed),
-		slog.Int("creates", summary.Creates), slog.Int("edits", summary.Edits), slog.Int("deletes", summary.Deletes),
-		slog.Int("burst_created", summary.Burst.Created), slog.Int("markers_not_found", summary.MarkersNotFound),
+	slog.InfoContext(
+		callContext,
+		"qa.datagen.search_mixed_finished",
+		slog.Int("rate", options.Rate),
+		slog.Int("write_rate", options.WriteRate),
+		slog.Int("completed", summary.Search.Completed),
+		slog.Int("creates", summary.Creates),
+		slog.Int("edits", summary.Edits),
+		slog.Int("deletes", summary.Deletes),
+		slog.Int("burst_created", summary.Burst.Created),
+		slog.Int("markers_not_found", summary.MarkersNotFound),
 		slog.Int("markers_unsearched", summary.MarkersUnsearched),
-		slog.Int("deleted_returned", summary.DeletedReturned), slog.Bool("caught_up", summary.CatchUp.Completed))
+		slog.Int("deleted_returned", summary.DeletedReturned),
+		slog.Bool("caught_up", summary.CatchUp.Completed),
+	)
 	return summary, nil
 }

@@ -30,33 +30,40 @@ func TestFileFailureReportsOnce(t *testing.T) {
 		environment         []string
 	}{
 		{
-			"directory", blocked, "create digest directory",
+			"directory",
+			blocked,
+			"create digest directory",
 			digestCommand,
 			environmentList(digestEnvironment(amd64Architecture, digest, blocked)),
 		},
 		{
-			"open", root, "open image file",
+			"open",
+			root,
+			"open image file",
 			tagsCommand,
 			tagList,
 		},
 	} {
-		t.Run(test.name, func(t *testing.T) {
-			command := imagetest.Prepare(t, t.TempDir(), test.newCommand)
-			command.Env = test.environment
+		t.Run(
+			test.name,
+			func(t *testing.T) {
+				command := imagetest.Prepare(t, t.TempDir(), test.newCommand)
+				command.Env = test.environment
 
-			output, err := command.CombinedOutput()
-			if err == nil {
-				t.Fatal("expected file failure")
-			}
+				output, err := command.CombinedOutput()
+				if err == nil {
+					t.Fatal("expected file failure")
+				}
 
-			message := string(output)
-			singleBoundary := strings.Count(message, "ERROR ") == 1 &&
-				strings.Contains(message, "ci-image.failed")
+				message := string(output)
+				singleBoundary := strings.Count(message, "ERROR ") == 1 &&
+					strings.Contains(message, "ci-image.failed")
 
-			if !singleBoundary || !strings.Contains(message, test.context) ||
-				!strings.Contains(message, test.path) {
-				t.Fatalf("unexpected error output: %s", message)
-			}
-		})
+				if !singleBoundary || !strings.Contains(message, test.context) ||
+					!strings.Contains(message, test.path) {
+					t.Fatalf("unexpected error output: %s", message)
+				}
+			},
+		)
 	}
 }

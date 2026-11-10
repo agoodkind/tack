@@ -71,46 +71,92 @@ type foundationDBOutbox struct {
 func (s foundationDBOutbox) HoldRelayLease(ctx context.Context) (bool, error) {
 	held, err := s.store.Hold(ctx)
 	if err != nil {
-		slog.ErrorContext(ctx, "audit_consumer.relay_lease_hold_failed", slog.String("err", err.Error()))
+		slog.ErrorContext(
+			ctx,
+			"audit_consumer.relay_lease_hold_failed",
+			slog.String("err", err.Error()),
+		)
+
 		return false, fmt.Errorf("acquire or renew the FoundationDB relay lease: %w", err)
 	}
+
 	return held, nil
 }
 
 func (s foundationDBOutbox) ReleaseRelayLease(ctx context.Context) error {
 	if err := s.store.Release(ctx); err != nil {
-		slog.ErrorContext(ctx, "audit_consumer.relay_lease_release_failed", slog.String("err", err.Error()))
+		slog.ErrorContext(
+			ctx,
+			"audit_consumer.relay_lease_release_failed",
+			slog.String("err", err.Error()),
+		)
+
 		return fmt.Errorf("release the FoundationDB relay lease: %w", err)
 	}
+
 	return nil
 }
 
-func (s foundationDBOutbox) ReadOutboxFrom(ctx context.Context, mark []byte, limit int) ([]audit.RelayOutboxEntry, error) {
+func (s foundationDBOutbox) ReadOutboxFrom(
+	ctx context.Context,
+	mark []byte,
+	limit int,
+) ([]audit.RelayOutboxEntry, error) {
 	entries, err := s.store.ReadOutboxFrom(ctx, mark, limit)
 	if err != nil {
-		slog.ErrorContext(ctx, "audit_consumer.relay_fdb_read_failed", slog.String("err", err.Error()))
+		slog.ErrorContext(
+			ctx,
+			"audit_consumer.relay_fdb_read_failed",
+			slog.String("err", err.Error()),
+		)
+
 		return nil, fmt.Errorf("read FoundationDB relay outbox: %w", err)
 	}
+
 	out := make([]audit.RelayOutboxEntry, 0, len(entries))
 	for _, entry := range entries {
-		out = append(out, audit.RelayOutboxEntry{Mark: entry.Mark, Event: entry.Event, CommitVersion: entry.CommitVersion})
+		out = append(
+			out,
+			audit.RelayOutboxEntry{
+				Mark:          entry.Mark,
+				Event:         entry.Event,
+				CommitVersion: entry.CommitVersion,
+			},
+		)
 	}
+
 	return out, nil
 }
 
 func (s foundationDBOutbox) ClearThrough(ctx context.Context, mark []byte) error {
 	if err := s.store.ClearThrough(ctx, mark); err != nil {
-		slog.ErrorContext(ctx, "audit_consumer.relay_fdb_clear_failed", slog.String("err", err.Error()))
+		slog.ErrorContext(
+			ctx,
+			"audit_consumer.relay_fdb_clear_failed",
+			slog.String("err", err.Error()),
+		)
+
 		return fmt.Errorf("clear FoundationDB relay outbox: %w", err)
 	}
+
 	return nil
 }
 
-func (s foundationDBOutbox) ClearThroughPublished(ctx context.Context, mark []byte, reads []audit.PublishedRead) error {
+func (s foundationDBOutbox) ClearThroughPublished(
+	ctx context.Context,
+	mark []byte,
+	reads []audit.PublishedRead,
+) error {
 	if err := s.store.ClearThroughPublished(ctx, mark, reads); err != nil {
-		slog.ErrorContext(ctx, "audit_consumer.relay_fdb_clear_failed", slog.String("err", err.Error()))
+		slog.ErrorContext(
+			ctx,
+			"audit_consumer.relay_fdb_clear_failed",
+			slog.String("err", err.Error()),
+		)
+
 		return fmt.Errorf("clear FoundationDB relay outbox and mark reads published: %w", err)
 	}
+
 	return nil
 }
 
@@ -127,43 +173,83 @@ func Open(ctx context.Context, cfg Config) (Opened, error) {
 	none := Opened{Relay: nil, Pool: nil, Recorder: nil}
 	pool, err := pgxpool.New(ctx, cfg.YugabyteDSN)
 	if err != nil {
-		slog.ErrorContext(ctx, "audit_consumer.relay_yugabyte_pool_failed", slog.String("err", err.Error()))
+		slog.ErrorContext(
+			ctx,
+			"audit_consumer.relay_yugabyte_pool_failed",
+			slog.String("err", err.Error()),
+		)
+
 		return none, fmt.Errorf("new relay Yugabyte pool: %w", err)
 	}
+
 	var relayFoundationDB audit.FoundationDBOutbox
 	if cfg.FDBClusterFile != "" {
-		stores, storesErr := foundationdb.NewStores(cfg.FDBClusterFile, cfg.FDBTransactionTimeout, pool)
+		stores, storesErr := foundationdb.NewStores(
+			cfg.FDBClusterFile,
+			cfg.FDBTransactionTimeout,
+			pool,
+		)
 		if storesErr != nil {
 			pool.Close()
-			slog.ErrorContext(ctx, "audit_consumer.relay_foundationdb_open_failed", slog.String("err", storesErr.Error()))
+			slog.ErrorContext(
+				ctx,
+				"audit_consumer.relay_foundationdb_open_failed",
+				slog.String("err", storesErr.Error()),
+			)
+
 			return none, fmt.Errorf("open relay FoundationDB stores: %w", storesErr)
 		}
+
 		leaseDuration := cfg.LeaseDuration
 		if leaseDuration <= 0 {
 			leaseDuration = DefaultLeaseDuration
 		}
-		relayFoundationDB = foundationDBOutbox{store: stores.OpsOutbox.Leased(uuid.New(), leaseDuration)}
+
+		relayFoundationDB = foundationDBOutbox{
+			store: stores.OpsOutbox.Leased(uuid.New(), leaseDuration),
+		}
 	}
+
 	recorder, err := audit.NewKafkaRecorder(audit.KafkaConfig{
-		Brokers: cfg.Brokers, Topic: cfg.Topic, ClientID: "tack-audit-relay", ProduceTimeout: 0,
+		Brokers:        cfg.Brokers,
+		Topic:          cfg.Topic,
+		ClientID:       "tack-audit-relay",
+		ProduceTimeout: 0,
 	})
 	if err != nil {
 		pool.Close()
-		slog.ErrorContext(ctx, "audit_consumer.relay_recorder_failed", slog.String("err", err.Error()))
+		slog.ErrorContext(
+			ctx,
+			"audit_consumer.relay_recorder_failed",
+			slog.String("err", err.Error()),
+		)
+
 		return none, fmt.Errorf("new relay recorder: %w", err)
 	}
+
 	relay, err := audit.NewRelay(audit.RelayConfig{
-		Recorder: recorder, Yugabyte: audit.NewPoolOutbox(pool), FoundationDB: relayFoundationDB,
-		PollInterval: cfg.PollInterval, BatchSize: cfg.BatchSize, AfterProduce: cfg.AfterProduce,
+		Recorder:           recorder,
+		Yugabyte:           audit.NewPoolOutbox(pool),
+		FoundationDB:       relayFoundationDB,
+		PollInterval:       cfg.PollInterval,
+		BatchSize:          cfg.BatchSize,
+		AfterProduce:       cfg.AfterProduce,
 		AfterLeaseAcquired: cfg.AfterLeaseAcquired,
 	})
 	if err != nil {
 		pool.Close()
 		if closeErr := recorder.CloseContext(ctx); closeErr != nil {
-			slog.ErrorContext(ctx, "audit_consumer.relay_recorder_close_failed", slog.String("err", closeErr.Error()))
+			slog.ErrorContext(
+				ctx,
+				"audit_consumer.relay_recorder_close_failed",
+				slog.String("err", closeErr.Error()),
+			)
 		}
+
 		slog.ErrorContext(ctx, "audit_consumer.relay_failed", slog.String("err", err.Error()))
+
 		return none, fmt.Errorf("new audit relay: %w", err)
 	}
+
 	return Opened{Relay: relay, Pool: pool, Recorder: recorder}, nil
 }

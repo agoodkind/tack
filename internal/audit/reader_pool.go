@@ -58,6 +58,7 @@ func (e *readerConnectError) Error() string {
 	if e.sqlState == "" {
 		return readerConnectFailure
 	}
+
 	return readerConnectFailure + " (SQLSTATE " + e.sqlState + ")"
 }
 
@@ -74,10 +75,12 @@ func sanitizeReaderError(err error) error {
 	if !errors.As(err, &connectError) {
 		return err
 	}
+
 	sqlState := ""
 	var serverError *pgconn.PgError
 	if errors.As(err, &serverError) {
 		sqlState = serverError.Code
 	}
+
 	return &readerConnectError{original: err, sqlState: sqlState}
 }

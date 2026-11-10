@@ -35,6 +35,7 @@ func ExternalStep(target Target, evidence json.RawMessage) Event {
 	var event Event
 	event.Context.Target = &stepTarget
 	event.Extra = evidence
+
 	return event
 }
 
@@ -53,14 +54,17 @@ func FinishedStep(step Event, details OutcomeDetails, evidence json.RawMessage) 
 	if finished.Outcome == "" {
 		finished.Outcome = OutcomeCompleted
 	}
+
 	finished.Error = nil
 	if finished.Outcome != OutcomeCompleted {
 		finished.Error = &EventError{Code: details.FailureCode, Message: details.FailureMessage}
 	}
+
 	finished.Context.CommittedSteps = details.CommittedSteps
 	if len(evidence) != 0 {
 		finished.Extra = evidence
 	}
+
 	return finished
 }
 
@@ -77,8 +81,13 @@ type stepRecorder struct {
 
 func newStepRecorder(outbox OutboxWriter, parent Event) *stepRecorder {
 	return &stepRecorder{
-		outbox: outbox, parent: parent, mutex: sync.Mutex{}, order: nil,
-		labels: map[string]string{}, started: map[string]time.Time{}, finished: map[string]Outcome{},
+		outbox:   outbox,
+		parent:   parent,
+		mutex:    sync.Mutex{},
+		order:    nil,
+		labels:   map[string]string{},
+		started:  map[string]time.Time{},
+		finished: map[string]Outcome{},
 	}
 }
 
@@ -97,17 +106,26 @@ func newStepRecorder(outbox OutboxWriter, parent Event) *stepRecorder {
 //	// The effect can begin after its intent succeeds.
 func (r *stepRecorder) BeginStep(ctx context.Context, step Event) error {
 	if step.Context.Target == nil {
-		return externalFailure(ctx, "record external step", r.parent.EventID, errors.New("step requires a target"))
+		return externalFailure(
+			ctx,
+			"record external step",
+			r.parent.EventID,
+			errors.New("step requires a target"),
+		)
 	}
+
 	now := clock.Now().UTC()
 	event, err := r.intentEvent(step, now)
 	if err != nil {
 		return externalFailure(ctx, "record external step", event.EventID, err)
 	}
+
 	if err := writeOnce(ctx, r.outbox, event); err != nil {
 		return externalFailure(ctx, "record external step", event.EventID, err)
 	}
+
 	r.noteBegun(*step.Context.Target, now)
+
 	return nil
 }
 
@@ -121,6 +139,7 @@ func (r *stepRecorder) intentEvent(step Event, now time.Time) (Event, error) {
 	event.Context.CommittedSteps = nil
 	event.Outcome = OutcomePending
 	event.Error = nil
+
 	return event, ValidateEvent(event)
 }
 
@@ -149,35 +168,55 @@ func (r *stepRecorder) noteBegun(target Target, startedAt time.Time) {
 //	err := recorder.FinishStep(ctx, finished)
 func (r *stepRecorder) FinishStep(ctx context.Context, step Event) error {
 	if step.Context.Target == nil {
-		return externalFailure(ctx, "record external step result", r.parent.EventID, errors.New("step requires a target"))
+		return externalFailure(
+			ctx,
+			"record external step result",
+			r.parent.EventID,
+			errors.New("step requires a target"),
+		)
 	}
+
 	key := targetKey(*step.Context.Target)
 	r.mutex.Lock()
 	startedAt, begun := r.started[key]
 	r.mutex.Unlock()
 	if !begun {
-		return externalFailure(ctx, "record external step result", r.parent.EventID,
-			fmt.Errorf("step %s did not begin in this attempt", targetLabel(*step.Context.Target)))
+		return externalFailure(
+			ctx,
+			"record external step result",
+			r.parent.EventID,
+			fmt.Errorf("step %s did not begin in this attempt", targetLabel(*step.Context.Target)),
+		)
 	}
+
 	event := r.stepEvent(step, startedAt, clock.Now().UTC())
 	event.EventID = uuid.Must(uuid.NewV7())
 	event.Context.Phase = PhaseResult
 	if err := ValidateEvent(event); err != nil {
 		return externalFailure(ctx, "record external step result", event.EventID, err)
 	}
+
 	if err := r.outbox.WriteOutbox(ctx, event); err != nil {
 		return externalFailure(ctx, "record external step result", event.EventID, err)
 	}
+
 	r.mutex.Lock()
 	defer r.mutex.Unlock()
 	r.finished[key] = event.Outcome
+
 	return nil
 }
 
 func (r *stepRecorder) stepEvent(step Event, startedAt, completedAt time.Time) Event {
 	target := *step.Context.Target
 	event := r.parent
-	event.Entity = Entity{Type: target.Kind, NodeType: target.NodeType, ID: target.ID, Identifier: target.Reference, Name: target.Name}
+	event.Entity = Entity{
+		Type:       target.Kind,
+		NodeType:   target.NodeType,
+		ID:         target.ID,
+		Identifier: target.Reference,
+		Name:       target.Name,
+	}
 	event.Context.Target = &target
 	event.Context.OperationID = StepOperationID(r.parent.Context.OperationID, target)
 	event.Context.ParentOperationID = r.parent.Context.OperationID
@@ -190,6 +229,7 @@ func (r *stepRecorder) stepEvent(step Event, startedAt, completedAt time.Time) E
 	event.Error = step.Error
 	event.IdempotencyKey = ""
 	event.OccurredAt = completedAt
+
 	return event
 }
 
@@ -204,6 +244,7 @@ func (r *stepRecorder) summary() stepSummary {
 	r.mutex.Lock()
 	defer r.mutex.Unlock()
 	var summary stepSummary
+
 	for _, key := range r.order {
 		outcome, finished := r.finished[key]
 		switch {
@@ -213,5 +254,6 @@ func (r *stepRecorder) summary() stepSummary {
 			summary.committed = append(summary.committed, r.labels[key])
 		}
 	}
+
 	return summary
 }

@@ -29,6 +29,7 @@ func composeServiceImage(t *testing.T, service string) string {
 	if err != nil {
 		t.Fatalf("read %s: %v", path, err)
 	}
+
 	var stack struct {
 		Services map[string]struct {
 			Image string `yaml:"image"`
@@ -37,15 +38,21 @@ func composeServiceImage(t *testing.T, service string) string {
 	if err := yaml.Unmarshal(contents, &stack); err != nil {
 		t.Fatalf("parse %s: %v", path, err)
 	}
+
 	image := stack.Services[service].Image
 	if image == "" {
 		t.Fatalf("%s declares no image for service %s", path, service)
 	}
-	return composeDefaultedVariable.ReplaceAllStringFunc(image, func(reference string) string {
-		parts := composeDefaultedVariable.FindStringSubmatch(reference)
-		if value := os.Getenv(parts[1]); value != "" {
-			return value
-		}
-		return parts[2]
-	})
+
+	return composeDefaultedVariable.ReplaceAllStringFunc(
+		image,
+		func(reference string) string {
+			parts := composeDefaultedVariable.FindStringSubmatch(reference)
+			if value := os.Getenv(parts[1]); value != "" {
+				return value
+			}
+
+			return parts[2]
+		},
+	)
 }

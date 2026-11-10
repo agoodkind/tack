@@ -37,10 +37,19 @@ func StepIntentEventID(parentOperationID uuid.UUID, target Target) uuid.UUID {
 }
 
 func targetKey(target Target) string {
-	return strings.Join([]string{
-		target.Kind, target.NodeType, target.Reference, target.URI, target.RelationType,
-		target.ID.String(), target.SourceID.String(), target.TargetID.String(),
-	}, "\x00")
+	return strings.Join(
+		[]string{
+			target.Kind,
+			target.NodeType,
+			target.Reference,
+			target.URI,
+			target.RelationType,
+			target.ID.String(),
+			target.SourceID.String(),
+			target.TargetID.String(),
+		},
+		"\x00",
+	)
 }
 
 func targetLabel(target Target) string {

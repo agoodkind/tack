@@ -89,11 +89,21 @@ type searchMixedFoundationDBStatus struct {
 func (s *searchMixedFoundationDBStatus) read(ctx context.Context) (*SearchMixedFoundationDB, error) {
 	transaction, err := s.db.CreateTransaction()
 	if err != nil {
-		return nil, loggedError(ctx, "qa datagen search-mixed: the command could not create a transaction to read the FoundationDB status document", err)
+		return nil, loggedError(
+			ctx,
+			"qa datagen search-mixed: the command could not create a transaction to read the FoundationDB status document",
+			err,
+		)
 	}
 	defer transaction.Cancel()
-	if err := transaction.Options().SetTimeout(searchMixedStatusTimeout.Milliseconds()); err != nil {
-		return nil, loggedError(ctx, "qa datagen search-mixed: the command could not set the timeout of the FoundationDB status read", err)
+	if err := transaction.Options().SetTimeout(
+		searchMixedStatusTimeout.Milliseconds(),
+	); err != nil {
+		return nil, loggedError(
+			ctx,
+			"qa datagen search-mixed: the command could not set the timeout of the FoundationDB status read",
+			err,
+		)
 	}
 	for {
 		document, readErr := transaction.Get(fdb.Key(searchMixedStatusKey)).Get()
@@ -102,10 +112,18 @@ func (s *searchMixedFoundationDBStatus) read(ctx context.Context) (*SearchMixedF
 		}
 		var databaseError fdb.Error
 		if !errors.As(readErr, &databaseError) {
-			return nil, loggedError(ctx, "qa datagen search-mixed: the command could not read the FoundationDB status document", readErr)
+			return nil, loggedError(
+				ctx,
+				"qa datagen search-mixed: the command could not read the FoundationDB status document",
+				readErr,
+			)
 		}
 		if retryErr := transaction.OnError(databaseError).Get(); retryErr != nil {
-			return nil, loggedError(ctx, "qa datagen search-mixed: the command could not retry the FoundationDB status read", retryErr)
+			return nil, loggedError(
+				ctx,
+				"qa datagen search-mixed: the command could not retry the FoundationDB status read",
+				retryErr,
+			)
 		}
 	}
 }
@@ -113,7 +131,11 @@ func (s *searchMixedFoundationDBStatus) read(ctx context.Context) (*SearchMixedF
 func decodeSearchMixedStatus(ctx context.Context, document []byte) (*SearchMixedFoundationDB, error) {
 	var status searchMixedStatusDocument
 	if err := json.Unmarshal(document, &status); err != nil {
-		return nil, loggedError(ctx, "qa datagen search-mixed: the command could not decode the FoundationDB status document", err)
+		return nil, loggedError(
+			ctx,
+			"qa datagen search-mixed: the command could not decode the FoundationDB status document",
+			err,
+		)
 	}
 	qos := status.Cluster.QOS
 	probe := status.Cluster.LatencyProbe

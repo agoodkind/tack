@@ -70,21 +70,29 @@ const (
 // fdbrestore --help observation from the pinned FoundationDB 7.4.6 image.
 func fdbRestoreCommand(destURL string, targetTime *time.Time) ([]string, error) {
 	command := []string{
-		"fdbrestore", "start",
-		"--dest-cluster-file", fdbScratchClusterFile,
-		"-r", destURL,
+		"fdbrestore",
+		"start",
+		"--dest-cluster-file",
+		fdbScratchClusterFile,
+		"-r",
+		destURL,
 		"--waitfordone",
 	}
 	if targetTime == nil {
 		return command, nil
 	}
+
 	timestamp, err := fdbRestoreTimestampArg(*targetTime)
 	if err != nil {
 		return nil, err
 	}
-	return append(command,
-		"--timestamp", timestamp,
-		"--orig-cluster-file", fdbOrigClusterFilePath,
+
+	return append(
+		command,
+		"--timestamp",
+		timestamp,
+		"--orig-cluster-file",
+		fdbOrigClusterFilePath,
 	), nil
 }
 
@@ -98,10 +106,14 @@ func fdbRestoreCommand(destURL string, targetTime *time.Time) ([]string, error) 
 // dataset size, unlike restore work.
 func fdbDescribeCommand(destURL string) []string {
 	return []string{
-		"timeout", strconv.Itoa(fdbDescribeTimeoutSeconds),
-		"fdbbackup", "describe",
-		"-d", destURL,
-		"-C", fdbOrigClusterFilePath,
+		"timeout",
+		strconv.Itoa(fdbDescribeTimeoutSeconds),
+		"fdbbackup",
+		"describe",
+		"-d",
+		destURL,
+		"-C",
+		fdbOrigClusterFilePath,
 		"--version-timestamps",
 	}
 }
@@ -115,25 +127,37 @@ func fdbDescribeCommand(destURL string) []string {
 func describeFDBBackupWindow(
 	ctx context.Context,
 	r *restoreDrillCtx,
-	containerName, backupName string,
+	containerName string,
+	backupName string,
 ) (fdbRestorableWindow, error) {
 	destURL, err := fdbBlobstoreURL(r.Cfg, backupName)
 	if err != nil {
 		return fdbRestorableWindow{}, err
 	}
+
 	res, err := containerExec(ctx, r.Cli, containerName, fdbDescribeCommand(destURL))
 	if err != nil {
 		wrapped := fmt.Errorf("fdbbackup describe exec: %w", err)
 		// Selection skips a failed describe and can still choose an older backup
 		// that covers the target. This path logs a warning; selection returns an
 		// error when every backup excludes the target or fails its window lookup.
-		telemetry.L(ctx).WarnContext(ctx, "backup.restore_drill.fdb.describe_failed",
-			slog.String("name", backupName), slog.String("err", wrapped.Error()))
+		telemetry.L(ctx).WarnContext(
+			ctx,
+			"backup.restore_drill.fdb.describe_failed",
+			slog.String("name", backupName),
+			slog.String("err", wrapped.Error()),
+		)
+
 		return fdbRestorableWindow{}, wrapped
 	}
+
 	if res.ExitCode != 0 {
-		return fdbRestorableWindow{}, fmt.Errorf("fdbbackup describe exited %d: %s", res.ExitCode,
-			redactSecret(r.Cfg, strings.TrimSpace(res.Stdout+" "+res.Stderr)))
+		return fdbRestorableWindow{}, fmt.Errorf(
+			"fdbbackup describe exited %d: %s",
+			res.ExitCode,
+			redactSecret(r.Cfg, strings.TrimSpace(res.Stdout+" "+res.Stderr)),
+		)
 	}
+
 	return fdbRestorableWindowFromDescribe(res.Stdout)
 }

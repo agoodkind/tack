@@ -62,6 +62,7 @@ func (r PropertyResult) Err() error {
 	if len(r.Failures) == 0 && len(r.Invalid) == 0 {
 		return nil
 	}
+
 	return PropertyResultError{Result: r}
 }
 
@@ -84,13 +85,26 @@ func (e PropertyResultError) Error() string {
 		for _, failure := range e.Result.Failures {
 			parts = append(parts, failure.Subject+": "+failure.Reason)
 		}
-		return fmt.Sprintf("interpret node type %q properties: %s: %s", e.Result.NodeType, strings.Join(parts, "; "), ErrSchemaRead.Error())
+
+		return fmt.Sprintf(
+			"interpret node type %q properties: %s: %s",
+			e.Result.NodeType,
+			strings.Join(parts, "; "),
+			ErrSchemaRead.Error(),
+		)
 	}
+
 	parts := make([]string, 0, len(e.Result.Invalid))
 	for _, issue := range e.Result.Invalid {
 		parts = append(parts, fmt.Sprintf("properties.%s: %s", issue.Property, issue.Reason))
 	}
-	return fmt.Sprintf("node type %q properties are invalid: %s: %s", e.Result.NodeType, strings.Join(parts, "; "), domain.ErrInvalidArgument.Error())
+
+	return fmt.Sprintf(
+		"node type %q properties are invalid: %s: %s",
+		e.Result.NodeType,
+		strings.Join(parts, "; "),
+		domain.ErrInvalidArgument.Error(),
+	)
 }
 
 // Unwrap returns [ErrSchemaRead] when the result contains a read failure and
@@ -103,5 +117,6 @@ func (e PropertyResultError) Unwrap() error {
 	if len(e.Result.Failures) > 0 {
 		return ErrSchemaRead
 	}
+
 	return domain.ErrInvalidArgument
 }

@@ -28,7 +28,9 @@ var ErrNoRolloutInProgress = errors.New("authority does not have a rollout in pr
 
 // ErrRetirementStarted means retirement has started and the authority
 // writes one version. Rollback cannot restore the other version.
-var ErrRetirementStarted = errors.New("cannot roll back after retirement of one version has started")
+var ErrRetirementStarted = errors.New(
+	"cannot roll back after retirement of one version has started",
+)
 
 // ErrRolloutChanged means another operator changed the rollout after the
 // caller read it.
@@ -142,7 +144,14 @@ type AccessRolloutStore interface {
 	Rollback(context.Context, RollbackAccessRollout) (AccessRollout, error)
 	CompleteScan(context.Context, Work, AccessRollout, ScanResult) error
 	VerifyDocuments(context.Context, Work, AccessRollout, int) ([]RolloutDocument, bool, error)
-	CompleteVerify(context.Context, Work, AccessRollout, []RolloutDocument, map[string]DocumentAccess, bool) (RolloutStep, error)
+	CompleteVerify(
+		context.Context,
+		Work,
+		AccessRollout,
+		[]RolloutDocument,
+		map[string]DocumentAccess,
+		bool,
+	) (RolloutStep, error)
 	BeginRetire(context.Context, Work, AccessRollout) error
 	Wait(context.Context, Work) error
 }

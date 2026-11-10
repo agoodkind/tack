@@ -31,14 +31,17 @@ func isDeadLetterable(err error) bool {
 	if errors.Is(err, errMalformedPayload) {
 		return true
 	}
+
 	var pgErr *pgconn.PgError
 	if !errors.As(err, &pgErr) {
 		return false
 	}
+
 	class := ""
 	if len(pgErr.Code) >= 2 {
 		class = pgErr.Code[:2]
 	}
+
 	return class == "22" || class == "23"
 }
 
@@ -82,43 +85,72 @@ func deadLetterRecord(ctx context.Context, tx pgx.Tx, rec *kgo.Record, cause err
 	if err != nil {
 		return err
 	}
+
 	if replaying {
 		var tag pgconn.CommandTag
-		tag, err = tx.Exec(ctx, `
+		tag, err = tx.Exec(
+			ctx,
+			`
 			UPDATE audit.events_dlq
 			   SET attempt_count = attempt_count + 1, last_attempt_at = now(), error = $4
 			 WHERE topic = $1 AND partition = $2 AND "offset" = $3
-		`, origin.Topic, origin.Partition, origin.Offset, cause.Error())
+		`,
+			origin.Topic,
+			origin.Partition,
+			origin.Offset,
+			cause.Error(),
+		)
 		if err == nil && tag.RowsAffected() == 0 {
 			// An operator may delete the verified row between the check and this update.
 			// Store the failed replay under its own Kafka key when the update cannot find
 			// the original row.
-			slog.WarnContext(ctx, "audit.consumer.dlq_replay_origin_gone",
-				slog.String("dead_letter", origin.String()), slog.Int64("offset", rec.Offset))
+			slog.WarnContext(
+				ctx,
+				"audit.consumer.dlq_replay_origin_gone",
+				slog.String("dead_letter", origin.String()),
+				slog.Int64("offset", rec.Offset),
+			)
 			replaying = false
 		} else {
 			key = origin
 		}
 	}
+
 	if !replaying {
-		_, err = tx.Exec(ctx, `
+		_, err = tx.Exec(
+			ctx,
+			`
 			INSERT INTO audit.events_dlq (received_at, topic, partition, "offset", payload, error, attempt_count, last_attempt_at)
 			VALUES (now(), $1, $2, $3, $4, $5, 0, NULL)
 			ON CONFLICT (topic, partition, "offset") DO NOTHING
-		`, key.Topic, key.Partition, key.Offset, recordPayload(rec), cause.Error())
+		`,
+			key.Topic,
+			key.Partition,
+			key.Offset,
+			recordPayload(rec),
+			cause.Error(),
+		)
 	}
+
 	if err != nil {
-		slog.ErrorContext(ctx, "audit.consumer.dlq_write_failed",
+		slog.ErrorContext(
+			ctx,
+			"audit.consumer.dlq_write_failed",
 			slog.String("err", err.Error()),
 			slog.String("dead_letter", key.String()),
 		)
+
 		return fmt.Errorf("dead-letter %s: %w", key, err)
 	}
-	slog.ErrorContext(ctx, "audit.consumer.dead_lettered",
+
+	slog.ErrorContext(
+		ctx,
+		"audit.consumer.dead_lettered",
 		slog.String("dead_letter", key.String()),
 		slog.Bool("replay", replaying),
 		slog.String("err", cause.Error()),
 	)
+
 	return nil
 }
 
@@ -131,27 +163,50 @@ func resolveDeadLetter(ctx context.Context, tx pgx.Tx, rec *kgo.Record) error {
 	if !replaying {
 		return nil
 	}
+
 	// The header identifies the original row. Delete it only when its payload
 	// equals the committed replay bytes. A producer cannot delete an unrelated dead
 	// letter by changing the header.
-	tag, err := tx.Exec(ctx, `
+	tag, err := tx.Exec(
+		ctx,
+		`
 		DELETE FROM audit.events_dlq
 		 WHERE topic = $1 AND partition = $2 AND "offset" = $3 AND payload = $4
-	`, origin.Topic, origin.Partition, origin.Offset, recordPayload(rec))
+	`,
+		origin.Topic,
+		origin.Partition,
+		origin.Offset,
+		recordPayload(rec),
+	)
 	if err != nil {
-		slog.ErrorContext(ctx, "audit.consumer.dlq_resolve_failed",
-			slog.String("err", err.Error()), slog.String("dead_letter", origin.String()))
+		slog.ErrorContext(
+			ctx,
+			"audit.consumer.dlq_resolve_failed",
+			slog.String("err", err.Error()),
+			slog.String("dead_letter", origin.String()),
+		)
+
 		return fmt.Errorf("resolve dead-letter %s: %w", origin, err)
 	}
+
 	if tag.RowsAffected() == 0 {
 		// The row may already have disappeared after another successful replay, or its
 		// stored payload may differ. This record does not resolve a row in either case.
-		slog.WarnContext(ctx, "audit.consumer.dead_letter_not_resolved",
-			slog.String("dead_letter", origin.String()), slog.Int64("offset", rec.Offset))
+		slog.WarnContext(
+			ctx,
+			"audit.consumer.dead_letter_not_resolved",
+			slog.String("dead_letter", origin.String()),
+			slog.Int64("offset", rec.Offset),
+		)
+
 		return nil
 	}
-	slog.InfoContext(ctx, "audit.consumer.dead_letter_resolved",
+
+	slog.InfoContext(
+		ctx,
+		"audit.consumer.dead_letter_resolved",
 		slog.String("dead_letter", origin.String()),
 	)
+
 	return nil
 }

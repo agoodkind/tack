@@ -53,7 +53,12 @@ var (
 // restore. It creates a temporary reader role, lists organizations with rows,
 // exports a signed bundle for each, and fails the drill when verification
 // reports a broken chain.
-func assertRestoredLedgerChain(ctx context.Context, r *restoreDrillCtx, containerName, database string) error {
+func assertRestoredLedgerChain(
+	ctx context.Context,
+	r *restoreDrillCtx,
+	containerName string,
+	database string,
+) error {
 	logger := telemetry.L(ctx)
 	logger.InfoContext(ctx, "backup.restore_drill.ledger_chain.start")
 
@@ -61,6 +66,7 @@ func assertRestoredLedgerChain(ctx context.Context, r *restoreDrillCtx, containe
 	if err := createDrillLedgerReader(ctx, r, containerName, database, roleName); err != nil {
 		return err
 	}
+
 	orgs, err := restoredLedgerOrgs(ctx, r, containerName, database, roleName)
 	if err != nil {
 		return err
@@ -69,7 +75,12 @@ func assertRestoredLedgerChain(ctx context.Context, r *restoreDrillCtx, containe
 	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
 		wrapped := fmt.Errorf("generate the drill's throwaway export key: %w", err)
-		logger.ErrorContext(ctx, "backup.restore_drill.ledger_chain.failed", slog.String("err", wrapped.Error()))
+		logger.ErrorContext(
+			ctx,
+			"backup.restore_drill.ledger_chain.failed",
+			slog.String("err", wrapped.Error()),
+		)
+
 		return wrapped
 	}
 
@@ -82,9 +93,15 @@ func assertRestoredLedgerChain(ctx context.Context, r *restoreDrillCtx, containe
 	bundleRoot := filepath.Join(r.Cfg.BackupRoot, "restore-drill-chain-"+r.RunID)
 	if err := os.MkdirAll(bundleRoot, 0o700); err != nil {
 		wrapped := fmt.Errorf("mkdir ledger bundle root %s: %w", bundleRoot, err)
-		logger.ErrorContext(ctx, "backup.restore_drill.ledger_chain.failed", slog.String("err", wrapped.Error()))
+		logger.ErrorContext(
+			ctx,
+			"backup.restore_drill.ledger_chain.failed",
+			slog.String("err", wrapped.Error()),
+		)
+
 		return wrapped
 	}
+
 	defer os.RemoveAll(bundleRoot)
 
 	export := func(exportCtx context.Context, orgID uuid.UUID, dir string) (int, error) {
@@ -93,6 +110,7 @@ func assertRestoredLedgerChain(ctx context.Context, r *restoreDrillCtx, containe
 	verify := func(dir string) (*audit.VerifyReport, error) {
 		return audit.VerifyBundle(dir, publicKey)
 	}
+
 	return verifyRestoredLedgerChains(ctx, orgs, bundleRoot, export, verify)
 }
 
@@ -101,16 +119,20 @@ func assertRestoredLedgerChain(ctx context.Context, r *restoreDrillCtx, containe
 // them to lowercase letters, digits, and underscores for an unquoted SQL
 // identifier.
 func drillLedgerRoleName(runID string) string {
-	safe := strings.Map(func(r rune) rune {
-		switch {
-		case r >= 'a' && r <= 'z', r >= '0' && r <= '9':
-			return r
-		case r >= 'A' && r <= 'Z':
-			return r + ('a' - 'A')
-		default:
-			return '_'
-		}
-	}, runID)
+	safe := strings.Map(
+		func(r rune) rune {
+			switch {
+			case r >= 'a' && r <= 'z', r >= '0' && r <= '9':
+				return r
+			case r >= 'A' && r <= 'Z':
+				return r + ('a' - 'A')
+			default:
+				return '_'
+			}
+		},
+		runID,
+	)
+
 	return "tack_drill_reader_" + safe
 }
 
@@ -118,23 +140,51 @@ func drillLedgerRoleName(runID string) string {
 // audit_reader, the base role for ledger reads. audit.events forces row-level
 // security. Membership supplies the SELECT policy without relying on the
 // scratch database's bootstrap user or a superuser bypass.
-func createDrillLedgerReader(ctx context.Context, r *restoreDrillCtx, containerName, database, roleName string) error {
+func createDrillLedgerReader(
+	ctx context.Context,
+	r *restoreDrillCtx,
+	containerName string,
+	database string,
+	roleName string,
+) error {
 	logger := telemetry.L(ctx)
+
 	statements := []string{
-		fmt.Sprintf("CREATE ROLE %s LOGIN INHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE PASSWORD %s",
-			roleName, quoteSQLStringLiteral(r.YBPass)),
+		fmt.Sprintf(
+			"CREATE ROLE %s LOGIN INHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE PASSWORD %s",
+			roleName,
+			quoteSQLStringLiteral(r.YBPass),
+		),
 		"GRANT audit_reader TO " + roleName,
 	}
 	for _, statement := range statements {
-		if err := ybRunSQL(ctx, r, containerName, database, "-v", "ON_ERROR_STOP=1", "-c", statement); err != nil {
+		if err := ybRunSQL(
+			ctx,
+			r,
+			containerName,
+			database,
+			"-v",
+			"ON_ERROR_STOP=1",
+			"-c",
+			statement,
+		); err != nil {
 			wrapped := fmt.Errorf("create the drill's ledger reader role %s: %w", roleName, err)
-			logger.ErrorContext(ctx, "backup.restore_drill.ledger_chain.failed",
-				slog.String("err", wrapped.Error()))
+			logger.ErrorContext(
+				ctx,
+				"backup.restore_drill.ledger_chain.failed",
+				slog.String("err", wrapped.Error()),
+			)
+
 			return wrapped
 		}
 	}
-	logger.InfoContext(ctx, "backup.restore_drill.ledger_chain.reader_created",
-		slog.String("role", roleName))
+
+	logger.InfoContext(
+		ctx,
+		"backup.restore_drill.ledger_chain.reader_created",
+		slog.String("role", roleName),
+	)
+
 	return nil
 }
 
@@ -157,23 +207,36 @@ func exportRestoredOrgBundle(
 	orgID uuid.UUID,
 	dir string,
 ) (int, error) {
-	manifest, err := audit.Export(ctx, reader, signer, drillLedgerSigningKeyID, audit.QueryFilter{
-		OrgID:     orgID,
-		Oldest:    drillLedgerOldest,
-		Latest:    drillLedgerLatest,
-		Action:    "",
-		ActorID:   uuid.Nil,
-		EntityID:  uuid.Nil,
-		RequestID: "",
-		TraceID:   "",
-		Limit:     drillLedgerExportUnlimited,
-		NilOrg:    orgID == uuid.Nil,
-	}, dir)
+	manifest, err := audit.Export(
+		ctx,
+		reader,
+		signer,
+		drillLedgerSigningKeyID,
+		audit.QueryFilter{
+			OrgID:     orgID,
+			Oldest:    drillLedgerOldest,
+			Latest:    drillLedgerLatest,
+			Action:    "",
+			ActorID:   uuid.Nil,
+			EntityID:  uuid.Nil,
+			RequestID: "",
+			TraceID:   "",
+			Limit:     drillLedgerExportUnlimited,
+			NilOrg:    orgID == uuid.Nil,
+		},
+		dir,
+	)
 	if err != nil {
 		wrapped := fmt.Errorf("export org %s from the restored ledger: %w", orgID, err)
-		telemetry.L(ctx).ErrorContext(ctx, "backup.restore_drill.ledger_chain.export_failed",
-			slog.String("org_id", orgID.String()), slog.String("err", wrapped.Error()))
+		telemetry.L(ctx).ErrorContext(
+			ctx,
+			"backup.restore_drill.ledger_chain.export_failed",
+			slog.String("org_id", orgID.String()),
+			slog.String("err", wrapped.Error()),
+		)
+
 		return 0, wrapped
 	}
+
 	return manifest.RowCount, nil
 }

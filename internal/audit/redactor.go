@@ -33,20 +33,24 @@ func NewRedactor(ctx context.Context, dsn string) (*Redactor, error) {
 	if dsn == "" {
 		return nil, errors.New("audit: AUDIT_REDACTOR_DSN required")
 	}
+
 	cfg, err := pgxpool.ParseConfig(dsn)
 	if err != nil {
 		return nil, fmt.Errorf("audit redactor pool config: %w", err)
 	}
+
 	cfg.ConnConfig.Tracer = &telemetry.QueryTracer{}
 	pool, err := pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {
 		return nil, fmt.Errorf("audit redactor pool open: %w", err)
 	}
+
 	// The initial ping attempts a connection, as NewReader does. A failed ping
 	// logs a warning; later operations can attempt to connect again.
 	if err := pool.Ping(ctx); err != nil {
 		slog.WarnContext(ctx, "audit.redactor.ping_deferred", slog.String("err", err.Error()))
 	}
+
 	return &Redactor{pool: pool}, nil
 }
 
@@ -67,18 +71,27 @@ func (r *Redactor) CountUnredacted(ctx context.Context, refs []uuid.UUID) (int64
 	if r == nil || r.pool == nil {
 		return 0, errors.New("audit redactor not configured")
 	}
+
 	if len(refs) == 0 {
 		return 0, nil
 	}
+
 	var count int64
-	err := r.pool.QueryRow(ctx, `
+	err := r.pool.QueryRow(
+		ctx,
+		`
 		SELECT count(*) FROM audit.pii
 		 WHERE pii_ref = ANY($1::uuid[]) AND redacted = false
-	`, uuidStrings(refs)).Scan(&count)
+	`,
+		uuidStrings(refs),
+	).Scan(
+		&count,
+	)
 	if err != nil {
 		slog.ErrorContext(ctx, "audit.pii.count_unredacted_failed", slog.String("err", err.Error()))
 		return 0, fmt.Errorf("audit count unredacted pii: %w", err)
 	}
+
 	return count, nil
 }
 
@@ -93,7 +106,9 @@ func (r *Redactor) CountUnredacted(ctx context.Context, refs []uuid.UUID) (int64
 //     the current redacted_at timestamp.
 //   - An empty reference list returns zero without changing rows.
 func (r *Redactor) RedactPIIRefs(ctx context.Context, refs []uuid.UUID) (int64, error) {
-	ctx, span := telemetry.StartSpan(ctx, "audit.redact_pii_refs",
+	ctx, span := telemetry.StartSpan(
+		ctx,
+		"audit.redact_pii_refs",
 		trace.WithSpanKind(trace.SpanKindInternal),
 		trace.WithAttributes(attribute.Int("audit.pii_ref_count", len(refs))),
 	)
@@ -102,23 +117,32 @@ func (r *Redactor) RedactPIIRefs(ctx context.Context, refs []uuid.UUID) (int64, 
 	if r == nil || r.pool == nil {
 		return 0, errors.New("audit redactor not configured")
 	}
+
 	if len(refs) == 0 {
 		return 0, nil
 	}
-	tag, err := r.pool.Exec(ctx, `
+
+	tag, err := r.pool.Exec(
+		ctx,
+		`
 		UPDATE audit.pii
 		   SET payload = NULL, redacted = true, redacted_at = now()
 		 WHERE pii_ref = ANY($1::uuid[]) AND redacted = false
-	`, uuidStrings(refs))
+	`,
+		uuidStrings(refs),
+	)
 	if err != nil {
 		slog.ErrorContext(ctx, "audit.pii.redact_refs_failed", slog.String("err", err.Error()))
 		return 0, fmt.Errorf("audit redact pii refs: %w", err)
 	}
+
 	count := tag.RowsAffected()
-	telemetry.L(ctx).Info("audit.pii.redacted",
+	telemetry.L(ctx).Info(
+		"audit.pii.redacted",
 		slog.Int("pii_ref_count", len(refs)),
 		slog.Int64("redacted_count", count),
 	)
+
 	return count, nil
 }
 
@@ -127,5 +151,6 @@ func uuidStrings(ids []uuid.UUID) []string {
 	for _, id := range ids {
 		out = append(out, id.String())
 	}
+
 	return out
 }

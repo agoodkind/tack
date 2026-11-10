@@ -30,15 +30,19 @@ func readSelection(arguments json.RawMessage) *audit.ReadSelection {
 	if len(arguments) == 0 || json.Unmarshal(arguments, &values) != nil {
 		return nil
 	}
+
 	selection := &audit.ReadSelection{Reference: "", Criteria: map[string]json.RawMessage{}}
+
 	for name, value := range values {
 		if checkedName(name) == "" {
 			continue
 		}
+
 		var compact bytes.Buffer
 		if json.Compact(&compact, value) != nil {
 			continue
 		}
+
 		if name == nodeIDArgument {
 			var reference string
 			if json.Unmarshal(compact.Bytes(), &reference) == nil {
@@ -46,14 +50,18 @@ func readSelection(arguments json.RawMessage) *audit.ReadSelection {
 				continue
 			}
 		}
+
 		selection.Criteria[name] = json.RawMessage(compact.Bytes())
 	}
+
 	if len(selection.Criteria) == 0 {
 		selection.Criteria = nil
 	}
+
 	if selection.Reference == "" && selection.Criteria == nil {
 		return nil
 	}
+
 	return selection
 }
 
@@ -63,11 +71,13 @@ func checkedMethod(method string) string {
 	if method == "" || len(method) > maxHTTPMethodBytes {
 		return ""
 	}
+
 	for _, character := range method {
 		if character < 'A' || character > 'Z' {
 			return ""
 		}
 	}
+
 	return method
 }
 
@@ -78,6 +88,7 @@ func checkedPath(path string) string {
 	if !strings.HasPrefix(path, "/") || len(path) > maxRequestPathBytes {
 		return ""
 	}
+
 	for _, character := range path {
 		letter := (character >= 'a' && character <= 'z') || (character >= 'A' && character <= 'Z')
 		digit := character >= '0' && character <= '9'
@@ -85,5 +96,6 @@ func checkedPath(path string) string {
 			return ""
 		}
 	}
+
 	return path
 }

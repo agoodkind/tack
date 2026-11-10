@@ -33,20 +33,32 @@ type OrgLister interface {
 // uses the system org. A lookup failure attaches nothing and returns
 // [uuid.Nil] without failing the request. The MCP handler then makes its own
 // lookup and fails closed (TACK-503).
-func attachMembership(ctx context.Context, orgs OrgLister, userID uuid.UUID) (context.Context, uuid.UUID) {
+func attachMembership(
+	ctx context.Context,
+	orgs OrgLister,
+	userID uuid.UUID,
+) (context.Context, uuid.UUID) {
 	if orgs == nil {
 		return ctx, uuid.Nil
 	}
+
 	ids, err := orgs.ListOrgIDsForUser(ctx, userID)
 	if err != nil {
-		slog.WarnContext(ctx, "auth.org_stamp_failed",
-			slog.String("user_id", userID.String()), slog.String("err", err.Error()))
+		slog.WarnContext(
+			ctx,
+			"auth.org_stamp_failed",
+			slog.String("user_id", userID.String()),
+			slog.String("err", err.Error()),
+		)
+
 		return ctx, uuid.Nil
 	}
+
 	ctx = WithOrgMembership(ctx, ids)
 	if len(ids) == 1 {
 		return ctx, ids[0]
 	}
+
 	return ctx, uuid.Nil
 }
 
@@ -64,8 +76,13 @@ func attachMembership(ctx context.Context, orgs OrgLister, userID uuid.UUID) (co
 //     call to next.
 //   - A recorder that rejects the auth event causes HTTP 503 without a call
 //     to next.
-func Bearer(tokens TokenValidator, orgs OrgLister, recorder audit.Recorder) func(http.Handler) http.Handler {
+func Bearer(
+	tokens TokenValidator,
+	orgs OrgLister,
+	recorder audit.Recorder,
+) func(http.Handler) http.Handler {
 	recorder = wiredRecorder(recorder)
+
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			startedAt := clock.Now()
@@ -73,6 +90,7 @@ func Bearer(tokens TokenValidator, orgs OrgLister, recorder audit.Recorder) func
 			if raw == "" {
 				noteRejection(r.Context(), RejectionMissingAuthorization)
 				unauthorized(w, "missing Authorization header")
+
 				return
 			}
 
@@ -81,22 +99,37 @@ func Bearer(tokens TokenValidator, orgs OrgLister, recorder audit.Recorder) func
 				if isUnauthenticated(err) {
 					noteRejection(r.Context(), RejectionBearerRefused)
 					unauthorized(w, "invalid or expired token")
+
 					return
 				}
+
 				noteRejection(r.Context(), RejectionBearerCheckFailed)
 				telemetry.L(r.Context()).Error("token validate", "err", err)
 				authUnavailable(w)
+
 				return
 			}
 
 			ctx := withAuthenticatedUser(r.Context(), t.UserID)
 			ctx, soleOrg := attachMembership(ctx, orgs, t.UserID)
-			actor := audit.Actor{Type: audit.ActorUser, ID: t.UserID, APITokenLabel: hashBearer(raw)}
-			event := tokenUsedEvent(ctx, startedAt, actor, soleOrg, tokenTarget(t.ID, t.Label), t.ID)
+			actor := audit.Actor{
+				Type:          audit.ActorUser,
+				ID:            t.UserID,
+				APITokenLabel: hashBearer(raw),
+			}
+			event := tokenUsedEvent(
+				ctx,
+				startedAt,
+				actor,
+				soleOrg,
+				tokenTarget(t.ID, t.Label),
+				t.ID,
+			)
 			if err := emitAuthAudit(ctx, recorder, r, event); err != nil {
 				auditUnavailable(w)
 				return
 			}
+
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}
@@ -114,6 +147,7 @@ func Bearer(tokens TokenValidator, orgs OrgLister, recorder audit.Recorder) func
 //   - A valid UUID and successful audit recording permit the next handler.
 func DevBearer(orgs OrgLister, recorder audit.Recorder) func(http.Handler) http.Handler {
 	recorder = wiredRecorder(recorder)
+
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			startedAt := clock.Now()
@@ -121,14 +155,18 @@ func DevBearer(orgs OrgLister, recorder audit.Recorder) func(http.Handler) http.
 			if raw == "" {
 				noteRejection(r.Context(), RejectionMissingAuthorization)
 				unauthorized(w, "missing Authorization header")
+
 				return
 			}
+
 			userID, err := uuid.Parse(raw)
 			if err != nil {
 				noteRejection(r.Context(), RejectionDevIdentityInvalid)
 				unauthorized(w, "dev mode: Authorization header must be a UUID")
+
 				return
 			}
+
 			ctx := withAuthenticatedUser(r.Context(), userID)
 			ctx, soleOrg := attachMembership(ctx, orgs, userID)
 			actor := audit.Actor{Type: audit.ActorUser, ID: userID, APITokenLabel: "dev"}
@@ -137,6 +175,7 @@ func DevBearer(orgs OrgLister, recorder audit.Recorder) func(http.Handler) http.
 				auditUnavailable(w)
 				return
 			}
+
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}
@@ -153,6 +192,7 @@ func extractBearer(r *http.Request) string {
 	if !strings.HasPrefix(v, "Bearer ") {
 		return ""
 	}
+
 	return strings.TrimPrefix(v, "Bearer ")
 }
 

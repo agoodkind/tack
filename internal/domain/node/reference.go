@@ -30,5 +30,6 @@ func (r ReferenceConfig) DirectAddressProperty() string {
 	if !r.IsDirectAddress() {
 		return ""
 	}
+
 	return strings.TrimSpace(r.Property)
 }

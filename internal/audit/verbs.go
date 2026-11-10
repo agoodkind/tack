@@ -363,10 +363,12 @@ func ToolVerb(toolName string) (Verb, bool) {
 	if v, ok := staticToolVerb[toolName]; ok {
 		return v, true
 	}
+
 	for _, p := range perTypePrefixVerb {
 		if strings.HasPrefix(toolName, p.Prefix) {
 			return p.Verb, true
 		}
 	}
+
 	return "", false
 }

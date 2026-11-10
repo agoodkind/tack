@@ -18,11 +18,17 @@ func TestParseYBDrillRowCountRejectsAnythingThatIsNotACount(t *testing.T) {
 		{name: "printed a negative number", out: "-1"},
 		{name: "printed a float", out: "3.0"},
 	} {
-		t.Run(tc.name, func(t *testing.T) {
-			if _, err := parseYBDrillRowCount(tc.out); err == nil {
-				t.Fatalf("parsing %q as a row count must fail rather than pass the drill", tc.out)
-			}
-		})
+		t.Run(
+			tc.name,
+			func(t *testing.T) {
+				if _, err := parseYBDrillRowCount(tc.out); err == nil {
+					t.Fatalf(
+						"parsing %q as a row count must fail rather than pass the drill",
+						tc.out,
+					)
+				}
+			},
+		)
 	}
 }
 
@@ -39,14 +45,18 @@ func TestParseYBDrillRowCountReadsRealCounts(t *testing.T) {
 		{out: "  1275  ", want: 1275},
 		{out: "9007199254740993", want: 9007199254740993},
 	} {
-		t.Run(tc.out, func(t *testing.T) {
-			got, err := parseYBDrillRowCount(tc.out)
-			if err != nil {
-				t.Fatalf("parseYBDrillRowCount(%q): %v", tc.out, err)
-			}
-			if got != tc.want {
-				t.Fatalf("parseYBDrillRowCount(%q) = %d, want %d", tc.out, got, tc.want)
-			}
-		})
+		t.Run(
+			tc.out,
+			func(t *testing.T) {
+				got, err := parseYBDrillRowCount(tc.out)
+				if err != nil {
+					t.Fatalf("parseYBDrillRowCount(%q): %v", tc.out, err)
+				}
+
+				if got != tc.want {
+					t.Fatalf("parseYBDrillRowCount(%q) = %d, want %d", tc.out, got, tc.want)
+				}
+			},
+		)
 	}
 }

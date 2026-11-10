@@ -26,26 +26,34 @@ func resolveParentReference(
 		if errors.Is(err, errParentTypeRefused) {
 			return uuid.Nil, refusedParentReference(ctx, childType, ref)
 		}
+
 		if err != nil {
 			return uuid.Nil, err
 		}
+
 		return id, nil
 	}
+
 	matches := map[uuid.UUID]struct{}{}
+
 	for _, parentType := range parentTypes {
 		id, err := b.Resolver.ResolveTypedNodeID(ctx, parentType, ref)
 		if err != nil {
 			continue
 		}
+
 		if err := verifyParentCandidate(ctx, b, parentTypes, orgID, scopeID, id); err != nil {
 			continue
 		}
+
 		matches[id] = struct{}{}
 	}
+
 	id, err := uniqueMatch(matches, "properties.parent_id", ref)
 	if err != nil {
 		return uuid.Nil, refusedParentReference(ctx, childType, ref)
 	}
+
 	return id, nil
 }
 
@@ -58,18 +66,29 @@ var errParentTypeRefused = errors.New("the parent node type is not a parent type
 // childType. The error wraps domain.ErrInvalidArgument.
 func refusedParentReference(ctx context.Context, childType *node.NodeType, ref string) error {
 	err := fmt.Errorf("properties.parent_id %q: %w", ref, domain.ErrInvalidArgument)
-	slog.WarnContext(ctx, "node.parent_reference_refused", slog.String("node_type", childType.TypeKey), slog.String("err", err.Error()))
+	slog.WarnContext(
+		ctx,
+		"node.parent_reference_refused",
+		slog.String("node_type", childType.TypeKey),
+		slog.String("err", err.Error()),
+	)
+
 	return err
 }
 
-func parentTypesFor(typeIndex map[string]*node.NodeType, childType *node.NodeType) []*node.NodeType {
+func parentTypesFor(
+	typeIndex map[string]*node.NodeType,
+	childType *node.NodeType,
+) []*node.NodeType {
 	parents := make([]*node.NodeType, 0)
 	seen := map[string]struct{}{}
+
 	for _, typeKey := range childType.CanLiveUnder {
 		if parentType := typeIndex[typeKey]; parentType != nil {
 			parents = appendParentType(parents, seen, parentType)
 		}
 	}
+
 	for _, parentType := range typeIndex {
 		for _, childKey := range parentType.CanContain {
 			if childKey == childType.TypeKey {
@@ -78,21 +97,30 @@ func parentTypesFor(typeIndex map[string]*node.NodeType, childType *node.NodeTyp
 			}
 		}
 	}
+
 	return parents
 }
 
-func appendParentType(types []*node.NodeType, seen map[string]struct{}, parentType *node.NodeType) []*node.NodeType {
+func appendParentType(
+	types []*node.NodeType,
+	seen map[string]struct{},
+	parentType *node.NodeType,
+) []*node.NodeType {
 	key := parentType.TypeKey
 	if key == "" {
 		key = parentType.Slug
 	}
+
 	if key == "" {
 		return types
 	}
+
 	if _, ok := seen[key]; ok {
 		return types
 	}
+
 	seen[key] = struct{}{}
+
 	return append(types, parentType)
 }
 
@@ -100,26 +128,42 @@ func appendParentType(types []*node.NodeType, seen map[string]struct{}, parentTy
 // type in parentTypes. It checks scope membership when scopeID differs
 // from [uuid.Nil] and id. It returns errParentTypeRefused for a node type
 // outside parentTypes.
-func verifyParentCandidate(ctx context.Context, b NodeTypeBinding, parentTypes []*node.NodeType, orgID, scopeID, id uuid.UUID) error {
+func verifyParentCandidate(
+	ctx context.Context,
+	b NodeTypeBinding,
+	parentTypes []*node.NodeType,
+	orgID uuid.UUID,
+	scopeID uuid.UUID,
+	id uuid.UUID,
+) error {
 	resolve, err := b.Reader.Resolve(ctx, id)
 	if err != nil {
 		return err
 	}
+
 	if resolve == nil || resolve.OrgID != orgID {
 		return domain.ErrNotFound
 	}
-	if !slices.ContainsFunc(parentTypes, func(parentType *node.NodeType) bool { return parentType.TypeKey == resolve.NodeType }) {
+
+	if !slices.ContainsFunc(
+		parentTypes,
+		func(parentType *node.NodeType) bool { return parentType.TypeKey == resolve.NodeType },
+	) {
 		return errParentTypeRefused
 	}
+
 	if scopeID == uuid.Nil || id == scopeID {
 		return nil
 	}
+
 	view, err := b.Reader.Get(ctx, id)
 	if err != nil {
 		return err
 	}
+
 	if viewBelongsToScope(ctx, b.Resolver, view, scopeID) {
 		return nil
 	}
+
 	return domain.ErrNotFound
 }

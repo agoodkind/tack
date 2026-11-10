@@ -33,7 +33,9 @@ const (
 	revokedSearchUnavailable
 )
 
-var errSearchMixedNoContinuation = errors.New("qa datagen search-mixed: the member session did not return a continuation cursor")
+var errSearchMixedNoContinuation = errors.New(
+	"qa datagen search-mixed: the member session did not return a continuation cursor",
+)
 
 // checkRevocation opens a read word session as a member of the first tenant and
 // reads two pages. It removes the membership and retries continuation,
@@ -45,7 +47,9 @@ func (m *searchMixed) checkRevocation(ctx context.Context) error {
 	session := m.sessionFor(0, revokedActorIndex, m.readWord, 0)
 	first, second, opening, err := m.openRevokedSession(ctx, session)
 	if err != nil {
-		m.phases.update(func(phases *searchMixedPhaseStats) { phases.revocation.Unavailable += opening })
+		m.phases.update(
+			func(phases *searchMixedPhaseStats) { phases.revocation.Unavailable += opening },
+		)
 		return err
 	}
 	members := m.members
@@ -54,17 +58,38 @@ func (m *searchMixed) checkRevocation(ctx context.Context) error {
 		return err
 	}
 	if err := members.RemoveMember(ctx, workspace.OrgID, actor.UserID); err != nil {
-		return loggedError(ctx, "qa datagen search-mixed: the command could not remove the organization membership for user "+actor.UserID.String(), err)
+		return loggedError(
+			ctx,
+			"qa datagen search-mixed: the command could not remove the organization membership for user "+actor.UserID.String(),
+			err,
+		)
 	}
 	cursors := revokedCursors{continuation: second.Cursor, replay: first.Cursor}
 	result, checkErr := m.awaitRefusal(ctx, session, cursors, clock.Now())
 	result.Unavailable += opening
 	m.phases.update(func(phases *searchMixedPhaseStats) { phases.revocation = result })
-	restored := &org.Member{ID: uuid.Nil, OrgID: member.OrgID, UserID: member.UserID, Role: member.Role, CreatedAt: time.Time{}}
+	restored := &org.Member{
+		ID:        uuid.Nil,
+		OrgID:     member.OrgID,
+		UserID:    member.UserID,
+		Role:      member.Role,
+		CreatedAt: time.Time{},
+	}
 	if err := members.AddMember(context.WithoutCancel(ctx), restored); err != nil {
-		joined := errors.Join(checkErr, fmt.Errorf("qa datagen search-mixed: the command could not restore the organization membership for user %s: %w", actor.UserID, err))
-		slog.ErrorContext(ctx, "qa.datagen.member_restore_failed", slog.String("user_id", actor.UserID.String()),
-			slog.String("err", joined.Error()))
+		joined := errors.Join(
+			checkErr,
+			fmt.Errorf(
+				"qa datagen search-mixed: the command could not restore the organization membership for user %s: %w",
+				actor.UserID,
+				err,
+			),
+		)
+		slog.ErrorContext(
+			ctx,
+			"qa.datagen.member_restore_failed",
+			slog.String("user_id", actor.UserID.String()),
+			slog.String("err", joined.Error()),
+		)
 		return joined
 	}
 	return checkErr
@@ -119,11 +144,21 @@ func (c revokedCursors) call(kind string) revokedCall {
 // An answered continuation advances the session. Its input cursor becomes the
 // replay cursor, including for replay in the same round. The returned cursor
 // becomes the continuation cursor.
-func (m *searchMixed) awaitRefusal(ctx context.Context, session searchMixedSession, cursors revokedCursors, removed time.Time) (SearchMixedRevocation, error) {
+func (m *searchMixed) awaitRefusal(
+	ctx context.Context,
+	session searchMixedSession,
+	cursors revokedCursors,
+	removed time.Time,
+) (SearchMixedRevocation, error) {
 	lifetime := m.cfg.AuthMembershipCacheLifetime
 	deadline := removed.Add(lifetime + searchConvergenceDeadline)
 	result := SearchMixedRevocation{
-		Checks: 0, PagesWithinCacheLifetime: 0, ResultsAfterCacheLifetime: 0, Unavailable: 0, RefusedAfter: 0, Refused: false,
+		Checks:                    0,
+		PagesWithinCacheLifetime:  0,
+		ResultsAfterCacheLifetime: 0,
+		Unavailable:               0,
+		RefusedAfter:              0,
+		Refused:                   false,
 	}
 	for attempt := 0; ; attempt++ {
 		refusedAll := true
@@ -160,7 +195,11 @@ func (m *searchMixed) awaitRefusal(ctx context.Context, session searchMixedSessi
 			return result, nil
 		}
 		if !waitForSearchMixedPoll(ctx) {
-			return result, loggedError(ctx, "qa datagen search-mixed: the command could not verify search refusal after membership removal", ctx.Err())
+			return result, loggedError(
+				ctx,
+				"qa datagen search-mixed: the command could not verify search refusal after membership removal",
+				ctx.Err(),
+			)
 		}
 	}
 }
@@ -169,9 +208,23 @@ func (m *searchMixed) awaitRefusal(ctx context.Context, session searchMixedSessi
 // results for its tenant. It classifies the response as a page, an
 // authorization refusal, or search unavailability. It reports every other error
 // with the call's position in the round.
-func (m *searchMixed) revokedSearch(ctx context.Context, session searchMixedSession, number, position int, call revokedCall) (revokedSearchOutcome, searchPage, error) {
+func (m *searchMixed) revokedSearch(
+	ctx context.Context,
+	session searchMixedSession,
+	number int,
+	position int,
+	call revokedCall,
+) (revokedSearchOutcome, searchPage, error) {
 	driver := m.driver(number)
-	page, err := callSearch(ctx, driver, m.identities(session.tenant, driver), session.token, session.entry, session.query, call.cursor)
+	page, err := callSearch(
+		ctx,
+		driver,
+		m.identities(session.tenant, driver),
+		session.token,
+		session.entry,
+		session.query,
+		call.cursor,
+	)
 	if err == nil {
 		return revokedSearchAnswered, page, nil
 	}
@@ -181,8 +234,19 @@ func (m *searchMixed) revokedSearch(ctx context.Context, session searchMixedSess
 	if isSearchUnavailable(err) {
 		return revokedSearchUnavailable, searchPage{}, nil
 	}
-	slog.ErrorContext(ctx, "qa.datagen.revoked_search_failed", slog.String("entry", session.entry),
-		slog.Int("cursor_position", position), slog.String("cursor_kind", call.kind), slog.String("err", err.Error()))
-	return revokedSearchAnswered, searchPage{}, fmt.Errorf("qa datagen search-mixed: the %s search at cursor position %d under %s failed without an authorization refusal: %w",
-		call.kind, position, session.entry, err)
+	slog.ErrorContext(
+		ctx,
+		"qa.datagen.revoked_search_failed",
+		slog.String("entry", session.entry),
+		slog.Int("cursor_position", position),
+		slog.String("cursor_kind", call.kind),
+		slog.String("err", err.Error()),
+	)
+	return revokedSearchAnswered, searchPage{}, fmt.Errorf(
+		"qa datagen search-mixed: the %s search at cursor position %d under %s failed without an authorization refusal: %w",
+		call.kind,
+		position,
+		session.entry,
+		err,
+	)
 }

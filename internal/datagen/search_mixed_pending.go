@@ -8,7 +8,9 @@ import (
 	"github.com/google/uuid"
 )
 
-var errSearchMixedNoVictim = errors.New("qa datagen search-mixed: the victim session did not return a victim on its second page or leave one for later pages")
+var errSearchMixedNoVictim = errors.New(
+	"qa datagen search-mixed: the victim session did not return a victim on its second page or leave one for later pages",
+)
 
 // checkPendingDeletion reads two pages of a victim word session in the first
 // tenant. It deletes one victim from the second page and another victim that
@@ -21,7 +23,9 @@ var errSearchMixedNoVictim = errors.New("qa datagen search-mixed: the victim ses
 func (m *searchMixed) checkPendingDeletion(ctx context.Context) error {
 	tally := searchMixedTally{}
 	pending, err := m.deleteDuringSession(ctx, &tally)
-	m.phases.update(func(phases *searchMixedPhaseStats) { phases.pending.Unavailable += tally.unavailable })
+	m.phases.update(
+		func(phases *searchMixedPhaseStats) { phases.pending.Unavailable += tally.unavailable },
+	)
 	if err != nil {
 		return err
 	}
@@ -41,7 +45,10 @@ func (m *searchMixed) checkPendingDeletion(ctx context.Context) error {
 // deleteDuringSession runs the searches and deletions of checkPendingDeletion
 // and counts them in tally. It reports whether the serving index still stored
 // an active page for either victim after deletion.
-func (m *searchMixed) deleteDuringSession(ctx context.Context, tally *searchMixedTally) (bool, error) {
+func (m *searchMixed) deleteDuringSession(ctx context.Context, tally *searchMixedTally) (
+	bool,
+	error,
+) {
 	session := m.sessionFor(0, 0, m.victimWord, 0)
 	first, err := m.page(ctx, session, 0, "", tally)
 	if err != nil {
@@ -53,7 +60,11 @@ func (m *searchMixed) deleteDuringSession(ctx context.Context, tally *searchMixe
 	}
 	returned, unreturned := m.pickVictims(first, second)
 	if returned == uuid.Nil || unreturned == uuid.Nil || first.Cursor == "" || second.Cursor == "" {
-		return false, loggedError(ctx, "qa datagen search-mixed: the command could not select issues for the deletion check", errSearchMixedNoVictim)
+		return false, loggedError(
+			ctx,
+			"qa datagen search-mixed: the command could not select issues for the deletion check",
+			errSearchMixedNoVictim,
+		)
 	}
 	for _, victim := range []uuid.UUID{returned, unreturned} {
 		if err := m.deleteNode(ctx, 0, 0, victim); err != nil {
@@ -99,13 +110,21 @@ func (m *searchMixed) pickVictims(first, second searchPage) (uuid.UUID, uuid.UUI
 
 func (m *searchMixed) indexed(ctx context.Context, nodeID uuid.UUID) (bool, error) {
 	indexed := false
-	err := retryTimedOutRead(ctx, nodeID, func() error {
-		texts, readErr := m.pages.SearchPageText(ctx, nodeID)
-		indexed = len(texts) > 0
-		return readErr
-	})
+	err := retryTimedOutRead(
+		ctx,
+		nodeID,
+		func() error {
+			texts, readErr := m.pages.SearchPageText(ctx, nodeID)
+			indexed = len(texts) > 0
+			return readErr
+		},
+	)
 	if err != nil {
-		return false, loggedError(ctx, "qa datagen search-mixed: the command could not read the serving index pages for issue "+nodeID.String(), err)
+		return false, loggedError(
+			ctx,
+			"qa datagen search-mixed: the command could not read the serving index pages for issue "+nodeID.String(),
+			err,
+		)
 	}
 	return indexed, nil
 }

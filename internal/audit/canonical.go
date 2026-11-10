@@ -21,14 +21,17 @@ func canonicalJSON(v any) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+
 	var decodedValue any
 	if err := json.Unmarshal(raw, &decodedValue); err != nil {
 		return nil, err
 	}
+
 	var buf bytes.Buffer
 	if err := writeCanonical(&buf, decodedValue); err != nil {
 		return nil, err
 	}
+
 	return buf.Bytes(), nil
 }
 
@@ -41,43 +44,53 @@ func writeCanonical(buf *bytes.Buffer, v any) error {
 		if err != nil {
 			return err
 		}
+
 		buf.Write(b)
 	case []any:
 		buf.WriteByte('[')
+
 		for i, e := range t {
 			if i > 0 {
 				buf.WriteByte(',')
 			}
+
 			if err := writeCanonical(buf, e); err != nil {
 				return err
 			}
 		}
+
 		buf.WriteByte(']')
 	case map[string]any:
 		keys := make([]string, 0, len(t))
 		for k := range t {
 			keys = append(keys, k)
 		}
+
 		sort.Strings(keys)
 		buf.WriteByte('{')
+
 		for i, k := range keys {
 			if i > 0 {
 				buf.WriteByte(',')
 			}
+
 			kb, err := json.Marshal(k)
 			if err != nil {
 				return err
 			}
+
 			buf.Write(kb)
 			buf.WriteByte(':')
 			if err := writeCanonical(buf, t[k]); err != nil {
 				return err
 			}
 		}
+
 		buf.WriteByte('}')
 	default:
 		return fmt.Errorf("canonicalJSON: unsupported type %T", v)
 	}
+
 	return nil
 }
 
@@ -121,6 +134,7 @@ func shardOf(actor, eventID uuid.UUID) int16 {
 	var buf [32]byte
 	copy(buf[0:16], actor[:])
 	copy(buf[16:32], eventID[:])
+
 	return int16(crc32.ChecksumIEEE(buf[:]) & shardMask)
 }
 
@@ -132,6 +146,7 @@ func hashRow(prevHash []byte, payload any) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+
 	h := sha256.New()
 	h.Write(prevHash)
 	// The length prefix distinguishes (prev || X) from (prev || Y) when a
@@ -140,5 +155,6 @@ func hashRow(prevHash []byte, payload any) ([]byte, error) {
 	binary.BigEndian.PutUint64(lp[:], uint64(len(canonical)))
 	h.Write(lp[:])
 	h.Write(canonical)
+
 	return h.Sum(nil), nil
 }

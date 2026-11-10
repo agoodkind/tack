@@ -63,7 +63,11 @@ type fdbVersionLog struct {
 
 // fdbVersionLogGetter reads bucket objects up to fdbVersionLogMaxBytes.
 // Every reader and writer of the record uses this getter.
-func fdbVersionLogGetter(ctx context.Context, client *s3.Client, bucket string) func(key string) ([]byte, error) {
+func fdbVersionLogGetter(
+	ctx context.Context,
+	client *s3.Client,
+	bucket string,
+) func(key string) ([]byte, error) {
 	return func(key string) ([]byte, error) {
 		return getObjectBytesUpTo(ctx, client, bucket, key, fdbVersionLogMaxBytes)
 	}
@@ -71,20 +75,31 @@ func fdbVersionLogGetter(ctx context.Context, client *s3.Client, bucket string) 
 
 // readFDBVersionLog fetches the record through get. It treats a missing
 // record as empty to permit the first reading.
-func readFDBVersionLog(ctx context.Context, get func(key string) ([]byte, error)) (fdbVersionLog, error) {
+func readFDBVersionLog(
+	ctx context.Context,
+	get func(key string) ([]byte, error),
+) (fdbVersionLog, error) {
 	var log fdbVersionLog
 	body, err := get(fdbVersionLogKey)
 	if err != nil {
 		if isObjectNotFound(err) {
 			return log, nil
 		}
+
 		return log, err
 	}
+
 	if err := json.Unmarshal(body, &log); err != nil {
 		wrapped := fmt.Errorf("unmarshal %s: %w", fdbVersionLogKey, err)
-		telemetry.L(ctx).ErrorContext(ctx, "backup.fdb_versions.unreadable", slog.String("err", wrapped.Error()))
+		telemetry.L(ctx).ErrorContext(
+			ctx,
+			"backup.fdb_versions.unreadable",
+			slog.String("err", wrapped.Error()),
+		)
+
 		return fdbVersionLog{}, wrapped
 	}
+
 	return log, nil
 }
 
@@ -103,38 +118,55 @@ func appendFDBRestorablePoint(
 	if err != nil {
 		return err
 	}
-	index, found := slices.BinarySearchFunc(log.Points, point, func(a, b fdbRestorablePoint) int {
-		switch {
-		case a.Version < b.Version:
-			return -1
-		case a.Version > b.Version:
-			return 1
-		default:
-			return 0
-		}
-	})
+
+	index, found := slices.BinarySearchFunc(
+		log.Points,
+		point,
+		func(a, b fdbRestorablePoint) int {
+			switch {
+			case a.Version < b.Version:
+				return -1
+			case a.Version > b.Version:
+				return 1
+			default:
+				return 0
+			}
+		},
+	)
 	if found {
 		return nil
 	}
+
 	point.At = point.At.UTC()
 	log.Points = slices.Insert(log.Points, index, point)
 	if len(log.Points) > fdbVersionLogMaxEntries {
 		log.Points = log.Points[len(log.Points)-fdbVersionLogMaxEntries:]
 	}
+
 	body, err := json.Marshal(log)
 	if err != nil {
 		wrapped := fmt.Errorf("marshal %s: %w", fdbVersionLogKey, err)
-		logger.ErrorContext(ctx, "backup.fdb_versions.unwritable", slog.String("err", wrapped.Error()))
+		logger.ErrorContext(
+			ctx,
+			"backup.fdb_versions.unwritable",
+			slog.String("err", wrapped.Error()),
+		)
+
 		return wrapped
 	}
+
 	if err := put(fdbVersionLogKey, body); err != nil {
 		return err
 	}
-	logger.InfoContext(ctx, "backup.fdb_versions.recorded",
+
+	logger.InfoContext(
+		ctx,
+		"backup.fdb_versions.recorded",
 		slog.Int64("version", point.Version),
 		slog.Time("at", point.At),
 		slog.Int("points", len(log.Points)),
 	)
+
 	return nil
 }
 
@@ -151,5 +183,6 @@ func fdbVersionAt(log fdbVersionLog, want time.Time) (point fdbRestorablePoint, 
 			return candidate, true
 		}
 	}
+
 	return fdbRestorablePoint{Version: 0, At: time.Time{}}, false
 }

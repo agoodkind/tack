@@ -54,16 +54,19 @@ func TestHelpSucceedsWithoutOperationEnvironment(t *testing.T) {
 		{"verify-native-runner " + helpFlag, verifyNativeRunnerHelpCommand},
 		{"metadata " + helpFlag, metadataHelpCommand},
 	} {
-		t.Run(test.name, func(t *testing.T) {
-			output, err := runBuiltCommand(t, []string{}, test.build)
-			if err != nil {
-				t.Fatalf("err = %v, output = %s", err, output)
-			}
+		t.Run(
+			test.name,
+			func(t *testing.T) {
+				output, err := runBuiltCommand(t, []string{}, test.build)
+				if err != nil {
+					t.Fatalf("err = %v, output = %s", err, output)
+				}
 
-			if strings.Contains(output, "ci-image.failed") {
-				t.Fatalf("help logged a failure: %s", output)
-			}
-		})
+				if strings.Contains(output, "ci-image.failed") {
+					t.Fatalf("help logged a failure: %s", output)
+				}
+			},
+		)
 	}
 }
 
@@ -88,20 +91,24 @@ func TestInvalidArgumentsFailOnceWithoutWritingFiles(t *testing.T) {
 		{"unknown operation", unknownOperationCommand},
 		{"extra argument", extraArgumentCommand},
 	} {
-		t.Run(test.name, func(t *testing.T) {
-			output, err := runBuiltCommand(t, environment, test.build)
-			if err == nil {
-				t.Fatalf("expected failure, output = %s", output)
-			}
+		t.Run(
+			test.name,
+			func(t *testing.T) {
+				output, err := runBuiltCommand(t, environment, test.build)
+				if err == nil {
+					t.Fatalf("expected failure, output = %s", output)
+				}
 
-			if strings.Count(output, "ERROR ") != 1 || !strings.Contains(output, "ci-image.failed") {
-				t.Fatalf("expected one boundary log, output = %s", output)
-			}
+				if strings.Count(output, "ERROR ") != 1 ||
+					!strings.Contains(output, "ci-image.failed") {
+					t.Fatalf("expected one boundary log, output = %s", output)
+				}
 
-			_, statErr := os.Stat(directory)
-			if !os.IsNotExist(statErr) {
-				t.Fatalf("digest directory exists after a rejected command: %v", statErr)
-			}
-		})
+				_, statErr := os.Stat(directory)
+				if !os.IsNotExist(statErr) {
+					t.Fatalf("digest directory exists after a rejected command: %v", statErr)
+				}
+			},
+		)
 	}
 }

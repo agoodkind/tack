@@ -26,12 +26,26 @@ func (r *Reader) OperatorOutboxRemainder(ctx context.Context) (OutboxRemainder, 
 	if r == nil || r.pool == nil {
 		return OutboxRemainder{Rows: 0, Oldest: nil}, fmt.Errorf("audit reader not configured")
 	}
+
 	var remainder OutboxRemainder
-	err := r.pool.Scan(r.pool.unsanitized.QueryRow(ctx, `SELECT count(event_id), min(created_at) FROM public.ops_outbox`).
-		Scan(&remainder.Rows, &remainder.Oldest))
+	err := r.pool.Scan(
+		r.pool.unsanitized.QueryRow(
+			ctx,
+			`SELECT count(event_id), min(created_at) FROM public.ops_outbox`,
+		).
+			Scan(
+				&remainder.Rows,
+				&remainder.Oldest,
+			),
+	)
 	if err != nil {
 		slog.ErrorContext(ctx, "audit.ops_outbox.remainder_failed", slog.String("err", err.Error()))
-		return OutboxRemainder{Rows: 0, Oldest: nil}, fmt.Errorf("read the operator outbox remainder: %w", err)
+
+		return OutboxRemainder{
+			Rows:   0,
+			Oldest: nil,
+		}, fmt.Errorf("read the operator outbox remainder: %w", err)
 	}
+
 	return remainder, nil
 }

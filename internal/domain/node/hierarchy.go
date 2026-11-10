@@ -13,8 +13,11 @@ import (
 // directly. Only child_of edges define a hierarchy parent. The parent_id
 // property provides the only way to set a parent. The error matches
 // [domain.ErrInvalidArgument].
-var ErrReservedParentRelation = fmt.Errorf("the %s relation type is reserved for the parent that parent_id sets: %w",
-	RelChildOf, domain.ErrInvalidArgument)
+var ErrReservedParentRelation = fmt.Errorf(
+	"the %s relation type is reserved for the parent that parent_id sets: %w",
+	RelChildOf,
+	domain.ErrInvalidArgument,
+)
 
 // ErrNoHierarchyParent reports a node with child_of edges to more than one
 // distinct target, or a node without a child_of edge when its type lists
@@ -29,17 +32,34 @@ var ErrNoHierarchyParent = errors.New("node requires exactly one hierarchy paren
 // CanLiveUnder types. HierarchyParent returns [uuid.Nil] for that root.
 //
 //   - Every other case returns an error that wraps ErrNoHierarchyParent.
-func HierarchyParent(nodeID uuid.UUID, kind *NodeType, childOfTargets []uuid.UUID) (uuid.UUID, error) {
+func HierarchyParent(
+	nodeID uuid.UUID,
+	kind *NodeType,
+	childOfTargets []uuid.UUID,
+) (uuid.UUID, error) {
 	parentID := uuid.Nil
+
 	for _, targetID := range childOfTargets {
 		if parentID != uuid.Nil && targetID != parentID {
-			return uuid.Nil, hierarchyParentError{message: fmt.Sprintf("node %s has child_of edges to %s and %s", nodeID, parentID, targetID)}
+			return uuid.Nil, hierarchyParentError{
+				message: fmt.Sprintf(
+					"node %s has child_of edges to %s and %s",
+					nodeID,
+					parentID,
+					targetID,
+				),
+			}
 		}
+
 		parentID = targetID
 	}
+
 	if parentID == uuid.Nil && kind != nil && len(kind.CanLiveUnder) > 0 {
-		return uuid.Nil, hierarchyParentError{message: fmt.Sprintf("node %s of type %q has no child_of edge", nodeID, kind.TypeKey)}
+		return uuid.Nil, hierarchyParentError{
+			message: fmt.Sprintf("node %s of type %q has no child_of edge", nodeID, kind.TypeKey),
+		}
 	}
+
 	return parentID, nil
 }
 
@@ -64,5 +84,7 @@ func LivesUnder(child, parent *NodeType) bool {
 	if child == nil || parent == nil {
 		return false
 	}
-	return slices.Contains(child.CanLiveUnder, parent.TypeKey) || slices.Contains(parent.CanContain, child.TypeKey)
+
+	return slices.Contains(child.CanLiveUnder, parent.TypeKey) ||
+		slices.Contains(parent.CanContain, child.TypeKey)
 }

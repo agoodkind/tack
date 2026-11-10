@@ -11,8 +11,20 @@ import (
 // logRelationshipFailure writes an error log record with event as the log
 // message. It records err, source_id, and target_id as structured
 // attributes.
-func logRelationshipFailure(ctx context.Context, event string, err error, sourceID, targetID uuid.UUID) {
-	telemetry.L(ctx).ErrorContext(ctx, event, slog.String("err", err.Error()), slog.String("source_id", sourceID.String()), slog.String("target_id", targetID.String()))
+func logRelationshipFailure(
+	ctx context.Context,
+	event string,
+	err error,
+	sourceID uuid.UUID,
+	targetID uuid.UUID,
+) {
+	telemetry.L(ctx).ErrorContext(
+		ctx,
+		event,
+		slog.String("err", err.Error()),
+		slog.String("source_id", sourceID.String()),
+		slog.String("target_id", targetID.String()),
+	)
 }
 
 // logSearchScheduleFailure logs search.work.schedule_failed when a
@@ -22,5 +34,6 @@ func logSearchScheduleFailure(ctx context.Context, err error, sourceID, targetID
 	if searchFailureWasLogged(err) {
 		return
 	}
+
 	logRelationshipFailure(ctx, "search.work.schedule_failed", err, sourceID, targetID)
 }

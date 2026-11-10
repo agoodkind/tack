@@ -31,7 +31,10 @@ func (r *fakeReader) List(context.Context, node.NodeListQuery) ([]*node.NodeView
 	panic("fakeReader.List called")
 }
 
-func (r *fakeReader) Stream(context.Context, node.NodeListQuery) (<-chan node.NodeStreamResult, error) {
+func (r *fakeReader) Stream(
+	context.Context,
+	node.NodeListQuery,
+) (<-chan node.NodeStreamResult, error) {
 	panic("fakeReader.Stream called")
 }
 
@@ -57,6 +60,7 @@ func mustRaw(t *testing.T, v any) json.RawMessage {
 	if err != nil {
 		t.Fatalf("marshal: %v", err)
 	}
+
 	return b
 }
 
@@ -118,21 +122,48 @@ func TestRenderNodeIdentifierPreferred(t *testing.T) {
 		},
 	}
 
-	reader := &fakeReader{views: map[uuid.UUID]*node.NodeView{
-		projectID: project,
-		epicID:    epic,
-		stateID:   state,
-		issueID:   issue,
-	}}
-	users := &fakeUsers{users: map[uuid.UUID]*user.User{
-		userID: {ID: userID, DisplayName: "alex", Email: "alex@goodkind.io"},
-	}}
+	reader := &fakeReader{
+		views: map[uuid.UUID]*node.NodeView{
+			projectID: project,
+			epicID:    epic,
+			stateID:   state,
+			issueID:   issue,
+		},
+	}
+	users := &fakeUsers{
+		users: map[uuid.UUID]*user.User{
+			userID: {ID: userID, DisplayName: "alex", Email: "alex@goodkind.io"},
+		},
+	}
 
-	rc := newRenderCtxWithTypes(context.Background(), reader, users, map[string]*node.NodeType{
-		"project": {TypeKey: "project", Reference: node.ReferenceConfig{Strategy: node.ReferenceDirectProperty, Property: "identifier"}},
-		"epic":    {TypeKey: "epic", Reference: node.ReferenceConfig{Strategy: node.ReferenceScopedSequence, Property: "sequence"}},
-		"issue":   {TypeKey: "issue", Reference: node.ReferenceConfig{Strategy: node.ReferenceScopedSequence, Property: "sequence"}},
-	})
+	rc := newRenderCtxWithTypes(
+		context.Background(),
+		reader,
+		users,
+		map[string]*node.NodeType{
+			"project": {
+				TypeKey: "project",
+				Reference: node.ReferenceConfig{
+					Strategy: node.ReferenceDirectProperty,
+					Property: "identifier",
+				},
+			},
+			"epic": {
+				TypeKey: "epic",
+				Reference: node.ReferenceConfig{
+					Strategy: node.ReferenceScopedSequence,
+					Property: "sequence",
+				},
+			},
+			"issue": {
+				TypeKey: "issue",
+				Reference: node.ReferenceConfig{
+					Strategy: node.ReferenceScopedSequence,
+					Property: "sequence",
+				},
+			},
+		},
+	)
 	out := renderNode(rc, issue)
 
 	mustContain(t, out, "TACK-65")                          // Match the ID.
@@ -163,35 +194,65 @@ func TestRenderListUsesIdentifiers(t *testing.T) {
 	projectID := uuid.New()
 	stateID := uuid.New()
 	project := &node.NodeView{
-		ID: projectID, OrgID: orgID, NodeType: "project", Name: "Tack",
-		Props: map[string]json.RawMessage{"identifier": mustRaw(t, "TACK")},
+		ID:       projectID,
+		OrgID:    orgID,
+		NodeType: "project",
+		Name:     "Tack",
+		Props:    map[string]json.RawMessage{"identifier": mustRaw(t, "TACK")},
 	}
 	stateView := &node.NodeView{
-		ID: stateID, OrgID: orgID, NodeType: "state", Name: "in-progress",
+		ID:       stateID,
+		OrgID:    orgID,
+		NodeType: "state",
+		Name:     "in-progress",
 	}
 	issues := make([]*node.NodeView, 0, 3)
+
 	for i := 1; i <= 3; i++ {
-		issues = append(issues, &node.NodeView{
-			ID:       uuid.New(),
-			OrgID:    orgID,
-			NodeType: "issue",
-			Name:     "issue " + string(rune('A'+i-1)),
-			Props: map[string]json.RawMessage{
-				"sequence": mustRaw(t, i),
-				"scope_id": mustRaw(t, projectID.String()),
-				"state_id": mustRaw(t, stateID.String()),
-				"priority": mustRaw(t, "medium"),
+		issues = append(
+			issues,
+			&node.NodeView{
+				ID:       uuid.New(),
+				OrgID:    orgID,
+				NodeType: "issue",
+				Name:     "issue " + string(rune('A'+i-1)),
+				Props: map[string]json.RawMessage{
+					"sequence": mustRaw(t, i),
+					"scope_id": mustRaw(t, projectID.String()),
+					"state_id": mustRaw(t, stateID.String()),
+					"priority": mustRaw(t, "medium"),
+				},
 			},
-		})
+		)
 	}
-	reader := &fakeReader{views: map[uuid.UUID]*node.NodeView{
-		projectID: project,
-		stateID:   stateView,
-	}}
-	rc := newRenderCtxWithTypes(context.Background(), reader, nil, map[string]*node.NodeType{
-		"project": {TypeKey: "project", Reference: node.ReferenceConfig{Strategy: node.ReferenceDirectProperty, Property: "identifier"}},
-		"issue":   {TypeKey: "issue", Reference: node.ReferenceConfig{Strategy: node.ReferenceScopedSequence, Property: "sequence"}},
-	})
+
+	reader := &fakeReader{
+		views: map[uuid.UUID]*node.NodeView{
+			projectID: project,
+			stateID:   stateView,
+		},
+	}
+	rc := newRenderCtxWithTypes(
+		context.Background(),
+		reader,
+		nil,
+		map[string]*node.NodeType{
+			"project": {
+				TypeKey: "project",
+				Reference: node.ReferenceConfig{
+					Strategy: node.ReferenceDirectProperty,
+					Property: "identifier",
+				},
+			},
+			"issue": {
+				TypeKey: "issue",
+				Reference: node.ReferenceConfig{
+					Strategy: node.ReferenceScopedSequence,
+					Property: "sequence",
+				},
+			},
+		},
+	)
 	out := renderList(rc, "issues", issues)
 
 	mustContain(t, out, "3 issues")

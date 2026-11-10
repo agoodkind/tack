@@ -38,53 +38,94 @@ type documentAccessSource struct {
 //
 //  1. Read each document's retirement flag.
 //  2. Read its access versions and generation.
-func (a *Adapter) DocumentAccess(ctx context.Context, index string, ids []string) (map[string]searchdomain.DocumentAccess, error) {
+func (a *Adapter) DocumentAccess(
+	ctx context.Context,
+	index string,
+	ids []string,
+) (map[string]searchdomain.DocumentAccess, error) {
 	states := make(map[string]searchdomain.DocumentAccess, len(ids))
 	if len(ids) == 0 {
 		return states, nil
 	}
+
 	body, err := json.Marshal(multiGetBody{IDs: ids})
 	if err != nil {
 		return nil, documentAccessFailure(ctx, index, "encode multi-get request", err)
 	}
-	response, err := a.api.MGet(ctx, opensearchapi.MGetReq{
-		Index: index, BodyReader: bytes.NewReader(body),
-		Params: &opensearchapi.MGetParams{SourceIncludes: []string{"retired", "access.versions", "access.generation"}},
-	})
+
+	response, err := a.api.MGet(
+		ctx,
+		opensearchapi.MGetReq{
+			Index:      index,
+			BodyReader: bytes.NewReader(body),
+			Params: &opensearchapi.MGetParams{
+				SourceIncludes: []string{"retired", "access.versions", "access.generation"},
+			},
+		},
+	)
 	if err != nil {
 		return nil, documentAccessFailure(ctx, index, "read page documents", err)
 	}
+
 	for _, result := range response.Docs {
 		if result.Type() == opensearchapi.MGetRespItemMultiGetErrorType {
 			failure, err := result.MultiGetError()
 			if err != nil {
 				return nil, documentAccessFailure(ctx, index, "decode page document error", err)
 			}
+
 			reason := failure.Error.Type
 			if failure.Error.Reason != nil {
 				reason += ": " + *failure.Error.Reason
 			}
-			return nil, documentAccessFailure(ctx, index, "read page document "+failure.ID, errors.New(reason))
+
+			return nil, documentAccessFailure(
+				ctx,
+				index,
+				"read page document "+failure.ID,
+				errors.New(reason),
+			)
 		}
+
 		document, err := result.GetResult()
 		if err != nil {
 			return nil, documentAccessFailure(ctx, index, "decode page document", err)
 		}
-		state := searchdomain.DocumentAccess{Found: document.Found, Retired: false, Versions: nil, Generation: 0}
+
+		state := searchdomain.DocumentAccess{
+			Found:      document.Found,
+			Retired:    false,
+			Versions:   nil,
+			Generation: 0,
+		}
 		if document.Found {
 			var source documentAccessSource
 			if err := json.Unmarshal(document.Source, &source); err != nil {
-				return nil, documentAccessFailure(ctx, index, "decode page document "+document.ID, err)
+				return nil, documentAccessFailure(
+					ctx,
+					index,
+					"decode page document "+document.ID,
+					err,
+				)
 			}
+
 			state.Retired, state.Versions, state.Generation = source.Retired, source.Access.Versions, source.Access.Generation
 		}
+
 		states[document.ID] = state
 	}
+
 	return states, nil
 }
 
 func documentAccessFailure(ctx context.Context, index, operation string, err error) error {
 	wrapped := fmt.Errorf("%s in %s: %w", operation, index, err)
-	telemetry.L(ctx).ErrorContext(ctx, "search.documents.read_failed", slog.String("err", wrapped.Error()), slog.String("index", index))
+	telemetry.L(ctx).ErrorContext(
+		ctx,
+		"search.documents.read_failed",
+		slog.String("err", wrapped.Error()),
+		slog.String("index", index),
+	)
+
 	return wrapped
 }

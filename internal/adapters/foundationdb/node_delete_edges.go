@@ -29,32 +29,54 @@ type deleteEdge struct {
 // exist than one step handles. An empty relationType reads edges of every
 // type. With incoming true it reads the edges to nodeID, and otherwise the
 // edges from nodeID.
-func readDeleteEdges(ctx context.Context, tr fdb.Transaction, orgID, nodeID uuid.UUID, relationType string, incoming bool) ([]deleteEdge, error) {
+func readDeleteEdges(
+	ctx context.Context,
+	tr fdb.Transaction,
+	orgID uuid.UUID,
+	nodeID uuid.UUID,
+	relationType string,
+	incoming bool,
+) ([]deleteEdge, error) {
 	limit := maxDeleteEdgePage + 1
 	prefix := relationshipPrefixBySource(orgID, nodeID, relationType)
 	if incoming {
 		prefix = relationshipReversePrefixByTarget(orgID, nodeID, relationType)
 	}
+
 	keyRange, err := fdb.PrefixRange(prefix)
 	if err != nil {
-		return nil, nodeOperationFailure(ctx, "create relationship range for node "+nodeID.String(), err)
+		return nil, nodeOperationFailure(
+			ctx,
+			"create relationship range for node "+nodeID.String(),
+			err,
+		)
 	}
+
 	items, err := tr.GetRange(keyRange, fdb.RangeOptions{Limit: limit}).GetSliceWithError()
 	if err != nil {
 		return nil, searchReadFailure(ctx, "read relationships of node "+nodeID.String(), err)
 	}
+
 	edges := make([]deleteEdge, 0, len(items))
 	for _, item := range items {
 		relationType, otherID, err := decodeDeleteEdge(ctx, item.Key)
 		if err != nil {
 			return nil, err
 		}
+
 		if incoming {
-			edges = append(edges, deleteEdge{SourceID: otherID, RelationType: relationType, TargetID: nodeID})
+			edges = append(
+				edges,
+				deleteEdge{SourceID: otherID, RelationType: relationType, TargetID: nodeID},
+			)
 		} else {
-			edges = append(edges, deleteEdge{SourceID: nodeID, RelationType: relationType, TargetID: otherID})
+			edges = append(
+				edges,
+				deleteEdge{SourceID: nodeID, RelationType: relationType, TargetID: otherID},
+			)
 		}
 	}
+
 	return edges, nil
 }
 
@@ -65,17 +87,29 @@ func decodeDeleteEdge(ctx context.Context, key fdb.Key) (string, uuid.UUID, erro
 	if err != nil {
 		return "", uuid.Nil, searchReadFailure(ctx, "unpack relationship key", err)
 	}
+
 	if len(values) < 5 {
-		return "", uuid.Nil, searchReadFailure(ctx, "decode relationship key", fmt.Errorf("relationship key has %d tuple elements", len(values)))
+		return "", uuid.Nil, searchReadFailure(
+			ctx,
+			"decode relationship key",
+			fmt.Errorf("relationship key has %d tuple elements", len(values)),
+		)
 	}
+
 	relationType, isText := values[3].(string)
 	if !isText {
-		return "", uuid.Nil, searchReadFailure(ctx, "decode relationship key", fmt.Errorf("relationship type is %T, not a string", values[3]))
+		return "", uuid.Nil, searchReadFailure(
+			ctx,
+			"decode relationship key",
+			fmt.Errorf("relationship type is %T, not a string", values[3]),
+		)
 	}
+
 	otherID, err := edgeEnd(ctx, key)
 	if err != nil {
 		return "", uuid.Nil, err
 	}
+
 	return relationType, otherID, nil
 }
 
@@ -83,21 +117,43 @@ func decodeDeleteEdge(ctx context.Context, key fdb.Key) (string, uuid.UUID, erro
 // tr and records each stored relationship deletion in changes. When search
 // work is enabled, it schedules access work for both ends of every cleared
 // edge.
-func (s *NodeDeleteStore) clearDeleteEdges(ctx context.Context, tr fdb.Transaction, orgID uuid.UUID, edges []deleteEdge, changes *mutationAudit) error {
+func (s *NodeDeleteStore) clearDeleteEdges(
+	ctx context.Context,
+	tr fdb.Transaction,
+	orgID uuid.UUID,
+	edges []deleteEdge,
+	changes *mutationAudit,
+) error {
 	removed := make([]*node.Relationship, 0, len(edges))
 	for _, edge := range edges {
-		removed = append(removed, &node.Relationship{
-			OrgID: orgID, SourceID: edge.SourceID, RelationType: edge.RelationType, TargetID: edge.TargetID,
-			CreatedBy: uuid.Nil, CreatedAt: time.Time{}, Props: map[string]json.RawMessage{},
-		})
+		removed = append(
+			removed,
+			&node.Relationship{
+				OrgID:        orgID,
+				SourceID:     edge.SourceID,
+				RelationType: edge.RelationType,
+				TargetID:     edge.TargetID,
+				CreatedBy:    uuid.Nil,
+				CreatedAt:    time.Time{},
+				Props:        map[string]json.RawMessage{},
+			},
+		)
 	}
+
 	if err := removeRelationships(ctx, tr, removed, changes); err != nil {
 		return err
 	}
+
 	if !s.nodes.searchWork || len(removed) == 0 {
 		return nil
 	}
-	return scheduleRelatedSearchWork(ctx, tr, s.nodes.clock.Now(), []node.RelationshipChanges{
-		{Add: []*node.Relationship{}, Remove: removed},
-	})
+
+	return scheduleRelatedSearchWork(
+		ctx,
+		tr,
+		s.nodes.clock.Now(),
+		[]node.RelationshipChanges{
+			{Add: []*node.Relationship{}, Remove: removed},
+		},
+	)
 }

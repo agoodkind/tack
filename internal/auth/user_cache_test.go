@@ -25,7 +25,9 @@ func (c *countingUsers) GetByID(_ context.Context, id uuid.UUID) (*user.User, er
 	if !ok {
 		return nil, domain.ErrNotFound
 	}
+
 	copied := *record
+
 	return &copied, nil
 }
 
@@ -35,8 +37,12 @@ func (c *countingUsers) GetByEmail(context.Context, string) (*user.User, error) 
 
 func namedUser(name string) *user.User {
 	return &user.User{
-		ID: uuid.Must(uuid.NewV7()), Email: name + "@example.test", DisplayName: name, AvatarURL: nil,
-		CreatedAt: time.Time{}, UpdatedAt: time.Time{},
+		ID:          uuid.Must(uuid.NewV7()),
+		Email:       name + "@example.test",
+		DisplayName: name,
+		AvatarURL:   nil,
+		CreatedAt:   time.Time{},
+		UpdatedAt:   time.Time{},
 	}
 }
 
@@ -54,10 +60,12 @@ func TestCachedUsersReadsOncePerLifetime(t *testing.T) {
 		if err != nil {
 			t.Fatalf("get: %v", err)
 		}
+
 		if got.DisplayName != "creator" {
 			t.Fatalf("display name = %q, want creator", got.DisplayName)
 		}
 	}
+
 	if reads := store.reads.Load(); reads != 1 {
 		t.Fatalf("users table read %d times, want 1", reads)
 	}
@@ -74,15 +82,21 @@ func TestCachedUsersSeesAChangeAfterTheLifetime(t *testing.T) {
 	if _, err := cached.GetByID(ctx, creator.ID); err != nil {
 		t.Fatalf("first get: %v", err)
 	}
+
 	store.records[creator.ID] = &user.User{
-		ID: creator.ID, Email: creator.Email, DisplayName: "after", AvatarURL: nil,
-		CreatedAt: time.Time{}, UpdatedAt: time.Time{},
+		ID:          creator.ID,
+		Email:       creator.Email,
+		DisplayName: "after",
+		AvatarURL:   nil,
+		CreatedAt:   time.Time{},
+		UpdatedAt:   time.Time{},
 	}
 	time.Sleep(60 * time.Millisecond)
 	got, err := cached.GetByID(ctx, creator.ID)
 	if err != nil {
 		t.Fatalf("second get: %v", err)
 	}
+
 	if got.DisplayName != "after" {
 		t.Fatalf("display name = %q after the lifetime, want after", got.DisplayName)
 	}
@@ -99,6 +113,7 @@ func TestCachedUsersNeverCachesAMiss(t *testing.T) {
 	if _, err := cached.GetByID(ctx, later.ID); !errors.Is(err, domain.ErrNotFound) {
 		t.Fatalf("unknown user: err = %v, want not found", err)
 	}
+
 	store.records[later.ID] = later
 	if _, err := cached.GetByID(ctx, later.ID); err != nil {
 		t.Fatalf("a user created after a miss was not found: %v", err)

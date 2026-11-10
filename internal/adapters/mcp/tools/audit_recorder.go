@@ -34,12 +34,17 @@ func requireAuditRecorder(ctx context.Context) (audit.Recorder, error) {
 	if recorder == nil {
 		return nil, errAuditRecorderMissing
 	}
+
 	return recorder, nil
 }
 
 // logRecorderMissing logs a request refusal when its context does not
 // contain an audit recorder.
 func logRecorderMissing(ctx context.Context, request string) {
-	slog.ErrorContext(ctx, "mcp.audit_recorder_missing",
-		slog.String("request", request), slog.String("err", errAuditRecorderMissing.Error()))
+	slog.ErrorContext(
+		ctx,
+		"mcp.audit_recorder_missing",
+		slog.String("request", request),
+		slog.String("err", errAuditRecorderMissing.Error()),
+	)
 }

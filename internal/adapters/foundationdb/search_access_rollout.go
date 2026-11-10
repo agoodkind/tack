@@ -33,7 +33,11 @@ var (
 //
 //   - Begin checks candidate versions against policies before starting a
 //     rollout.
-func NewSearchAccessRolloutStore(db fdb.Database, work *SearchWorkStore, policies *searchaccess.PolicySet) *SearchAccessRolloutStore {
+func NewSearchAccessRolloutStore(
+	db fdb.Database,
+	work *SearchWorkStore,
+	policies *searchaccess.PolicySet,
+) *SearchAccessRolloutStore {
 	return &SearchAccessRolloutStore{db: db, work: work, policies: policies}
 }
 
@@ -42,17 +46,32 @@ func NewSearchAccessRolloutStore(db fdb.Database, work *SearchWorkStore, policie
 // It reads the stored record in one FoundationDB transaction.
 //
 //   - An authority without a rollout record uses the stable policy version.
-func (s *SearchAccessRolloutStore) Current(ctx context.Context, authorityID uuid.UUID) (rollout searchdomain.AccessRollout, err error) {
+func (s *SearchAccessRolloutStore) Current(
+	ctx context.Context,
+	authorityID uuid.UUID,
+) (rollout searchdomain.AccessRollout, err error) {
 	defer telemetry.FDBOp(ctx, "store.search_rollout.current")(&err)
 	var record searchRolloutRecord
-	err = transactSearch(ctx, s.db, func(tr fdb.Transaction) error {
-		var readErr error
-		record, readErr = readRollout(ctx, tr, authorityID)
-		return readErr
-	})
+	err = transactSearch(
+		ctx,
+		s.db,
+		func(tr fdb.Transaction) error {
+			var readErr error
+			record, readErr = readRollout(ctx, tr, authorityID)
+
+			return readErr
+		},
+	)
 	if err != nil {
-		return rollout, searchStorageError(ctx, "search.rollout.read_failed", "read access rollout of authority "+authorityID.String(), uuid.Nil, err)
+		return rollout, searchStorageError(
+			ctx,
+			"search.rollout.read_failed",
+			"read access rollout of authority "+authorityID.String(),
+			uuid.Nil,
+			err,
+		)
 	}
+
 	return record.rollout(), nil
 }
 
@@ -63,11 +82,15 @@ func (s *SearchAccessRolloutStore) Current(ctx context.Context, authorityID uuid
 //
 //   - FoundationDB error 1031 or [context.DeadlineExceeded] also matches
 //     [searchdomain.ErrEngineUnavailable].
-func (s *SearchAccessRolloutStore) ActiveAccessVersion(ctx context.Context, authorityID uuid.UUID) (string, error) {
+func (s *SearchAccessRolloutStore) ActiveAccessVersion(
+	ctx context.Context,
+	authorityID uuid.UUID,
+) (string, error) {
 	rollout, err := s.Current(ctx, authorityID)
 	if err != nil {
 		return "", classifySearchTimeout(err)
 	}
+
 	return rollout.ActiveVersion, nil
 }
 
@@ -79,69 +102,132 @@ func (s *SearchAccessRolloutStore) ActiveAccessVersion(ctx context.Context, auth
 //   - A changed expected generation or an active rollout returns
 //     searchdomain.ErrRolloutInProgress.
 //   - The candidate must differ from the active version.
-func (s *SearchAccessRolloutStore) Begin(ctx context.Context, request searchdomain.BeginAccessRollout) (rollout searchdomain.AccessRollout, err error) {
+func (s *SearchAccessRolloutStore) Begin(
+	ctx context.Context,
+	request searchdomain.BeginAccessRollout,
+) (rollout searchdomain.AccessRollout, err error) {
 	defer telemetry.FDBOp(ctx, "store.search_rollout.begin")(&err)
 	if request.AuthorityID == uuid.Nil || !s.policies.Supports(request.CandidateVersion) {
-		invalid := fmt.Errorf("candidate version %q is not a registered policy, or the authority is empty", request.CandidateVersion)
-		return rollout, searchStorageError(ctx, "search.rollout.begin_invalid", "begin access rollout", uuid.Nil, invalid)
+		invalid := fmt.Errorf(
+			"candidate version %q is not a registered policy, or the authority is empty",
+			request.CandidateVersion,
+		)
+
+		return rollout, searchStorageError(
+			ctx,
+			"search.rollout.begin_invalid",
+			"begin access rollout",
+			uuid.Nil,
+			invalid,
+		)
 	}
+
 	var begun searchRolloutRecord
-	err = transactSearch(ctx, s.db, func(tr fdb.Transaction) error {
-		record, readErr := readRollout(ctx, tr, request.AuthorityID)
-		if readErr != nil {
-			return readErr
-		}
-		if record.Phase != string(searchdomain.AccessStable) || record.Generation != request.ExpectedGeneration ||
-			record.ActiveVersion == request.CandidateVersion {
-			return searchdomain.ErrRolloutInProgress
-		}
-		generation, counterErr := incrementSearchCounter(ctx, tr, searchRolloutGenerationKey(request.AuthorityID))
-		if counterErr != nil {
-			return counterErr
-		}
-		event, eventErr := readPermissionEvent(ctx, tr, request.AuthorityID)
-		if eventErr != nil {
-			return eventErr
-		}
-		versions := []string{record.ActiveVersion, request.CandidateVersion}
-		slices.Sort(versions)
-		begun = record
-		begun.CandidateVersion, begun.WriteVersions = request.CandidateVersion, versions
-		begun.Phase, begun.ScanCursor, begun.VerifyCursor, begun.RetireCursor = string(searchdomain.AccessBackfill), "", "", ""
-		begun.ScanComplete, begun.AffectedPass, begun.Generation, begun.PermissionEventVersion = false, false, generation, event
-		begun.InitiatedOperationID, begun.InitiatedActorID = request.Initiation.OperationID, request.Initiation.ActorID
-		if writeErr := writeSearchRecord(ctx, tr, searchRolloutKey(request.AuthorityID), begun); writeErr != nil {
-			return writeErr
-		}
-		return scheduleRolloutWork(ctx, tr, s.work, request.AuthorityID, generation)
-	})
+	err = transactSearch(
+		ctx,
+		s.db,
+		func(tr fdb.Transaction) error {
+			record, readErr := readRollout(ctx, tr, request.AuthorityID)
+			if readErr != nil {
+				return readErr
+			}
+
+			if record.Phase != string(searchdomain.AccessStable) ||
+				record.Generation != request.ExpectedGeneration ||
+				record.ActiveVersion == request.CandidateVersion {
+				return searchdomain.ErrRolloutInProgress
+			}
+
+			generation, counterErr := incrementSearchCounter(
+				ctx,
+				tr,
+				searchRolloutGenerationKey(request.AuthorityID),
+			)
+			if counterErr != nil {
+				return counterErr
+			}
+
+			event, eventErr := readPermissionEvent(ctx, tr, request.AuthorityID)
+			if eventErr != nil {
+				return eventErr
+			}
+
+			versions := []string{record.ActiveVersion, request.CandidateVersion}
+			slices.Sort(versions)
+			begun = record
+			begun.CandidateVersion, begun.WriteVersions = request.CandidateVersion, versions
+			begun.Phase, begun.ScanCursor, begun.VerifyCursor, begun.RetireCursor = string(
+				searchdomain.AccessBackfill,
+			), "", "", ""
+			begun.ScanComplete, begun.AffectedPass,
+				begun.Generation, begun.PermissionEventVersion = false, false, generation, event
+			begun.InitiatedOperationID, begun.InitiatedActorID = request.Initiation.OperationID, request.Initiation.ActorID
+			if writeErr := writeSearchRecord(
+				ctx,
+				tr,
+				searchRolloutKey(request.AuthorityID),
+				begun,
+			); writeErr != nil {
+				return writeErr
+			}
+
+			return scheduleRolloutWork(ctx, tr, s.work, request.AuthorityID, generation)
+		},
+	)
 	if errors.Is(err, searchdomain.ErrRolloutInProgress) {
 		return rollout, err
 	}
+
 	if err != nil {
-		return rollout, searchStorageError(ctx, "search.rollout.begin_failed", "begin access rollout of authority "+request.AuthorityID.String(), uuid.Nil, err)
+		return rollout, searchStorageError(
+			ctx,
+			"search.rollout.begin_failed",
+			"begin access rollout of authority "+request.AuthorityID.String(),
+			uuid.Nil,
+			err,
+		)
 	}
-	telemetry.L(ctx).InfoContext(ctx, "search.rollout.begun", slog.String("authority_id", request.AuthorityID.String()),
-		slog.String("candidate_version", request.CandidateVersion), slog.Int64("generation", begun.Generation))
+
+	telemetry.L(ctx).InfoContext(
+		ctx,
+		"search.rollout.begun",
+		slog.String("authority_id", request.AuthorityID.String()),
+		slog.String("candidate_version", request.CandidateVersion),
+		slog.Int64("generation", begun.Generation),
+	)
+
 	return begun.rollout(), nil
 }
 
 // scheduleRolloutWork writes the rollout work item of authorityID at
 // generation.
-func scheduleRolloutWork(ctx context.Context, tr fdb.Transaction, work *SearchWorkStore, authorityID uuid.UUID, generation int64) error {
+func scheduleRolloutWork(
+	ctx context.Context,
+	tr fdb.Transaction,
+	work *SearchWorkStore,
+	authorityID uuid.UUID,
+	generation int64,
+) error {
 	class := searchdomain.WorkClassRollout
 	existing, found, err := readSearchWork(ctx, tr, class, authorityID, uuid.Nil)
 	if err != nil {
 		return err
 	}
+
 	var previous *searchWorkRecord
 	if found {
 		previous = &existing
 	}
+
 	record := searchWorkRecord{
-		OrgID: authorityID, NodeID: uuid.Nil, Generation: generation, Revision: 0,
-		Deleted: false, EnqueuedAt: work.clock.Now().UTC(),
+		OrgID:      authorityID,
+		NodeID:     uuid.Nil,
+		Generation: generation,
+		Revision:   0,
+		Deleted:    false,
+		EnqueuedAt: work.clock.Now().UTC(),
 	}
+
 	return writeSearchWork(ctx, tr, class, record, previous)
 }
 
@@ -154,16 +240,42 @@ func scheduleRolloutWork(ctx context.Context, tr fdb.Transaction, work *SearchWo
 //     becomes empty.
 func (s *SearchAccessRolloutStore) Wait(ctx context.Context, work searchdomain.Work) (err error) {
 	defer telemetry.FDBOp(ctx, "store.search_rollout.wait")(&err)
-	err = transactSearch(ctx, s.db, func(tr fdb.Transaction) error {
-		if _, verifyErr := s.work.verifyClaim(ctx, tr, work); verifyErr != nil {
-			return verifyErr
-		}
-		return writeSearchRecord(ctx, tr, searchClaimKey(string(work.Class), searchBucket(work.OrgID, work.NodeID), work.OrgID, work.NodeID), searchClaimRecord{
-			Owner: "", Generation: work.Generation, LeaseUntil: s.work.clock.Now().Add(searchRetryDelay), Target: work.Target, Mirror: work.Mirror,
-		})
-	})
+	err = transactSearch(
+		ctx,
+		s.db,
+		func(tr fdb.Transaction) error {
+			if _, verifyErr := s.work.verifyClaim(ctx, tr, work); verifyErr != nil {
+				return verifyErr
+			}
+
+			return writeSearchRecord(
+				ctx,
+				tr,
+				searchClaimKey(
+					string(work.Class),
+					searchBucket(work.OrgID, work.NodeID),
+					work.OrgID,
+					work.NodeID,
+				),
+				searchClaimRecord{
+					Owner:      "",
+					Generation: work.Generation,
+					LeaseUntil: s.work.clock.Now().Add(searchRetryDelay),
+					Target:     work.Target,
+					Mirror:     work.Mirror,
+				},
+			)
+		},
+	)
 	if err != nil {
-		return searchStorageError(ctx, "search.rollout.wait_failed", "delay access rollout of authority "+work.OrgID.String(), uuid.Nil, err)
+		return searchStorageError(
+			ctx,
+			"search.rollout.wait_failed",
+			"delay access rollout of authority "+work.OrgID.String(),
+			uuid.Nil,
+			err,
+		)
 	}
+
 	return nil
 }

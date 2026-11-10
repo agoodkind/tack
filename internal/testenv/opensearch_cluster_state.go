@@ -24,12 +24,16 @@ const SearchClusterVariable = "TACK_SEARCH_CLUSTER"
 // skipWithoutSearchCluster skips a cluster test unless both
 // [SearchIntegrationVariable] and [SearchClusterVariable] are "1". Outside a
 // test binary, cmd/testenv starts the cluster on request.
-func skipWithoutSearchCluster(t T) {
-	t.Helper()
-	skipWithoutSearchIntegration(t)
+func skipWithoutSearchCluster(test T) {
+	test.Helper()
+	skipWithoutSearchIntegration(test)
 	if testing.Testing() && os.Getenv(SearchClusterVariable) != "1" {
-		_, _ = fmt.Fprintf(t.Output(), "testenv: OpenSearch cluster test skipped; set %s=1 to run it\n", SearchClusterVariable)
-		t.SkipNow()
+		_, _ = fmt.Fprintf(
+			test.Output(),
+			"testenv: OpenSearch cluster test skipped; set %s=1 to run it\n",
+			SearchClusterVariable,
+		)
+		test.SkipNow()
 	}
 }
 
@@ -56,12 +60,14 @@ func (s clusterState) settled(members []string) bool {
 	for _, node := range s.Nodes {
 		names = append(names, node.Name)
 	}
+
 	slices.Sort(names)
 	expected := slices.Sorted(slices.Values(members))
 	voters := len(members)
 	if voters%2 == 0 {
 		voters--
 	}
+
 	return slices.Equal(names, expected) && len(s.Metadata.Coordination.Voters) == voters
 }
 
@@ -70,27 +76,47 @@ func (s clusterState) settled(members []string) bool {
 func (c *OpenSearchCluster) waitForClusterSize(ctx context.Context) error {
 	pass := c.Fixture.Password
 	configuration := search.Config{
-		Endpoint: c.Fixture.Endpoint, CA: c.Fixture.CA, Username: c.Fixture.Username,
-		Password: pass, RequestTimeout: openSearchProbeTimeout, MaxRetries: 0,
+		Endpoint:       c.Fixture.Endpoint,
+		CA:             c.Fixture.CA,
+		Username:       c.Fixture.Username,
+		Password:       pass,
+		RequestTimeout: openSearchProbeTimeout,
+		MaxRetries:     0,
 	}
 	stateClient, err := opensearch.NewClient(configuration.ClientConfig(nil))
 	if err != nil {
 		slog.ErrorContext(ctx, "testenv.cluster.client_failed", slog.String("err", err.Error()))
 		return fmt.Errorf("create cluster state client for %s: %w", c.name, err)
 	}
+
 	defer func() { _ = stateClient.Close() }()
 	filter := []string{"nodes.*.name", "metadata.cluster_coordination.last_committed_config"}
-	request := &opensearchapi.ClusterStateReq{Metric: []string{"nodes", "metadata"}, Params: &opensearchapi.ClusterStateParams{FilterPath: filter}}
+	request := &opensearchapi.ClusterStateReq{
+		Metric: []string{"nodes", "metadata"},
+		Params: &opensearchapi.ClusterStateParams{FilterPath: filter},
+	}
 	members := len(c.members)
+
 	for {
 		var state clusterState
 		response, err := opensearch.Execute(ctx, stateClient, http.MethodGet, request, &state)
 		if err == nil && !response.IsError() && state.settled(c.members) {
 			return nil
 		}
+
 		if !sleepOrDone(ctx) {
-			wrapped := fmt.Errorf("wait for %d members and voters in cluster %s: %w", members, c.name, ctx.Err())
-			slog.ErrorContext(ctx, "testenv.cluster.size_failed", slog.String("err", wrapped.Error()))
+			wrapped := fmt.Errorf(
+				"wait for %d members and voters in cluster %s: %w",
+				members,
+				c.name,
+				ctx.Err(),
+			)
+			slog.ErrorContext(
+				ctx,
+				"testenv.cluster.size_failed",
+				slog.String("err", wrapped.Error()),
+			)
+
 			return wrapped
 		}
 	}

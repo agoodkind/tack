@@ -54,13 +54,16 @@ func acquirePingTimeoutFor(maxConns int32) time.Duration {
 	if maxConns < 1 {
 		maxConns = 1
 	}
+
 	timeout := acquireWalkBudget / time.Duration(maxConns)
 	if timeout > acquirePingCeiling {
 		return acquirePingCeiling
 	}
+
 	if timeout < acquirePingFloor {
 		return acquirePingFloor
 	}
+
 	return timeout
 }
 
@@ -86,14 +89,17 @@ func NewPool(ctx context.Context, dsn string, tracer pgx.QueryTracer) (*pgxpool.
 	if err != nil {
 		return nil, fmt.Errorf("pgxpool parse config: %w", err)
 	}
+
 	applyPoolSettings(cfg, tracer)
 	pool, err := pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {
 		return nil, fmt.Errorf("pgxpool.New: %w", err)
 	}
+
 	if err := pool.Ping(ctx); err != nil {
 		return nil, fmt.Errorf("postgres ping: %w", err)
 	}
+
 	return pool, nil
 }
 
@@ -123,10 +129,12 @@ func PingFreshConnection(ctx context.Context, pool *pgxpool.Pool) error {
 		slog.ErrorContext(ctx, "postgres.fresh_connect_failed", slog.String("err", err.Error()))
 		return fmt.Errorf("postgres connect: %w", err)
 	}
+
 	defer func() { _ = conn.Close(ctx) }()
 	if err := conn.Ping(ctx); err != nil {
 		slog.ErrorContext(ctx, "postgres.fresh_ping_failed", slog.String("err", err.Error()))
 		return fmt.Errorf("postgres ping: %w", err)
 	}
+
 	return nil
 }

@@ -18,7 +18,9 @@ const managedProbeSequence = 999
 
 // errManagedPropertyAccepted reports that a create or update call accepted a
 // value for a property that the node service writes itself.
-var errManagedPropertyAccepted = errors.New("the server accepted a value for a service-managed property")
+var errManagedPropertyAccepted = errors.New(
+	"the server accepted a value for a service-managed property",
+)
 
 // managedProbe specifies the tool, the property that the service manages,
 // and the arguments for one create or update probe.
@@ -48,16 +50,28 @@ func (g *Generator) probeManagedPropertiesRefused(
 		if g.dryRun {
 			continue
 		}
-		message := fmt.Sprintf("qa datagen: %s probe with properties.%s", probe.toolName, probe.property)
+		message := fmt.Sprintf(
+			"qa datagen: %s probe with properties.%s",
+			probe.toolName,
+			probe.property,
+		)
 		if err == nil {
 			return loggedError(ctx, message, errManagedPropertyAccepted)
 		}
-		if !strings.Contains(err.Error(), managedRefusalText) || !strings.Contains(err.Error(), "properties."+probe.property) {
+		if !strings.Contains(
+			err.Error(),
+			managedRefusalText,
+		) || !strings.Contains(err.Error(), "properties."+probe.property) {
 			return loggedError(ctx, message, err)
 		}
 	}
-	slog.InfoContext(ctx, "qa.datagen.managed_properties_refused",
-		slog.String("project", projectIdentifier), slog.Int("probes", len(probes)), slog.Bool("dry_run", g.dryRun))
+	slog.InfoContext(
+		ctx,
+		"qa.datagen.managed_properties_refused",
+		slog.String("project", projectIdentifier),
+		slog.Int("probes", len(probes)),
+		slog.Bool("dry_run", g.dryRun),
+	)
 	return nil
 }
 
@@ -70,25 +84,48 @@ func (g *Generator) managedProbes(
 	issueReference string,
 ) []managedProbe {
 	values := map[string]func(NodeProperties){
-		"scope_id": func(properties NodeProperties) { properties.setString("scope_id", projectReference) },
-		"sequence": func(properties NodeProperties) { properties.setInt("sequence", managedProbeSequence) },
+		"scope_id": func(properties NodeProperties) {
+			properties.setString("scope_id", projectReference)
+		},
+		"sequence": func(properties NodeProperties) {
+			properties.setInt("sequence", managedProbeSequence)
+		},
 	}
 	probes := make([]managedProbe, 0, 2*len(values))
 	for _, property := range []string{"scope_id", "sequence"} {
 		createProperties := newProperties()
 		values[property](createProperties)
 		name := fmt.Sprintf("QA managed %s probe seed %d", property, g.seed)
-		probes = append(probes, managedProbe{toolName: "tack_create_issue", property: property, arguments: ToolArguments{
-			WorkspaceReference: workspace.Slug, ProjectReference: projectIdentifier, Name: name, Properties: createProperties,
-		}})
+		probes = append(
+			probes,
+			managedProbe{
+				toolName: "tack_create_issue",
+				property: property,
+				arguments: ToolArguments{
+					WorkspaceReference: workspace.Slug,
+					ProjectReference:   projectIdentifier,
+					Name:               name,
+					Properties:         createProperties,
+				},
+			},
+		)
 		if issueReference == "" {
 			continue
 		}
 		updateProperties := newProperties()
 		values[property](updateProperties)
-		probes = append(probes, managedProbe{toolName: "tack_update_issue", property: property, arguments: ToolArguments{
-			WorkspaceReference: workspace.Slug, NodeID: issueReference, Properties: updateProperties,
-		}})
+		probes = append(
+			probes,
+			managedProbe{
+				toolName: "tack_update_issue",
+				property: property,
+				arguments: ToolArguments{
+					WorkspaceReference: workspace.Slug,
+					NodeID:             issueReference,
+					Properties:         updateProperties,
+				},
+			},
+		)
 	}
 	return probes
 }

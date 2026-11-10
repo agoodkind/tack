@@ -61,11 +61,13 @@ func parseYBSnapshotMapping(out string) ([]ybTabletRemap, error) {
 	var remaps []ybTabletRemap
 	started := false
 	table := ""
+
 	for line := range strings.SplitSeq(out, "\n") {
 		fields := strings.Fields(line)
 		if len(fields) == 0 {
 			continue
 		}
+
 		switch {
 		case fields[0] == "Object":
 			started = true
@@ -76,20 +78,31 @@ func parseYBSnapshotMapping(out string) ([]ybTabletRemap, error) {
 			if err != nil {
 				return nil, err
 			}
+
 			table = tableID
 		case fields[0] == "Tablet":
 			if len(fields) < ybTabletRowFields {
-				return nil, ybMappingRowError(fields, "does not name both an old and a new tablet id")
+				return nil, ybMappingRowError(
+					fields,
+					"does not name both an old and a new tablet id",
+				)
 			}
+
 			if table == "" {
-				return nil, ybMappingRowError(fields, "precedes every Table row, so its tablet belongs to no table")
+				return nil, ybMappingRowError(
+					fields,
+					"precedes every Table row, so its tablet belongs to no table",
+				)
 			}
+
 			if err := requireYBObjectIDs(fields, fields[2], fields[3]); err != nil {
 				return nil, err
 			}
+
 			remaps = append(remaps, ybTabletRemap{table: table, old: fields[2], new: fields[3]})
 		}
 	}
+
 	return remaps, nil
 }
 
@@ -101,20 +114,28 @@ func parseYBMappingTableRow(fields []string) (string, error) {
 	if len(fields) < ybTableRowFields {
 		return "", ybMappingRowError(fields, "names no table id")
 	}
+
 	old := fields[1]
 	if err := requireYBObjectIDs(fields, old); err != nil {
 		return "", err
 	}
+
 	if len(fields) == ybTableRowFields {
 		return old, nil
 	}
+
 	newID := fields[2]
 	if err := requireYBObjectIDs(fields, newID); err != nil {
 		return "", err
 	}
+
 	if newID != old {
-		return "", ybMappingRowError(fields, "names a new table id that differs from its old one, which the import preserves")
+		return "", ybMappingRowError(
+			fields,
+			"names a new table id that differs from its old one, which the import preserves",
+		)
 	}
+
 	return old, nil
 }
 
@@ -130,12 +151,19 @@ const (
 // requireYBObjectIDs rejects a mapping row if any ID does not match the
 // engine's format. The error includes the row's fields and the invalid ID.
 func requireYBObjectIDs(row []string, ids ...string) error {
-	for _, id := range ids {
-		if !ybObjectIDPattern.MatchString(id) {
-			return ybMappingRowError(row, fmt.Sprintf("names %q, which is not a 32-character"+
-				" hexadecimal table or tablet id", id))
+	for _, objectID := range ids {
+		if !ybObjectIDPattern.MatchString(objectID) {
+			return ybMappingRowError(
+				row,
+				fmt.Sprintf(
+					"names %q, which is not a 32-character"+
+						" hexadecimal table or tablet id",
+					objectID,
+				),
+			)
 		}
 	}
+
 	return nil
 }
 

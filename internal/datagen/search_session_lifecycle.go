@@ -26,9 +26,20 @@ const searchSessionExpiredResponse = "#### Request could not be completed\n\n" +
 // expiry minute, it repeats new searches until a sweep removes the header. It
 // requires the expired-session response for the abandoned cursor after removal
 // and returns the session ID for a ledger check.
-func (r searchRun) verifySessionLifecycle(ctx context.Context, cursors *tools.SearchCursorCodec) (uuid.UUID, error) {
+func (r searchRun) verifySessionLifecycle(ctx context.Context, cursors *tools.SearchCursorCodec) (
+	uuid.UUID,
+	error,
+) {
 	query := r.phrases.Continuation
-	if _, err := traverseSearch(ctx, r.driver, r.identities(), r.token, r.entry, query, r.limits); err != nil {
+	if _, err := traverseSearch(
+		ctx,
+		r.driver,
+		r.identities(),
+		r.token,
+		r.entry,
+		query,
+		r.limits,
+	); err != nil {
 		return uuid.Nil, err
 	}
 	abandoned, err := callSearch(ctx, r.driver, r.identities(), r.token, r.entry, query, "")
@@ -36,20 +47,37 @@ func (r searchRun) verifySessionLifecycle(ctx context.Context, cursors *tools.Se
 		return uuid.Nil, err
 	}
 	if abandoned.Cursor == "" {
-		return uuid.Nil, fmt.Errorf("qa datagen: search %q returned no continuation cursor to abandon", query)
+		return uuid.Nil, fmt.Errorf(
+			"qa datagen: search %q returned no continuation cursor to abandon",
+			query,
+		)
 	}
 	sessionID, _, err := cursors.Decode(abandoned.Cursor)
 	if err != nil {
-		return uuid.Nil, loggedError(ctx, "qa datagen: decode the cursor of the abandoned session", err)
+		return uuid.Nil, loggedError(
+			ctx,
+			"qa datagen: decode the cursor of the abandoned session",
+			err,
+		)
 	}
-	slog.InfoContext(ctx, "qa.datagen.session_abandoned", slog.String("session_id", sessionID.String()))
-	expiry := clock.Now().Add(r.limits.IdleTimeout).Truncate(time.Minute).Add(time.Minute + sessionSweepMargin)
+	slog.InfoContext(
+		ctx,
+		"qa.datagen.session_abandoned",
+		slog.String("session_id", sessionID.String()),
+	)
+	expiry := clock.Now().Add(r.limits.IdleTimeout).Truncate(time.Minute).Add(
+		time.Minute + sessionSweepMargin,
+	)
 	if err := waitForSessionExpiry(ctx, expiry); err != nil {
 		return uuid.Nil, err
 	}
-	if err := r.eventually(ctx, "sweep the abandoned session", func(ctx context.Context) error {
-		return r.sweepAbandonedSession(ctx, query, sessionID)
-	}); err != nil {
+	if err := r.eventually(
+		ctx,
+		"sweep the abandoned session",
+		func(ctx context.Context) error {
+			return r.sweepAbandonedSession(ctx, query, sessionID)
+		},
+	); err != nil {
 		return uuid.Nil, err
 	}
 	return sessionID, r.requireExpiredSession(ctx, query, abandoned.Cursor)
@@ -60,10 +88,24 @@ func (r searchRun) verifySessionLifecycle(ctx context.Context, cursors *tools.Se
 // expired sessions. Earlier searches in the run may have created sessions that
 // use that limit first.
 func (r searchRun) sweepAbandonedSession(ctx context.Context, query string, sessionID uuid.UUID) error {
-	if _, err := traverseSearch(ctx, r.driver, r.identities(), r.token, r.entry, query, r.limits); err != nil {
+	if _, err := traverseSearch(
+		ctx,
+		r.driver,
+		r.identities(),
+		r.token,
+		r.entry,
+		query,
+		r.limits,
+	); err != nil {
 		return err
 	}
-	_, err := r.fixture.stores.SearchSessions(clock.Wall{}, r.limits.IdleTimeout).Load(ctx, sessionID)
+	_, err := r.fixture.stores.SearchSessions(
+		clock.Wall{},
+		r.limits.IdleTimeout,
+	).Load(
+		ctx,
+		sessionID,
+	)
 	if errors.Is(err, searchdomain.ErrSessionNotFound) {
 		return nil
 	}
@@ -76,10 +118,17 @@ func (r searchRun) sweepAbandonedSession(ctx context.Context, query string, sess
 func (r searchRun) requireExpiredSession(ctx context.Context, query, cursor string) error {
 	_, err := callSearch(ctx, r.driver, r.identities(), r.token, r.entry, query, cursor)
 	if err == nil {
-		return loggedError(ctx, "qa datagen: sweep the abandoned session", errors.New("the cursor of the abandoned session returned a page"))
+		return loggedError(
+			ctx,
+			"qa datagen: sweep the abandoned session",
+			errors.New("the cursor of the abandoned session returned a page"),
+		)
 	}
 	var toolError *toolCallError
-	if errors.As(err, &toolError) && toolError.toolName == "tack_search" && toolError.message == searchSessionExpiredResponse {
+	if errors.As(
+		err,
+		&toolError,
+	) && toolError.toolName == "tack_search" && toolError.message == searchSessionExpiredResponse {
 		return nil
 	}
 	return loggedError(ctx, "qa datagen: verify the expired-session response", err)

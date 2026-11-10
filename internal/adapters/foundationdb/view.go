@@ -44,23 +44,28 @@ func (s *ViewStore) Get(ctx context.Context, nodeID uuid.UUID) (view *node.NodeV
 		if err != nil || len(resolveBytes) == 0 {
 			return nil, err
 		}
+
 		var resolve node.NodeResolve
 		if err := json.Unmarshal(resolveBytes, &resolve); err != nil {
 			return nil, fmt.Errorf("unmarshal resolve: %w", err)
 		}
+
 		return tr.Get(fdb.Key(nodeViewKey(resolve.OrgID, resolve.NodeType, nodeID))).Get()
 	})
 	if err != nil {
 		return nil, fmt.Errorf("view get: %w", classifyStorageTimeout(err))
 	}
-	b, ok := val.([]byte)
-	if !ok || len(b) == 0 {
+
+	encodedView, ok := val.([]byte)
+	if !ok || len(encodedView) == 0 {
 		return nil, nil
 	}
+
 	var v node.NodeView
-	if err := json.Unmarshal(b, &v); err != nil {
+	if err := json.Unmarshal(encodedView, &v); err != nil {
 		return nil, fmt.Errorf("unmarshal view: %w", err)
 	}
+
 	return &v, nil
 }
 
@@ -70,25 +75,32 @@ func (s *ViewStore) Get(ctx context.Context, nodeID uuid.UUID) (view *node.NodeV
 // organization or node type to select that record.
 //
 //   - An absent record returns [domain.ErrNotFound].
-func (s *ViewStore) Resolve(ctx context.Context, nodeID uuid.UUID) (r *node.NodeResolve, err error) {
+func (s *ViewStore) Resolve(
+	ctx context.Context,
+	nodeID uuid.UUID,
+) (r *node.NodeResolve, err error) {
 	defer telemetry.FDBOp(ctx, "store.view.resolve")(&err)
 	key := fdb.Key(nodeResolveKey(nodeID))
 	var result *node.NodeResolve
 	_, err = s.db.ReadTransact(func(tr fdb.ReadTransaction) (any, error) {
-		b := tr.Get(key).MustGet()
-		if len(b) == 0 {
+		encodedResolve := tr.Get(key).MustGet()
+		if len(encodedResolve) == 0 {
 			return nil, domain.ErrNotFound
 		}
+
 		var r node.NodeResolve
-		if err := json.Unmarshal(b, &r); err != nil {
+		if err := json.Unmarshal(encodedResolve, &r); err != nil {
 			return nil, fmt.Errorf("unmarshal resolve: %w", err)
 		}
+
 		result = &r
+
 		return nil, nil
 	})
 	if err != nil {
 		return nil, err
 	}
+
 	return result, nil
 }
 
@@ -101,29 +113,37 @@ func (s *ViewStore) Resolve(ctx context.Context, nodeID uuid.UUID) (r *node.Node
 //   - ByProperty selects the property index first.
 //   - BySourceRelation or ByTargetRelation selects a relationship index.
 //   - A query without those selectors scans the view range.
-func (s *ViewStore) List(ctx context.Context, q node.NodeListQuery) (out []*node.NodeView, err error) {
+func (s *ViewStore) List(
+	ctx context.Context,
+	q node.NodeListQuery,
+) (out []*node.NodeView, err error) {
 	defer telemetry.FDBOp(ctx, "store.view.list")(&err)
 	views, err := s.scanCandidates(ctx, q)
 	if err != nil {
 		return nil, err
 	}
+
 	// The following checks filter the scanned views.
 	out = views[:0]
 	for _, v := range views {
 		if !matchPropFilters(v, q.PropFilters) {
 			continue
 		}
+
 		if q.CreatedAfter != nil && v.CreatedAt.Before(*q.CreatedAfter) {
 			continue
 		}
+
 		if q.CreatedBefore != nil && v.CreatedAt.After(*q.CreatedBefore) {
 			continue
 		}
+
 		out = append(out, v)
 		if q.Limit > 0 && len(out) >= q.Limit {
 			break
 		}
 	}
+
 	return out, nil
 }
 
@@ -134,7 +154,10 @@ func (s *ViewStore) List(ctx context.Context, q node.NodeListQuery) (out []*node
 //
 //   - A List error becomes a channel result with Err set.
 //   - Context cancellation stops the goroutine while it sends views.
-func (s *ViewStore) Stream(ctx context.Context, q node.NodeListQuery) (<-chan node.NodeStreamResult, error) {
+func (s *ViewStore) Stream(
+	ctx context.Context,
+	q node.NodeListQuery,
+) (<-chan node.NodeStreamResult, error) {
 	ch := make(chan node.NodeStreamResult, 64)
 	go func() {
 		defer func() {
@@ -143,7 +166,9 @@ func (s *ViewStore) Stream(ctx context.Context, q node.NodeListQuery) (<-chan no
 			}
 		}()
 		defer close(ch)
-		ctx, span := telemetry.StartSpan(ctx, "store.view.stream",
+		ctx, span := telemetry.StartSpan(
+			ctx,
+			"store.view.stream",
 			trace.WithSpanKind(trace.SpanKindInternal),
 			trace.WithAttributes(
 				attribute.String("org.id", q.OrgID.String()),
@@ -151,7 +176,8 @@ func (s *ViewStore) Stream(ctx context.Context, q node.NodeListQuery) (<-chan no
 			),
 		)
 		defer span.End()
-		ctx = telemetry.WithTraceLogger(ctx,
+		ctx = telemetry.WithTraceLogger(
+			ctx,
 			slog.String("org_id", q.OrgID.String()),
 			slog.String("node_type", q.NodeType),
 		)
@@ -160,6 +186,7 @@ func (s *ViewStore) Stream(ctx context.Context, q node.NodeListQuery) (<-chan no
 			ch <- node.NodeStreamResult{Err: err}
 			return
 		}
+
 		for _, v := range views {
 			select {
 			case <-ctx.Done():
@@ -168,10 +195,14 @@ func (s *ViewStore) Stream(ctx context.Context, q node.NodeListQuery) (<-chan no
 			}
 		}
 	}()
+
 	return ch, nil
 }
 
-func (s *ViewStore) scanCandidates(_ context.Context, q node.NodeListQuery) ([]*node.NodeView, error) {
+func (s *ViewStore) scanCandidates(
+	_ context.Context,
+	q node.NodeListQuery,
+) ([]*node.NodeView, error) {
 	// The switch selects the first matching primary scan strategy.
 	switch {
 	case q.ByProperty != nil:
@@ -181,61 +212,84 @@ func (s *ViewStore) scanCandidates(_ context.Context, q node.NodeListQuery) ([]*
 	case q.ByTargetRelation != nil:
 		return s.scanByRelation(q.OrgID, q.NodeType, q.ByTargetRelation, false)
 	}
+
 	// The default scan reads the full range for orgID and nodeType.
 	prefix := nodeViewPrefix(q.OrgID, q.NodeType)
-	pr, err := fdb.PrefixRange(prefix)
+	prefixRange, err := fdb.PrefixRange(prefix)
 	if err != nil {
 		return nil, err
 	}
+
 	vals, err := s.db.ReadTransact(func(tr fdb.ReadTransaction) (any, error) {
-		return tr.GetRange(pr, fdb.RangeOptions{}).GetSliceWithError()
+		return tr.GetRange(prefixRange, fdb.RangeOptions{}).GetSliceWithError()
 	})
 	if err != nil {
 		return nil, fmt.Errorf("fdb view range scan: %w", err)
 	}
+
 	return decodeViews(vals.([]fdb.KeyValue)), nil
 }
 
-func (s *ViewStore) scanByProperty(orgID uuid.UUID, nodeType, propName string, value json.RawMessage) ([]*node.NodeView, error) {
-	pr, err := fdb.PrefixRange(nodeByPropertyValuePrefix(orgID, nodeType, propName, encodePropertyValue(value)))
+func (s *ViewStore) scanByProperty(
+	orgID uuid.UUID,
+	nodeType string,
+	propName string,
+	value json.RawMessage,
+) ([]*node.NodeView, error) {
+	prefixRange, err := fdb.PrefixRange(
+		nodeByPropertyValuePrefix(orgID, nodeType, propName, encodePropertyValue(value)),
+	)
 	if err != nil {
 		return nil, err
 	}
+
 	vals, err := s.db.ReadTransact(func(tr fdb.ReadTransaction) (any, error) {
-		indexKVs, err := tr.GetRange(pr, fdb.RangeOptions{}).GetSliceWithError()
+		indexKVs, err := tr.GetRange(prefixRange, fdb.RangeOptions{}).GetSliceWithError()
 		if err != nil {
 			return nil, err
 		}
+
 		views := make([]*node.NodeView, 0, len(indexKVs))
 		for _, kv := range indexKVs {
 			t, terr := tuple.Unpack(stripPrefix(kv.Key))
 			if terr != nil || len(t) < 6 {
 				continue
 			}
+
 			nodeIDStr, _ := t[5].(string)
 			id, perr := uuid.Parse(nodeIDStr)
 			if perr != nil {
 				continue
 			}
-			b, err := tr.Get(fdb.Key(nodeViewKey(orgID, nodeType, id))).Get()
-			if err != nil || len(b) == 0 {
+
+			encodedView, err := tr.Get(fdb.Key(nodeViewKey(orgID, nodeType, id))).Get()
+			if err != nil || len(encodedView) == 0 {
 				continue
 			}
+
 			var v node.NodeView
-			if err := json.Unmarshal(b, &v); err != nil {
+			if err := json.Unmarshal(encodedView, &v); err != nil {
 				continue
 			}
+
 			views = append(views, &v)
 		}
+
 		return views, nil
 	})
 	if err != nil {
 		return nil, fmt.Errorf("fdb scan by property: %w", err)
 	}
+
 	return vals.([]*node.NodeView), nil
 }
 
-func (s *ViewStore) scanByRelation(orgID uuid.UUID, nodeType string, scan *node.RelationScan, fromSource bool) ([]*node.NodeView, error) {
+func (s *ViewStore) scanByRelation(
+	orgID uuid.UUID,
+	nodeType string,
+	scan *node.RelationScan,
+	fromSource bool,
+) ([]*node.NodeView, error) {
 	var prefix []byte
 	var peerIdx int
 	if fromSource {
@@ -245,67 +299,81 @@ func (s *ViewStore) scanByRelation(orgID uuid.UUID, nodeType string, scan *node.
 		prefix = relationshipReversePrefixByTarget(orgID, scan.NodeID, scan.RelationType)
 		peerIdx = 4 // The peer is sourceID.
 	}
-	pr, err := fdb.PrefixRange(prefix)
+
+	prefixRange, err := fdb.PrefixRange(prefix)
 	if err != nil {
 		return nil, err
 	}
+
 	vals, err := s.db.ReadTransact(func(tr fdb.ReadTransaction) (any, error) {
-		kvs, err := tr.GetRange(pr, fdb.RangeOptions{}).GetSliceWithError()
+		kvs, err := tr.GetRange(prefixRange, fdb.RangeOptions{}).GetSliceWithError()
 		if err != nil {
 			return nil, err
 		}
+
 		views := make([]*node.NodeView, 0, len(kvs))
 		for _, kv := range kvs {
 			t, terr := tuple.Unpack(stripPrefix(kv.Key))
 			if terr != nil || len(t) <= peerIdx {
 				continue
 			}
+
 			peerStr, _ := t[peerIdx].(string)
 			peerID, perr := uuid.Parse(peerStr)
 			if perr != nil {
 				continue
 			}
+
 			// The node_resolve record supplies the peer's NodeType.
-			rb, err := tr.Get(fdb.Key(nodeResolveKey(peerID))).Get()
-			if err != nil || len(rb) == 0 {
+			encodedResolve, err := tr.Get(fdb.Key(nodeResolveKey(peerID))).Get()
+			if err != nil || len(encodedResolve) == 0 {
 				continue
 			}
+
 			var r node.NodeResolve
-			if err := json.Unmarshal(rb, &r); err != nil {
+			if err := json.Unmarshal(encodedResolve, &r); err != nil {
 				continue
 			}
+
 			if nodeType != "" && r.NodeType != nodeType {
 				continue
 			}
-			b, err := tr.Get(fdb.Key(nodeViewKey(r.OrgID, r.NodeType, peerID))).Get()
-			if err != nil || len(b) == 0 {
+
+			encodedView, err := tr.Get(fdb.Key(nodeViewKey(r.OrgID, r.NodeType, peerID))).Get()
+			if err != nil || len(encodedView) == 0 {
 				continue
 			}
+
 			var v node.NodeView
-			if err := json.Unmarshal(b, &v); err != nil {
+			if err := json.Unmarshal(encodedView, &v); err != nil {
 				continue
 			}
+
 			views = append(views, &v)
 		}
+
 		return views, nil
 	})
 	if err != nil {
 		return nil, fmt.Errorf("fdb scan by relation: %w", err)
 	}
+
 	return vals.([]*node.NodeView), nil
 }
 
 // matchPropFilters returns true when every PropFilter matches on v.Props.
 func matchPropFilters(v *node.NodeView, filters []node.PropertyMatch) bool {
-	for _, f := range filters {
-		got, ok := v.Props[f.PropName]
+	for _, filter := range filters {
+		got, ok := v.Props[filter.PropName]
 		if !ok {
 			return false
 		}
-		if !bytes.Equal(got, f.Value) {
+
+		if !bytes.Equal(got, filter.Value) {
 			return false
 		}
 	}
+
 	return true
 }
 
@@ -316,7 +384,9 @@ func decodeViews(kvs []fdb.KeyValue) []*node.NodeView {
 		if err := json.Unmarshal(kv.Value, &v); err != nil {
 			continue
 		}
+
 		views = append(views, &v)
 	}
+
 	return views
 }

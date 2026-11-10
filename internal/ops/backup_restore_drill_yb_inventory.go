@@ -59,8 +59,13 @@ const ybInventorySizeFilter = "sed -n 's/^ *\\([0-9][0-9]*\\) \\.\\/\\(.*\\)$/\\
 // The count uses an assignment. A failed command substitution inside printf
 // arguments would not make printf fail.
 func ybInventoryCheckScript(nodeRoot, inventoryPath, workDir string) string {
-	sizes, have := shellQuote(workDir+"/"+ybInventorySizeList), shellQuote(workDir+"/"+ybInventoryHaveList)
-	want, gone := shellQuote(workDir+"/"+ybInventoryWantList), shellQuote(workDir+"/"+ybInventoryGoneList)
+	sizes, have := shellQuote(workDir+"/"+ybInventorySizeList), shellQuote(
+		workDir+"/"+ybInventoryHaveList,
+	)
+	want, gone := shellQuote(workDir+"/"+ybInventoryWantList), shellQuote(
+		workDir+"/"+ybInventoryGoneList,
+	)
+
 	return "set -e; cd " + shellQuote(nodeRoot) + "; " +
 		"find . -type f -exec wc -c {} + >" + sizes + "; " +
 		ybInventorySizeFilter + " " + sizes + " >" + have + "; " +
@@ -81,28 +86,46 @@ func parseYBInventoryCheck(node, out string) ([]ybArchivedFile, error) {
 	header, rest, _ := strings.Cut(strings.TrimLeft(out, "\n"), "\n")
 	count, err := parseYBPlacementCount(strings.TrimSpace(header), "missing")
 	if err != nil {
-		return nil, fmt.Errorf("read %q as the count of files node %s's extraction is missing", header, node)
+		return nil, fmt.Errorf(
+			"read %q as the count of files node %s's extraction is missing",
+			header,
+			node,
+		)
 	}
+
 	if count > ybInventoryMissingLimit {
 		return nil, fmt.Errorf(
 			"node %s's extraction is missing %d of the files its archive carried, more than the %d the check reports",
-			node, count, ybInventoryMissingLimit)
+			node,
+			count,
+			ybInventoryMissingLimit,
+		)
 	}
+
 	var missing []ybArchivedFile
+
 	for line := range strings.SplitSeq(strings.TrimSuffix(rest, "\n"), "\n") {
 		if line == "" {
 			continue
 		}
+
 		file, fileErr := parseYBArchivedFile(line, node)
 		if fileErr != nil {
 			return nil, fileErr
 		}
+
 		missing = append(missing, file)
 	}
+
 	if len(missing) != count {
-		return nil, fmt.Errorf("the extraction check for node %s counted %d missing files and named %d",
-			node, count, len(missing))
+		return nil, fmt.Errorf(
+			"the extraction check for node %s counted %d missing files and named %d",
+			node,
+			count,
+			len(missing),
+		)
 	}
+
 	return missing, nil
 }
 
@@ -111,27 +134,47 @@ func parseYBInventoryCheck(node, out string) ([]ybArchivedFile, error) {
 func checkYBNodeExtraction(
 	ctx context.Context,
 	r *restoreDrillCtx,
-	container, exportRoot string,
+	container string,
+	exportRoot string,
 	inventory ybArchiveInventory,
 ) ([]ybArchivedFile, error) {
 	logger := telemetry.L(ctx)
-	script := ybInventoryCheckScript(exportRoot+"/"+inventory.Node,
-		ybDrillArtifactPath(ybDrillInventoryName(inventory.Node)), ybDrillWorkDir)
+	script := ybInventoryCheckScript(
+		exportRoot+"/"+inventory.Node,
+		ybDrillArtifactPath(ybDrillInventoryName(inventory.Node)),
+		ybDrillWorkDir,
+	)
 	res, err := containerExec(ctx, r.Cli, container, []string{"sh", "-c", script})
 	if err != nil || res.ExitCode != 0 {
-		wrapped := fmt.Errorf("check node %s's extraction against its inventory: exit %d: %s: %w",
-			inventory.Node, res.ExitCode, strings.TrimSpace(res.Stderr), err)
-		logger.ErrorContext(ctx, "backup.restore_drill.yb.failed", slog.String("err", wrapped.Error()))
+		wrapped := fmt.Errorf(
+			"check node %s's extraction against its inventory: exit %d: %s: %w",
+			inventory.Node,
+			res.ExitCode,
+			strings.TrimSpace(res.Stderr),
+			err,
+		)
+		logger.ErrorContext(
+			ctx,
+			"backup.restore_drill.yb.failed",
+			slog.String("err", wrapped.Error()),
+		)
+
 		return nil, wrapped
 	}
+
 	missing, err := parseYBInventoryCheck(inventory.Node, res.Stdout)
 	if err != nil {
 		logger.ErrorContext(ctx, "backup.restore_drill.yb.failed", slog.String("err", err.Error()))
 		return nil, err
 	}
-	logger.InfoContext(ctx, "backup.restore_drill.yb.extraction_checked",
+
+	logger.InfoContext(
+		ctx,
+		"backup.restore_drill.yb.extraction_checked",
 		slog.String("node", inventory.Node),
 		slog.Int("archived", len(inventory.Files)),
-		slog.Int("missing", len(missing)))
+		slog.Int("missing", len(missing)),
+	)
+
 	return missing, nil
 }

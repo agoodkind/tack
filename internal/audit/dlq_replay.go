@@ -21,31 +21,50 @@ func (r *Reader) ListDeadLetters(ctx context.Context, limit int) ([]DeadLetter, 
 	if r == nil || r.pool == nil {
 		return nil, fmt.Errorf("audit reader not configured")
 	}
-	rows, err := r.pool.Rows(r.pool.unsanitized.Query(ctx, `
+
+	rows, err := r.pool.Rows(
+		r.pool.unsanitized.Query(
+			ctx,
+			`
 		SELECT topic, partition, "offset", received_at, payload, error, attempt_count, last_attempt_at
 		  FROM audit.events_dlq
 		 ORDER BY attempt_count ASC, received_at ASC, topic ASC, partition ASC, "offset" ASC
 		 LIMIT $1
-	`, limit))
+	`,
+			limit,
+		),
+	)
 	if err != nil {
 		slog.ErrorContext(ctx, "audit.dlq.list_failed", slog.String("err", err.Error()))
 		return nil, fmt.Errorf("list dead letters: %w", err)
 	}
 	defer rows.Close()
 	out := make([]DeadLetter, 0)
+
 	for rows.Next() {
 		var row DeadLetter
-		if err := rows.Scan(&row.Key.Topic, &row.Key.Partition, &row.Key.Offset, &row.ReceivedAt,
-			&row.Payload, &row.Error, &row.AttemptCount, &row.LastAttemptAt); err != nil {
+		if err := rows.Scan(
+			&row.Key.Topic,
+			&row.Key.Partition,
+			&row.Key.Offset,
+			&row.ReceivedAt,
+			&row.Payload,
+			&row.Error,
+			&row.AttemptCount,
+			&row.LastAttemptAt,
+		); err != nil {
 			slog.ErrorContext(ctx, "audit.dlq.scan_failed", slog.String("err", err.Error()))
 			return nil, fmt.Errorf("scan dead letter: %w", err)
 		}
+
 		out = append(out, row)
 	}
+
 	if err := rows.Err(); err != nil {
 		slog.ErrorContext(ctx, "audit.dlq.rows_failed", slog.String("err", err.Error()))
 		return nil, fmt.Errorf("read dead letters: %w", err)
 	}
+
 	return out, nil
 }
 
@@ -59,30 +78,40 @@ func (r *Reader) SummarizeDeadLetters(ctx context.Context) ([]DeadLetterSummary,
 	if r == nil || r.pool == nil {
 		return nil, fmt.Errorf("audit reader not configured")
 	}
-	rows, err := r.pool.Rows(r.pool.unsanitized.Query(ctx, `
+
+	rows, err := r.pool.Rows(
+		r.pool.unsanitized.Query(
+			ctx,
+			`
 		SELECT error, count(*), min(received_at), max(received_at)
 		  FROM audit.events_dlq
 		 GROUP BY error
 		 ORDER BY count(*) DESC, error ASC
-	`))
+	`,
+		),
+	)
 	if err != nil {
 		slog.ErrorContext(ctx, "audit.dlq.summary_failed", slog.String("err", err.Error()))
 		return nil, fmt.Errorf("summarize dead letters: %w", err)
 	}
 	defer rows.Close()
 	out := make([]DeadLetterSummary, 0)
+
 	for rows.Next() {
 		var row DeadLetterSummary
 		if err := rows.Scan(&row.Error, &row.Count, &row.Oldest, &row.Newest); err != nil {
 			slog.ErrorContext(ctx, "audit.dlq.summary_scan_failed", slog.String("err", err.Error()))
 			return nil, fmt.Errorf("scan dead-letter summary: %w", err)
 		}
+
 		out = append(out, row)
 	}
+
 	if err := rows.Err(); err != nil {
 		slog.ErrorContext(ctx, "audit.dlq.summary_rows_failed", slog.String("err", err.Error()))
 		return nil, fmt.Errorf("read dead-letter summary: %w", err)
 	}
+
 	return out, nil
 }
 
@@ -114,16 +143,25 @@ func (k *KafkaRecorder) Replay(ctx context.Context, letter DeadLetter) error {
 	telemetry.ObserveAuditKafkaProduceLatency(sinceMs(start))
 	if err := res.FirstErr(); err != nil {
 		telemetry.IncAuditKafkaProduce("error")
-		slog.ErrorContext(ctx, "audit.dlq.replay_produce_failed",
+		slog.ErrorContext(
+			ctx,
+			"audit.dlq.replay_produce_failed",
 			slog.String("dead_letter", letter.Key.String()),
-			slog.String("err", err.Error()))
+			slog.String("err", err.Error()),
+		)
+
 		return fmt.Errorf("replay dead letter %s: %w", letter.Key, err)
 	}
+
 	telemetry.IncAuditKafkaProduce("ok")
-	slog.InfoContext(ctx, "audit.dlq.replayed",
+	slog.InfoContext(
+		ctx,
+		"audit.dlq.replayed",
 		slog.String("dead_letter", letter.Key.String()),
 		slog.Int("attempt_count", letter.AttemptCount),
-		slog.Time("received_at", letter.ReceivedAt))
+		slog.Time("received_at", letter.ReceivedAt),
+	)
+
 	return nil
 }
 
@@ -136,5 +174,6 @@ func replayPartitionKey(payload []byte) []byte {
 	if err := json.Unmarshal(payload, &ev); err != nil {
 		return nil
 	}
+
 	return kafkaPartitionKey(ev)
 }

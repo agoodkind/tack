@@ -37,36 +37,61 @@ type drillLedgerOrg struct {
 func restoredLedgerOrgs(
 	ctx context.Context,
 	r *restoreDrillCtx,
-	containerName, database, roleName string,
+	containerName string,
+	database string,
+	roleName string,
 ) ([]drillLedgerOrg, error) {
 	logger := telemetry.L(ctx)
 	var buf bytes.Buffer
-	exitCode, stderr, err := containerExecStreaming(ctx, r.Cli, containerName,
+	exitCode, stderr, err := containerExecStreaming(
+		ctx,
+		r.Cli,
+		containerName,
 		ysqlshRoleArgs(ybScratchHost(containerName), database, roleName, restoredLedgerOrgsSQL),
-		[]string{"PGPASSWORD=" + r.YBPass}, &buf)
+		[]string{"PGPASSWORD=" + r.YBPass},
+		&buf,
+	)
 	if err != nil || exitCode != 0 {
-		wrapped := fmt.Errorf("list the restored ledger's orgs: exit %d: %s: %w",
-			exitCode, strings.TrimSpace(stderr), err)
-		logger.ErrorContext(ctx, "backup.restore_drill.ledger_chain.failed", slog.String("err", wrapped.Error()))
+		wrapped := fmt.Errorf(
+			"list the restored ledger's orgs: exit %d: %s: %w",
+			exitCode,
+			strings.TrimSpace(stderr),
+			err,
+		)
+		logger.ErrorContext(
+			ctx,
+			"backup.restore_drill.ledger_chain.failed",
+			slog.String("err", wrapped.Error()),
+		)
+
 		return nil, wrapped
 	}
 
 	var orgs []drillLedgerOrg
 	totalRows := 0
+
 	for line := range strings.SplitSeq(buf.String(), "\n") {
 		trimmed := strings.TrimSpace(line)
 		if trimmed == "" {
 			continue
 		}
+
 		org, parseErr := parseRestoredLedgerOrg(ctx, trimmed)
 		if parseErr != nil {
 			return nil, parseErr
 		}
+
 		orgs = append(orgs, org)
 		totalRows += org.RowCount
 	}
-	logger.InfoContext(ctx, "backup.restore_drill.ledger_chain.orgs",
-		slog.Int("count", len(orgs)), slog.Int("rows", totalRows))
+
+	logger.InfoContext(
+		ctx,
+		"backup.restore_drill.ledger_chain.orgs",
+		slog.Int("count", len(orgs)),
+		slog.Int("rows", totalRows),
+	)
+
 	return orgs, nil
 }
 
@@ -77,26 +102,47 @@ func parseRestoredLedgerOrg(ctx context.Context, line string) (drillLedgerOrg, e
 	empty := drillLedgerOrg{ID: uuid.Nil, RowCount: 0}
 	orgField, countField, split := strings.Cut(line, "|")
 	if !split {
-		return empty, restoredLedgerOrgError(ctx, fmt.Errorf(
-			"read %q from the restored ledger: expected an org id and a row count", line))
+		return empty, restoredLedgerOrgError(
+			ctx,
+			fmt.Errorf(
+				"read %q from the restored ledger: expected an org id and a row count",
+				line,
+			),
+		)
 	}
+
 	orgID, err := uuid.Parse(strings.TrimSpace(orgField))
 	if err != nil {
-		return empty, restoredLedgerOrgError(ctx,
-			fmt.Errorf("parse org id %q from the restored ledger: %w", orgField, err))
+		return empty, restoredLedgerOrgError(
+			ctx,
+			fmt.Errorf("parse org id %q from the restored ledger: %w", orgField, err),
+		)
 	}
+
 	rowCount, err := strconv.Atoi(strings.TrimSpace(countField))
 	if err != nil {
-		return empty, restoredLedgerOrgError(ctx, fmt.Errorf(
-			"parse row count %q for org %s in the restored ledger: %w", countField, orgID, err))
+		return empty, restoredLedgerOrgError(
+			ctx,
+			fmt.Errorf(
+				"parse row count %q for org %s in the restored ledger: %w",
+				countField,
+				orgID,
+				err,
+			),
+		)
 	}
+
 	return drillLedgerOrg{ID: orgID, RowCount: rowCount}, nil
 }
 
 // restoredLedgerOrgError logs an organization-list failure with the drill's
 // ledger-chain event and returns the original error.
 func restoredLedgerOrgError(ctx context.Context, err error) error {
-	telemetry.L(ctx).ErrorContext(ctx, "backup.restore_drill.ledger_chain.failed",
-		slog.String("err", err.Error()))
+	telemetry.L(ctx).ErrorContext(
+		ctx,
+		"backup.restore_drill.ledger_chain.failed",
+		slog.String("err", err.Error()),
+	)
+
 	return err
 }

@@ -24,6 +24,7 @@ func putObjectFromFile(ctx context.Context, client *s3.Client, bucket, key, path
 	if err != nil {
 		wrapped := fmt.Errorf("open %s for upload to %s/%s: %w", path, bucket, key, err)
 		logger.ErrorContext(ctx, "backup.s3.put_failed", slog.String("err", wrapped.Error()))
+
 		return wrapped
 	}
 	defer f.Close()
@@ -32,26 +33,34 @@ func putObjectFromFile(ctx context.Context, client *s3.Client, bucket, key, path
 	if err != nil {
 		wrapped := fmt.Errorf("stat %s for upload to %s/%s: %w", path, bucket, key, err)
 		logger.ErrorContext(ctx, "backup.s3.put_failed", slog.String("err", wrapped.Error()))
+
 		return wrapped
 	}
 
-	_, err = client.PutObject(ctx, &s3.PutObjectInput{
-		Bucket:        aws.String(bucket),
-		Key:           aws.String(key),
-		Body:          f,
-		ContentLength: aws.Int64(info.Size()),
-	})
+	_, err = client.PutObject(
+		ctx,
+		&s3.PutObjectInput{
+			Bucket:        aws.String(bucket),
+			Key:           aws.String(key),
+			Body:          f,
+			ContentLength: aws.Int64(info.Size()),
+		},
+	)
 	if err != nil {
 		wrapped := fmt.Errorf("put object %s/%s: %w", bucket, key, err)
 		logger.ErrorContext(ctx, "backup.s3.put_failed", slog.String("err", wrapped.Error()))
+
 		return wrapped
 	}
 
-	logger.InfoContext(ctx, "backup.s3.put",
+	logger.InfoContext(
+		ctx,
+		"backup.s3.put",
 		slog.String("bucket", bucket),
 		slog.String("key", key),
 		slog.Int64("bytes", info.Size()),
 	)
+
 	return nil
 }
 
@@ -60,22 +69,30 @@ func putObjectFromFile(ctx context.Context, client *s3.Client, bucket, key, path
 // artifacts that require disk staging use putObjectFromFile.
 func putObjectBytes(ctx context.Context, client *s3.Client, bucket, key string, body []byte) error {
 	logger := telemetry.L(ctx)
-	_, err := client.PutObject(ctx, &s3.PutObjectInput{
-		Bucket:        aws.String(bucket),
-		Key:           aws.String(key),
-		Body:          bytes.NewReader(body),
-		ContentLength: aws.Int64(int64(len(body))),
-	})
+	_, err := client.PutObject(
+		ctx,
+		&s3.PutObjectInput{
+			Bucket:        aws.String(bucket),
+			Key:           aws.String(key),
+			Body:          bytes.NewReader(body),
+			ContentLength: aws.Int64(int64(len(body))),
+		},
+	)
 	if err != nil {
 		wrapped := fmt.Errorf("put object %s/%s: %w", bucket, key, err)
 		logger.ErrorContext(ctx, "backup.s3.put_failed", slog.String("err", wrapped.Error()))
+
 		return wrapped
 	}
-	logger.InfoContext(ctx, "backup.s3.put",
+
+	logger.InfoContext(
+		ctx,
+		"backup.s3.put",
 		slog.String("bucket", bucket),
 		slog.String("key", key),
 		slog.Int("bytes", len(body)),
 	)
+
 	return nil
 }
 
@@ -83,27 +100,39 @@ func putObjectBytes(ctx context.Context, client *s3.Client, bucket, key string, 
 // delimiter. Examples include per-run folders under "yugabyte-snapshot/" and
 // backup names under "backups/". Each returned value includes the trailing
 // delimiter, matching S3 CommonPrefixes.
-func listImmediatePrefixes(ctx context.Context, client *s3.Client, bucket, prefix string) ([]string, error) {
+func listImmediatePrefixes(
+	ctx context.Context,
+	client *s3.Client,
+	bucket string,
+	prefix string,
+) ([]string, error) {
 	logger := telemetry.L(ctx)
 	var out []string
-	paginator := s3.NewListObjectsV2Paginator(client, &s3.ListObjectsV2Input{
-		Bucket:    aws.String(bucket),
-		Prefix:    aws.String(prefix),
-		Delimiter: aws.String("/"),
-	})
+
+	paginator := s3.NewListObjectsV2Paginator(
+		client,
+		&s3.ListObjectsV2Input{
+			Bucket:    aws.String(bucket),
+			Prefix:    aws.String(prefix),
+			Delimiter: aws.String("/"),
+		},
+	)
 	for paginator.HasMorePages() {
 		page, err := paginator.NextPage(ctx)
 		if err != nil {
 			wrapped := fmt.Errorf("list %s/%s: %w", bucket, prefix, err)
 			logger.ErrorContext(ctx, "backup.s3.list_failed", slog.String("err", wrapped.Error()))
+
 			return nil, wrapped
 		}
+
 		for _, cp := range page.CommonPrefixes {
 			if cp.Prefix != nil {
 				out = append(out, *cp.Prefix)
 			}
 		}
 	}
+
 	return out, nil
 }
 
@@ -115,26 +144,38 @@ func listImmediatePrefixes(ctx context.Context, client *s3.Client, bucket, prefi
 // at backups/<name>. It stores backup data in a separate internal layout.
 // The restore drill discovers backup names from these markers.
 // listImmediatePrefixes would return the engine's internal data folder.
-func listImmediateObjects(ctx context.Context, client *s3.Client, bucket, prefix string) ([]string, error) {
+func listImmediateObjects(
+	ctx context.Context,
+	client *s3.Client,
+	bucket string,
+	prefix string,
+) ([]string, error) {
 	logger := telemetry.L(ctx)
 	var out []string
-	paginator := s3.NewListObjectsV2Paginator(client, &s3.ListObjectsV2Input{
-		Bucket:    aws.String(bucket),
-		Prefix:    aws.String(prefix),
-		Delimiter: aws.String("/"),
-	})
+
+	paginator := s3.NewListObjectsV2Paginator(
+		client,
+		&s3.ListObjectsV2Input{
+			Bucket:    aws.String(bucket),
+			Prefix:    aws.String(prefix),
+			Delimiter: aws.String("/"),
+		},
+	)
 	for paginator.HasMorePages() {
 		page, err := paginator.NextPage(ctx)
 		if err != nil {
 			wrapped := fmt.Errorf("list objects %s/%s: %w", bucket, prefix, err)
 			logger.ErrorContext(ctx, "backup.s3.list_failed", slog.String("err", wrapped.Error()))
+
 			return nil, wrapped
 		}
+
 		for _, obj := range page.Contents {
 			if obj.Key != nil && *obj.Key != prefix {
 				out = append(out, *obj.Key)
 			}
 		}
 	}
+
 	return out, nil
 }

@@ -31,6 +31,7 @@ func DocumentID(orgID, nodeID uuid.UUID, revision, projection string, ordinal ui
 	var number [8]byte
 	binary.BigEndian.PutUint64(number[:], ordinal)
 	writeIdentityPart(&identity, number[:])
+
 	return base64.RawURLEncoding.EncodeToString(identity.Bytes())
 }
 
@@ -52,9 +53,11 @@ func ValidatePageText(text string) error {
 	if text == "" {
 		return errors.New("an active search page requires page_text")
 	}
+
 	if len(text) > MaxPageBytes || !utf8.ValidString(text) {
 		return fmt.Errorf("search page_text must be valid UTF-8 at or below %d bytes", MaxPageBytes)
 	}
+
 	return nil
 }
 
@@ -71,18 +74,24 @@ func ValidatePage(work Work, page node.ContentPage) error {
 	if !writesPages || work.Target == "" || work.Generation <= 0 {
 		return ErrWorkChanged
 	}
+
 	if page.NodeID != work.NodeID || page.Revision == "" || page.ProjectionVersion == "" {
 		return ErrWorkChanged
 	}
+
 	if err := ValidatePageText(page.Text); err != nil {
 		return err
 	}
-	if page.OverlapBytes < 0 || page.OverlapBytes > MaxPageBytes/4 || page.OverlapBytes >= len(page.Text) {
+
+	if page.OverlapBytes < 0 || page.OverlapBytes > MaxPageBytes/4 ||
+		page.OverlapBytes >= len(page.Text) {
 		return errors.New("search page overlap exceeds the reserved byte bound or does not advance")
 	}
+
 	if page.Access.Generation != work.Generation {
 		return ErrWorkChanged
 	}
+
 	return ValidateAccess(page.Access)
 }
 
@@ -98,15 +107,19 @@ func ValidateAccess(access node.SearchAccess) error {
 	if len(access.Versions) == 0 || len(access.Keys) == 0 {
 		return errors.New("search access versions and keys must not be empty")
 	}
+
 	if !slices.IsSorted(access.Versions) || !slices.IsSorted(access.Keys) {
 		return errors.New("search access values must be sorted")
 	}
+
 	if hasDuplicate(access.Versions) || hasDuplicate(access.Keys) {
 		return errors.New("search access values must be unique")
 	}
+
 	if slices.Contains(access.Versions, "") || slices.Contains(access.Keys, "") {
 		return errors.New("search access values must not be empty")
 	}
+
 	return nil
 }
 
@@ -116,5 +129,6 @@ func hasDuplicate(values []string) bool {
 			return true
 		}
 	}
+
 	return false
 }

@@ -58,15 +58,19 @@ func TestYBDumpDialUsesTheNodeNameOnlyWhenTheClusterEncrypts(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			host, extras := ybDumpDial(test.cfg, test.address)
-			if host != test.wantHost {
-				t.Errorf("host = %q, want %q", host, test.wantHost)
-			}
-			if !slices.Equal(extras, test.wantExtras) {
-				t.Errorf("extra hosts = %v, want %v", extras, test.wantExtras)
-			}
-		})
+		t.Run(
+			test.name,
+			func(t *testing.T) {
+				host, extras := ybDumpDial(test.cfg, test.address)
+				if host != test.wantHost {
+					t.Errorf("host = %q, want %q", host, test.wantHost)
+				}
+
+				if !slices.Equal(extras, test.wantExtras) {
+					t.Errorf("extra hosts = %v, want %v", extras, test.wantExtras)
+				}
+			},
+		)
 	}
 }
 
@@ -79,6 +83,7 @@ func TestLedgerNodeNamesSkipsMalformedEntries(t *testing.T) {
 	if len(names) != 2 {
 		t.Fatalf("names = %v, want two entries", names)
 	}
+
 	if names["::220"] != "yb1" || names["::223"] != "yb3" {
 		t.Errorf("names = %v, want yb1 at ::220 and yb3 at ::223", names)
 	}

@@ -35,7 +35,9 @@ type RowVisitor func(Row) error
 //     result set. The visitor controls any additional retained data.
 //   - A query, decoding, visitor, or interrupted-result error stops the stream.
 func (r *Reader) StreamQuery(ctx context.Context, f QueryFilter, visit RowVisitor) error {
-	ctx, span := telemetry.StartSpan(ctx, "audit.stream_query",
+	ctx, span := telemetry.StartSpan(
+		ctx,
+		"audit.stream_query",
 		trace.WithSpanKind(trace.SpanKindInternal),
 		trace.WithAttributes(
 			attribute.String("org.id", f.OrgID.String()),
@@ -57,23 +59,33 @@ func (r *Reader) StreamQuery(ctx context.Context, f QueryFilter, visit RowVisito
 	defer rows.Close()
 
 	streamed := 0
+
 	for rows.Next() {
 		row, readErr := readAuditRow(rows)
 		if readErr != nil {
 			return readErr
 		}
+
 		if visitErr := visit(row); visitErr != nil {
 			return fmt.Errorf("audit stream query row %s: %w", row.EventID, visitErr)
 		}
+
 		streamed++
 	}
+
 	// rows.Err distinguishes a completed result from an interruption, including
 	// a dropped connection or canceled context. Ignoring this error would report
 	// a partial export as a successful complete read.
 	if err := rows.Err(); err != nil {
-		slog.ErrorContext(ctx, "audit.stream_query.interrupted",
-			slog.Int("rows_streamed", streamed), slog.String("err", err.Error()))
+		slog.ErrorContext(
+			ctx,
+			"audit.stream_query.interrupted",
+			slog.Int("rows_streamed", streamed),
+			slog.String("err", err.Error()),
+		)
+
 		return fmt.Errorf("audit stream query after %d rows: %w", streamed, err)
 	}
+
 	return nil
 }

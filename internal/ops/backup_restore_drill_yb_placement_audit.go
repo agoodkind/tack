@@ -39,24 +39,46 @@ func auditYBPlacement(
 	remaps []ybTabletRemap,
 ) error {
 	logger := telemetry.L(ctx)
-	res, err := containerExec(ctx, r.Cli, container, []string{"sh", "-c", ybPlacementAuditScript(layout)})
+	res, err := containerExec(
+		ctx,
+		r.Cli,
+		container,
+		[]string{"sh", "-c", ybPlacementAuditScript(layout)},
+	)
 	if err != nil || res.ExitCode != 0 {
-		wrapped := fmt.Errorf("audit tablet placement: exit %d: %s: %w",
-			res.ExitCode, strings.TrimSpace(res.Stderr), err)
-		logger.ErrorContext(ctx, "backup.restore_drill.yb.failed", slog.String("err", wrapped.Error()))
+		wrapped := fmt.Errorf(
+			"audit tablet placement: exit %d: %s: %w",
+			res.ExitCode,
+			strings.TrimSpace(res.Stderr),
+			err,
+		)
+		logger.ErrorContext(
+			ctx,
+			"backup.restore_drill.yb.failed",
+			slog.String("err", wrapped.Error()),
+		)
+
 		return wrapped
 	}
+
 	audit, err := parseYBPlacementAudit(res.Stdout)
 	if err != nil {
 		logger.ErrorContext(ctx, "backup.restore_drill.yb.failed", slog.String("err", err.Error()))
 		return err
 	}
+
 	if err := ybPlacementVerdict(audit, countDistinctTablets(remaps)); err != nil {
 		logger.ErrorContext(ctx, "backup.restore_drill.yb.failed", slog.String("err", err.Error()))
 		return err
 	}
-	logger.InfoContext(ctx, "backup.restore_drill.yb.tablets_placed",
-		slog.Int("expected", audit.Expected), slog.Int("placed", audit.Placed))
+
+	logger.InfoContext(
+		ctx,
+		"backup.restore_drill.yb.tablets_placed",
+		slog.Int("expected", audit.Expected),
+		slog.Int("placed", audit.Placed),
+	)
+
 	return nil
 }
 
@@ -68,13 +90,21 @@ func ybPlacementVerdict(audit ybPlacementAudit, wanted int) error {
 	if audit.Expected != wanted {
 		return fmt.Errorf(
 			"tablet placement attempted %d of the %d tablets the import created, so %d were never tried",
-			audit.Expected, wanted, wanted-audit.Expected)
+			audit.Expected,
+			wanted,
+			wanted-audit.Expected,
+		)
 	}
+
 	if audit.Placed != audit.Expected {
 		return fmt.Errorf(
 			"tablet placement is incomplete: %d of the %d tablets it attempted recorded no copy: %s",
-			audit.Expected-audit.Placed, audit.Expected, sampleTabletIdentities(audit.Missing))
+			audit.Expected-audit.Placed,
+			audit.Expected,
+			sampleTabletIdentities(audit.Missing),
+		)
 	}
+
 	return nil
 }
 
@@ -85,6 +115,7 @@ func countDistinctTablets(remaps []ybTabletRemap) int {
 	for _, remap := range remaps {
 		seen[ybTabletIdentity(remap)] = true
 	}
+
 	return len(seen)
 }
 
@@ -94,9 +125,12 @@ func sampleTabletIdentities(identities []string) string {
 	if len(identities) <= ybPlacementMissingSample {
 		return strings.Join(identities, ", ")
 	}
-	return fmt.Sprintf("%s and %d more",
+
+	return fmt.Sprintf(
+		"%s and %d more",
 		strings.Join(identities[:ybPlacementMissingSample], ", "),
-		len(identities)-ybPlacementMissingSample)
+		len(identities)-ybPlacementMissingSample,
+	)
 }
 
 // parseYBPlacementAudit reads two counts, a marker, and one line per tablet
@@ -105,31 +139,44 @@ func sampleTabletIdentities(identities []string) string {
 func parseYBPlacementAudit(out string) (ybPlacementAudit, error) {
 	empty := ybPlacementAudit{Expected: 0, Placed: 0, Missing: nil}
 	var lines []string
+
 	for line := range strings.SplitSeq(out, "\n") {
 		if trimmed := strings.TrimSpace(line); trimmed != "" {
 			lines = append(lines, trimmed)
 		}
 	}
+
 	if len(lines) < 3 {
-		return empty, fmt.Errorf("read %q as a placement audit: it has no two counts and a missing marker", out)
+		return empty, fmt.Errorf(
+			"read %q as a placement audit: it has no two counts and a missing marker",
+			out,
+		)
 	}
+
 	expected, err := parseYBPlacementCount(lines[0], "expected")
 	if err != nil {
 		return empty, err
 	}
+
 	placed, err := parseYBPlacementCount(lines[1], "placed")
 	if err != nil {
 		return empty, err
 	}
+
 	if lines[2] != "missing" {
 		return empty, fmt.Errorf("read %q as the placement audit's missing marker", lines[2])
 	}
+
 	missing := lines[3:]
 	if expected-placed != len(missing) {
 		return empty, fmt.Errorf(
 			"the placement audit does not add up: %d attempted less %d placed is not the %d tablets it named",
-			expected, placed, len(missing))
+			expected,
+			placed,
+			len(missing),
+		)
 	}
+
 	return ybPlacementAudit{Expected: expected, Placed: placed, Missing: missing}, nil
 }
 
@@ -139,12 +186,19 @@ func parseYBPlacementCount(line, label string) (int, error) {
 	if len(fields) != 2 || fields[0] != label {
 		return 0, fmt.Errorf("read %q as the placement audit's %s count", line, label)
 	}
+
 	count, err := strconv.Atoi(fields[1])
 	if err != nil {
-		return 0, fmt.Errorf("read %q as the placement audit's %s count: it is not a whole number", line, label)
+		return 0, fmt.Errorf(
+			"read %q as the placement audit's %s count: it is not a whole number",
+			line,
+			label,
+		)
 	}
+
 	if count < 0 {
 		return 0, fmt.Errorf("the placement audit reported a negative %s count %d", label, count)
 	}
+
 	return count, nil
 }
