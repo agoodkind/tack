@@ -80,8 +80,9 @@ func TestBearerAttachesTheMembershipItReadOnce(t *testing.T) {
 	}
 }
 
-// TestBearerAttachesNothingWhenTheReadFails checks that the middleware
-// calls the next handler without attaching memberships after a failed read.
+// TestBearerAttachesNothingWhenTheReadFails checks for nil memberships
+// and a false attachment flag after a failed read. The test does not
+// independently check whether the next handler runs.
 func TestBearerAttachesNothingWhenTheReadFails(t *testing.T) {
 	userID := uuid.Must(uuid.NewV7())
 	lister := &countingOrgs{orgs: nil, err: errors.New("membership store down")}
