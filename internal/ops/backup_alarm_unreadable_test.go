@@ -14,14 +14,13 @@ import (
 // answering.
 var backupOutageStart = time.Date(2026, 8, 29, 12, 0, 0, 0, time.UTC)
 
-// readBackupStoreBeforeOutage runs the command once against a store where
-// every mechanism is fresh: the export finished 35 hours 50 minutes ago
-// against a 36 hour limit, the rehearsal passed a day ago, and a master
-// answers that first probe healthy, which is the guest's own observation of
-// the cluster against a 30 minute limit. Every probe after it comes back as a
-// follower's page, so the guest hears from no leader for the rest of the test
-// and its cluster reading ages from that first observation. It returns the
-// store and the config, still pointed at that store.
+// readBackupStoreBeforeOutage runs a fresh check before the outage. The
+// export age is 35 hours 50 minutes against a 36-hour limit, and the rehearsal
+// passed one day earlier. The master's first response reports a healthy
+// cluster, establishing this guest's observation against a 30-minute limit.
+// Later responses contain a follower page without leader health, and the
+// cluster age uses that first observation. The helper returns the store and
+// configuration still using that store.
 func readBackupStoreBeforeOutage(t *testing.T) (*backupTestStore, *config.Config) {
 	t.Helper()
 	fixBackupStalenessClock(t, backupOutageStart)
@@ -37,8 +36,8 @@ func readBackupStoreBeforeOutage(t *testing.T) (*backupTestStore, *config.Config
 	return store, cfg
 }
 
-// runFreshBackupStalenessCheck runs the command once and asserts it found
-// nothing stale, and returns the report.
+// runFreshBackupStalenessCheck runs the command, requires success without a
+// staleness error, and returns the report.
 func runFreshBackupStalenessCheck(t *testing.T, cfg *config.Config) string {
 	t.Helper()
 	var out bytes.Buffer
@@ -48,11 +47,11 @@ func runFreshBackupStalenessCheck(t *testing.T, cfg *config.Config) string {
 	return out.String()
 }
 
-// TestBackupStalenessAlarmStaysQuietThroughAShortStoreOutage is the QA mail
-// of 2026-09-19: the store's guest stopped minutes after a run that read
-// every mechanism fresh. Each reading is then dated from that run, every
-// mechanism is still inside its limit, and the run mails nothing and exits
-// zero while the report still says the readings could not be taken.
+// TestBackupStalenessAlarmStaysQuietThroughAShortStoreOutage reproduces the
+// QA mail scenario recorded for 2026-09-19. The store stops minutes after a
+// fresh check. Remembered observations still fall within every age limit, and
+// the command must return success without mail while reporting unreadable
+// current observations.
 func TestBackupStalenessAlarmStaysQuietThroughAShortStoreOutage(t *testing.T) {
 	captured := captureBackupAlarmSends(t, nil)
 	store, cfg := readBackupStoreBeforeOutage(t)
@@ -68,18 +67,18 @@ func TestBackupStalenessAlarmStaysQuietThroughAShortStoreOutage(t *testing.T) {
 	if strings.Count(report, "unreadable, dated from the reading at 2026-08-29T12:00:00Z") != 2 {
 		t.Errorf("the report must date each unreadable reading from the last run:\n%s", report)
 	}
-	// The cluster's reading is the guest's own, so the store's silence never
-	// touches it: it ages from the observation the first run took.
+	// The cluster age uses this guest's first observation independently of the
+	// object-store outage.
 	if !strings.Contains(report, "age=180s threshold=1800s FRESH") {
 		t.Errorf("the cluster reading must age from this guest's own observation:\n%s", report)
 	}
 }
 
 // TestBackupStalenessAlarmMailsTheObjectStoreOnceAfterTheThreshold keeps the
-// store down until two mechanisms pass their limits counted from the last
-// reading. That run mails once, naming the store in one paragraph with the
-// time this guest last read it and each mechanism in plain words with none
-// of the client's error text; a later run while the outage lasts mails nothing.
+// store down until two remembered ages exceed their limits. That run must send
+// one message with the last store observation time in one store paragraph and
+// plain text for each mechanism, without client error text. A later run during
+// the outage must not send a duplicate.
 func TestBackupStalenessAlarmMailsTheObjectStoreOnceAfterTheThreshold(t *testing.T) {
 	captured := captureBackupAlarmSends(t, nil)
 	store, cfg := readBackupStoreBeforeOutage(t)
@@ -132,11 +131,11 @@ func TestBackupStalenessAlarmMailsTheObjectStoreOnceAfterTheThreshold(t *testing
 	}
 }
 
-// TestBackupStalenessAlarmHoldsAFaultThroughAnOutage proves a reading dated
-// from an earlier one never clears a fault. The guest holds a rehearsal fault
-// the other checker mailed, the store stops answering, and the rehearsal's
-// last reading is still fresh: the fault stays held. Once the store answers
-// with the rehearsal fresh, the fault clears.
+// TestBackupStalenessAlarmHoldsAFaultThroughAnOutage starts with a rehearsal
+// fault representing another checker's mail. The store becomes unreadable
+// while the remembered rehearsal age remains fresh. That older observation
+// must not clear the fault. A fresh rehearsal observation after store recovery
+// must clear it.
 func TestBackupStalenessAlarmHoldsAFaultThroughAnOutage(t *testing.T) {
 	captured := captureBackupAlarmSends(t, nil)
 	store, cfg := readBackupStoreBeforeOutage(t)

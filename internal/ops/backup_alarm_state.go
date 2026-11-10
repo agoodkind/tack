@@ -1,13 +1,13 @@
-// backup_alarm_state.go remembers which backup mechanisms the staleness alarm
-// has already mailed about, so a fault mails once when it begins and not on
-// every run while it lasts. The record is one small JSON file under the backup
-// root, which the check's container mounts from the guest, so each observing
-// guest keeps a copy of its own; the copy the guests share is the same shape
-// in the object store (backup_alarm_memory.go), and a deputy guest also defers
-// to the primary (backup_alarm_primary_ledger.go) while the store is down. A
-// missing or unreadable file means this guest has alarmed nothing: a fresh
-// guest mails once, unless the shared copy already holds the fault, and then
-// stops.
+// The alarm stores previously mailed mechanisms in a small JSON file under
+// the backup root. The check container mounts that root from the guest, giving
+// each observing guest a local copy. Shared object memory uses the same
+// structure, and deputies can defer to recent primary ledger evidence during
+// an object-store outage.
+//
+// A missing or unreadable local file starts with an empty local record. A
+// fresh guest can mail once unless shared memory already records the fault or
+// recent primary evidence defers it. Successful acceptance records suppress
+// later messages while the fault persists.
 
 package ops
 
@@ -28,28 +28,27 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// backupAlarmStateFile is the file under the backup root that records the
+// backupAlarmStateFile identifies the file under the backup root that records
 // alarmed mechanisms.
 const backupAlarmStateFile = "staleness-alarm-state.json"
 
-// backupAlarmState is the alarm's memory: each mechanism whose fault has been
-// mailed, keyed by metric name, with the UTC instant the mail was accepted.
-// Generation counts the shared copy's writes; in the file it is the store
-// generation the file last synced with (backup_alarm_memory.go).
+// backupAlarmState indexes mailed mechanisms by metric name and records each
+// mail's UTC acceptance time. Generation counts shared writes. A local file
+// records its last shared generation and advances locally when shared state is
+// unreadable and the alarm state changes.
 type backupAlarmState struct {
 	Alarmed    map[string]time.Time `json:"alarmed"`
 	Generation int                  `json:"generation"`
 }
 
-// backupAlarmStatePath is where the state lives for this configuration.
+// backupAlarmStatePath returns the configured local alarm state path.
 func backupAlarmStatePath(cfg *config.Config) string {
 	return filepath.Join(cfg.BackupRoot, backupAlarmStateFile)
 }
 
-// loadBackupAlarmState reads the alarm's memory. An absent file is the ordinary
-// first run and returns an empty state silently; a file that exists but cannot
-// be read or decoded is logged and also treated as empty, so the alarm still
-// mails rather than staying silent behind a damaged record.
+// loadBackupAlarmState reads local alarm memory. An absent file returns an
+// empty state without logging. Read and decode failures log a warning and also
+// return empty state, permitting an alarm despite a damaged local record.
 func loadBackupAlarmState(ctx context.Context, cfg *config.Config) backupAlarmState {
 	empty := backupAlarmState{Alarmed: map[string]time.Time{}, Generation: 0}
 	path := backupAlarmStatePath(cfg)
@@ -74,11 +73,11 @@ func loadBackupAlarmState(ctx context.Context, cfg *config.Config) backupAlarmSt
 	return state
 }
 
-// saveBackupAlarmState writes the alarm's memory in place of whatever was
-// there, through a rename so a run interrupted mid-write leaves the previous
-// record rather than a truncated one. A write that fails is logged and the
-// alarm continues: the next run will not remember the mail it just sent and
-// will mail again, which is the failure mode that loses least.
+// saveBackupAlarmState stages the new record and renames it over the prior
+// file. An interruption during staging does not truncate the prior record.
+// Write failures log an error without stopping the alarm. A later run can mail
+// again if neither shared memory nor the previous local record records
+// acceptance. Duplicate mail is preferable to suppressing an unrecorded fault.
 func saveBackupAlarmState(ctx context.Context, cfg *config.Config, state backupAlarmState) {
 	logger := telemetry.L(ctx)
 	path := backupAlarmStatePath(cfg)
@@ -100,7 +99,8 @@ func saveBackupAlarmState(ctx context.Context, cfg *config.Config, state backupA
 		return
 	}
 	if err := os.Rename(partial, path); err != nil {
-		// The temporary is this invocation's own, so removing it is safe.
+		// This invocation created the temporary file and can remove it after its
+		// rename fails.
 		_ = os.Remove(partial)
 		renameErr := fmt.Errorf("rename %s into place: %w", partial, err)
 		logger.ErrorContext(ctx, "backup.staleness.alarm_state_write_failed",
@@ -112,12 +112,12 @@ func saveBackupAlarmState(ctx context.Context, cfg *config.Config, state backupA
 		slog.Int("alarmed_count", len(state.Alarmed)))
 }
 
-// backupAlarmPartialSuffix names one invocation's temporary. It is a variable
-// so a test can pin the name and plant an entry at it.
+// backupAlarmPartialSuffix supplies the temporary file suffix for one
+// invocation. Tests replace it to pre-create an entry at the expected path.
 var backupAlarmPartialSuffix = randomBackupAlarmPartialSuffix
 
-// randomBackupAlarmPartialSuffix draws 64 random bits, which no other
-// invocation and no planter can predict.
+// randomBackupAlarmPartialSuffix generates 64 random bits for a temporary
+// file suffix. Cryptographic randomness makes advance prediction impractical.
 func randomBackupAlarmPartialSuffix(ctx context.Context) (string, error) {
 	var raw [8]byte
 	if _, err := rand.Read(raw[:]); err != nil {
@@ -128,20 +128,18 @@ func randomBackupAlarmPartialSuffix(ctx context.Context) (string, error) {
 	return hex.EncodeToString(raw[:]), nil
 }
 
-// stageBackupAlarmState writes body into a temporary of its own next to path
-// and returns that temporary's name, which is the only file the caller may
-// rename. The name carries a random suffix, so two invocations that overlap
-// never share a temporary and neither can unlink or rename the other's bytes,
-// and the open creates the name exclusively and refuses a symbolic link, the
-// same way the audit verifier opens a bundle's rows.
+// stageBackupAlarmState writes body to its own temporary file beside path
+// and returns the only path that the caller may rename. A random suffix
+// separates concurrent attempts. Exclusive creation refuses an existing entry,
+// and O_NOFOLLOW refuses a symbolic link, matching the audit bundle row opener.
+// An accepted temporary belongs only to this invocation.
 //
-// Nothing here removes another temporary. A file left by a crashed run keeps
-// the fixed prefix with a suffix this invocation did not draw, and no safe
-// test tells it apart from a live temporary of an overlapping invocation that
-// started earlier: a modification time before this process started is exactly
-// what that live temporary carries for the milliseconds between its write and
-// its rename. Leftovers are small, harmless to the rename, and left to the
-// operator.
+// This helper does not remove other temporary files. A crashed run and an
+// earlier overlapping run can leave indistinguishable entries with the fixed
+// prefix and a different suffix. Modification time cannot safely distinguish
+// them: a live run can write before this process starts and rename afterward.
+// These small leftover files do not prevent replacement of the state file;
+// the operator manages their removal.
 func stageBackupAlarmState(ctx context.Context, path string, body []byte) (string, error) {
 	suffix, err := backupAlarmPartialSuffix(ctx)
 	if err != nil {

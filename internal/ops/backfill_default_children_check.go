@@ -40,11 +40,10 @@ func checkDefaultChildProps(ctx context.Context, env *Env, orgTypes map[uuid.UUI
 	return refused
 }
 
-// listOrgNodeTypes attempts to read node types for every organization in orgIDs,
-// even when a read fails. It returns the node types by organization ID if every
-// read succeeds. If any read fails, it logs one
-// backfill.default_children_check_failed event, returns one error that joins
-// every failed read, and does not return node types.
+// listOrgNodeTypes attempts to read node types for every organization in
+// orgIDs, even after a read fails. Complete success returns node types by
+// organization ID. Any failure logs one backfill.default_children_check_failed
+// event and returns one error joining all failed reads, without node types.
 func listOrgNodeTypes(ctx context.Context, env *Env, orgIDs map[uuid.UUID]struct{}) (map[uuid.UUID][]*node.NodeType, error) {
 	orgTypes := make(map[uuid.UUID][]*node.NodeType, len(orgIDs))
 	var failures []error
@@ -90,11 +89,11 @@ func checkOrgDefaultChildProps(
 	return refusals
 }
 
-// checkedParentRaw is the JSON encoding of the nil UUID string. defaultChildProps
+// checkedParentRaw encodes the nil UUID string as JSON. defaultChildProps
 // uses it for parent_id and scope_id. ValidateNodeProps checks the complete map
-// and rejects undeclared names and, subject to its applicability exemptions,
-// names with definitions that do not apply to the child node type. It ignores
-// value and option issues.
+// and rejects undeclared or inapplicable property keys, subject to its
+// applicability exemptions. It ignores value and option
+// issues.
 var checkedParentRaw = json.RawMessage(strconv.Quote(uuid.Nil.String()))
 
 func defaultChildProps(dc node.DefaultChild, parentRaw json.RawMessage) map[string]json.RawMessage {

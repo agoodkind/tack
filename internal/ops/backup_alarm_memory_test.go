@@ -11,9 +11,9 @@ import (
 	"goodkind.io/tack/internal/config"
 )
 
-// storedDeputyBackupStalenessConfig is a deputy checker over store whose
-// ledger holds no primary run, so without the shared memory it would mail
-// every new fault the way the data guest did on QA (TACK-484).
+// storedDeputyBackupStalenessConfig configures a deputy with a store and a
+// ledger without primary runs. Without shared alarm memory, the deputy would
+// mail each new fault. TACK-484 recorded that behavior on the QA data guest.
 func storedDeputyBackupStalenessConfig(t *testing.T, store *backupTestStore) *config.Config {
 	t.Helper()
 	cfg := storedBackupStalenessConfig(t, store)
@@ -25,8 +25,8 @@ func storedDeputyBackupStalenessConfig(t *testing.T, store *backupTestStore) *co
 	return cfg
 }
 
-// sharedAlarmedBackupMetrics reads the alarm memory the checkers share from
-// store. found is false when no memory has been written.
+// sharedAlarmedBackupMetrics reads the alarm memory shared in store. found
+// is false when the shared object does not exist.
 func sharedAlarmedBackupMetrics(t *testing.T, store *backupTestStore) (alarmed map[string]time.Time, found bool) {
 	t.Helper()
 	body, ok := store.object(backupAlarmMemoryKey)
@@ -40,10 +40,10 @@ func sharedAlarmedBackupMetrics(t *testing.T, store *backupTestStore) (alarmed m
 	return state.Alarmed, true
 }
 
-// TestBackupStalenessAlarmSharedMemoryHoldsTheDeputyAfterTheOwnerMails is the
-// one-mail rule across guests through the store: the owner mails a fault and
-// records it under backup-status/alarm-state.json, so a deputy with a fresh
-// backup root that finds the same fault holds it without a mail.
+// TestBackupStalenessAlarmSharedMemoryHoldsTheDeputyAfterTheOwnerMails checks
+// duplicate suppression across guests. The owner mails and records the fault
+// in the shared alarm object. A deputy with a fresh backup root reads that
+// record and must not mail the same fault.
 func TestBackupStalenessAlarmSharedMemoryHoldsTheDeputyAfterTheOwnerMails(t *testing.T) {
 	now := time.Date(2026, 9, 6, 1, 25, 0, 0, time.UTC)
 	fixBackupStalenessClock(t, now)
@@ -79,10 +79,10 @@ func TestBackupStalenessAlarmSharedMemoryHoldsTheDeputyAfterTheOwnerMails(t *tes
 	}
 }
 
-// TestBackupStalenessAlarmSharedMemoryHoldsTheOwnerAfterTheDeputyMails is the
-// order QA observed: the deputy mails while the owner is down, and the owner
-// then comes back with no memory of its own. The owner reads the deputy's mail
-// from the store and holds the fault instead of mailing it again.
+// TestBackupStalenessAlarmSharedMemoryHoldsTheOwnerAfterTheDeputyMails
+// reproduces the order recorded on QA: the deputy mails while the owner is
+// down, then the owner starts without local alarm memory. The owner reads the
+// deputy's shared record and must not mail the same fault.
 func TestBackupStalenessAlarmSharedMemoryHoldsTheOwnerAfterTheDeputyMails(t *testing.T) {
 	now := time.Date(2026, 9, 6, 1, 25, 48, 0, time.UTC)
 	fixBackupStalenessClock(t, now)
@@ -112,10 +112,10 @@ func TestBackupStalenessAlarmSharedMemoryHoldsTheOwnerAfterTheDeputyMails(t *tes
 	}
 }
 
-// TestBackupStalenessAlarmMailsWhenTheSharedMemoryCannotBeRead proves the
-// store is never a gate on the mail: with an alarm-state object the client
-// refuses to read, the run warns, mails once, and records the mail locally;
-// the next run on the same guest holds the fault from that file.
+// TestBackupStalenessAlarmMailsWhenTheSharedMemoryCannotBeRead uses an alarm
+// object that the client refuses to read. The run must warn, mail once, and
+// record acceptance locally. The next run must use that local record to
+// suppress a duplicate despite the unreadable shared object.
 func TestBackupStalenessAlarmMailsWhenTheSharedMemoryCannotBeRead(t *testing.T) {
 	fixBackupStalenessClock(t, time.Date(2026, 9, 6, 1, 25, 0, 0, time.UTC))
 	captured := captureBackupAlarmSends(t, nil)
@@ -143,10 +143,9 @@ func TestBackupStalenessAlarmMailsWhenTheSharedMemoryCannotBeRead(t *testing.T) 
 	}
 }
 
-// TestBackupStalenessAlarmSharedMemoryForgetsAClearFromEitherChecker proves a
-// clear observed on one guest reaches the store: the owner mails the fault,
-// the deputy sees the mechanism back and removes it from the shared memory,
-// and the mechanism's next fault mails again.
+// TestBackupStalenessAlarmSharedMemoryForgetsAClearFromEitherChecker checks
+// recovery recorded by another guest. The owner mails, the deputy observes
+// recovery and removes the shared fault, and a later fault must mail again.
 func TestBackupStalenessAlarmSharedMemoryForgetsAClearFromEitherChecker(t *testing.T) {
 	now := time.Date(2026, 9, 6, 1, 25, 0, 0, time.UTC)
 	fixBackupStalenessClock(t, now)
@@ -161,7 +160,7 @@ func TestBackupStalenessAlarmSharedMemoryForgetsAClearFromEitherChecker(t *testi
 	seesHealthyCluster(t, owner, deputy)
 	rehearsalKey := backupStatusKey(backupStalenessRehearsalName)
 
-	// Run 1, owner: the rehearsal has never passed.
+	// The owner's first run observes a rehearsal without a recorded pass.
 	runStaleBackupStalenessCheck(t, owner)
 	if len(captured.messages) != 1 {
 		t.Fatalf("the first fault must mail once, sent %d", len(captured.messages))
@@ -170,7 +169,7 @@ func TestBackupStalenessAlarmSharedMemoryForgetsAClearFromEitherChecker(t *testi
 		t.Fatalf("the store must remember the rehearsal fault, state = %v", shared)
 	}
 
-	// Run 2, deputy: the drill passed, so the deputy clears the fault in the store.
+	// The deputy's second run observes a drill pass and clears the shared fault.
 	store.put(rehearsalKey, marshalBackupStatusMarker(t, now.Add(-6*time.Hour), "restore drill passed every leg"))
 	var out bytes.Buffer
 	if err := RunBackupStalenessCheck(context.Background(), deputy, &out); err != nil {
@@ -184,14 +183,14 @@ func TestBackupStalenessAlarmSharedMemoryForgetsAClearFromEitherChecker(t *testi
 		t.Fatalf("a clear on the deputy must remove the mechanism from the store, found = %v state = %v", found, shared)
 	}
 
-	// Run 3, deputy: the marker is gone again, a second fault, which mails.
+	// The deputy's third run observes the missing marker and mails a new fault.
 	store.remove(rehearsalKey)
 	runStaleDeputyCheck(t, deputy)
 	if len(captured.messages) != 2 {
 		t.Fatalf("a second fault after a clear must mail again, sent %d in total", len(captured.messages))
 	}
 
-	// Run 4, owner: the second fault is already in the store, so it holds.
+	// The owner's fourth run reads the shared second fault and suppresses mail.
 	runStaleBackupStalenessCheck(t, owner)
 	if len(captured.messages) != 2 {
 		t.Fatalf("the owner must hold the fault the deputy mailed, sent %d in total", len(captured.messages))

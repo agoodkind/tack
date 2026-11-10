@@ -9,8 +9,8 @@ import (
 	"time"
 )
 
-// pinBackupAlarmPartialSuffix makes every temporary this test stages carry
-// suffix, so an entry can be planted at the name before the write.
+// pinBackupAlarmPartialSuffix sets the suffix for every temporary staged by
+// the test. The test can pre-create an entry at that path before writing.
 func pinBackupAlarmPartialSuffix(t *testing.T, suffix string) {
 	t.Helper()
 	previous := backupAlarmPartialSuffix
@@ -18,12 +18,11 @@ func pinBackupAlarmPartialSuffix(t *testing.T, suffix string) {
 	t.Cleanup(func() { backupAlarmPartialSuffix = previous })
 }
 
-// TestBackupStalenessAlarmRefusesASymlinkedStateTemporary plants a symbolic
-// link at the temporary name the state write will use, pointing at a file
-// outside the backup root, and runs a stale check whose mail is accepted. The
-// write must fail at the link rather than follow it: the target keeps its
-// bytes and no state is recorded, so the next run mails again rather than
-// having truncated a file of the planter's choosing.
+// TestBackupStalenessAlarmRefusesASymlinkedStateTemporary creates a symbolic
+// link at the expected temporary path with a target outside the backup root.
+// A stale check accepts mail but must refuse the state write, preserve the
+// target bytes, and leave the link in place. Without a local acceptance record,
+// a later run can mail again instead of overwriting the link target.
 func TestBackupStalenessAlarmRefusesASymlinkedStateTemporary(t *testing.T) {
 	fixBackupStalenessClock(t, time.Date(2026, 8, 29, 12, 0, 0, 0, time.UTC))
 	captured := captureBackupAlarmSends(t, nil)
@@ -58,11 +57,10 @@ func TestBackupStalenessAlarmRefusesASymlinkedStateTemporary(t *testing.T) {
 	}
 }
 
-// TestBackupStalenessAlarmLeavesAnotherRunsTemporary leaves a temporary with a
-// suffix this run did not draw, the residue of a crashed run or the live file
-// of an overlapping one, and proves the accepted mail is recorded beside it
-// while the file is neither removed nor renamed: no invocation can tell those
-// two origins apart, so none touches a temporary it did not create.
+// TestBackupStalenessAlarmLeavesAnotherRunsTemporary creates an entry with
+// another suffix, representing either a crashed run or an overlapping live
+// run. The accepted mail must record beside that entry without removing or
+// renaming it. The state writer cannot safely distinguish those origins.
 func TestBackupStalenessAlarmLeavesAnotherRunsTemporary(t *testing.T) {
 	fixBackupStalenessClock(t, time.Date(2026, 8, 29, 12, 0, 0, 0, time.UTC))
 	captureBackupAlarmSends(t, nil)
@@ -83,12 +81,10 @@ func TestBackupStalenessAlarmLeavesAnotherRunsTemporary(t *testing.T) {
 	}
 }
 
-// TestBackupStalenessAlarmInterleavedSavesLoseNothing stages two saves so both
-// temporaries exist at once, then commits them in the opposite order, the
-// shape of two overlapping runs. Each save must rename exactly its own bytes:
-// both renames succeed, the state file ends as the save that committed last,
-// and nothing is left behind, because neither save unlinked or moved the
-// other's temporary.
+// TestBackupStalenessAlarmInterleavedSavesLoseNothing stages two concurrent
+// temporary files and renames them in reverse order. Each rename must use its
+// own bytes and succeed. The final state must match the last rename, and the
+// directory must not retain either temporary file.
 func TestBackupStalenessAlarmInterleavedSavesLoseNothing(t *testing.T) {
 	ctx := context.Background()
 	cfg := unreachableBackupStalenessConfig(t, "backups@example.test")

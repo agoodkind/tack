@@ -17,18 +17,17 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// primaryService and deputyService are the --operator-service names the two
-// checkers record under.
+// primaryService and deputyService identify the checkers' --operator-service
+// values for recorded events.
 const (
 	primaryService = "tack-backup"
 	deputyService  = "tack-backup-deputy"
 )
 
-// deputyBackupStalenessConfig is an unreachable-store host that defers to the
-// primary checker recorded under primary, over the default window and grace.
-// The grace wait itself is replaced by a seam that returns at once and counts
-// its calls, so no test sleeps; a test that needs the wait to do something
-// installs its own seam on top.
+// deputyBackupStalenessConfig configures an unreachable-store deputy with
+// primary and the default window and grace. The replacement wait returns at
+// once and counts calls. A test can replace it again to change ledger state
+// during grace without sleeping.
 func deputyBackupStalenessConfig(t *testing.T, primary string) *config.Config {
 	t.Helper()
 	cfg := unreachableBackupStalenessConfig(t, "backups@example.test")
@@ -39,8 +38,8 @@ func deputyBackupStalenessConfig(t *testing.T, primary string) *config.Config {
 	return cfg
 }
 
-// skipBackupAlarmGrace substitutes the grace wait with during, which runs in
-// its place, and returns a counter of the waits the deputy asked for.
+// skipBackupAlarmGrace runs during in place of the grace wait and returns a
+// counter for the deputy's wait requests.
 func skipBackupAlarmGrace(t *testing.T, during func()) *int {
 	t.Helper()
 	waits := 0
@@ -53,8 +52,8 @@ func skipBackupAlarmGrace(t *testing.T, during func()) *int {
 	return &waits
 }
 
-// blockingLedger is a ledger whose read never answers: it returns only when
-// the context ends, the way a pool waiting on a partitioned database does.
+// blockingLedger waits for ctx to end before returning a read error,
+// representing a pool blocked by a database partition.
 type blockingLedger struct{ blockedFor time.Duration }
 
 func (l *blockingLedger) StreamQuery(ctx context.Context, _ audit.QueryFilter, _ audit.RowVisitor) error {
@@ -66,16 +65,15 @@ func (l *blockingLedger) StreamQuery(ctx context.Context, _ audit.QueryFilter, _
 
 func (*blockingLedger) Close() {}
 
-// systemLedger is a restored-ledger fixture holding the system org's operator
-// events, handed to the deputy in place of the database for the test's
-// duration. The query the deputy runs is the real one; only the pool is
-// replaced.
+// systemLedger supplies restored operator rows for the system organization
+// during the test. It replaces the reader, while the deputy still builds the
+// production query.
 type systemLedger struct{ *restoredLedger }
 
 func (systemLedger) Close() {}
 
-// installSystemLedger builds the fixture from rows, makes the deputy open it,
-// and returns it so a test can count the rows the deputy read.
+// installSystemLedger builds a fixture from rows and replaces the deputy's
+// ledger opener. The returned fixture counts the rows that the deputy reads.
 func installSystemLedger(t *testing.T, rows ...audit.Row) *restoredLedger {
 	t.Helper()
 	ledger := &restoredLedger{
@@ -90,8 +88,9 @@ func installSystemLedger(t *testing.T, rows ...audit.Row) *restoredLedger {
 	return ledger
 }
 
-// operatorRunRow is one operator event as the choke-point records it: the
-// system org, the service's derived actor id, and the command's verb.
+// operatorRunRow constructs an operator event with the system organization,
+// the service's derived actor ID, and the command verb used by the audit
+// boundary.
 func operatorRunRow(service string, action audit.Verb, at time.Time) audit.Row {
 	return audit.Row{
 		OrgID:      audit.SystemOrgID(),
@@ -116,8 +115,8 @@ func operatorRunRow(service string, action audit.Verb, at time.Time) audit.Row {
 	}
 }
 
-// runStaleDeputyCheck runs the command once through a context whose logger
-// writes to the returned buffer, and asserts the stale verdict came back.
+// runStaleDeputyCheck runs the command with a context logger, requires the
+// staleness error, and returns the captured log text.
 func runStaleDeputyCheck(t *testing.T, cfg *config.Config) string {
 	t.Helper()
 	var logs bytes.Buffer
@@ -136,10 +135,9 @@ func runStaleDeputyCheck(t *testing.T, cfg *config.Config) string {
 	return logs.String()
 }
 
-// TestBackupStalenessDeputyDefersWhileThePrimaryRuns is the one-mail rule
-// across guests: with a primary staleness-check event inside the window, the
-// deputy leaves a new fault unmailed and unrecorded, on the first run and on
-// every run after it.
+// TestBackupStalenessDeputyDefersWhileThePrimaryRuns checks repeated deputy
+// runs with a primary staleness-check event inside the window. Each run must
+// defer the new fault without mailing or recording it.
 func TestBackupStalenessDeputyDefersWhileThePrimaryRuns(t *testing.T) {
 	now := time.Date(2026, 9, 5, 4, 0, 0, 0, time.UTC)
 	fixBackupStalenessClock(t, now)
@@ -165,10 +163,10 @@ func TestBackupStalenessDeputyDefersWhileThePrimaryRuns(t *testing.T) {
 	}
 }
 
-// TestBackupStalenessDeputyMailsWhenThePrimaryHasNotRun covers the deputy's
-// reason to exist. The ledger holds the deputy's own run and a different
-// primary command inside the window, neither of which is the primary's check,
-// so the deputy mails once, records the fault, and holds it on the next run.
+// TestBackupStalenessDeputyMailsWhenThePrimaryHasNotRun supplies a deputy's
+// own check and a different primary command inside the window. Neither event
+// qualifies as the primary's staleness check. The deputy must mail once, record
+// acceptance, and suppress another message on its next run.
 func TestBackupStalenessDeputyMailsWhenThePrimaryHasNotRun(t *testing.T) {
 	now := time.Date(2026, 9, 5, 4, 0, 0, 0, time.UTC)
 	fixBackupStalenessClock(t, now)
@@ -197,9 +195,10 @@ func TestBackupStalenessDeputyMailsWhenThePrimaryHasNotRun(t *testing.T) {
 	}
 }
 
-// TestBackupStalenessDeputyMailsWhenThePrimaryRanTooLongAgo treats a primary
-// run older than the window as no run: the primary has missed more than two
-// timer firings, so the deputy mails.
+// TestBackupStalenessDeputyMailsWhenThePrimaryRanTooLongAgo puts the primary
+// run outside the window. The original regression account relates that age to
+// more than two missed timer firings. The deputy must mail without deferring
+// to the old run.
 func TestBackupStalenessDeputyMailsWhenThePrimaryRanTooLongAgo(t *testing.T) {
 	now := time.Date(2026, 9, 5, 4, 0, 0, 0, time.UTC)
 	fixBackupStalenessClock(t, now)
@@ -217,9 +216,9 @@ func TestBackupStalenessDeputyMailsWhenThePrimaryRanTooLongAgo(t *testing.T) {
 	}
 }
 
-// TestBackupStalenessDeputyMailsWhenTheLedgerCannotBeRead drives the real
-// reader at a port that refuses connections: a deputy that cannot read the
-// ledger mails, and says why.
+// TestBackupStalenessDeputyMailsWhenTheLedgerCannotBeRead uses the production
+// reader with a port that refuses connections. The deputy must mail and log
+// the reason that it could not read the ledger.
 func TestBackupStalenessDeputyMailsWhenTheLedgerCannotBeRead(t *testing.T) {
 	fixBackupStalenessClock(t, time.Date(2026, 9, 5, 4, 0, 0, 0, time.UTC))
 	captured := captureBackupAlarmSends(t, nil)
@@ -240,9 +239,9 @@ func TestBackupStalenessDeputyMailsWhenTheLedgerCannotBeRead(t *testing.T) {
 	}
 }
 
-// TestBackupStalenessDeputyMailsWhenTheLedgerHangs bounds the ledger read: a
-// read that never answers is cut off at the query timeout, counts as a ledger
-// that cannot be read, and the deputy mails.
+// TestBackupStalenessDeputyMailsWhenTheLedgerHangs uses a blocking read. The
+// query timeout must end the read, and the deputy must treat it as unreadable
+// evidence and mail the fault.
 func TestBackupStalenessDeputyMailsWhenTheLedgerHangs(t *testing.T) {
 	fixBackupStalenessClock(t, time.Date(2026, 9, 5, 4, 0, 0, 0, time.UTC))
 	captured := captureBackupAlarmSends(t, nil)
@@ -270,18 +269,17 @@ func TestBackupStalenessDeputyMailsWhenTheLedgerHangs(t *testing.T) {
 	}
 }
 
-// TestBackupStalenessDeputyDefersWhenThePrimaryRunLandsDuringGrace is the
-// takeover race: the primary's row is not committed when the deputy first
-// looks, so the deputy waits out the grace period, and the row is there on
-// the second read. Nothing mails and nothing is recorded.
+// TestBackupStalenessDeputyDefersWhenThePrimaryRunLandsDuringGrace adds the
+// primary row after the first read and before the second. The deputy must wait
+// for grace, then defer without mailing or recording the fault.
 func TestBackupStalenessDeputyDefersWhenThePrimaryRunLandsDuringGrace(t *testing.T) {
 	now := time.Date(2026, 9, 5, 4, 0, 0, 0, time.UTC)
 	fixBackupStalenessClock(t, now)
 	captured := captureBackupAlarmSends(t, nil)
 	ledger := installSystemLedger(t)
 	cfg := deputyBackupStalenessConfig(t, primaryService)
-	// The clock is pinned, so the row lands a second before the deputy's
-	// second read the way a real commit precedes the read that sees it.
+	// The fixed clock dates the inserted row one second before the second read,
+	// matching a commit that precedes the read that observes it.
 	waits := skipBackupAlarmGrace(t, func() {
 		ledger.rowsByOrg[audit.SystemOrgID()] = append(ledger.rowsByOrg[audit.SystemOrgID()],
 			operatorRunRow(primaryService, audit.VerbOpsBackupStalenessCheck, now.Add(-time.Second)))
@@ -304,9 +302,8 @@ func TestBackupStalenessDeputyDefersWhenThePrimaryRunLandsDuringGrace(t *testing
 	}
 }
 
-// TestBackupStalenessDeputyMailsAfterGraceFindsNoPrimaryRun is the other side
-// of the race: with no primary run on either read, the deputy waits once and
-// then mails once.
+// TestBackupStalenessDeputyMailsAfterGraceFindsNoPrimaryRun omits a primary
+// event from both reads. The deputy must wait once, then mail once.
 func TestBackupStalenessDeputyMailsAfterGraceFindsNoPrimaryRun(t *testing.T) {
 	now := time.Date(2026, 9, 5, 4, 0, 0, 0, time.UTC)
 	fixBackupStalenessClock(t, now)
@@ -328,9 +325,9 @@ func TestBackupStalenessDeputyMailsAfterGraceFindsNoPrimaryRun(t *testing.T) {
 	}
 }
 
-// TestBackupStalenessPrimaryIgnoresTheLedger pins that a checker with no
-// primary service is the primary: it mails whatever the ledger says, and reads
-// none of it.
+// TestBackupStalenessPrimaryIgnoresTheLedger leaves the primary service
+// unset. The checker acts as primary, mails its fault, and does not read ledger
+// events even when the fixture contains a recent primary run.
 func TestBackupStalenessPrimaryIgnoresTheLedger(t *testing.T) {
 	now := time.Date(2026, 9, 5, 4, 0, 0, 0, time.UTC)
 	fixBackupStalenessClock(t, now)

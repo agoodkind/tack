@@ -1,17 +1,15 @@
-// backup_alarm_memory.go is the alarm memory both checkers share: one object
-// under backup-status/ in the object store, the same shape as the state file
-// each guest keeps under its backup root (backup_alarm_state.go), carrying a
-// generation that counts the store's writes. The file carries the store
-// generation it last synced with, and the pair decides which copy a run
-// believes (TACK-484). A store copy newer than the file is authoritative, so
-// a clear the other checker recorded reaches this guest even while its file
-// still holds the fault. A store copy no newer than the file is unioned with
-// it, the state after this guest's own store write failed or after nothing
-// changed, so a mail recorded only in the file is written into the store on
-// the next run. A store that cannot be read leaves the file alone in charge,
-// so an unreachable store never keeps a mail from going out, and every claim
-// a run takes from the store is cached in the file, so a later unreadable
-// store does not make this guest mail a held fault again.
+// Both checkers share alarm memory as one object under backup-status/. Each
+// guest also stores a local JSON record with the same structure. The shared
+// generation counts store writes. The local generation records the last shared
+// generation used by that guest and advances locally during unreadable shared
+// state changes. TACK-484 documented the need to accept
+// another checker's recovery record despite a stale local fault.
+//
+// A newer shared generation replaces local state. An equal or older shared
+// generation combines both sets of faults, including mail recorded only
+// locally after a failed shared write. An unreadable store leaves local state
+// in use and does not prevent mailing. The guest caches adopted shared faults
+// locally to suppress duplicates during a later store outage.
 
 package ops
 
@@ -26,13 +24,13 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// backupAlarmMemoryKey is the object key of the shared alarm memory, beside
-// the per-mechanism success markers.
+// backupAlarmMemoryKey identifies the shared alarm object beside the
+// per-mechanism success markers.
 const backupAlarmMemoryKey = backupStatusPrefix + "alarm-state.json"
 
-// backupAlarmMemory is what one run loaded: the state it decides against and
-// the two copies it was built from. readable is false when the store could
-// not be read, in which case shared is empty at generation zero.
+// backupAlarmMemory stores the run's selected state and the local and shared
+// copies used to select it. readable is false after a failed store read; shared
+// then contains an empty state at generation zero.
 type backupAlarmMemory struct {
 	state    backupAlarmState
 	local    backupAlarmState
@@ -40,9 +38,9 @@ type backupAlarmMemory struct {
 	readable bool
 }
 
-// loadBackupAlarmMemory reads both copies and picks the state the run decides
-// against: the file alone when the store cannot be read, the store alone when
-// its generation is past the file's, and the union of the two otherwise.
+// loadBackupAlarmMemory reads both copies. It selects local state after an
+// unreadable store, shared state when its generation exceeds the local
+// generation, and their combined faults otherwise.
 func loadBackupAlarmMemory(ctx context.Context, cfg *config.Config, get func(key string) ([]byte, error)) backupAlarmMemory {
 	local := loadBackupAlarmState(ctx, cfg)
 	shared, readable := fetchSharedBackupAlarmMemory(ctx, get)
@@ -60,10 +58,10 @@ func loadBackupAlarmMemory(ctx context.Context, cfg *config.Config, get func(key
 	return memory
 }
 
-// fetchSharedBackupAlarmMemory reads the store's copy through get. An absent
-// object is the ordinary first run: readable, empty, generation zero. An
-// object that cannot be fetched or decoded is logged and reported unreadable,
-// so the caller decides from the file alone.
+// fetchSharedBackupAlarmMemory reads shared state through get. An absent
+// object returns a readable empty state at generation zero for a first run.
+// Fetch and decode failures log a warning and return unreadable state; the
+// caller then uses the local file.
 func fetchSharedBackupAlarmMemory(ctx context.Context, get func(key string) ([]byte, error)) (backupAlarmState, bool) {
 	empty := backupAlarmState{Alarmed: map[string]time.Time{}, Generation: 0}
 	body, err := get(backupAlarmMemoryKey)
@@ -87,15 +85,15 @@ func fetchSharedBackupAlarmMemory(ctx context.Context, get func(key string) ([]b
 	return state, true
 }
 
-// saveBackupAlarmMemory writes what the run decided back to the copies that
-// need it. The store is written when the run changed something or when the
-// union holds a claim the store lacks, at the generation after the store's;
-// the file then takes that generation, or keeps the store's old one when the
-// put failed so the next run unions and writes the store again. With the
-// store unreadable a change advances the file's generation alone, so the next
-// readable run unions rather than adopting an older store. A run that changed
-// nothing still caches a state that differs from the file, at the store's
-// generation.
+// saveBackupAlarmMemory saves changed state or faults that the shared copy
+// lacks. A readable store receives the next shared generation. A successful
+// write records that generation locally; a failed write records the old shared
+// generation locally for another combined write on a later run.
+//
+// With an unreadable store, a change advances only the local generation. A
+// later readable run combines local state with an older shared copy instead of
+// discarding the local change. Even without a new change, a readable shared
+// copy updates a different local state or generation.
 func saveBackupAlarmMemory(
 	ctx context.Context,
 	cfg *config.Config,
@@ -122,9 +120,9 @@ func saveBackupAlarmMemory(
 	}
 }
 
-// putSharedBackupAlarmMemory writes state to the store through put and
-// reports whether it landed. A write that fails is logged and left to the
-// next run, which unions the file back in and writes the store again.
+// putSharedBackupAlarmMemory encodes state and writes it through put. It
+// reports whether the write succeeded and logs a failure. A later run can
+// combine the local record with shared state and retry the write.
 func putSharedBackupAlarmMemory(ctx context.Context, put func(key string, body []byte) error, state backupAlarmState) bool {
 	logger := telemetry.L(ctx)
 	body, err := json.Marshal(state)
@@ -144,9 +142,9 @@ func putSharedBackupAlarmMemory(ctx context.Context, put func(key string, body [
 	return true
 }
 
-// unionBackupAlarmState joins two copies: a mechanism alarmed in either is
-// alarmed in the result, dated by the earlier accept time, which is when the
-// fault first mailed. The generation is settled at save time.
+// unionBackupAlarmState includes each mechanism recorded in either copy and
+// uses the earlier mail acceptance time for duplicates. Saving determines the
+// generation.
 func unionBackupAlarmState(local, shared backupAlarmState) backupAlarmState {
 	merged := copyBackupAlarmState(local)
 	for name, acceptedAt := range shared.Alarmed {
@@ -158,14 +156,14 @@ func unionBackupAlarmState(local, shared backupAlarmState) backupAlarmState {
 	return merged
 }
 
-// copyBackupAlarmState duplicates a copy's entries so the run can edit its
-// state without touching what it loaded.
+// copyBackupAlarmState clones the entries for editing without changing the
+// loaded state.
 func copyBackupAlarmState(state backupAlarmState) backupAlarmState {
 	return backupAlarmState{Alarmed: maps.Clone(state.Alarmed), Generation: state.Generation}
 }
 
-// sameBackupAlarms reports whether two copies alarm the same mechanisms at
-// the same instants, whatever their generations.
+// sameBackupAlarms reports whether both copies record the same mechanisms
+// and acceptance instants, regardless of generation.
 func sameBackupAlarms(a, b backupAlarmState) bool {
 	return maps.EqualFunc(a.Alarmed, b.Alarmed, time.Time.Equal)
 }

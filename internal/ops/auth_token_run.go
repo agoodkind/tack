@@ -17,9 +17,9 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// authTokenPool opens the auth database. Token commands are SQL only, so they
-// run wherever DATABASE_URL resolves, including the host-networked ops
-// container that cannot reach FoundationDB.
+// authTokenPool opens the auth database. Token commands use only SQL and
+// connect through DATABASE_URL, including from the host-networked ops container
+// that cannot connect to FoundationDB.
 func authTokenPool(ctx context.Context, factory *cli.Factory) (*pgxpool.Pool, error) {
 	pool, err := postgres.NewPool(ctx, factory.Cfg.DatabaseURL, &telemetry.QueryTracer{})
 	if err != nil {
@@ -48,8 +48,8 @@ func runAuthTokenCreate(ctx context.Context, factory *cli.Factory, input authTok
 		UserID: "", Email: "", Label: strings.TrimSpace(input.Label), OrgID: "", TokenID: "", CreatedAt: "", Token: "",
 	}
 	if !execute {
-		// The dry run refuses what the execute would refuse, so its report
-		// never promises an issue that would fail.
+		// The dry run checks the label, active user, and organization before reporting
+		// the proposed token. Issuance uses these same checks.
 		if result.Label == "" {
 			return errors.New("a label is required so the token names the client that holds it")
 		}
@@ -72,9 +72,9 @@ func runAuthTokenCreate(ctx context.Context, factory *cli.Factory, input authTok
 	result.TokenID, result.CreatedAt = issue.Token.ID.String(), issue.Token.CreatedAt.UTC().Format(time.RFC3339)
 	result.Label, result.Token = issue.Token.Label, issue.Raw
 	if writeErr := writeAuthTokenResult(ctx, sink, result); writeErr != nil {
-		// The raw value is shown once and never stored, so a report that
-		// failed to reach the operator leaves a live credential nobody
-		// holds. Withdraw it through a recorded revocation and say so.
+		// The command reports the raw bearer once, and the database stores only its
+		// hash. A failed report leaves receipt of the live credential unconfirmed.
+		// Attempt a recorded revocation and report its outcome.
 		return withdrawUnconfirmedToken(ctx, pool, issue.Token.ID,
 			fmt.Errorf("the token value could not be reported: %w", writeErr))
 	}
@@ -118,9 +118,9 @@ func runAuthTokenList(ctx context.Context, factory *cli.Factory, input authToken
 }
 
 func runAuthTokenRevoke(ctx context.Context, factory *cli.Factory, input authTokenRevokeInput, sink clispec.ResultSink, execute bool) error {
-	// The value is not echoed anywhere: an operator who pastes the raw bearer
-	// where the id belongs would otherwise put it in a log line and, through
-	// the choke-point's error row, in the ledger.
+	// Do not echo the input value. An operator can paste a raw bearer instead of
+	// a token ID. Logging that value exposes the credential in logs. Including
+	// it in the command's error exposes it in the audit outcome.
 	tokenID, err := uuid.Parse(input.TokenID)
 	if err != nil {
 		slog.ErrorContext(ctx, "auth.token.id_invalid", slog.String("err", "--id is not a token id"))

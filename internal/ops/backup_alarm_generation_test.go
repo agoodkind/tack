@@ -13,8 +13,8 @@ import (
 	"goodkind.io/tack/internal/config"
 )
 
-// readBackupAlarmStateFile reads a guest's whole state file, generation
-// included. found is false when no file exists.
+// readBackupAlarmStateFile reads the guest's complete state file, including
+// its generation. found is false when the file does not exist.
 func readBackupAlarmStateFile(t *testing.T, cfg *config.Config) (state backupAlarmState, found bool) {
 	t.Helper()
 	body, err := os.ReadFile(backupAlarmStatePath(cfg))
@@ -30,8 +30,9 @@ func readBackupAlarmStateFile(t *testing.T, cfg *config.Config) (state backupAla
 	return state, true
 }
 
-// readSharedBackupAlarmMemory reads the whole shared memory object from
-// store, generation included. found is false when absent.
+// readSharedBackupAlarmMemory reads the complete shared memory object from
+// store, including its generation. found is false when the object does not
+// exist.
 func readSharedBackupAlarmMemory(t *testing.T, store *backupTestStore) (state backupAlarmState, found bool) {
 	t.Helper()
 	body, ok := store.object(backupAlarmMemoryKey)
@@ -44,8 +45,8 @@ func readSharedBackupAlarmMemory(t *testing.T, store *backupTestStore) (state ba
 	return state, true
 }
 
-// rehearsalFaultObjects is a store where only the restore rehearsal is at
-// fault: a fresh export run and a fresh replication marker, no rehearsal.
+// rehearsalFaultObjects returns a fresh export run and replication marker
+// without a rehearsal marker. Only the restore rehearsal has a fault.
 func rehearsalFaultObjects(t *testing.T, now time.Time) map[string][]byte {
 	t.Helper()
 	objects := ybExportRunObjects(t, "20260905T230000Z",
@@ -55,11 +56,12 @@ func rehearsalFaultObjects(t *testing.T, now time.Time) map[string][]byte {
 	return objects
 }
 
-// TestBackupStalenessAlarmAdoptsAClearTheOtherCheckerRecorded is the case a
-// union cannot carry: the owner mails the rehearsal fault, only the deputy
-// sees the drill pass and removes the fault from the store, and the owner's
-// file still holds it when the drill fails again. The store's generation is
-// past the file's, so the owner adopts the store and mails the new fault.
+// TestBackupStalenessAlarmAdoptsAClearTheOtherCheckerRecorded checks adoption
+// of a newer shared generation. The owner mails a rehearsal fault. Only the
+// deputy observes the drill pass and removes the shared fault. The owner's
+// local file still records that fault when the drill fails again. A union would
+// retain the old fault; adoption of the newer shared generation permits another
+// alarm for the new fault.
 func TestBackupStalenessAlarmAdoptsAClearTheOtherCheckerRecorded(t *testing.T) {
 	now := time.Date(2026, 9, 6, 1, 25, 0, 0, time.UTC)
 	fixBackupStalenessClock(t, now)
@@ -105,10 +107,10 @@ func TestBackupStalenessAlarmAdoptsAClearTheOtherCheckerRecorded(t *testing.T) {
 	}
 }
 
-// TestBackupStalenessAlarmHoldsFromTheCacheWhenTheStoreTurnsUnreadable proves
-// a held fault is cached: the owner mails, the deputy holds the fault it read
-// from the store, and when the deputy's next read fails the fault is still in
-// its own file, so it holds rather than mailing the fault again.
+// TestBackupStalenessAlarmHoldsFromTheCacheWhenTheStoreTurnsUnreadable checks
+// the deputy's local cache. The owner mails, and the deputy caches the shared
+// fault without mailing it. When the deputy's next shared read fails, its local
+// file still records the fault and suppresses a duplicate message.
 func TestBackupStalenessAlarmHoldsFromTheCacheWhenTheStoreTurnsUnreadable(t *testing.T) {
 	fixBackupStalenessClock(t, time.Date(2026, 9, 6, 1, 25, 0, 0, time.UTC))
 	captured := captureBackupAlarmSends(t, nil)
@@ -137,12 +139,11 @@ func TestBackupStalenessAlarmHoldsFromTheCacheWhenTheStoreTurnsUnreadable(t *tes
 	}
 }
 
-// TestBackupStalenessAlarmWritesTheStoreOnTheRunAfterAFailedPut covers a
-// store that serves reads but refuses writes, which the engine does for the
-// identity it lets only read: the mail is recorded in the file at the store's
-// old generation, and the next run, signing as the writer again and still
-// without the fault, unions the file back in, writes the store, and mails
-// nothing.
+// TestBackupStalenessAlarmWritesTheStoreOnTheRunAfterAFailedPut uses a reader
+// identity that can read the store but cannot write it. The run records its
+// accepted mail locally at the store's old generation. The next run uses the
+// writer identity, combines that local record with the shared state, and writes
+// the shared object without sending another message.
 func TestBackupStalenessAlarmWritesTheStoreOnTheRunAfterAFailedPut(t *testing.T) {
 	fixBackupStalenessClock(t, time.Date(2026, 9, 6, 1, 25, 0, 0, time.UTC))
 	captured := captureBackupAlarmSends(t, nil)

@@ -1,16 +1,15 @@
-// backup_alarm_unseen_cluster.go is the alarm mail of a guest that reached no
-// ledger master. The check alarms on what the guest running it can see for
-// itself, so that guest must say it cannot see the cluster and must not say
-// the cluster is unhealthy: only a master's own answer supports that claim
-// (TACK-529). Every other fault keeps the words in backup_alarm_vocabulary.go.
+// A guest without a ledger master response cannot establish cluster health.
+// Its alarm must report the observation failure rather than claim that the
+// cluster is unhealthy. TACK-529 documented this distinction. Other faults
+// continue to use the mechanism vocabulary.
 
 package ops
 
-// backupAlarmUnseenClusterWords is the vocabulary of a cluster this guest
-// could not see. The unseen cause never carries a fresh success, so the known
-// and never-recorded templates have nothing to say and stay empty: the
-// composition reaches the unreadable sentence, and the remembered sentence
-// after it when this guest's earlier observation dates the reading.
+// backupAlarmUnseenClusterWords supplies text for a cluster that the guest
+// cannot observe. This cause does not include a fresh success; the known and
+// never-recorded templates remain empty. Composition uses the unreadable
+// sentence and appends remembered observation text when this guest has an
+// earlier cluster reading.
 var backupAlarmUnseenClusterWords = backupAlarmWords{
 	phraseKnown:            "",
 	phraseNeverRecorded:    "",
@@ -28,10 +27,9 @@ var backupAlarmUnseenClusterWords = backupAlarmWords{
 	},
 }
 
-// backupAlarmWordsFor is one fault's vocabulary. A cluster this guest could
-// not see takes words of its own, because the mechanism's own vocabulary would
-// report the cluster's health, which a guest that heard from no master has not
-// established.
+// backupAlarmWordsFor selects a fault's vocabulary. An unseen cluster uses
+// observation-failure wording instead of the mechanism's health claims, which
+// require an actual master response.
 func backupAlarmWordsFor(fault backupStalenessMetric) backupAlarmWords {
 	if fault.Unknown == backupStalenessClusterUnseen {
 		return backupAlarmUnseenClusterWords

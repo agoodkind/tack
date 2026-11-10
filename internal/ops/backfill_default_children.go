@@ -122,9 +122,9 @@ func backfillOrgDefaultChildren(ctx context.Context, env *Env, orgID uuid.UUID, 
 					continue
 				}
 				child, view, rels := defaultChildRecords(orgID, parent.ID, dc)
-				// parent_id is the only indexed prop guaranteed to apply to every type;
-				// the resolver-critical ones (slug, identifier, sequence) are not stamped
-				// here because default children do not declare them.
+				// CreateAtomic indexes parent_id here. This backfill does not assign slug,
+				// identifier, or sequence values for resolution; the default child records use
+				// the declared properties and the generated parent_id and scope_id values.
 				if err := env.Stores.Nodes.CreateAtomic(ctx, child, view, rels, []string{"parent_id"}, nil, nil); err != nil {
 					failures = append(failures, fmt.Errorf("create default child %q under node %s: %w", dc.Name, parent.ID, err))
 					continue
@@ -143,8 +143,8 @@ func backfillOrgDefaultChildren(ctx context.Context, env *Env, orgID uuid.UUID, 
 	return failures
 }
 
-// hasNamed returns true when any candidate has the given Name. Names are
-// compared verbatim; the seed declares names exactly as we want them stored.
+// hasNamed reports whether a candidate's Name exactly matches name. The seed
+// supplies the names to store, and this comparison does not normalize them.
 func hasNamed(candidates []*node.Node, name string) bool {
 	for _, n := range candidates {
 		if n.Name == name {
@@ -154,10 +154,12 @@ func hasNamed(candidates []*node.Node, name string) bool {
 	return false
 }
 
-// defaultChildRecords returns a node, view, and child_of relationship under
+// defaultChildRecords builds a node, view, and child_of relationship under
 // parentID with a new UUIDv7 ID and the current time. defaultChildProps adds
-// parent_id and scope_id. It does not write. The ops package builds the records
-// because importing the service package would create an import cycle.
+// parent_id and scope_id. This helper does not write the records.
+//
+// The ops package builds these records locally. The property check imports the
+// service package for validation.
 func defaultChildRecords(orgID, parentID uuid.UUID, dc node.DefaultChild) (*node.Node, *node.NodeView, []*node.Relationship) {
 	id := uuid.Must(uuid.NewV7())
 	now := clock.Now().UTC()

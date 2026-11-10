@@ -1,15 +1,15 @@
-// backup_alarm_policy.go decides when the staleness alarm mails: once per
-// mechanism, on the run that first finds it stale, and never again while it
-// stays stale. A mechanism that comes back is logged and forgotten, so its next
-// fault mails again; a reading that could not be taken never counts as coming
-// back, even while this guest's last reading still dates it as fresh. The memory is the state file in backup_alarm_state.go
-// and the copy both checkers share in the object store, reconciled by
-// generation (backup_alarm_memory.go), so a fault the other checker mailed is
-// held here too and a clear it recorded is honored here. A mechanism is
-// recorded only after the transport accepted its mail, so a mail that did not
-// go out is retried on the next run. A deputy checker first asks the ledger whether the
-// primary has run recently (backup_alarm_primary_ledger.go) and, while it has,
-// neither mails nor records the new faults.
+// The transition policy suppresses repeated mail for a persistent stale
+// mechanism after a successful send result. A fresh observation logs recovery
+// and removes the alarm record; a later fault can then mail again. An
+// unreadable observation cannot clear a record, even when an earlier reading
+// still dates the mechanism as fresh.
+//
+// Local state and shared object memory reconcile by generation. Each checker
+// honors the other's mail and recovery records. The policy records a new fault
+// only after a successful send result and retries after an error. A QUIT error
+// can follow server acceptance of DATA; a retry can repeat an accepted message.
+// A deputy checks the audit ledger for a recent primary run and defers mailing
+// and recording new faults while that evidence remains recent.
 
 package ops
 
@@ -23,9 +23,9 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// alarmBackupStalenessTransitions mails the mechanisms that became stale on
-// this run and updates the alarm's memory. It returns nothing: the stale
-// verdict is the run's result whatever the mail or the memory did.
+// alarmBackupStalenessTransitions sends newly stale mechanisms and updates
+// alarm memory. The caller preserves the staleness verdict regardless of mail
+// or memory failures.
 func alarmBackupStalenessTransitions(
 	ctx context.Context,
 	cfg *config.Config,
@@ -47,8 +47,8 @@ func alarmBackupStalenessTransitions(
 		case metric.stale():
 			held = append(held, metric.Name)
 		case alarmed && metric.Unknown != backupStalenessAgeKnown:
-			// A reading dated from an earlier one proves nothing new, so it
-			// holds the fault rather than clearing it.
+			// An earlier observation cannot establish current recovery. Keep the alarm
+			// record until a fresh observation clears it.
 			held = append(held, metric.Name)
 		case alarmed:
 			cleared = append(cleared, metric.Name)

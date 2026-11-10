@@ -6,13 +6,12 @@ import (
 	"time"
 )
 
-// TestBackupStalenessAlarmUnreadableWords runs the whole command against an
-// object store and ledger masters that refuse every connection, on a guest
-// that has never read the store. Nothing here proves a backup was never made,
-// only that nothing could be read, so every sentence must say the record could
-// not be read and none may say the record does not exist. The store is named
-// once, before the faults, and each fault still gets its steps under its
-// phrase with none of the client's error text.
+// TestBackupStalenessAlarmUnreadableWords runs the command with an object
+// store and ledger masters that refuse connections. The guest has not read the
+// store before. These refusals establish unreadable records rather than absent
+// backups. The message must report that distinction, identify the store once
+// before the faults, and put each fault's steps below its phrase without client
+// error text.
 func TestBackupStalenessAlarmUnreadableWords(t *testing.T) {
 	fixBackupStalenessClock(t, time.Date(2026, 8, 29, 12, 0, 0, 0, time.UTC))
 	captured := captureBackupAlarmSends(t, nil)
@@ -56,11 +55,10 @@ func TestBackupStalenessAlarmUnreadableWords(t *testing.T) {
 	assertBackupAlarmPlainWords(t, captured.messages[0].Subject, body, cfg.BackupS3Endpoint)
 }
 
-// TestBackupStalenessAlarmNeverRecordedWords runs the whole command against a
-// reachable object store that holds nothing: no export run and no marker. That
-// reading does prove no success was ever recorded, so the mail says so, in
-// different words from the unreadable case, and each fault still gets its
-// steps under its phrase.
+// TestBackupStalenessAlarmNeverRecordedWords runs the command against a
+// readable store without an export run or success marker. The message reports
+// that the store has not recorded a success, uses different words from the
+// unreadable case, and puts each fault's steps below its phrase.
 func TestBackupStalenessAlarmNeverRecordedWords(t *testing.T) {
 	fixBackupStalenessClock(t, time.Date(2026, 8, 29, 12, 0, 0, 0, time.UTC))
 	captured := captureBackupAlarmSends(t, nil)
@@ -80,9 +78,9 @@ func TestBackupStalenessAlarmNeverRecordedWords(t *testing.T) {
 			"The restore rehearsal (the daily test restore) has never passed. " +
 			"The last check reported: no backup-status/rehearsal.json in " + cfg.BackupS3BucketMain + ".\n" +
 			"1. On the owner guest, run journalctl -u tack-backup-restore-drill.\n",
-		// The store answered and holds no cluster record, but this guest
-		// heard from no master either, so the only claim it can make is
-		// about its own eyesight.
+		// The store does not contain a cluster record, and the guest did not receive
+		// a master response. The message can report only this guest's inability to
+		// observe cluster health.
 		"\n\nThis guest cannot see the ledger cluster\n" +
 			"This guest cannot reach the ledger cluster (logins and audit trail), " +
 			"so it cannot say whether the cluster is healthy.\n",
