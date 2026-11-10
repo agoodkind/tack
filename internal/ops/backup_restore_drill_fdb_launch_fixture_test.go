@@ -9,10 +9,10 @@ import (
 	"time"
 )
 
-// launchFixture is a throwaway directory laid out the way the scratch
-// container's is, so the launch program can be run for real. Asserting its text
-// would prove nothing about the case these tests exist for: a destination that
-// closes the quote it was interpolated into and runs as shell syntax.
+// launchFixture uses a temporary directory with the scratch container's file
+// layout to execute the launch program. These tests exercise the injection
+// case in which an interpolated destination could close a quote and execute
+// shell syntax. A program-text assertion would not establish that behavior.
 type launchFixture struct {
 	dir   string
 	files fdbRestoreFiles
@@ -31,9 +31,9 @@ func newLaunchFixture(t *testing.T) launchFixture {
 	}
 }
 
-// launch runs the argv the drill hands the container and waits for the
-// backgrounded group to publish its exit status, returning the log and that
-// status.
+// launch runs the exec arguments that the drill supplies to the container.
+// It waits for the background group to publish an exit status, then returns
+// the log and status.
 func (f launchFixture) launch(t *testing.T, restore []string) (logText, exitStatus string) {
 	t.Helper()
 	argv := fdbRestoreLaunchArgv(f.files, restore)

@@ -6,14 +6,13 @@ import (
 	"time"
 )
 
-// TestFDBBackupSelectionReadsEverySessionTheStoreHolds runs the selection from
-// the object store in, the way the drill does: the backup names come out of a
-// real S3 listing of the backups/ markers on the test SeaweedFS engine, through
-// the real client, and the target is then checked against each
-// session's window newest first. The store below holds two sessions because
-// the continuous backup was started twice, with the engine's data folders and
-// the backups/ placeholder beside the markers; the target is a moment only the
-// older session retains, and it must be restored from that session.
+// TestFDBBackupSelectionReadsEverySessionTheStoreHolds lists backups/ markers
+// with the real S3 client against the test SeaweedFS engine, as the drill does.
+// The selection checks each session's restorable window, newest first.
+//
+// The store represents two starts of continuous backup. It includes the
+// engine's data folders and a backups/ placeholder beside the markers. Only
+// the older session covers the target, and the selection must choose it.
 func TestFDBBackupSelectionReadsEverySessionTheStoreHolds(t *testing.T) {
 	objectStore := newBackupTestStore(t, map[string][]byte{
 		"backups/":                        {},

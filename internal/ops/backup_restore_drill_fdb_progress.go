@@ -1,9 +1,8 @@
-// backup_restore_drill_fdb_progress.go decides when a FoundationDB restore has
-// stopped, not when it has taken too long. A restore's duration scales with the
-// dataset, so a fixed budget for the whole restore is a wall a growing corpus
-// eventually hits, and a drill that fails for being large pins the rehearsal
-// staleness alarm on with nothing actually wrong. Only inactivity is bounded
-// here: a restore that keeps moving runs for as long as it needs.
+// The drill limits FoundationDB restore inactivity instead of total work.
+// Restore duration grows with the dataset. A fixed total budget would
+// eventually fail a healthy large restore and keep the rehearsal staleness
+// alarm active. A restore that continues making progress can run as long as
+// the dataset requires.
 
 package ops
 
@@ -17,39 +16,38 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// fdbDrillRestoreStallWindow is how long the restore may show no progress at
-// all before the drill calls it stalled. It bounds inactivity and never total
-// work, so it does not grow with the dataset. The window is wide because a
-// restore is legitimately quiet while the backup agent enumerates the backup's
-// files over the object store, and quiet again between the last block and the
-// process exiting.
+// fdbDrillRestoreStallWindow limits time without observed progress rather
+// than total work and does not grow with the dataset. The window allows
+// quiet periods while the backup agent lists files in the object store and
+// after the last block completes but before the process exits.
 const fdbDrillRestoreStallWindow = 30 * time.Minute
 
-// fdbDrillRestorePollInterval is how often the drill reads the restore's
-// progress counters.
+// fdbDrillRestorePollInterval sets the interval between progress-counter
+// readings.
 const fdbDrillRestorePollInterval = 15 * time.Second
 
-// fdbRestoreWatch is what the wait reads on each poll. Both are functions so
-// the loop's decisions can be exercised against real status text without a
-// Docker daemon. Each is called under its own deadline and must return once
-// its context ends.
+// fdbRestoreWatch supplies the functions that each poll reads. Tests can
+// exercise wait decisions with real status text without a Docker daemon.
+// Each function runs with its own deadline and must return when its context
+// ends.
 type fdbRestoreWatch struct {
-	// Finished reports the exit code of the `fdbrestore ... --waitfordone`
-	// the drill launched, and done=false while it is still running.
+	// Finished returns the exit code of the launched
+	// fdbrestore ... --waitfordone command. It returns done=false while that
+	// command still runs.
 	Finished func(ctx context.Context) (exitCode int, done bool, err error)
 	// Status returns one `fdbrestore status` reading.
 	Status func(ctx context.Context) (string, error)
 }
 
-// awaitFDBRestore blocks until the restore exits or stops making progress. It
-// never bounds the restore's total run time: a restore whose counters keep
-// moving in the direction that counter moves under work runs for as long as the
-// dataset needs. stallWindow bounds only the time since the last observed
-// movement, so what fails the drill is a restore that stopped, never a restore
-// that is big. probeTimeout bounds each reading, so a probe that never answers
-// cannot keep the stall check from running; a reading that timed out is not
-// progress, and the wait gives up once fdbDrillProbeTimeoutTolerance polls in
-// a row ended that way, naming them rather than a stall it never observed.
+// awaitFDBRestore waits for completion or loss of progress without imposing
+// a total restore deadline. An advance by any counter in its expected
+// direction resets the inactivity clock. stallWindow measures time since
+// the last observed advance rather than dataset size.
+//
+// probeTimeout bounds each reading and permits the stall check to run even
+// when a probe does not answer. Timeouts do not establish progress. After
+// fdbDrillProbeTimeoutTolerance consecutive unanswered polls, the wait reports
+// those polls instead of claiming that it observed a restore stall.
 func awaitFDBRestore(
 	ctx context.Context,
 	watch fdbRestoreWatch,
@@ -85,8 +83,8 @@ func awaitFDBRestore(
 			lastMoved = opsNow()
 			lastStatusErr = ""
 		default:
-			// A status that was read but showed no movement: the drill can
-			// see the restore, so neither failure count carries forward.
+			// A successful status read without progress resets the unanswered-poll
+			// count and clears the previous status error.
 			blindPolls = 0
 			lastStatusErr = ""
 		}
@@ -101,8 +99,8 @@ func awaitFDBRestore(
 	}
 }
 
-// fdbRestoreWaitCancelled reports a wait the drill's own context ended, with
-// how far the restore had got.
+// fdbRestoreWaitCancelled reports cancellation by the drill's context and
+// logs the restore's observed progress.
 func fdbRestoreWaitCancelled(ctx context.Context, progress *fdbRestoreProgress) error {
 	wrapped := fmt.Errorf("waiting for the FoundationDB restore: %w", ctx.Err())
 	telemetry.L(ctx).ErrorContext(ctx, "backup.restore_drill.fdb.wait_cancelled",
@@ -110,10 +108,9 @@ func fdbRestoreWaitCancelled(ctx context.Context, progress *fdbRestoreProgress) 
 	return wrapped
 }
 
-// fdbRestoreStallError names what the drill saw before it gave up: how long
-// nothing moved, the furthest mark of every counter it read, and the last
-// status read that failed, so a wedged restore reads differently from a
-// status the drill could not read.
+// fdbRestoreStallError reports the inactivity duration, each counter's
+// greatest observed progress, and the last failed status read. These details
+// distinguish an observed restore stall from an unreadable status.
 func fdbRestoreStallError(stalled time.Duration, progress *fdbRestoreProgress, lastStatusErr string) error {
 	message := fmt.Sprintf("the FoundationDB restore made no progress for %s: %s",
 		stalled.Round(time.Second), progress.summary())

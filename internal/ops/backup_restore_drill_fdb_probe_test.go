@@ -8,21 +8,20 @@ import (
 	"time"
 )
 
-// testWaitGuard is how long a scripted wait may take in real time. Every run
-// below either finishes in milliseconds or has hung on a probe, and a hang has
-// to fail in seconds rather than by the test binary's own timeout.
+// testWaitGuard limits the real time for a scripted wait. These runs should
+// finish in milliseconds. A hung probe must fail within seconds instead of
+// waiting for the test binary's timeout.
 const testWaitGuard = 10 * time.Second
 
-// hangUntilDone is a probe that never answers on its own. It returns only when
-// its context ends, which is what a hung container exec looks like once the
-// exec's stream is closed on that context.
+// hangUntilDone waits until its context ends before returning. It models a
+// hung container exec that returns when cancellation closes its stream.
 func hangUntilDone(ctx context.Context) (string, error) {
 	<-ctx.Done()
 	return "", ctx.Err()
 }
 
-// awaitOrHang runs the wait on its own goroutine and fails the test when it has
-// not returned within the guard.
+// awaitOrHang runs the wait in a separate goroutine and fails the test if
+// the guard expires before the wait returns.
 func awaitOrHang(t *testing.T, watch fdbRestoreWatch) (*fdbRestoreProgress, int, error) {
 	t.Helper()
 	type outcome struct {
@@ -45,12 +44,12 @@ func awaitOrHang(t *testing.T, watch fdbRestoreWatch) (*fdbRestoreProgress, int,
 	}
 }
 
-// TestAwaitFDBRestoreBoundsAStatusProbeThatNeverAnswers is the defect this file
-// exists for. A status probe that hangs, which a container exec can, blocked
-// the wait before the stall check ever ran, so no window took effect and the
-// drill hung for as long as the exec did. Each probe now has its own deadline,
-// and a probe that does not answer is not progress: the wait ends naming the
-// polls it was blind for, not a stall it never observed.
+// TestAwaitFDBRestoreBoundsAStatusProbeThatNeverAnswers checks the earlier
+// defect in which a hung container exec blocked the wait before its stall
+// check. The drill could then wait indefinitely without applying a limit.
+// Each probe now has a deadline. An unanswered probe does not establish
+// progress, and the wait reports the unanswered polls instead of claiming
+// that it observed a restore stall.
 func TestAwaitFDBRestoreBoundsAStatusProbeThatNeverAnswers(t *testing.T) {
 	advanceClockPerRead(t, time.Second)
 	watch := fdbRestoreWatch{
@@ -75,9 +74,10 @@ func TestAwaitFDBRestoreBoundsAStatusProbeThatNeverAnswers(t *testing.T) {
 	}
 }
 
-// TestAwaitFDBRestoreBoundsAnExitProbeThatNeverAnswers proves the other probe
-// is bounded the same way, and that the wait does not go on to ask for a status
-// through the same hung path, which would only double the time spent blind.
+// TestAwaitFDBRestoreBoundsAnExitProbeThatNeverAnswers checks the exit
+// probe's deadline and verifies that the wait skips the status probe after
+// timeout. Both probes use the same blocked access, and a second probe would
+// double the time without observation.
 func TestAwaitFDBRestoreBoundsAnExitProbeThatNeverAnswers(t *testing.T) {
 	advanceClockPerRead(t, time.Second)
 	var statusAsked atomic.Int32
@@ -102,10 +102,9 @@ func TestAwaitFDBRestoreBoundsAnExitProbeThatNeverAnswers(t *testing.T) {
 	}
 }
 
-// TestAwaitFDBRestoreOutlivesProbeTimeoutsThatClear proves the tolerance: a
-// probe that times out short of fdbDrillProbeTimeoutTolerance times in a row is
-// a transient the drill rides out, and the restore that then answers goes on
-// to finish cleanly.
+// TestAwaitFDBRestoreOutlivesProbeTimeoutsThatClear checks that fewer than
+// fdbDrillProbeTimeoutTolerance consecutive timeouts do not end the wait.
+// The transient timeouts clear, and the restore finishes successfully.
 func TestAwaitFDBRestoreOutlivesProbeTimeoutsThatClear(t *testing.T) {
 	const polls = 20
 	advanceClockPerRead(t, time.Second)
@@ -135,10 +134,10 @@ func TestAwaitFDBRestoreOutlivesProbeTimeoutsThatClear(t *testing.T) {
 	}
 }
 
-// TestAwaitFDBRestoreDoesNotCountATimedOutProbeAsProgress proves a probe that
-// did not answer never moves the stall clock. The restore below is wedged and
-// every other probe times out, so the blind polls never reach the tolerance,
-// and the wait must still end as the stall it is rather than run on.
+// TestAwaitFDBRestoreDoesNotCountATimedOutProbeAsProgress checks that an
+// unanswered probe does not reset the stall clock. Every other probe times
+// out while the restore remains inactive. The consecutive timeout count
+// stays below tolerance, but the wait must still report the observed stall.
 func TestAwaitFDBRestoreDoesNotCountATimedOutProbeAsProgress(t *testing.T) {
 	advanceClockPerRead(t, testClockStep)
 	var reads atomic.Int32

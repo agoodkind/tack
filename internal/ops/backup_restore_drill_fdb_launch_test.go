@@ -10,13 +10,12 @@ import (
 	"time"
 )
 
-// TestLaunchFDBRestorePassesTheDestinationAsData is the defect this file exists
-// for. The destination is the blobstore URL, and the backup name inside it is
-// read out of whatever objects the bucket holds, so it is the attacker's half
-// of the string. Interpolated into a single-quoted shell word it only had to
-// carry one quote to close it and run the rest as shell, inside a container
-// holding the object store's credentials. Passed as a positional parameter it
-// reaches the program as one argument, whatever it contains.
+// TestLaunchFDBRestorePassesTheDestinationAsData checks the earlier shell
+// injection defect. The blobstore URL includes a backup name from the bucket's
+// objects, which an attacker can control. A quote in that name could close a
+// single-quoted interpolation and execute shell syntax inside a container
+// with object-store credentials. Positional parameters must preserve the
+// destination as one argument regardless of its contents.
 func TestLaunchFDBRestorePassesTheDestinationAsData(t *testing.T) {
 	fixture := newLaunchFixture(t)
 	canary := filepath.Join(fixture.dir, "canary")
@@ -37,9 +36,9 @@ func TestLaunchFDBRestorePassesTheDestinationAsData(t *testing.T) {
 	}
 }
 
-// TestLaunchFDBRestoreKeepsASpacedDestinationOneArgument proves the vector
-// survives a destination that would otherwise split into several arguments,
-// which is the same defect without the quote.
+// TestLaunchFDBRestoreKeepsASpacedDestinationOneArgument checks that spaces
+// in the destination do not split the vector into extra arguments. It tests
+// the argument-handling defect without a quote.
 func TestLaunchFDBRestoreKeepsASpacedDestinationOneArgument(t *testing.T) {
 	fixture := newLaunchFixture(t)
 	dest := "blobstore://key:secret@host:8333/rt 2026 08 30?bucket=tack-backups"
@@ -54,10 +53,9 @@ func TestLaunchFDBRestoreKeepsASpacedDestinationOneArgument(t *testing.T) {
 	}
 }
 
-// TestLaunchFDBRestorePublishesTheCommandsExitStatus proves the shell still
-// does the one job it is there for. The restore runs in the background so the
-// exec can return and the watch can poll, and the status the watch reads has to
-// be the command's own.
+// TestLaunchFDBRestorePublishesTheCommandsExitStatus checks that the shell
+// publishes the restore command's own status. Background execution lets the
+// exec return while the watch polls that status.
 func TestLaunchFDBRestorePublishesTheCommandsExitStatus(t *testing.T) {
 	fixture := newLaunchFixture(t)
 
@@ -74,13 +72,13 @@ func TestLaunchFDBRestorePublishesTheCommandsExitStatus(t *testing.T) {
 	}
 }
 
-// TestLaunchFDBRestoreAbortsWhenTheStaleStatusCannotBeCleared is the silent
-// success the clear's guard exists for. The watch decides a restore finished by
-// reading the status file, so a launch that could not clear the previous run's
-// status and started anyway hands the watch that run's answer as this one's,
-// which is a restore reporting an outcome it never produced. Here a directory
-// stands where the status file goes, which `rm -f` refuses; the launch must
-// exit non-zero and the restore must not start.
+// TestLaunchFDBRestoreAbortsWhenTheStaleStatusCannotBeCleared checks that a
+// failed cleanup prevents launch. The watch uses the status file to detect
+// completion; an old status could otherwise report an outcome that the
+// current restore never produced.
+//
+// The fixture creates a directory at the status path. rm -f refuses to remove
+// it. The launch must exit with a nonzero status without starting the restore.
 func TestLaunchFDBRestoreAbortsWhenTheStaleStatusCannotBeCleared(t *testing.T) {
 	fixture := newLaunchFixture(t)
 	if err := os.WriteFile(fixture.files.Log, []byte("the previous restore's output\n"), 0o600); err != nil {
@@ -97,9 +95,9 @@ func TestLaunchFDBRestoreAbortsWhenTheStaleStatusCannotBeCleared(t *testing.T) {
 	if err == nil {
 		t.Fatalf("a launch whose clear failed must exit non-zero, got output %q", out)
 	}
-	// The guard exits before the group is forked, so the restore never runs.
-	// A launch that stepped over the failed clear forks it immediately, so a
-	// short window is enough to catch one that did.
+	// The guard exits before forking the command group. An unguarded launch
+	// would fork immediately after failed cleanup. The short observation window
+	// checks whether that incorrect launch starts the restore.
 	deadline := time.Now().Add(time.Second)
 	for time.Now().Before(deadline) {
 		if _, statErr := os.Stat(canary); statErr == nil {
@@ -109,9 +107,9 @@ func TestLaunchFDBRestoreAbortsWhenTheStaleStatusCannotBeCleared(t *testing.T) {
 	}
 }
 
-// TestFDBRestoreCommandCarriesTheDestinationUnaltered locks that the engine
-// vector hands fdbrestore the destination as one argument with no quoting of
-// its own, because the quoting is what the shell would have had to undo.
+// TestFDBRestoreCommandCarriesTheDestinationUnaltered checks that the engine
+// vector supplies fdbrestore with one unchanged destination argument. The
+// vector must not add quoting that a shell would need to remove.
 func TestFDBRestoreCommandCarriesTheDestinationUnaltered(t *testing.T) {
 	dest := "blobstore://key:secret@host:8333/rt'20260830?bucket=tack-backups"
 
@@ -134,12 +132,10 @@ func TestFDBRestoreCommandCarriesTheDestinationUnaltered(t *testing.T) {
 	}
 }
 
-// TestLaunchArgvRunsTheBuiltRestoreVector is the seam between the two halves of
-// the FoundationDB restore. The vector is built with the operator's target and
-// checked against the backup's restorable window; the launch has to run that
-// vector. A launch that assembled its own command from the destination would
-// drop the target and restore the latest point instead, and report success
-// doing it, which is the failure the target exists to prevent.
+// TestLaunchArgvRunsTheBuiltRestoreVector checks that launch executes the
+// vector built for the operator's target after validation against the backup's
+// restorable window. Rebuilding a command from the destination alone would
+// omit the target, restore the latest point, and incorrectly report success.
 func TestLaunchArgvRunsTheBuiltRestoreVector(t *testing.T) {
 	target := time.Date(2026, 8, 30, 1, 5, 0, 0, time.UTC)
 	restore, err := fdbRestoreCommand(drillDestURL, &target)

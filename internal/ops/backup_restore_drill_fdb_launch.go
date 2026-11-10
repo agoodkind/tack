@@ -1,7 +1,7 @@
-// backup_restore_drill_fdb_launch.go runs the FoundationDB restore in the
-// scratch container in the background, with its own output and exit status
-// captured to files, so the drill can watch it work instead of blocking on one
-// exec under a fixed time budget it would eventually outgrow.
+// The FoundationDB restore runs in the background inside the scratch
+// container. Files record its output and exit status for the drill to monitor.
+// A fixed deadline for one blocking exec would eventually reject a restore
+// as the dataset grows.
 
 package ops
 
@@ -14,22 +14,20 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// fdbRestoreFiles names the three files one backgrounded restore writes inside
-// the scratch container. It travels as a value so the launch program can be
-// built and run against a throwaway directory, which is how the launch's
-// behavior is proven rather than its text asserted.
+// fdbRestoreFiles specifies the three files that a background restore writes
+// inside the scratch container. Tests supply a temporary directory and run the
+// launch program to check its behavior instead of asserting its text.
 type fdbRestoreFiles struct {
 	// Log captures the restore's own output.
 	Log string
-	// Exit holds the restore's exit status once it has one.
+	// Exit records the restore's exit status after the command finishes.
 	Exit string
-	// Partial is the name that status is written under before it is moved to
-	// Exit, so a reader sees either nothing or the whole status.
+	// Partial records the exit status before the launch renames it to Exit.
+	// Readers cannot observe an incomplete status in Exit.
 	Partial string
 }
 
-// drillFDBRestoreFiles is the layout the drill runs against the scratch
-// container.
+// drillFDBRestoreFiles returns the file layout for the scratch container.
 func drillFDBRestoreFiles() fdbRestoreFiles {
 	return fdbRestoreFiles{
 		Log:     fdbRestoreLogPath,
@@ -38,29 +36,24 @@ func drillFDBRestoreFiles() fdbRestoreFiles {
 	}
 }
 
-// fdbRestoreLaunchScript backgrounds whatever vector it is handed, sends that
-// vector's output to the log, and publishes its exit status. The vector arrives
-// as the shell's positional parameters and runs through "$@", so no value the
-// drill did not write is ever parsed as shell program text; the three file
-// names are the drill's own constants and are quoted as single words anyway.
+// fdbRestoreLaunchScript starts the supplied argument vector in the
+// background, redirects its output to the log, and publishes its exit status.
+// The shell receives the vector as positional parameters and executes "$@".
+// It does not parse external argument values as shell syntax. The three file
+// names use the drill's constants, and each name also uses single-word quoting.
 //
-// Clearing the previous run's files is a guard rather than a courtesy, so it
-// carries `|| exit 1`. The status file is what tells the watch a restore
-// finished, and the log is what an error quotes; a clear that failed and was
-// stepped over would leave the last run's answers in place for this run's watch
-// to read as its own, which is a restore reporting an outcome it never
-// produced. The whole program cannot run under `set -e` instead: the group
-// below is where a failing restore's status is published, and -e would exit the
-// shell on that failure before `echo $?` ever ran.
+// The initial file removal uses || exit 1. A failed removal must stop the
+// launch: otherwise the watch could read the previous run's exit status or
+// report its log as the current restore's output. The program cannot use
+// set -e because a failed restore must still execute echo $? to record its
+// own status.
 //
-// The shell is here for the backgrounding alone, and every part of it is a
-// shell feature no engine CLI offers. `fdbrestore --waitfordone` runs for as
-// long as the dataset needs while the exec that starts it has to return so the
-// watch can poll, so the group's output is redirected to a file, which releases
-// the exec's streams, and the group is put in the background with `&`. `echo $?`
-// into a temp name followed by a move is what publishes a whole exit status
-// rather than a half-written one. None of that is the command, and the command
-// is the only thing carrying a value from outside.
+// The shell supplies background execution and file publication that the
+// engine CLI does not offer. fdbrestore --waitfordone can run for as long as
+// the dataset requires. Redirecting the group's streams to a file and using &
+// lets the launching exec return while the watch polls. The group writes
+// echo $? to a temporary file and renames that file to publish a complete
+// status. Only the command's arguments include external values.
 func fdbRestoreLaunchScript(files fdbRestoreFiles) string {
 	log, exit, partial := shellQuote(files.Log), shellQuote(files.Exit), shellQuote(files.Partial)
 	return "rm -f " + log + " " + exit + " " + partial + " || exit 1; " +
@@ -68,23 +61,20 @@ func fdbRestoreLaunchScript(files fdbRestoreFiles) string {
 		"mv " + partial + " " + exit + "; } >" + log + " 2>&1 &"
 }
 
-// fdbRestoreLaunchArgv is what the drill execs: the launch program, the name
-// the shell reports as $0, and then the restore's own vector, which the program
-// expands as "$@".
+// fdbRestoreLaunchArgv builds the exec arguments: the launch program, its
+// $0 label, and the restore vector that the shell expands as "$@".
 func fdbRestoreLaunchArgv(files fdbRestoreFiles, restore []string) []string {
 	argv := []string{"sh", "-c", fdbRestoreLaunchScript(files), "fdbrestore-launch"}
 	return append(argv, restore...)
 }
 
-// launchFDBRestore starts the restore vector it is handed in the background and
-// returns as soon as it is running. The command group sends its own output to
-// the log file, which releases the exec's streams and lets this call return
-// while the restore works on. Nothing here bounds how long that takes; the
-// watch decides when it has stopped.
+// launchFDBRestore starts the supplied restore vector in the background.
+// The command group redirects its output to the log and releases the exec's
+// streams, allowing this call to return while the restore continues. The
+// launch does not limit total restore time; the watch detects inactivity.
 //
-// The vector is built elsewhere and arrives as the shell's positional
-// parameters, so the destination URL inside it is never parsed as shell program
-// text.
+// The caller builds the vector. The shell receives its arguments as positional
+// parameters and does not parse the destination URL as shell program text.
 func launchFDBRestore(ctx context.Context, r *restoreDrillCtx, container string, restore []string) error {
 	logger := telemetry.L(ctx)
 	argv := fdbRestoreLaunchArgv(drillFDBRestoreFiles(), restore)
