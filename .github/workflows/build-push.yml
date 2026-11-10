@@ -22,8 +22,12 @@ jobs:
     steps:
       - name: checkout
         uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+
       - name: check overlay drift
-        run: bash scripts/check-overlay-drift.sh
+        run: go run ./cmd/ci/image overlay-drift
 
   build-native:
     needs: overlay-drift

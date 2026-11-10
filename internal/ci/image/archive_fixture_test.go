@@ -1,0 +1,159 @@
+package image_test
+
+import (
+	"archive/tar"
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	v1 "github.com/google/go-containerregistry/pkg/v1"
+	"github.com/google/go-containerregistry/pkg/v1/mutate"
+
+	"goodkind.io/tack/internal/ci/image/imagetest"
+	"goodkind.io/tack/internal/ci/image/upstream"
+)
+
+const (
+	upstreamText = "a\nb\nc\n"
+	overlayText  = "a\nB\nc\n"
+	validPatch   = "--- x.upstream\n+++ x\n@@ -1,3 +1,3 @@\n a\n-b\n+B\n c\n"
+	fdbPath      = "var/fdb/scripts/fdb.bash"
+	ybPath       = "home/yugabyte/bin/yugabyted"
+
+	pinnedYugabyteImage = upstream.YugabyteImage
+)
+
+func regular(name, content string) imagetest.Entry {
+	return imagetest.Entry{Name: name, Type: tar.TypeReg, Content: content, Linkname: ""}
+}
+
+func symlink(name, target string) imagetest.Entry {
+	return imagetest.Entry{Name: name, Type: tar.TypeSymlink, Content: "", Linkname: target}
+}
+
+// pushPlatforms writes an index with an amd64 image and an arm64 decoy
+// image.
+func pushPlatforms(t *testing.T, tag string, amd64 []v1.Layer, arm64 []v1.Layer) {
+	t.Helper()
+
+	amd64Platform := v1.Platform{OS: linuxPlatform, Architecture: "amd64"}
+	arm64Platform := v1.Platform{OS: linuxPlatform, Architecture: "arm64"}
+
+	imagetest.PushIndex(
+		t,
+		tag,
+		mutate.IndexAddendum{
+			Add:      imagetest.Image(t, arm64Platform, arm64...),
+			Platform: &arm64Platform,
+		},
+		mutate.IndexAddendum{
+			Add:      imagetest.Image(t, amd64Platform, amd64...),
+			Platform: &amd64Platform,
+		},
+	)
+}
+
+func writeFile(t *testing.T, path, content string) {
+	t.Helper()
+
+	err := os.MkdirAll(filepath.Dir(path), testDirMode)
+	if err != nil {
+		t.Fatalf("create %s: %v", filepath.Dir(path), err)
+	}
+
+	writeTestFile(t, path, content)
+}
+
+// writeRepository writes the Makefile and vendored overlay files that the
+// check reads.
+func writeRepository(t *testing.T) string {
+	t.Helper()
+
+	root := t.TempDir()
+	sum := sha256.Sum256([]byte(upstreamText))
+	recorded := hex.EncodeToString(sum[:]) + "\n"
+
+	writeFile(t, filepath.Join(root, "Makefile"), "FDB_VERSION ?= 1.2.3\n")
+
+	for _, overlay := range []string{"fdb-overlay/fdb.bash", "yugabyte-overlay/yugabyted"} {
+		writeFile(t, filepath.Join(root, overlay), overlayText)
+		writeFile(t, filepath.Join(root, overlay+".upstream.sha256"), recorded)
+		writeFile(t, filepath.Join(root, overlay+".patch"), validPatch)
+	}
+
+	return root
+}
+
+func overlayDriftCommand(ctx context.Context) *exec.Cmd {
+	return exec.CommandContext(ctx, "./ci-image", "overlay-drift")
+}
+
+func runOverlayCheck(t *testing.T, root, host string) (string, error) {
+	t.Helper()
+
+	command := imagetest.Prepare(t, root, overlayDriftCommand)
+	command.Env = []string{"UPSTREAM_REGISTRY=" + host}
+
+	output, err := command.CombinedOutput()
+
+	return string(output), err
+}
+
+func plainFDB(t *testing.T) []v1.Layer {
+	t.Helper()
+
+	return []v1.Layer{
+		imagetest.Layer(t, regular(fdbPath, "stale\n")),
+		imagetest.Layer(t, regular("var/fdb/scripts/.wh.fdb.bash", "")),
+		imagetest.Layer(t, regular(fdbPath, upstreamText)),
+	}
+}
+
+func chainedYB(t *testing.T) []v1.Layer {
+	t.Helper()
+
+	return []v1.Layer{
+		imagetest.Layer(
+			t,
+			regular("home/yugabyte/lib/real-yugabyted", upstreamText),
+			symlink("home/yugabyte/tools/yugabyted", "../lib/real-yugabyted"),
+		),
+		imagetest.Layer(t, symlink("home/yugabyte/bin", "tools")),
+	}
+}
+
+func layersOf(entries ...imagetest.Entry) func(*testing.T) []v1.Layer {
+	return func(t *testing.T) []v1.Layer {
+		t.Helper()
+
+		return []v1.Layer{imagetest.Layer(t, entries...)}
+	}
+}
+
+func oversizedUnrelatedFDB(t *testing.T) []v1.Layer {
+	t.Helper()
+
+	other := regular("opt/other/fdb.bash", strings.Repeat("x", oversizedBytes))
+
+	return append(plainFDB(t), imagetest.Layer(t, other))
+}
+
+func oversizedRequestedFDB(t *testing.T) []v1.Layer {
+	t.Helper()
+
+	return []v1.Layer{imagetest.Layer(t, regular(fdbPath, strings.Repeat("x", oversizedBytes)))}
+}
+
+func whitedOutFDB(t *testing.T) []v1.Layer {
+	t.Helper()
+
+	return []v1.Layer{
+		imagetest.Layer(t, regular(fdbPath, upstreamText)),
+		imagetest.Layer(t, regular("var/fdb/scripts/.wh.fdb.bash", "")),
+	}
+}
