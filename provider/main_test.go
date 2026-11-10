@@ -64,6 +64,7 @@ func TestProviderDependsOnNeitherFoundationDBNorCgo(t *testing.T) {
 						"the provider depends on %s, which has cgo files",
 						loadedPackage.PkgPath,
 					)
+
 					return
 				}
 			}
