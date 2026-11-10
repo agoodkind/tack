@@ -34,12 +34,14 @@ type providerValue struct {
 	Operator *operatorValue `tfsdk:"operator"`
 }
 
-var nodeObjectType = types.ObjectType{AttrTypes: map[string]attr.Type{
-	"endpoint":  types.StringType,
-	"api_token": types.StringType,
-	"insecure":  types.BoolType,
-	"node_name": types.StringType,
-}}
+var nodeObjectType = types.ObjectType{
+	AttrTypes: map[string]attr.Type{
+		"endpoint":  types.StringType,
+		"api_token": types.StringType,
+		"insecure":  types.BoolType,
+		"node_name": types.StringType,
+	},
+}
 
 // TestConfigureDiagnosticsOmitToken calls Configure with an endpoint that
 // uses an unsupported scheme and with a token that lacks the user, realm,
@@ -66,20 +68,27 @@ func TestConfigureDiagnosticsOmitToken(t *testing.T) {
 		},
 	}
 	for _, testCase := range cases {
-		t.Run(testCase.name, func(t *testing.T) {
-			text := configureText(t, nodeValue{
-				Endpoint: types.StringValue(testCase.endpoint),
-				APIToken: types.StringValue(testCase.token),
-				Insecure: types.BoolValue(false),
-				NodeName: types.StringValue("hypervisor"),
-			})
-			if strings.Contains(text, unitTokenSecret) {
-				t.Fatal("the Configure diagnostics contain the API token secret")
-			}
-			if !strings.Contains(text, testCase.want) {
-				t.Fatalf("Configure diagnostics = %q, want %q", text, testCase.want)
-			}
-		})
+		t.Run(
+			testCase.name,
+			func(t *testing.T) {
+				text := configureText(
+					t,
+					nodeValue{
+						Endpoint: types.StringValue(testCase.endpoint),
+						APIToken: types.StringValue(testCase.token),
+						Insecure: types.BoolValue(false),
+						NodeName: types.StringValue("hypervisor"),
+					},
+				)
+				if strings.Contains(text, unitTokenSecret) {
+					t.Fatal("the Configure diagnostics contain the API token secret")
+				}
+
+				if !strings.Contains(text, testCase.want) {
+					t.Fatalf("Configure diagnostics = %q, want %q", text, testCase.want)
+				}
+			},
+		)
 	}
 }
 
@@ -94,24 +103,35 @@ func configureText(t *testing.T, node nodeValue) string {
 		Schema: schemaResp.Schema,
 		Raw:    tftypes.NewValue(schemaResp.Schema.Type().TerraformType(ctx), nil),
 	}
-	diags.Append(plan.Set(ctx, &providerValue{
-		Nodes: nodes,
-		Operator: &operatorValue{
-			Email:   types.StringValue("operator@example.com"),
-			Name:    types.StringValue("unit test"),
-			Service: types.StringNull(),
-			Session: types.StringNull(),
-		},
-	})...)
+	diags.Append(
+		plan.Set(
+			ctx,
+			&providerValue{
+				Nodes: nodes,
+				Operator: &operatorValue{
+					Email:   types.StringValue("operator@example.com"),
+					Name:    types.StringValue("unit test"),
+					Service: types.StringNull(),
+					Session: types.StringNull(),
+				},
+			},
+		)...,
+	)
 	if diags.HasError() {
 		t.Fatalf("build the provider configuration: %s", diagnosticsText(diags))
 	}
+
 	var resp provider.ConfigureResponse
-	tackProvider.Configure(ctx, provider.ConfigureRequest{
-		Config: tfsdk.Config{Schema: schemaResp.Schema, Raw: plan.Raw},
-	}, &resp)
+	tackProvider.Configure(
+		ctx,
+		provider.ConfigureRequest{
+			Config: tfsdk.Config{Schema: schemaResp.Schema, Raw: plan.Raw},
+		},
+		&resp,
+	)
 	if !resp.Diagnostics.HasError() {
 		t.Fatal("Configure succeeded, want an error")
 	}
+
 	return diagnosticsText(resp.Diagnostics)
 }

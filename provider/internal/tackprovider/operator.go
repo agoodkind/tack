@@ -53,33 +53,51 @@ func operatorFlags(model *operatorModel) ([]string, error) {
 	if model == nil {
 		return nil, errors.New("the provider configuration requires the operator block")
 	}
-	if model.Email.IsUnknown() || model.Name.IsUnknown() || model.Service.IsUnknown() || model.Session.IsUnknown() {
-		return nil, errors.New("the operator arguments must be known when the provider runs Configure")
+
+	if model.Email.IsUnknown() || model.Name.IsUnknown() || model.Service.IsUnknown() ||
+		model.Session.IsUnknown() {
+		return nil, errors.New(
+			"the operator arguments must be known when the provider runs Configure",
+		)
 	}
+
 	email := strings.ToLower(strings.TrimSpace(model.Email.ValueString()))
 	if email == "" {
-		return nil, errors.New("operator.email is empty. The operator configuration requires the accountable person's email")
+		return nil, errors.New(
+			"operator.email is empty. The operator configuration requires the accountable person's email",
+		)
 	}
+
 	service := model.Service.ValueString()
 	session := model.Session.ValueString()
 	if service == "" && session != "" {
 		return nil, errors.New("operator.session requires operator.service")
 	}
+
 	if service != "" && session == "" {
 		return nil, errors.New("operator.service requires operator.session")
 	}
+
 	operatorID := uuid.NewSHA1(operatorNamespace, []byte(email)).String()
 	if service != "" {
 		return []string{
-			"--operator-service", service,
-			"--operator-session", session,
-			"--operator-id", operatorID,
-			"--operator-email", email,
+			"--operator-service",
+			service,
+			"--operator-session",
+			session,
+			"--operator-id",
+			operatorID,
+			"--operator-email",
+			email,
 		}, nil
 	}
+
 	return []string{
-		"--operator-id", operatorID,
-		"--operator-email", email,
-		"--operator-name", model.Name.ValueString(),
+		"--operator-id",
+		operatorID,
+		"--operator-email",
+		email,
+		"--operator-name",
+		model.Name.ValueString(),
 	}, nil
 }

@@ -31,6 +31,7 @@ func (check secretAbsentFromPlan) CheckPlan(
 		resp.Error = fmt.Errorf("encode the plan: %w", err)
 		return
 	}
+
 	if strings.Contains(string(encoded), check.secret) {
 		resp.Error = errors.New("the plan contains the API token secret")
 	}
@@ -50,6 +51,7 @@ func (check secretAbsentFromState) CheckState(
 		resp.Error = fmt.Errorf("encode the state: %w", err)
 		return
 	}
+
 	if strings.Contains(string(encoded), check.secret) {
 		resp.Error = errors.New("the state or its outputs contain the API token secret")
 	}
@@ -75,21 +77,30 @@ func (check priorAppliedVersion) CheckPlan(
 		if change.Address != schemaAddress || change.Change == nil {
 			continue
 		}
+
 		encoded, err := json.Marshal(change.Change.Before)
 		if err != nil {
 			resp.Error = fmt.Errorf("encode the prior state of %s: %w", schemaAddress, err)
 			return
 		}
+
 		var before appliedVersionValue
 		if err := json.Unmarshal(encoded, &before); err != nil {
 			resp.Error = fmt.Errorf("decode the prior state of %s: %w", schemaAddress, err)
 			return
 		}
+
 		if before.AppliedVersion.String() != strconv.FormatInt(check.version, 10) {
-			resp.Error = fmt.Errorf("the plan read applied_version %s for %s, want %d",
-				before.AppliedVersion, schemaAddress, check.version)
+			resp.Error = fmt.Errorf(
+				"the plan read applied_version %s for %s, want %d",
+				before.AppliedVersion,
+				schemaAddress,
+				check.version,
+			)
 		}
+
 		return
 	}
+
 	resp.Error = fmt.Errorf("the plan does not contain %s", schemaAddress)
 }

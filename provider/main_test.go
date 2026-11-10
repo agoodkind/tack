@@ -22,36 +22,54 @@ var foundationDBPackages = []string{
 // It treats a compiled Go file outside the package directory as evidence of
 // cgo processing. Go stores those generated files in its build cache.
 func TestProviderDependsOnNeitherFoundationDBNorCgo(t *testing.T) {
-	loaded, err := packages.Load(&packages.Config{
-		Context:    t.Context(),
-		Mode:       packages.NeedName | packages.NeedFiles | packages.NeedCompiledGoFiles | packages.NeedImports | packages.NeedDeps | packages.NeedModule,
-		Env:        append(os.Environ(), "CGO_ENABLED=1"),
-		BuildFlags: []string{"-tags=fdb"},
-	}, ".")
+	loaded, err := packages.Load(
+		&packages.Config{
+			Context:    t.Context(),
+			Mode:       packages.NeedName | packages.NeedFiles | packages.NeedCompiledGoFiles | packages.NeedImports | packages.NeedDeps | packages.NeedModule,
+			Env:        append(os.Environ(), "CGO_ENABLED=1"),
+			BuildFlags: []string{"-tags=fdb"},
+		},
+		".",
+	)
 	if err != nil {
 		t.Fatalf("load the provider packages: %v", err)
 	}
+
 	visited := 0
-	packages.Visit(loaded, nil, func(loadedPackage *packages.Package) {
-		visited++
-		for _, loadError := range loadedPackage.Errors {
-			t.Errorf("load %s: %v", loadedPackage.PkgPath, loadError)
-		}
-		for _, prefix := range foundationDBPackages {
-			if strings.HasPrefix(loadedPackage.PkgPath, prefix) {
-				t.Errorf("the provider depends on the FoundationDB package %s", loadedPackage.PkgPath)
+	packages.Visit(
+		loaded,
+		nil,
+		func(loadedPackage *packages.Package) {
+			visited++
+
+			for _, loadError := range loadedPackage.Errors {
+				t.Errorf("load %s: %v", loadedPackage.PkgPath, loadError)
 			}
-		}
-		if loadedPackage.Module == nil {
-			return
-		}
-		for _, compiled := range loadedPackage.CompiledGoFiles {
-			if filepath.Dir(compiled) != loadedPackage.Dir {
-				t.Errorf("the provider depends on %s, which has cgo files", loadedPackage.PkgPath)
+
+			for _, prefix := range foundationDBPackages {
+				if strings.HasPrefix(loadedPackage.PkgPath, prefix) {
+					t.Errorf(
+						"the provider depends on the FoundationDB package %s",
+						loadedPackage.PkgPath,
+					)
+				}
+			}
+
+			if loadedPackage.Module == nil {
 				return
 			}
-		}
-	})
+
+			for _, compiled := range loadedPackage.CompiledGoFiles {
+				if filepath.Dir(compiled) != loadedPackage.Dir {
+					t.Errorf(
+						"the provider depends on %s, which has cgo files",
+						loadedPackage.PkgPath,
+					)
+					return
+				}
+			}
+		},
+	)
 	if visited == 0 {
 		t.Fatal("loading the provider returned no packages")
 	}

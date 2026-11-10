@@ -22,30 +22,50 @@ func TestSchemaDriftRepair(t *testing.T) {
 	applied := environment.appliedVersion
 	target := requireNumber(t, targetVersionVariable)
 	if target <= applied {
-		t.Fatalf("%s is %d and must exceed %s, which is %d", targetVersionVariable, target, versionVariable, applied)
+		t.Fatalf(
+			"%s is %d and must exceed %s, which is %d",
+			targetVersionVariable,
+			target,
+			versionVariable,
+			applied,
+		)
 	}
+
 	secret := environment.secret()
 	sameImage := statecheck.CompareValue(compare.ValuesSame())
 	imagePath := tfjsonpath.New("image_commit")
-	resource.Test(t, resource.TestCase{
-		ProtoV6ProviderFactories: providerFactories(),
-		Steps: []resource.TestStep{
-			importStep(environment, applied),
-			adoptStep(environment, applied, sameImage.AddStateValue(schemaAddress, imagePath)),
-			{
-				Config:             outputConfig,
-				ConfigVariables:    environment.variables(target),
-				PlanOnly:           true,
-				ExpectNonEmptyPlan: true,
-				ConfigPlanChecks: resource.ConfigPlanChecks{PostApplyPostRefresh: []plancheck.PlanCheck{
-					plancheck.ExpectResourceAction(schemaAddress, plancheck.ResourceActionUpdate),
-					secretAbsentFromPlan{secret: secret},
-				}},
+	resource.Test(
+		t,
+		resource.TestCase{
+			ProtoV6ProviderFactories: providerFactories(),
+			Steps: []resource.TestStep{
+				importStep(environment, applied),
+				adoptStep(environment, applied, sameImage.AddStateValue(schemaAddress, imagePath)),
+				{
+					Config:             outputConfig,
+					ConfigVariables:    environment.variables(target),
+					PlanOnly:           true,
+					ExpectNonEmptyPlan: true,
+					ConfigPlanChecks: resource.ConfigPlanChecks{
+						PostApplyPostRefresh: []plancheck.PlanCheck{
+							plancheck.ExpectResourceAction(
+								schemaAddress,
+								plancheck.ResourceActionUpdate,
+							),
+							secretAbsentFromPlan{secret: secret},
+						},
+					},
+				},
+				migrateStep(
+					environment,
+					applied,
+					target,
+					sameImage.AddStateValue(schemaAddress, imagePath),
+				),
+				repeatStep(environment, target),
 			},
-			migrateStep(environment, applied, target, sameImage.AddStateValue(schemaAddress, imagePath)),
-			repeatStep(environment, target),
 		},
-	})
+	)
 }
 
 func adoptStep(
@@ -54,15 +74,21 @@ func adoptStep(
 	extraChecks ...statecheck.StateCheck,
 ) resource.TestStep {
 	secret := environment.secret()
+
 	return resource.TestStep{
 		Config:          outputConfig,
 		ConfigVariables: environment.variables(version),
-		ConfigPlanChecks: resource.ConfigPlanChecks{PreApply: []plancheck.PlanCheck{
-			plancheck.ExpectResourceAction(schemaAddress, plancheck.ResourceActionNoop),
-			secretAbsentFromPlan{secret: secret},
-		}},
-		ConfigStateChecks: append([]statecheck.StateCheck{secretAbsentFromState{secret: secret}}, extraChecks...),
-		Check:             appliedChecks(version),
+		ConfigPlanChecks: resource.ConfigPlanChecks{
+			PreApply: []plancheck.PlanCheck{
+				plancheck.ExpectResourceAction(schemaAddress, plancheck.ResourceActionNoop),
+				secretAbsentFromPlan{secret: secret},
+			},
+		},
+		ConfigStateChecks: append(
+			[]statecheck.StateCheck{secretAbsentFromState{secret: secret}},
+			extraChecks...,
+		),
+		Check: appliedChecks(version),
 	}
 }
 
@@ -73,6 +99,7 @@ func migrateStep(
 	extraChecks ...statecheck.StateCheck,
 ) resource.TestStep {
 	secret := environment.secret()
+
 	return resource.TestStep{
 		Config:          outputConfig,
 		ConfigVariables: environment.variables(target),
@@ -84,8 +111,11 @@ func migrateStep(
 			},
 			PostApplyPostRefresh: []plancheck.PlanCheck{plancheck.ExpectEmptyPlan()},
 		},
-		ConfigStateChecks: append([]statecheck.StateCheck{secretAbsentFromState{secret: secret}}, extraChecks...),
-		Check:             appliedChecks(target),
+		ConfigStateChecks: append(
+			[]statecheck.StateCheck{secretAbsentFromState{secret: secret}},
+			extraChecks...,
+		),
+		Check: appliedChecks(target),
 	}
 }
 
@@ -105,6 +135,7 @@ func repeatStep(environment acceptanceEnvironment, version int64) resource.TestS
 
 func appliedChecks(version int64) resource.TestCheckFunc {
 	versionText := strconv.FormatInt(version, 10)
+
 	return resource.ComposeAggregateTestCheckFunc(
 		resource.TestCheckResourceAttr(schemaAddress, "version", versionText),
 		resource.TestCheckResourceAttr(schemaAddress, "applied_version", versionText),
