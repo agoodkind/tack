@@ -47,7 +47,7 @@ func (e *RestoreDrillMarkerError) Error() string {
 //
 // The method returns Err without replacing the original error.
 //
-//   - errors.Is and errors.As can inspect that underlying failure.
+//   - [errors.Is] and [errors.As] can inspect that underlying failure.
 func (e *RestoreDrillMarkerError) Unwrap() error { return e.Err }
 
 // OperatorExitStatus returns the CLI status for a marker-only failure.
