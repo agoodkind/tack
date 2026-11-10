@@ -24,10 +24,12 @@ func capText(text string) string {
 	if len(text) <= maxSuccessTextBytes {
 		return text
 	}
+
 	cut := strings.LastIndexByte(text[:maxSuccessTextBytes], '\n')
 	if cut <= 0 {
 		cut = maxSuccessTextBytes
 	}
+
 	return text[:cut] + truncationNotice
 }
 
@@ -37,9 +39,12 @@ func successText(body, instruction string) *mcp.CallToolResult {
 		if text != "" && text[len(text)-1] != '\n' {
 			text += "\n"
 		}
+
 		text += "\nNext step: " + instruction
 	}
+
 	text = capText(text)
+
 	return &mcp.CallToolResult{
 		Content: []mcp.Content{mcp.TextContent{Type: "text", Text: text}},
 	}
@@ -52,7 +57,12 @@ func recoverableError(instruction string) *mcp.CallToolResult {
 }
 
 func recoverableErrorWithNextStep(problem, nextStep string) *mcp.CallToolResult {
-	text := fmt.Sprintf("#### Request could not be completed\n\n- Problem: %s\n\nNext step: %s", problem, nextStep)
+	text := fmt.Sprintf(
+		"#### Request could not be completed\n\n- Problem: %s\n\nNext step: %s",
+		problem,
+		nextStep,
+	)
+
 	return &mcp.CallToolResult{
 		IsError: true,
 		Content: []mcp.Content{mcp.TextContent{Type: "text", Text: text}},
@@ -64,16 +74,34 @@ func recoverableErrorWithNextStep(problem, nextStep string) *mcp.CallToolResult 
 func permissionDenied() *mcp.CallToolResult {
 	return &mcp.CallToolResult{
 		IsError: true,
-		Content: []mcp.Content{mcp.TextContent{Type: "text", Text: "#### Permission denied\n\nThe caller is not a member of the org that holds this data.\n\nNext step: Yield to the user."}},
+		Content: []mcp.Content{
+			mcp.TextContent{
+				Type: "text",
+				Text: "#### Permission denied\n\nThe caller is not a member of the org " +
+					"that holds this data.\n\nNext step: Yield to the user.",
+			},
+		},
 	}
 }
 
 func unexpectedError(ctx context.Context, err error) *mcp.CallToolResult {
 	telemetry.L(ctx).Error("mcp.tool.unexpected_error", "err", err)
-	noteOutcome(ctx, audit.OutcomeFailed, "unexpected_error", "the server could not complete the tool call")
+	noteOutcome(
+		ctx,
+		audit.OutcomeFailed,
+		"unexpected_error",
+		"the server could not complete the tool call",
+	)
+
 	return &mcp.CallToolResult{
 		IsError: true,
-		Content: []mcp.Content{mcp.TextContent{Type: "text", Text: "#### Unexpected server error\n\nThe server could not complete the request safely.\n\nNext step: Yield to the user."}},
+		Content: []mcp.Content{
+			mcp.TextContent{
+				Type: "text",
+				Text: "#### Unexpected server error\n\nThe server could not complete the " +
+					"request safely.\n\nNext step: Yield to the user.",
+			},
+		},
 	}
 }
 
@@ -83,12 +111,18 @@ func classifyError(ctx context.Context, err error) *mcp.CallToolResult {
 	noteRefusal(ctx, err)
 	switch {
 	case errors.Is(err, domain.ErrNotFound):
-		return recoverableError(err.Error() +
-			". Check tack_list_workspaces for workspace_reference, tack_describe_workspace for scope references, and list calls for node references.")
+		return recoverableError(
+			err.Error() +
+				". Check tack_list_workspaces for workspace_reference, " +
+				"tack_describe_workspace for scope references, and list calls for " +
+				"node references.",
+		)
 	case errors.Is(err, domain.ErrInvalidArgument):
 		return recoverableError(err.Error() + ". Fix the parameter value and retry.")
 	case errors.Is(err, domain.ErrAlreadyExists):
-		return recoverableError(err.Error() + ". Use a different name or update the existing entity.")
+		return recoverableError(
+			err.Error() + ". Use a different name or update the existing entity.",
+		)
 	case errors.Is(err, domain.ErrConflict):
 		return recoverableError(err.Error() + ". Re-read the current entity before retrying.")
 	case errors.Is(err, domain.ErrFailedPrecondition):

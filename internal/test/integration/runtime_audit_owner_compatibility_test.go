@@ -47,34 +47,48 @@ func TestRuntimeAuditStoredRowsWithoutOwner(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read the signer public key: %v", err)
 	}
+
 	public, err := hex.DecodeString(strings.TrimSpace(string(keyText)))
 	if err != nil {
 		t.Fatalf("decode the signer public key: %v", err)
 	}
+
 	report, err := audit.VerifyBundle(directory, ed25519.PublicKey(public))
 	if err != nil {
 		t.Fatalf("verify the stored bundle: %v", err)
 	}
-	if report.Err() != nil || report.RowsScanned != storedBundleRows || report.HashMatches != storedBundleRows {
-		t.Fatalf("stored bundle report = %+v, err = %v, want %d verified rows", report, report.Err(), storedBundleRows)
+
+	if report.Err() != nil || report.RowsScanned != storedBundleRows ||
+		report.HashMatches != storedBundleRows {
+		t.Fatalf(
+			"stored bundle report = %+v, err = %v, want %d verified rows",
+			report,
+			report.Err(),
+			storedBundleRows,
+		)
 	}
+
 	names, err := filepath.Glob(filepath.Join(directory, "events-*.jsonl"))
 	if err != nil || len(names) != 1 {
 		t.Fatalf("stored bundle rows files = %v, %v, want one file", names, err)
 	}
+
 	stored, err := os.ReadFile(names[0])
 	if err != nil {
 		t.Fatalf("read the stored rows: %v", err)
 	}
+
 	for line := range bytes.SplitSeq(bytes.TrimSuffix(stored, []byte("\n")), []byte("\n")) {
 		var row audit.Row
 		if err := json.Unmarshal(line, &row); err != nil {
 			t.Fatalf("decode a stored row: %v", err)
 		}
+
 		encoded, err := json.Marshal(row)
 		if err != nil {
 			t.Fatalf("encode stored row %s: %v", row.EventID, err)
 		}
+
 		if !bytes.Equal(encoded, line) {
 			t.Fatalf("stored row %s encodes to %s, want %s", row.EventID, encoded, line)
 		}
@@ -97,10 +111,17 @@ func TestRuntimeAuditOwnerRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open FoundationDB: %v", err)
 	}
+
 	oldest := clock.Now().UTC().Add(-time.Minute)
 	orgID, ownerID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
-	operation := completeEvent(orgID, userActor(), ownedTarget(uuid.Must(uuid.NewV7()), uuid.Nil),
-		audit.OperationDatabaseChange, audit.PhaseResult, audit.OutcomeCompleted)
+	operation := completeEvent(
+		orgID,
+		userActor(),
+		ownedTarget(uuid.Must(uuid.NewV7()), uuid.Nil),
+		audit.OperationDatabaseChange,
+		audit.PhaseResult,
+		audit.OutcomeCompleted,
+	)
 	filler := strings.Repeat("x", ownerFillerBytes)
 	plainText, largeText := "plain owner value "+uuid.NewString(), "large owner value "+uuid.NewString()
 	plain, plainReference := ownerChange(t, ownerID, plainText, "")
@@ -110,6 +131,7 @@ func TestRuntimeAuditOwnerRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("build the change event %s: %v", refused.EventID, err)
 	}
+
 	refusedEvent.Protected[0].SubjectID = refused.Target.ID
 	refusedRecords, err := audit.EncodeEvent(refusedEvent, nil)
 	if err != nil || !refusedRecords.Multipart() {
@@ -117,15 +139,22 @@ func TestRuntimeAuditOwnerRoundTrip(t *testing.T) {
 	}
 
 	if _, err := database.Transact(func(tr fdb.Transaction) (any, error) {
-		return nil, fdbadapter.AppendChanges(t.Context(), tr, operation, []audit.Change{plain, large})
+		return nil, fdbadapter.AppendChanges(
+			t.Context(),
+			tr,
+			operation,
+			[]audit.Change{plain, large},
+		)
 	}); err != nil {
 		t.Fatalf("append the owner changes: %v", err)
 	}
+
 	if _, err := database.Transact(func(tr fdb.Transaction) (any, error) {
 		return nil, fdbadapter.NewOutboxWriter(tr).WriteEncodedEvent(t.Context(), refusedRecords)
 	}); err != nil {
 		t.Fatalf("write the refused event: %v", err)
 	}
+
 	pipeline := newPartsPipeline(t)
 	pipeline.startConsumer(t)
 	startLegacyRelay(t, pipeline, clusterFile)
@@ -133,26 +162,62 @@ func TestRuntimeAuditOwnerRoundTrip(t *testing.T) {
 	for _, change := range []audit.Change{plain, large} {
 		row := pipeline.stack().waitForRow(t, change.EventID)
 		if !reflect.DeepEqual(*row.Context.Target, change.Target) {
-			t.Fatalf("event %s target = %+v, want %+v", change.EventID, *row.Context.Target, change.Target)
+			t.Fatalf(
+				"event %s target = %+v, want %+v",
+				change.EventID,
+				*row.Context.Target,
+				change.Target,
+			)
 		}
+
 		hash, err := audit.ComputeRowHash(row)
 		if err != nil || !bytes.Equal(hash, row.RowHash) {
-			t.Fatalf("ComputeRowHash of event %s = %x, %v, want %x", change.EventID, hash, err, row.RowHash)
+			t.Fatalf(
+				"ComputeRowHash of event %s = %x, %v, want %x",
+				change.EventID,
+				hash,
+				err,
+				row.RowHash,
+			)
 		}
 	}
-	if pipeline.count(t, completedRowsQuery, plain.EventID) != 0 || pipeline.count(t, completedRowsQuery, large.EventID) != 1 ||
+
+	if pipeline.count(t, completedRowsQuery, plain.EventID) != 0 ||
+		pipeline.count(t, completedRowsQuery, large.EventID) != 1 ||
 		pipeline.count(t, assemblyRowsQuery, large.EventID) != 0 {
-		t.Fatalf("events %s and %s did not use the plain and multipart paths", plain.EventID, large.EventID)
+		t.Fatalf(
+			"events %s and %s did not use the plain and multipart paths",
+			plain.EventID,
+			large.EventID,
+		)
 	}
-	requireProtectedValues(t, pipeline.admin, map[uuid.UUID]string{plainReference: plainText, largeReference: largeText})
-	waitFor(t, "rejection of the assembly", func() bool {
-		return pipeline.count(t, invalidAssemblyRowsQuery, refused.EventID) == 1
-	})
-	if _, err := pipeline.reader.GetByID(t.Context(), refused.EventID); !errors.Is(err, pgx.ErrNoRows) {
+
+	requireProtectedValues(
+		t,
+		pipeline.admin,
+		map[uuid.UUID]string{plainReference: plainText, largeReference: largeText},
+	)
+	waitFor(
+		t,
+		"rejection of the assembly",
+		func() bool {
+			return pipeline.count(t, invalidAssemblyRowsQuery, refused.EventID) == 1
+		},
+	)
+	if _, err := pipeline.reader.GetByID(t.Context(), refused.EventID); !errors.Is(
+		err,
+		pgx.ErrNoRows,
+	) {
 		t.Fatalf("ledger read of refused event %s = %v, want pgx.ErrNoRows", refused.EventID, err)
 	}
+
 	pipeline.stack().waitForDeadLetters(t, 0)
-	if err := pipeline.stack().exportAndVerify(t, orgID, oldest, clock.Now().UTC().Add(time.Minute)); err != nil {
+	if err := pipeline.stack().exportAndVerify(
+		t,
+		orgID,
+		oldest,
+		clock.Now().UTC().Add(time.Minute),
+	); err != nil {
 		t.Fatalf("export of events with an owner failed verification: %v", err)
 	}
 }
@@ -162,18 +227,30 @@ func TestRuntimeAuditOwnerRoundTrip(t *testing.T) {
 func ownerChange(t *testing.T, ownerID uuid.UUID, text, filler string) (audit.Change, uuid.UUID) {
 	t.Helper()
 	reference := uuid.Must(uuid.NewV7())
-	after, err := json.Marshal(ownerRecord{Text: audit.ProtectedReference{PIIRef: reference}, Filler: filler})
+	after, err := json.Marshal(ownerRecord{
+		Text:   audit.ProtectedReference{PIIRef: reference},
+		Filler: filler,
+	})
 	if err != nil {
 		t.Fatalf("encode the record: %v", err)
 	}
+
 	value, err := json.Marshal(text)
 	if err != nil {
 		t.Fatalf("encode the protected value: %v", err)
 	}
-	change, err := audit.NewChange(uuid.Must(uuid.NewV7()), ownedTarget(uuid.Must(uuid.NewV7()), ownerID), nil, after)
+
+	change, err := audit.NewChange(
+		uuid.Must(uuid.NewV7()),
+		ownedTarget(uuid.Must(uuid.NewV7()), ownerID),
+		nil,
+		after,
+	)
 	if err != nil {
 		t.Fatalf("build the change: %v", err)
 	}
+
 	change.Protected = []audit.ProtectedValue{{Ref: reference, SubjectID: ownerID, Value: value}}
+
 	return change, reference
 }

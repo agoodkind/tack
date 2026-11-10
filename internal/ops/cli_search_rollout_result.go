@@ -27,29 +27,54 @@ type searchRolloutOutput struct {
 
 // writeSearchRolloutResult writes the rollout state and affected nodes of
 // one authority as the command result.
-func writeSearchRolloutResult(ctx context.Context, sink clispec.ResultSink, rollouts *fdbadapter.SearchAccessRolloutStore, rollout searchdomain.AccessRollout, dryRun bool) error {
+func writeSearchRolloutResult(
+	ctx context.Context,
+	sink clispec.ResultSink,
+	rollouts *fdbadapter.SearchAccessRolloutStore,
+	rollout searchdomain.AccessRollout,
+	dryRun bool,
+) error {
 	affected, err := rollouts.AffectedNodes(ctx, rollout.AuthorityID)
 	if err != nil {
-		return searchRolloutFailure(ctx, "read affected nodes of authority "+rollout.AuthorityID.String(), err)
+		return searchRolloutFailure(
+			ctx,
+			"read affected nodes of authority "+rollout.AuthorityID.String(),
+			err,
+		)
 	}
+
 	nodes := make([]string, 0, len(affected.Nodes))
 	for _, nodeID := range affected.Nodes {
 		nodes = append(nodes, nodeID.String())
 	}
+
 	output := searchRolloutOutput{
-		ResultMarker: clispec.ResultMarker{}, AuthorityID: rollout.AuthorityID.String(), Phase: string(rollout.Phase),
-		ActiveVersion: rollout.ActiveVersion, CandidateVersion: rollout.CandidateVersion, PreviousVersion: rollout.PreviousVersion,
-		WriteVersions: rollout.WriteVersions, Generation: rollout.Generation, AffectedRecorded: affected.Recorded,
-		AffectedNodes: nodes, DryRun: dryRun,
+		ResultMarker:     clispec.ResultMarker{},
+		AuthorityID:      rollout.AuthorityID.String(),
+		Phase:            string(rollout.Phase),
+		ActiveVersion:    rollout.ActiveVersion,
+		CandidateVersion: rollout.CandidateVersion,
+		PreviousVersion:  rollout.PreviousVersion,
+		WriteVersions:    rollout.WriteVersions,
+		Generation:       rollout.Generation,
+		AffectedRecorded: affected.Recorded,
+		AffectedNodes:    nodes,
+		DryRun:           dryRun,
 	}
 	if err := clispec.WriteJSONValue(ctx, sink, output); err != nil {
 		return searchRolloutFailure(ctx, "write access rollout result", err)
 	}
+
 	return nil
 }
 
 func searchRolloutFailure(ctx context.Context, operation string, err error) error {
 	wrapped := fmt.Errorf("%s: %w", operation, err)
-	telemetry.L(ctx).ErrorContext(ctx, "search.rollout.command_failed", slog.String("err", wrapped.Error()))
+	telemetry.L(ctx).ErrorContext(
+		ctx,
+		"search.rollout.command_failed",
+		slog.String("err", wrapped.Error()),
+	)
+
 	return wrapped
 }

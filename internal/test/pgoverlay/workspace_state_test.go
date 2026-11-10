@@ -76,7 +76,10 @@ func (space *workspace) stateResourceCount(t *testing.T) int {
 
 func (space *workspace) requireNoSecrets(t *testing.T, secrets ...string) {
 	t.Helper()
-	found := []string{space.transcript.String(), string(space.host.ReadFile(t, space.stateFilePath()))}
+	found := []string{
+		space.transcript.String(),
+		string(space.host.ReadFile(t, space.stateFilePath())),
+	}
 	for _, text := range found {
 		for _, secret := range secrets {
 			if strings.Contains(text, secret) {

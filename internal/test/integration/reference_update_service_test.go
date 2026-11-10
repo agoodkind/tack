@@ -26,21 +26,40 @@ func TestServiceUpdateRefusesMoveOntoHeldReference(t *testing.T) {
 	first := mustCreateScope(t, env, "project", "Fan", workspace.ID, workspace.ID, actor)
 	second := mustCreateScope(t, env, "project", "Qat", workspace.ID, workspace.ID, actor)
 
-	resident := mustCreate(t, env, service.CreateInput{
-		ParentID: first.ID, ScopeID: first.ID, NodeTypeKey: "issue", Name: "Resident", ActorID: actor,
-	})
-	mover := mustCreate(t, env, service.CreateInput{
-		ParentID: second.ID, ScopeID: second.ID, NodeTypeKey: "issue", Name: "Mover", ActorID: actor,
-	})
-
-	_, err := env.NodeSvc.Update(env.Ctx, service.UpdateInput{
-		NodeID: mover.ID,
-		Props: map[string]json.RawMessage{
-			"parent_id": jsonStr(first.ID.String()),
+	resident := mustCreate(
+		t,
+		env,
+		service.CreateInput{
+			ParentID:    first.ID,
+			ScopeID:     first.ID,
+			NodeTypeKey: "issue",
+			Name:        "Resident",
+			ActorID:     actor,
 		},
-		ActorID: actor,
-		ScopeID: first.ID,
-	})
+	)
+	mover := mustCreate(
+		t,
+		env,
+		service.CreateInput{
+			ParentID:    second.ID,
+			ScopeID:     second.ID,
+			NodeTypeKey: "issue",
+			Name:        "Mover",
+			ActorID:     actor,
+		},
+	)
+
+	_, err := env.NodeSvc.Update(
+		env.Ctx,
+		service.UpdateInput{
+			NodeID: mover.ID,
+			Props: map[string]json.RawMessage{
+				"parent_id": jsonStr(first.ID.String()),
+			},
+			ActorID: actor,
+			ScopeID: first.ID,
+		},
+	)
 	if !errors.Is(err, domain.ErrConflict) {
 		t.Fatalf("update moving %s into %s error = %v, want ErrConflict", mover.ID, first.ID, err)
 	}
@@ -49,13 +68,16 @@ func TestServiceUpdateRefusesMoveOntoHeldReference(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get moved node: %v", err)
 	}
+
 	if got := stringPropOf(stored, "scope_id"); got != second.ID.String() {
 		t.Fatalf("scope_id after refused move = %q, want %q", got, second.ID)
 	}
+
 	owner, err := env.Stores.Nodes.LookupReference(env.Ctx, env.OrgID, "reference", "FAN-1")
 	if err != nil {
 		t.Fatalf("lookup contested reference: %v", err)
 	}
+
 	if owner != resident.ID {
 		t.Fatalf("FAN-1 owner = %s, want the resident %s", owner, resident.ID)
 	}
@@ -73,17 +95,28 @@ func TestServiceUpdateReclaimsReferenceOnCleanMove(t *testing.T) {
 	origin := mustCreateScope(t, env, "project", "Fan", workspace.ID, workspace.ID, actor)
 	destination := mustCreateScope(t, env, "project", "Qat", workspace.ID, workspace.ID, actor)
 
-	mover := mustCreate(t, env, service.CreateInput{
-		ParentID: origin.ID, ScopeID: origin.ID, NodeTypeKey: "issue", Name: "Mover", ActorID: actor,
-	})
-	if _, err := env.NodeSvc.Update(env.Ctx, service.UpdateInput{
-		NodeID: mover.ID,
-		Props: map[string]json.RawMessage{
-			"parent_id": jsonStr(destination.ID.String()),
+	mover := mustCreate(
+		t,
+		env,
+		service.CreateInput{
+			ParentID:    origin.ID,
+			ScopeID:     origin.ID,
+			NodeTypeKey: "issue",
+			Name:        "Mover",
+			ActorID:     actor,
 		},
-		ActorID: actor,
-		ScopeID: destination.ID,
-	}); err != nil {
+	)
+	if _, err := env.NodeSvc.Update(
+		env.Ctx,
+		service.UpdateInput{
+			NodeID: mover.ID,
+			Props: map[string]json.RawMessage{
+				"parent_id": jsonStr(destination.ID.String()),
+			},
+			ActorID: actor,
+			ScopeID: destination.ID,
+		},
+	); err != nil {
 		t.Fatalf("clean move: %v", err)
 	}
 
@@ -91,13 +124,16 @@ func TestServiceUpdateReclaimsReferenceOnCleanMove(t *testing.T) {
 	if err != nil {
 		t.Fatalf("lookup released reference: %v", err)
 	}
+
 	if released != uuid.Nil {
 		t.Fatalf("FAN-1 owner after move = %s, want it released", released)
 	}
+
 	held, err := env.Stores.Nodes.LookupReference(env.Ctx, env.OrgID, "reference", "QAT-1")
 	if err != nil {
 		t.Fatalf("lookup new reference: %v", err)
 	}
+
 	if held != mover.ID {
 		t.Fatalf("QAT-1 owner = %s, want the moved node %s", held, mover.ID)
 	}
@@ -113,24 +149,29 @@ func setScopedSequenceTemplate(t *testing.T, env *TestEnv, typeKeys ...string) {
 	if err != nil {
 		t.Fatalf("list node types: %v", err)
 	}
+
 	wanted := make(map[string]bool, len(typeKeys))
 	for _, typeKey := range typeKeys {
 		wanted[typeKey] = true
 	}
+
 	for _, nodeType := range types {
 		if !wanted[nodeType.TypeKey] {
 			continue
 		}
-		nodeType.ReferenceTemplates = []node.ReferenceTemplate{{
-			Name:      "reference",
-			IsPrimary: true,
-			Generated: "sequence",
-			Parts: []node.ReferencePart{
-				{Kind: node.ReferencePartScopeRef, Value: node.FeatureIsScope},
-				{Kind: node.ReferencePartLiteral, Value: "-"},
-				{Kind: node.ReferencePartProperty, Value: "sequence"},
+
+		nodeType.ReferenceTemplates = []node.ReferenceTemplate{
+			{
+				Name:      "reference",
+				IsPrimary: true,
+				Generated: "sequence",
+				Parts: []node.ReferencePart{
+					{Kind: node.ReferencePartScopeRef, Value: node.FeatureIsScope},
+					{Kind: node.ReferencePartLiteral, Value: "-"},
+					{Kind: node.ReferencePartProperty, Value: "sequence"},
+				},
 			},
-		}}
+		}
 		if err := env.Stores.NodeTypes.Set(env.Ctx, nodeType); err != nil {
 			t.Fatalf("set template for %s: %v", nodeType.TypeKey, err)
 		}

@@ -59,15 +59,51 @@ func datagenSearchOp(f *cli.Factory) clispec.Operation[datagenSearchInput] {
 			"Pass --verify-cohort --commit with a positive --seed to prepare a cohort from the embedded corpus. " +
 			"The command calls public tack_search to check every manifest case.",
 		Params: []clispec.Param[datagenSearchInput]{
-			clispec.BoolParam("commit", "create the search fixture and verify it after target validation", false, func(input *datagenSearchInput, value bool) { input.Commit = value }),
-			clispec.BoolParam("prepare-only", "create isolated fixture nodes without enabling or calling public search", false, func(input *datagenSearchInput, value bool) { input.PrepareOnly = value }),
-			clispec.BoolParam("verify-cohort", "Prepare a cohort from the embedded corpus with --commit and a positive --seed. Check every manifest case with public tack_search.", false, func(input *datagenSearchInput, value bool) { input.VerifyCohort = value }),
-			clispec.IntParam("seed", "existing QA workspace seed for fixture preparation", 0, func(input *datagenSearchInput, value int) { input.Seed = value }),
-			clispec.StringParam("corpus", "approved semantic corpus JSON file for fixture preparation", "", false, func(input *datagenSearchInput, value string) { input.Corpus = value }),
-			clispec.StringParam("endpoints", "comma-separated MCP base URLs of two Tack processes; alternates one search session between them after verification", "", false, func(input *datagenSearchInput, value string) { input.Endpoints = value }),
+			clispec.BoolParam(
+				"commit",
+				"create the search fixture and verify it after target validation",
+				false,
+				func(input *datagenSearchInput, value bool) { input.Commit = value },
+			),
+			clispec.BoolParam(
+				"prepare-only",
+				"create isolated fixture nodes without enabling or calling public search",
+				false,
+				func(input *datagenSearchInput, value bool) { input.PrepareOnly = value },
+			),
+			clispec.BoolParam(
+				"verify-cohort",
+				"Prepare a cohort from the embedded corpus with --commit and a positive --seed. Check every manifest case with public tack_search.",
+				false,
+				func(input *datagenSearchInput, value bool) { input.VerifyCohort = value },
+			),
+			clispec.IntParam(
+				"seed",
+				"existing QA workspace seed for fixture preparation",
+				0,
+				func(input *datagenSearchInput, value int) { input.Seed = value },
+			),
+			clispec.StringParam(
+				"corpus",
+				"approved semantic corpus JSON file for fixture preparation",
+				"",
+				false,
+				func(input *datagenSearchInput, value string) { input.Corpus = value },
+			),
+			clispec.StringParam(
+				"endpoints",
+				"comma-separated MCP base URLs of two Tack processes; alternates one search session between them after verification",
+				"",
+				false,
+				func(input *datagenSearchInput, value string) { input.Endpoints = value },
+			),
 		},
 		New: func() datagenSearchInput {
-			return datagenSearchInput{InputMarker: clispec.InputMarker{}, Commit: false, Endpoints: ""}
+			return datagenSearchInput{
+				InputMarker: clispec.InputMarker{},
+				Commit:      false,
+				Endpoints:   "",
+			}
 		},
 		Run: func(ctx context.Context, input datagenSearchInput, sink clispec.ResultSink) error {
 			return runDatagenSearch(ctx, f, input, sink)
@@ -77,7 +113,9 @@ func datagenSearchOp(f *cli.Factory) clispec.Operation[datagenSearchInput] {
 
 func validateDatagenSearchInput(input datagenSearchInput) error {
 	if input.VerifyCohort && (input.PrepareOnly || input.Corpus != "") {
-		return errors.New("qa datagen search: --verify-cohort conflicts with --prepare-only or a nonempty --corpus")
+		return errors.New(
+			"qa datagen search: --verify-cohort conflicts with --prepare-only or a nonempty --corpus",
+		)
 	}
 	if input.VerifyCohort && input.Seed <= 0 {
 		return errors.New("qa datagen search: --verify-cohort requires --seed greater than 0")
@@ -86,10 +124,14 @@ func validateDatagenSearchInput(input datagenSearchInput) error {
 		return errors.New("qa datagen search: --verify-cohort requires --commit")
 	}
 	if input.PrepareOnly && (input.Seed <= 0 || input.Corpus == "") {
-		return errors.New("qa datagen search: --prepare-only requires --seed greater than 0 and a nonempty --corpus")
+		return errors.New(
+			"qa datagen search: --prepare-only requires --seed greater than 0 and a nonempty --corpus",
+		)
 	}
 	if !input.PrepareOnly && !input.VerifyCohort && (input.Seed != 0 || input.Corpus != "") {
-		return errors.New("qa datagen search: --corpus and --seed without --verify-cohort require --prepare-only")
+		return errors.New(
+			"qa datagen search: --corpus and --seed without --verify-cohort require --prepare-only",
+		)
 	}
 	if input.Endpoints != "" && input.VerifyCohort {
 		return errors.New("qa datagen search: endpoints conflict with --verify-cohort")
@@ -101,7 +143,12 @@ func validateDatagenSearchInput(input datagenSearchInput) error {
 }
 
 // runDatagenSearch writes the created fixture identities to its result when preparation fails.
-func runDatagenSearch(ctx context.Context, factory *cli.Factory, input datagenSearchInput, sink clispec.ResultSink) error {
+func runDatagenSearch(
+	ctx context.Context,
+	factory *cli.Factory,
+	input datagenSearchInput,
+	sink clispec.ResultSink,
+) error {
 	if err := validateDatagenSearchInput(input); err != nil {
 		slog.ErrorContext(ctx, "qa.datagen.search_input_refused", slog.String("err", err.Error()))
 		return err
@@ -122,8 +169,14 @@ func runDatagenSearch(ctx context.Context, factory *cli.Factory, input datagenSe
 		}
 	}
 	result := datagenSearchResult{
-		ResultMarker: clispec.ResultMarker{}, Command: "ops.qa.datagen.search",
-		DryRun: !input.Commit, Verified: false, Manifest: nil, Cohort: nil, Search: nil, SessionVerbs: nil,
+		ResultMarker: clispec.ResultMarker{},
+		Command:      "ops.qa.datagen.search",
+		DryRun:       !input.Commit,
+		Verified:     false,
+		Manifest:     nil,
+		Cohort:       nil,
+		Search:       nil,
+		SessionVerbs: nil,
 	}
 	var runError error
 	switch {
@@ -131,7 +184,12 @@ func runDatagenSearch(ctx context.Context, factory *cli.Factory, input datagenSe
 	case input.PrepareOnly:
 		corpus, err := os.ReadFile(input.Corpus)
 		if err != nil {
-			slog.ErrorContext(ctx, "qa.datagen.corpus_read_failed", slog.String("err", err.Error()), slog.String("path", input.Corpus))
+			slog.ErrorContext(
+				ctx,
+				"qa.datagen.corpus_read_failed",
+				slog.String("err", err.Error()),
+				slog.String("path", input.Corpus),
+			)
 			return fmt.Errorf("qa datagen search: read corpus %q: %w", input.Corpus, err)
 		}
 		prepared, err := datagen.PrepareSearchManifest(ctx, factory.Cfg, int64(input.Seed), corpus)
@@ -157,13 +215,27 @@ func runDatagenSearch(ctx context.Context, factory *cli.Factory, input datagenSe
 			return fmt.Errorf("qa datagen search: %w", err)
 		}
 		result.SessionVerbs = &sessionVerbs
-		if err := AwaitDatagenSessionHeaderDelete(ctx, factory, verification.OrgID, verification.AbandonedSessionID); err != nil {
+		if err := AwaitDatagenSessionHeaderDelete(
+			ctx,
+			factory,
+			verification.OrgID,
+			verification.AbandonedSessionID,
+		); err != nil {
 			return fmt.Errorf("qa datagen search: %w", err)
 		}
 		if endpoints != nil {
 			client := &http.Client{Timeout: datagenSearchTwoProcessTimeout}
-			if err := datagen.VerifySearchTwoProcess(ctx, factory.Cfg, endpoints, client); err != nil {
-				slog.ErrorContext(ctx, "qa.datagen.search_two_process_failed", slog.String("err", err.Error()))
+			if err := datagen.VerifySearchTwoProcess(
+				ctx,
+				factory.Cfg,
+				endpoints,
+				client,
+			); err != nil {
+				slog.ErrorContext(
+					ctx,
+					"qa.datagen.search_two_process_failed",
+					slog.String("err", err.Error()),
+				)
 				return fmt.Errorf("qa datagen search: %w", err)
 			}
 		}
@@ -174,7 +246,11 @@ func runDatagenSearch(ctx context.Context, factory *cli.Factory, input datagenSe
 		return fmt.Errorf("qa datagen search: %w", err)
 	}
 	if runError != nil {
-		slog.ErrorContext(ctx, "qa.datagen.search_preparation_failed", slog.String("err", runError.Error()))
+		slog.ErrorContext(
+			ctx,
+			"qa.datagen.search_preparation_failed",
+			slog.String("err", runError.Error()),
+		)
 		return fmt.Errorf("qa datagen search: %w", runError)
 	}
 	return nil

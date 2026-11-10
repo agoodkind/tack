@@ -28,10 +28,11 @@ func newDockerClient(ctx context.Context) (*client.Client, error) {
 	slog.DebugContext(ctx, "ops.docker.client.connect", slog.String("scope", "env"))
 	cli, err := client.New(client.FromEnv)
 	if err != nil {
-		slog.ErrorContext(ctx, "ops.docker.client.connect_failed",
-			slog.String("err", err.Error()))
+		slog.ErrorContext(ctx, "ops.docker.client.connect_failed", slog.String("err", err.Error()))
+
 		return nil, fmt.Errorf("docker client: %w", err)
 	}
+
 	return cli, nil
 }
 
@@ -57,26 +58,34 @@ func ensureImage(ctx context.Context, cli *client.Client, log *slog.Logger, imag
 	if err == nil {
 		return nil
 	}
+
 	body, pullErr := cli.ImagePull(ctx, image, client.ImagePullOptions{})
 	if pullErr != nil {
-		log.ErrorContext(ctx, "ops.docker.run_once.pull_failed",
+		log.ErrorContext(
+			ctx,
+			"ops.docker.run_once.pull_failed",
 			slog.String("image", image),
 			slog.String("err", pullErr.Error()),
 		)
+
 		return fmt.Errorf("pull one-shot image %q: %w", image, pullErr)
 	}
+
 	drainErr := drainProgressStream(ctx, log, body, "ops.docker.run_once.pull")
 	_ = body.Close()
 	if drainErr != nil {
-		log.ErrorContext(ctx, "ops.docker.run_once.pull_stream_failed",
+		log.ErrorContext(
+			ctx,
+			"ops.docker.run_once.pull_stream_failed",
 			slog.String("image", image),
 			slog.String("err", drainErr.Error()),
 		)
+
 		return fmt.Errorf("drain pull stream for one-shot image %q: %w", image, drainErr)
 	}
-	log.InfoContext(ctx, "ops.docker.run_once.image_pulled",
-		slog.String("image", image),
-	)
+
+	log.InfoContext(ctx, "ops.docker.run_once.image_pulled", slog.String("image", image))
+
 	return nil
 }
 
@@ -110,12 +119,16 @@ func runOneShot(
 ) (execResult, error) {
 	err := ensureImage(ctx, cli, log, opts.Image)
 	if err != nil {
-		log.ErrorContext(ctx, "ops.docker.run_once.ensure_image_failed",
+		log.ErrorContext(
+			ctx,
+			"ops.docker.run_once.ensure_image_failed",
 			slog.String("image", opts.Image),
 			slog.String("err", err.Error()),
 		)
+
 		return execResult{}, fmt.Errorf("ensure one-shot image %q: %w", opts.Image, err)
 	}
+
 	cfg := &container.Config{
 		Image:        opts.Image,
 		Entrypoint:   opts.Entrypoint,
@@ -126,17 +139,23 @@ func runOneShot(
 		AttachStderr: true,
 	}
 	hostCfg := oneShotHostConfig(opts)
-	created, err := cli.ContainerCreate(ctx, client.ContainerCreateOptions{
-		Config:           cfg,
-		HostConfig:       hostCfg,
-		NetworkingConfig: netMode(opts.Network),
-		Name:             opts.Name,
-	})
+	created, err := cli.ContainerCreate(
+		ctx,
+		client.ContainerCreateOptions{
+			Config:           cfg,
+			HostConfig:       hostCfg,
+			NetworkingConfig: netMode(opts.Network),
+			Name:             opts.Name,
+		},
+	)
 	if err != nil {
-		log.ErrorContext(ctx, "ops.docker.run_once.create_failed",
+		log.ErrorContext(
+			ctx,
+			"ops.docker.run_once.create_failed",
 			slog.String("image", opts.Image),
 			slog.String("err", err.Error()),
 		)
+
 		return execResult{}, fmt.Errorf("create one-shot container: %w", err)
 	}
 	defer cleanupOneShot(ctx, cli, created.ID)
@@ -146,57 +165,41 @@ func runOneShot(
 
 	_, err = cli.ContainerStart(ctx, created.ID, client.ContainerStartOptions{})
 	if err != nil {
-		log.ErrorContext(ctx, "ops.docker.run_once.start_failed",
+		log.ErrorContext(
+			ctx,
+			"ops.docker.run_once.start_failed",
 			slog.String("image", opts.Image),
 			slog.String("err", err.Error()),
 		)
+
 		return execResult{}, fmt.Errorf("start one-shot container: %w", err)
 	}
 
-	waitRes := cli.ContainerWait(ctx, created.ID, client.ContainerWaitOptions{
-		Condition: container.WaitConditionNotRunning,
-	})
+	waitRes := cli.ContainerWait(
+		ctx,
+		created.ID,
+		client.ContainerWaitOptions{
+			Condition: container.WaitConditionNotRunning,
+		},
+	)
 	var exitCode int
 	select {
 	case res := <-waitRes.Result:
 		exitCode = int(res.StatusCode)
 	case waitErr := <-waitRes.Error:
-		log.ErrorContext(ctx, "ops.docker.run_once.wait_failed",
+		log.ErrorContext(
+			ctx,
+			"ops.docker.run_once.wait_failed",
 			slog.String("image", opts.Image),
 			slog.String("err", waitErr.Error()),
 		)
+
 		return execResult{}, fmt.Errorf("wait one-shot container: %w", waitErr)
 	case <-ctx.Done():
 		return execResult{}, fmt.Errorf("wait one-shot container: %w", ctx.Err())
 	}
 
-	logsRdr, err := cli.ContainerLogs(ctx, created.ID, client.ContainerLogsOptions{
-		ShowStdout: true,
-		ShowStderr: true,
-	})
-	if err != nil {
-		log.ErrorContext(ctx, "ops.docker.run_once.logs_failed",
-			slog.String("image", opts.Image),
-			slog.String("err", err.Error()),
-		)
-		return execResult{}, fmt.Errorf("logs one-shot container: %w", err)
-	}
-	defer logsRdr.Close()
-	var stdout, stderr bytes.Buffer
-	_, err = stdcopy.StdCopy(&stdout, &stderr, logsRdr)
-	if err != nil && !errors.Is(err, io.EOF) {
-		log.ErrorContext(ctx, "ops.docker.run_once.stream_failed",
-			slog.String("image", opts.Image),
-			slog.String("err", err.Error()),
-		)
-		return execResult{}, fmt.Errorf("read one-shot logs: %w", err)
-	}
-
-	return execResult{
-		Stdout:   stdout.String(),
-		Stderr:   stderr.String(),
-		ExitCode: exitCode,
-	}, nil
+	return readOneShotLogs(ctx, cli, log, opts.Image, created.ID, exitCode)
 }
 
 // containerExec runs cmd inside an existing container and returns the
@@ -223,24 +226,35 @@ func containerExec(
 	containerID string,
 	cmd []string,
 ) (execResult, error) {
-	created, err := cli.ExecCreate(ctx, containerID, client.ExecCreateOptions{
-		Cmd:          cmd,
-		AttachStdout: true,
-		AttachStderr: true,
-	})
+	created, err := cli.ExecCreate(
+		ctx,
+		containerID,
+		client.ExecCreateOptions{
+			Cmd:          cmd,
+			AttachStdout: true,
+			AttachStderr: true,
+		},
+	)
 	if err != nil {
-		slog.ErrorContext(ctx, "ops.docker.exec.create_failed",
+		slog.ErrorContext(
+			ctx,
+			"ops.docker.exec.create_failed",
 			slog.String("container", containerID),
 			slog.String("err", err.Error()),
 		)
+
 		return execResult{}, fmt.Errorf("exec create: %w", err)
 	}
+
 	att, err := cli.ExecAttach(ctx, created.ID, client.ExecAttachOptions{})
 	if err != nil {
-		slog.ErrorContext(ctx, "ops.docker.exec.attach_failed",
+		slog.ErrorContext(
+			ctx,
+			"ops.docker.exec.attach_failed",
 			slog.String("container", containerID),
 			slog.String("err", err.Error()),
 		)
+
 		return execResult{}, fmt.Errorf("exec attach: %w", err)
 	}
 	defer att.Close()
@@ -249,20 +263,28 @@ func containerExec(
 	var stdout, stderr bytes.Buffer
 	_, err = stdcopy.StdCopy(&stdout, &stderr, att.Reader)
 	if err != nil && !errors.Is(err, io.EOF) {
-		slog.ErrorContext(ctx, "ops.docker.exec.stream_failed",
+		slog.ErrorContext(
+			ctx,
+			"ops.docker.exec.stream_failed",
 			slog.String("container", containerID),
 			slog.String("err", err.Error()),
 		)
+
 		return execResult{}, fmt.Errorf("exec stream: %w", err)
 	}
+
 	insp, err := cli.ExecInspect(ctx, created.ID, client.ExecInspectOptions{})
 	if err != nil {
-		slog.ErrorContext(ctx, "ops.docker.exec.inspect_failed",
+		slog.ErrorContext(
+			ctx,
+			"ops.docker.exec.inspect_failed",
 			slog.String("container", containerID),
 			slog.String("err", err.Error()),
 		)
+
 		return execResult{}, fmt.Errorf("exec inspect: %w", err)
 	}
+
 	return execResult{
 		Stdout:   stdout.String(),
 		Stderr:   stderr.String(),
@@ -285,25 +307,36 @@ func containerExecStreaming(
 	envVars []string,
 	stdout io.Writer,
 ) (exitCode int, stderr string, err error) {
-	created, err := cli.ExecCreate(ctx, containerID, client.ExecCreateOptions{
-		Cmd:          cmd,
-		Env:          envVars,
-		AttachStdout: true,
-		AttachStderr: true,
-	})
+	created, err := cli.ExecCreate(
+		ctx,
+		containerID,
+		client.ExecCreateOptions{
+			Cmd:          cmd,
+			Env:          envVars,
+			AttachStdout: true,
+			AttachStderr: true,
+		},
+	)
 	if err != nil {
-		slog.ErrorContext(ctx, "ops.docker.exec_stream.create_failed",
+		slog.ErrorContext(
+			ctx,
+			"ops.docker.exec_stream.create_failed",
 			slog.String("container", containerID),
 			slog.String("err", err.Error()),
 		)
+
 		return 0, "", fmt.Errorf("exec create: %w", err)
 	}
+
 	att, err := cli.ExecAttach(ctx, created.ID, client.ExecAttachOptions{})
 	if err != nil {
-		slog.ErrorContext(ctx, "ops.docker.exec_stream.attach_failed",
+		slog.ErrorContext(
+			ctx,
+			"ops.docker.exec_stream.attach_failed",
 			slog.String("container", containerID),
 			slog.String("err", err.Error()),
 		)
+
 		return 0, "", fmt.Errorf("exec attach: %w", err)
 	}
 	defer att.Close()
@@ -315,20 +348,28 @@ func containerExecStreaming(
 	var stderrBuf bytes.Buffer
 	_, err = stdcopy.StdCopy(stdout, &stderrBuf, att.Reader)
 	if err != nil && !errors.Is(err, io.EOF) {
-		slog.ErrorContext(ctx, "ops.docker.exec_stream.copy_failed",
+		slog.ErrorContext(
+			ctx,
+			"ops.docker.exec_stream.copy_failed",
 			slog.String("container", containerID),
 			slog.String("err", err.Error()),
 		)
+
 		return 0, stderrBuf.String(), fmt.Errorf("exec stream copy: %w", err)
 	}
+
 	insp, err := cli.ExecInspect(ctx, created.ID, client.ExecInspectOptions{})
 	if err != nil {
-		slog.ErrorContext(ctx, "ops.docker.exec_stream.inspect_failed",
+		slog.ErrorContext(
+			ctx,
+			"ops.docker.exec_stream.inspect_failed",
 			slog.String("container", containerID),
 			slog.String("err", err.Error()),
 		)
+
 		return 0, stderrBuf.String(), fmt.Errorf("exec inspect: %w", err)
 	}
+
 	return insp.ExitCode, stderrBuf.String(), nil
 }
 
@@ -339,7 +380,11 @@ func containerExecStreaming(
 // guest's prune never removes volumes (634 had piled up on the production
 // owner by 2026-09-15, TACK-498). Named volumes are never removed this way.
 func removeContainerForce(ctx context.Context, cli *client.Client, name string) {
-	_, _ = cli.ContainerRemove(ctx, name, client.ContainerRemoveOptions{Force: true, RemoveVolumes: true})
+	_, _ = cli.ContainerRemove(
+		ctx,
+		name,
+		client.ContainerRemoveOptions{Force: true, RemoveVolumes: true},
+	)
 }
 
 // netMode constructs a NetworkingConfig that joins the named docker network.
@@ -347,6 +392,7 @@ func netMode(networkName string) *network.NetworkingConfig {
 	if networkName == "" {
 		return nil
 	}
+
 	return &network.NetworkingConfig{
 		EndpointsConfig: map[string]*network.EndpointSettings{
 			networkName: {},

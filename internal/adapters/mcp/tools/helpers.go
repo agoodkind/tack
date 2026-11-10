@@ -28,9 +28,15 @@ func bindArgs(req mcpmcp.CallToolRequest) (argMap, error) {
 	var m argMap
 	if err := req.BindArguments(&m); err != nil {
 		wrapped := fmt.Errorf("bind arguments for tool %s: %w", req.Params.Name, err)
-		slog.Error("mcp.arguments.bind_failed", slog.String("tool", req.Params.Name), slog.Any("err", wrapped))
+		slog.Error(
+			"mcp.arguments.bind_failed",
+			slog.String("tool", req.Params.Name),
+			slog.Any("err", wrapped),
+		)
+
 		return nil, wrapped
 	}
+
 	return m, nil
 }
 
@@ -44,13 +50,16 @@ func requireString(args argMap, name string) (string, bool) {
 	if !ok || len(raw) == 0 {
 		return "", false
 	}
+
 	var s string
 	if err := json.Unmarshal(raw, &s); err != nil {
 		return "", false
 	}
+
 	if s == "" {
 		return "", false
 	}
+
 	return s, true
 }
 
@@ -62,10 +71,12 @@ func optionalString(args argMap, name string) string {
 	if !ok || len(raw) == 0 {
 		return ""
 	}
+
 	var s string
 	if err := json.Unmarshal(raw, &s); err != nil {
 		return ""
 	}
+
 	return s
 }
 
@@ -87,18 +98,24 @@ func parseProps(raw json.RawMessage) (map[string]json.RawMessage, error) {
 	if len(raw) == 0 {
 		return nil, nil
 	}
+
 	var m map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &m); err == nil {
 		return m, nil
 	}
+
 	var s string
 	if err := json.Unmarshal(raw, &s); err == nil {
 		if s == "" {
 			return nil, nil
 		}
+
 		return parseProps(json.RawMessage(s))
 	}
-	return nil, errors.New("properties must be a JSON object like {\"key\": \"value\"} or a JSON-encoded string of one")
+
+	return nil, errors.New(
+		"properties must be a JSON object like {\"key\": \"value\"} or a JSON-encoded string of one",
+	)
 }
 
 func mustUser(ctx context.Context) (uuid.UUID, error) {
@@ -106,6 +123,7 @@ func mustUser(ctx context.Context) (uuid.UUID, error) {
 	if !ok {
 		return uuid.Nil, errors.New("unauthenticated")
 	}
+
 	return id, nil
 }
 
@@ -124,6 +142,7 @@ func registerTool(s *mcpserver.MCPServer, tool mcpmcp.Tool, h mcpserver.ToolHand
 		if err := rejectUnknownArgs(req, tool.Name, allowed); err != nil {
 			return recoverableError(err.Error()), nil
 		}
+
 		return h(ctx, req)
 	}
 	s.AddTool(tool, wrapToolHandler(tool.Name, strict))
@@ -137,34 +156,51 @@ func allowedArgNames(s mcpmcp.ToolInputSchema) map[string]struct{} {
 	for name := range s.Properties {
 		allowed[name] = struct{}{}
 	}
+
 	return allowed
 }
 
 // rejectUnknownArgs returns an error if the request carries any top-level
 // argument key not in allowed. Returns nil when the request has no
 // arguments or every key is declared.
-func rejectUnknownArgs(req mcpmcp.CallToolRequest, toolName string, allowed map[string]struct{}) error {
+func rejectUnknownArgs(
+	req mcpmcp.CallToolRequest,
+	toolName string,
+	allowed map[string]struct{},
+) error {
 	var args map[string]json.RawMessage
 	if err := req.BindArguments(&args); err != nil {
 		wrapped := fmt.Errorf("bind arguments for tool %s: %w", toolName, err)
-		slog.Error("mcp.arguments.bind_failed", slog.String("tool", toolName), slog.Any("err", wrapped))
+		slog.Error(
+			"mcp.arguments.bind_failed",
+			slog.String("tool", toolName),
+			slog.Any("err", wrapped),
+		)
+
 		return wrapped
 	}
+
 	if len(args) == 0 {
 		return nil
 	}
+
 	unknown := make([]string, 0)
+
 	for name := range args {
 		if _, ok := allowed[name]; ok {
 			continue
 		}
+
 		unknown = append(unknown, name)
 	}
+
 	if len(unknown) == 0 {
 		return nil
 	}
+
 	sort.Strings(unknown)
 	allowedList := sortedKeyList(allowed)
+
 	return fmt.Errorf(
 		"unknown argument %s for tool %s; allowed: %s",
 		quoteAndJoin(unknown),
@@ -178,7 +214,9 @@ func sortedKeyList(set map[string]struct{}) []string {
 	for k := range set {
 		out = append(out, k)
 	}
+
 	sort.Strings(out)
+
 	return out
 }
 
@@ -187,5 +225,6 @@ func quoteAndJoin(names []string) string {
 	for i, n := range names {
 		quoted[i] = fmt.Sprintf("%q", n)
 	}
+
 	return strings.Join(quoted, ", ")
 }

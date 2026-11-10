@@ -16,7 +16,13 @@ import (
 // RunAuditedRead with read, and writes the returned payload as text. Without
 // --execute, RunE validates the target and operator and prints the dry-run
 // preamble without calling read.
-func AttachRead(cmd *cobra.Command, f *cli.Factory, spec audit.Spec, input func() (json.RawMessage, error), read OperatorRead) {
+func AttachRead(
+	cmd *cobra.Command,
+	f *cli.Factory,
+	spec audit.Spec,
+	input func() (json.RawMessage, error),
+	read OperatorRead,
+) {
 	rendered := func(ctx context.Context) (audit.OperatorReadOutput, error) {
 		output, readErr := read(ctx)
 		if readErr != nil && !audit.IsReadVerdict(readErr) {
@@ -35,9 +41,16 @@ func AttachRead(cmd *cobra.Command, f *cli.Factory, spec audit.Spec, input func(
 
 		return textOutput, readErr
 	}
-	attachRead(cmd, f, spec, input, rendered, func(ctx context.Context, payload []byte) error {
-		return writeRendered(ctx, f, payload)
-	})
+	attachRead(
+		cmd,
+		f,
+		spec,
+		input,
+		rendered,
+		func(ctx context.Context, payload []byte) error {
+			return writeRendered(ctx, f, payload)
+		},
+	)
 }
 
 // AttachRawRead works like AttachRead. After the final read event commits, it
@@ -56,13 +69,20 @@ func AttachRawRead(
 	input func() (json.RawMessage, error),
 	read OperatorRead,
 ) {
-	attachRead(cmd, f, spec, input, read, func(ctx context.Context, payload []byte) error {
-		if _, err := cmd.OutOrStdout().Write(payload); err != nil {
-			return loggedAuditError(ctx, "write command output", err)
-		}
+	attachRead(
+		cmd,
+		f,
+		spec,
+		input,
+		read,
+		func(ctx context.Context, payload []byte) error {
+			if _, err := cmd.OutOrStdout().Write(payload); err != nil {
+				return loggedAuditError(ctx, "write command output", err)
+			}
 
-		return nil
-	})
+			return nil
+		},
+	)
 }
 
 func attachRead(
@@ -76,6 +96,7 @@ func attachRead(
 	if cmd.Annotations == nil {
 		cmd.Annotations = make(map[string]string)
 	}
+
 	cmd.Annotations[AuditVerbAnnotation] = spec.Verb
 	cmd.Annotations[AuditClassAnnotation] = string(spec.Class)
 	cmd.RunE = func(cmd *cobra.Command, _ []string) error {
@@ -84,9 +105,16 @@ func attachRead(
 		if err != nil {
 			return loggedAuditError(ctx, "encode command input", err)
 		}
+
 		if !f.Execute() {
-			return printReadDryRun(withDryRunOutput(ctx, dryRunDestination(f, cmd.OutOrStdout())), f, spec, encoded)
+			return printReadDryRun(
+				withDryRunOutput(ctx, dryRunDestination(f, cmd.OutOrStdout())),
+				f,
+				spec,
+				encoded,
+			)
 		}
+
 		payload, err := RunAuditedRead(ctx, f, spec, encoded, read)
 		if err != nil && !audit.IsReadVerdict(err) {
 			return err
@@ -102,17 +130,29 @@ func attachRead(
 
 // printReadDryRun selects the target and resolves the operator, then prints
 // the dry-run preamble.
-func printReadDryRun(ctx context.Context, f *cli.Factory, spec audit.Spec, input json.RawMessage) error {
+func printReadDryRun(
+	ctx context.Context,
+	f *cli.Factory,
+	spec audit.Spec,
+	input json.RawMessage,
+) error {
 	if _, _, err := operationTarget(ctx, spec, input); err != nil {
 		return err
 	}
+
 	source := f.OperatorIdentitySource()
 	if source == nil {
-		return loggedAuditError(ctx, "resolve operator", errors.New("operator identity source is nil"))
+		return loggedAuditError(
+			ctx,
+			"resolve operator",
+			errors.New("operator identity source is nil"),
+		)
 	}
+
 	principal, err := source.Resolve(ctx)
 	if err != nil {
 		return loggedAuditError(ctx, "resolve operator", err)
 	}
+
 	return printDryRun(ctx, principal, spec)
 }

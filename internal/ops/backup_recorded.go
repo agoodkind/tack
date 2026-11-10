@@ -29,6 +29,7 @@ func endpointHost(endpoint string) string {
 	if err != nil {
 		return ""
 	}
+
 	return parsed.Host
 }
 
@@ -42,34 +43,58 @@ func (bucketEvidence) isStepEvidence() {}
 
 // runBackupBucketsInitRecorded runs buckets-init as one step for the backup
 // bucket. It records whether the bucket existed before the step.
-func runBackupBucketsInitRecorded(ctx context.Context, cfg *config.Config, steps audit.StepRecorder) (audit.OutcomeDetails, error) {
+func runBackupBucketsInitRecorded(
+	ctx context.Context,
+	cfg *config.Config,
+	steps audit.StepRecorder,
+) (audit.OutcomeDetails, error) {
 	if cfg.BackupS3Endpoint == "" || cfg.BackupS3AccessKey == "" || cfg.BackupS3SecretKey == "" {
 		err := RunBackupBucketsInit(ctx, cfg)
 		return commandOutcome(audit.OutcomeRefused, commandConfigCode, err), err
 	}
+
 	client := newBackupS3Client(cfg)
 	bucket := cfg.BackupS3BucketMain
 	_, headErr := client.HeadBucket(ctx, &s3.HeadBucketInput{Bucket: aws.String(bucket)})
 	if headErr != nil && !isBucketNotFound(headErr) {
-		slog.ErrorContext(ctx, "backup.bucket.head_failed", slog.String("bucket", bucket), slog.String("err", headErr.Error()))
+		slog.ErrorContext(
+			ctx,
+			"backup.bucket.head_failed",
+			slog.String("bucket", bucket),
+			slog.String("err", headErr.Error()),
+		)
 		wrapped := fmt.Errorf("buckets-init: read bucket %q: %w", bucket, headErr)
+
 		return commandOutcome(audit.OutcomeFailed, commandFailedCode, wrapped), wrapped
 	}
+
 	state := bucketCreated
 	if headErr == nil {
 		state = bucketPresent
 	}
-	planned := bucketEvidence{Bucket: bucket, EndpointHost: endpointHost(cfg.BackupS3Endpoint), State: ""}
+
+	planned := bucketEvidence{
+		Bucket:       bucket,
+		EndpointHost: endpointHost(cfg.BackupS3Endpoint),
+		State:        "",
+	}
 	plannedJSON, err := encodeEvidence(ctx, planned)
 	if err != nil {
 		return commandOutcome(audit.OutcomeFailed, commandFailedCode, err), err
 	}
+
 	step := audit.ExternalStep(audit.ExternalTarget("s3/"+bucket), plannedJSON)
-	return recordedStep(ctx, steps, step,
+
+	return recordedStep(
+		ctx,
+		steps,
+		step,
 		func(ctx context.Context) error { return RunBackupBucketsInit(ctx, cfg) },
 		func(ctx context.Context) (json.RawMessage, error) {
 			observed := planned
 			observed.State = state
+
 			return encodeEvidence(ctx, observed)
-		})
+		},
+	)
 }

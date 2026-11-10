@@ -35,10 +35,16 @@ func (indexReplacementEvidence) isStepEvidence() {}
 
 func replacementEvidence(rebuild searchdomain.Rebuild) indexReplacementEvidence {
 	return indexReplacementEvidence{
-		Mode: string(rebuild.Mode), SourceIndex: rebuild.SourceIndex, PrimaryShards: rebuild.PrimaryShards,
-		RoutingShards: rebuild.RoutingShards, Replicas: rebuild.Replicas, Restored: rebuild.Restored,
-		RebuildID: rebuild.ID.String(), TargetIndex: rebuild.TargetIndex, State: string(rebuild.State),
-		Generation: rebuild.Generation,
+		Mode:          string(rebuild.Mode),
+		SourceIndex:   rebuild.SourceIndex,
+		PrimaryShards: rebuild.PrimaryShards,
+		RoutingShards: rebuild.RoutingShards,
+		Replicas:      rebuild.Replicas,
+		Restored:      rebuild.Restored,
+		RebuildID:     rebuild.ID.String(),
+		TargetIndex:   rebuild.TargetIndex,
+		State:         string(rebuild.State),
+		Generation:    rebuild.Generation,
 	}
 }
 
@@ -63,40 +69,72 @@ func runSearchReindexRecorded(
 	if err != nil {
 		return commandOutcome(audit.OutcomeRefused, commandConfigCode, err), err
 	}
+
 	if plan.running {
-		refused := commandOutcome(audit.OutcomeRefused, replacementInProgressCode,
-			fmt.Errorf("index replacement %s from %s is in progress", plan.current.ID, plan.current.SourceIndex))
+		refused := commandOutcome(
+			audit.OutcomeRefused,
+			replacementInProgressCode,
+			fmt.Errorf(
+				"index replacement %s from %s is in progress",
+				plan.current.ID,
+				plan.current.SourceIndex,
+			),
+		)
+
 		return refused, writeReindexResult(ctx, sink, plan.current, true, false)
 	}
+
 	plan.request.Initiation, err = commandInitiation(ctx)
 	if err != nil {
 		return commandOutcome(audit.OutcomeFailed, commandFailedCode, err), err
 	}
+
 	planned := indexReplacementEvidence{
-		Mode: string(plan.request.Mode), SourceIndex: plan.serving, PrimaryShards: plan.request.PrimaryShards,
-		RoutingShards: plan.request.RoutingShards, Replicas: plan.request.Replicas, Restored: plan.request.Restored,
-		RebuildID: "", TargetIndex: "", State: "", Generation: 0,
+		Mode:          string(plan.request.Mode),
+		SourceIndex:   plan.serving,
+		PrimaryShards: plan.request.PrimaryShards,
+		RoutingShards: plan.request.RoutingShards,
+		Replicas:      plan.request.Replicas,
+		Restored:      plan.request.Restored,
+		RebuildID:     "",
+		TargetIndex:   "",
+		State:         "",
+		Generation:    0,
 	}
 	plannedJSON, err := encodeEvidence(ctx, planned)
 	if err != nil {
 		return commandOutcome(audit.OutcomeFailed, commandFailedCode, err), err
 	}
+
 	var begun searchdomain.Rebuild
-	step := audit.ExternalStep(audit.ExternalTarget("opensearch/index/"+plan.serving+"/replacement"), plannedJSON)
-	details, err := recordedStep(ctx, steps, step,
+	step := audit.ExternalStep(
+		audit.ExternalTarget("opensearch/index/"+plan.serving+"/replacement"),
+		plannedJSON,
+	)
+	details, err := recordedStep(
+		ctx,
+		steps,
+		step,
 		func(ctx context.Context) error {
-			rebuild, beginErr := env.Stores.SearchRebuilds(opsClockSource{}).BeginRebuild(ctx, plan.request)
+			rebuild, beginErr := env.Stores.SearchRebuilds(opsClockSource{}).BeginRebuild(
+				ctx,
+				plan.request,
+			)
 			if beginErr != nil {
 				return searchReindexFailure(ctx, "begin index replacement", beginErr)
 			}
+
 			begun = rebuild
+
 			return nil
 		},
 		func(ctx context.Context) (json.RawMessage, error) {
 			return encodeEvidence(ctx, replacementEvidence(begun))
-		})
+		},
+	)
 	if err != nil {
 		return details, err
 	}
+
 	return details, writeReindexResult(ctx, sink, begun, false, false)
 }

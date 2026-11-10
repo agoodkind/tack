@@ -20,6 +20,7 @@ func TestSearchControlCommandRejectsMappingAndModelMismatches(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	tokenizer := search.PinnedModel.TokenizerDigest
 	for _, mismatch := range []struct {
 		name   string
@@ -36,14 +37,22 @@ func TestSearchControlCommandRejectsMappingAndModelMismatches(t *testing.T) {
 		{
 			name: "tokenizer",
 			mutate: func(t *testing.T) {
-				putSearchControlMapping(t, control, metaMapping(search.MappingVersion, model.ID, "unexpected-tokenizer"))
+				putSearchControlMapping(
+					t,
+					control,
+					metaMapping(search.MappingVersion, model.ID, "unexpected-tokenizer"),
+				)
 			},
 			want: `tokenizer SHA-256 "unexpected-tokenizer" does not match`,
 		},
 		{
 			name: "mapping property",
 			mutate: func(t *testing.T) {
-				putSearchControlMapping(t, control, `{"properties":{"unexpected_property":{"type":"keyword"}}}`)
+				putSearchControlMapping(
+					t,
+					control,
+					`{"properties":{"unexpected_property":{"type":"keyword"}}}`,
+				)
 			},
 			want: "mapping field unexpected_property is not declared",
 		},
@@ -53,7 +62,11 @@ func TestSearchControlCommandRejectsMappingAndModelMismatches(t *testing.T) {
 			// documents that contain it.
 			name: "access property",
 			mutate: func(t *testing.T) {
-				putSearchControlMapping(t, control, `{"properties":{"access":{"properties":{"roles":{"type":"keyword"}}}}}`)
+				putSearchControlMapping(
+					t,
+					control,
+					`{"properties":{"access":{"properties":{"roles":{"type":"keyword"}}}}}`,
+				)
 			},
 			want: "access field roles is not declared",
 		},
@@ -61,35 +74,56 @@ func TestSearchControlCommandRejectsMappingAndModelMismatches(t *testing.T) {
 			name: "registered model",
 			mutate: func(t *testing.T) {
 				otherModel := registerMismatchModel(t, control.client)
-				putSearchControlMapping(t, control, metaMapping(search.MappingVersion, otherModel, tokenizer))
+				putSearchControlMapping(
+					t,
+					control,
+					metaMapping(search.MappingVersion, otherModel, tokenizer),
+				)
 			},
-			want: fmt.Sprintf("model name is %q, want %q", mismatchModelName, search.PinnedModel.Name),
+			want: fmt.Sprintf(
+				"model name is %q, want %q",
+				mismatchModelName,
+				search.PinnedModel.Name,
+			),
 		},
 	} {
-		t.Run(mismatch.name, func(t *testing.T) {
-			control.provisionFromEmpty(t)
-			mismatch.mutate(t)
-			err := control.run("ops", "search", "verify")
-			if err == nil || !strings.Contains(err.Error(), mismatch.want) {
-				t.Fatalf("%s mismatch error = %v, want %q", mismatch.name, err, mismatch.want)
-			}
-		})
+		t.Run(
+			mismatch.name,
+			func(t *testing.T) {
+				control.provisionFromEmpty(t)
+				mismatch.mutate(t)
+				err := control.run("ops", "search", "verify")
+				if err == nil || !strings.Contains(err.Error(), mismatch.want) {
+					t.Fatalf("%s mismatch error = %v, want %q", mismatch.name, err, mismatch.want)
+				}
+			},
+		)
 	}
 }
 
 // metaMapping returns a mapping update that replaces only the index _meta.
 func metaMapping(mappingVersion, modelID, tokenizer string) string {
-	return fmt.Sprintf(`{"_meta":{"mapping_version":%q,"model_id":%q,"tokenizer_sha256":%q}}`, mappingVersion, modelID, tokenizer)
+	return fmt.Sprintf(
+		`{"_meta":{"mapping_version":%q,"model_id":%q,"tokenizer_sha256":%q}}`,
+		mappingVersion,
+		modelID,
+		tokenizer,
+	)
 }
 
 func putSearchControlMapping(t *testing.T, control searchControl, body string) {
 	t.Helper()
-	response, err := control.client.Indices.PutMapping(WithTestOperation(t, t.Context()), &opensearchapi.IndicesPutMappingReq{
-		Indices: []string{searchControlIndex}, BodyReader: strings.NewReader(body),
-	})
+	response, err := control.client.Indices.PutMapping(
+		WithTestOperation(t, t.Context()),
+		&opensearchapi.IndicesPutMappingReq{
+			Indices:    []string{searchControlIndex},
+			BodyReader: strings.NewReader(body),
+		},
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	if response.Inspect().Response.IsError() {
 		t.Fatal(response.Inspect().Response.String())
 	}

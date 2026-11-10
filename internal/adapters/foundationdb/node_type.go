@@ -37,77 +37,130 @@ func (s *NodeTypeStore) Set(ctx context.Context, nt *node.NodeType) (err error) 
 	if err != nil {
 		return nodeOperationFailure(ctx, "marshal node type "+nt.ID.String(), err)
 	}
+
 	changes, err := beginMutationAudit(ctx, nt.OrgID)
 	if err != nil {
 		return err
 	}
-	err = runNodeMutation(ctx, s.db, "set node type "+nt.ID.String(), func(tr fdb.Transaction) error {
-		changes.startAttempt()
-		key := nodeTypeDefKey(nt.OrgID, nt.ID)
-		previous, readErr := tr.Get(fdb.Key(key)).Get()
-		if readErr != nil {
-			return searchReadFailure(ctx, "read node type "+nt.ID.String(), readErr)
-		}
-		if err := updateNodeTypeIndex(ctx, tr, s.clock.Now(), s.searchWork, nt.OrgID, nt.ID, previous, nt); err != nil {
-			return err
-		}
-		tr.Set(fdb.Key(key), b)
-		return recordMetadataChange(ctx, tr, changes, nodeTypeTarget(nt.ID, nt.TypeKey), previous, b)
-	})
+
+	err = runNodeMutation(
+		ctx,
+		s.db,
+		"set node type "+nt.ID.String(),
+		func(tr fdb.Transaction) error {
+			changes.startAttempt()
+			key := nodeTypeDefKey(nt.OrgID, nt.ID)
+			previous, readErr := tr.Get(fdb.Key(key)).Get()
+			if readErr != nil {
+				return searchReadFailure(ctx, "read node type "+nt.ID.String(), readErr)
+			}
+
+			if err := updateNodeTypeIndex(
+				ctx,
+				tr,
+				s.clock.Now(),
+				s.searchWork,
+				nt.OrgID,
+				nt.ID,
+				previous,
+				nt,
+			); err != nil {
+				return err
+			}
+
+			tr.Set(fdb.Key(key), b)
+
+			return recordMetadataChange(
+				ctx,
+				tr,
+				changes,
+				nodeTypeTarget(nt.ID, nt.TypeKey),
+				previous,
+				b,
+			)
+		},
+	)
 	if err != nil {
 		return err
 	}
+
 	changes.finish(ctx)
+
 	return nil
 }
 
-func (s *NodeTypeStore) Get(ctx context.Context, orgID, typeID uuid.UUID) (out *node.NodeType, err error) {
+func (s *NodeTypeStore) Get(
+	ctx context.Context,
+	orgID uuid.UUID,
+	typeID uuid.UUID,
+) (out *node.NodeType, err error) {
 	defer telemetry.FDBOp(ctx, "store.node_type.get")(&err)
 	var encoded []byte
-	err = runNodeReadTransaction(ctx, s.db, "get node type "+typeID.String(), func(tr fdb.Transaction) error {
-		var readErr error
-		encoded, readErr = tr.Get(fdb.Key(nodeTypeDefKey(orgID, typeID))).Get()
-		if readErr != nil {
-			return searchReadFailure(ctx, "read node type "+typeID.String(), readErr)
-		}
-		return nil
-	})
+	err = runNodeReadTransaction(
+		ctx,
+		s.db,
+		"get node type "+typeID.String(),
+		func(tr fdb.Transaction) error {
+			var readErr error
+			encoded, readErr = tr.Get(fdb.Key(nodeTypeDefKey(orgID, typeID))).Get()
+			if readErr != nil {
+				return searchReadFailure(ctx, "read node type "+typeID.String(), readErr)
+			}
+
+			return nil
+		},
+	)
 	if err != nil || len(encoded) == 0 {
 		return nil, err
 	}
+
 	var nt node.NodeType
 	if err := json.Unmarshal(encoded, &nt); err != nil {
 		return nil, nodeOperationFailure(ctx, "unmarshal node type "+typeID.String(), err)
 	}
+
 	return &nt, nil
 }
 
-func (s *NodeTypeStore) List(ctx context.Context, orgID uuid.UUID) (types []*node.NodeType, err error) {
+func (s *NodeTypeStore) List(
+	ctx context.Context,
+	orgID uuid.UUID,
+) (types []*node.NodeType, err error) {
 	defer telemetry.FDBOp(ctx, "store.node_type.list")(&err)
 	pr, err := fdb.PrefixRange(nodeTypeDefPrefix(orgID))
 	if err != nil {
 		return nil, nodeOperationFailure(ctx, "create the node type range", err)
 	}
+
 	var kvs []fdb.KeyValue
-	err = runNodeReadTransaction(ctx, s.db, "list node types", func(tr fdb.Transaction) error {
-		var readErr error
-		kvs, readErr = tr.GetRange(pr, fdb.RangeOptions{}).GetSliceWithError()
-		if readErr != nil {
-			return searchReadFailure(ctx, "read node types", readErr)
-		}
-		return nil
-	})
+	err = runNodeReadTransaction(
+		ctx,
+		s.db,
+		"list node types",
+		func(tr fdb.Transaction) error {
+			var readErr error
+			kvs, readErr = tr.GetRange(pr, fdb.RangeOptions{}).GetSliceWithError()
+			if readErr != nil {
+				return searchReadFailure(ctx, "read node types", readErr)
+			}
+
+			return nil
+		},
+	)
 	if err != nil {
 		return nil, err
 	}
+
 	types = make([]*node.NodeType, 0, len(kvs))
 	for _, kv := range kvs {
 		var nt node.NodeType
 		if err := json.Unmarshal(kv.Value, &nt); err != nil {
 			return nil, nodeOperationFailure(ctx, "unmarshal node type", err)
 		}
+
 		types = append(types, &nt)
 	}
+
 	return types, nil
 }
 
@@ -119,26 +172,46 @@ func (s *NodeTypeStore) Delete(ctx context.Context, orgID, typeID uuid.UUID) (er
 	if err != nil {
 		return err
 	}
-	err = runNodeMutation(ctx, s.db, "delete node type "+typeID.String(), func(tr fdb.Transaction) error {
-		changes.startAttempt()
-		key := nodeTypeDefKey(orgID, typeID)
-		previous, readErr := tr.Get(fdb.Key(key)).Get()
-		if readErr != nil {
-			return searchReadFailure(ctx, "read node type "+typeID.String(), readErr)
-		}
-		if err := updateNodeTypeIndex(ctx, tr, s.clock.Now(), s.searchWork, orgID, typeID, previous, nil); err != nil {
-			return err
-		}
-		tr.Clear(fdb.Key(key))
-		target, err := storedNodeTypeTarget(ctx, typeID, previous)
-		if err != nil {
-			return err
-		}
-		return recordMetadataChange(ctx, tr, changes, target, previous, nil)
-	})
+
+	err = runNodeMutation(
+		ctx,
+		s.db,
+		"delete node type "+typeID.String(),
+		func(tr fdb.Transaction) error {
+			changes.startAttempt()
+			key := nodeTypeDefKey(orgID, typeID)
+			previous, readErr := tr.Get(fdb.Key(key)).Get()
+			if readErr != nil {
+				return searchReadFailure(ctx, "read node type "+typeID.String(), readErr)
+			}
+
+			if err := updateNodeTypeIndex(
+				ctx,
+				tr,
+				s.clock.Now(),
+				s.searchWork,
+				orgID,
+				typeID,
+				previous,
+				nil,
+			); err != nil {
+				return err
+			}
+
+			tr.Clear(fdb.Key(key))
+			target, err := storedNodeTypeTarget(ctx, typeID, previous)
+			if err != nil {
+				return err
+			}
+
+			return recordMetadataChange(ctx, tr, changes, target, previous, nil)
+		},
+	)
 	if err != nil {
 		return err
 	}
+
 	changes.finish(ctx)
+
 	return nil
 }

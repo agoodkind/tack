@@ -28,11 +28,16 @@ const previewCommandTarget = "tack:command/" + string(audit.VerbOpsBackfillMetad
 // records, which requires the published digest to match the read receipt.
 func TestRuntimeAuditGeneratedPreviewRecordsRead(t *testing.T) {
 	ledger := testenv.Ledger(t)
-	cfg := &config.Config{DatabaseURL: ledger, FDBClusterFile: testenv.FoundationDB(t), FDBTransactionTimeout: 5 * time.Second}
+	cfg := &config.Config{
+		DatabaseURL:           ledger,
+		FDBClusterFile:        testenv.FoundationDB(t),
+		FDBTransactionTimeout: 5 * time.Second,
+	}
 	pool, err := pgxpool.New(t.Context(), ledger)
 	if err != nil {
 		t.Fatalf("opening the operator outbox pool failed: %v", err)
 	}
+
 	t.Cleanup(pool.Close)
 	factory := cli.System(cfg)
 	var output bytes.Buffer
@@ -42,31 +47,60 @@ func TestRuntimeAuditGeneratedPreviewRecordsRead(t *testing.T) {
 	root := repairCommandRoot(factory)
 	operatorID := uuid.Must(uuid.NewV7())
 	root.SetArgs([]string{
-		"--output", "json", "--operator-id", operatorID.String(),
-		"--operator-email", "preview@example.com", "--operator-name", "Preview Test",
-		"--deploy-commit", "tack-583-preview", "ops", "backfill", "once-metadata-name-index",
+		"--output",
+		"json",
+		"--operator-id",
+		operatorID.String(),
+		"--operator-email",
+		"preview@example.com",
+		"--operator-name",
+		"Preview Test",
+		"--deploy-commit",
+		"tack-583-preview",
+		"ops",
+		"backfill",
+		"once-metadata-name-index",
 	})
 	if err := root.ExecuteContext(t.Context()); err != nil {
 		t.Fatalf("the metadata name index dry run failed: %v\n%s", err, output.String())
 	}
+
 	payload := printedPayload(t, output.Bytes())
 	events := readOutboxEvents(t, pool, audit.VerbOpsBackfillMetadataNameIndex, operatorID)
 	if len(events) != 1 {
-		t.Fatalf("the dry run recorded %d events instead of one read event: %+v", len(events), events)
+		t.Fatalf(
+			"the dry run recorded %d events instead of one read event: %+v",
+			len(events),
+			events,
+		)
 	}
+
 	event := events[0]
 	eventContext := event.Context
 	if err := audit.ValidateEvent(event); err != nil {
 		t.Fatalf("the dry run read event is not valid: %v", err)
 	}
+
 	if eventContext.OperationClass != audit.OperationRead || event.Outcome != audit.OutcomeCompleted ||
-		eventContext.Target == nil || eventContext.Target.URI != previewCommandTarget {
-		t.Fatalf("the dry run event has context %+v and outcome %s instead of a completed read of %s",
-			eventContext, event.Outcome, previewCommandTarget)
+		eventContext.Target == nil ||
+		eventContext.Target.URI != previewCommandTarget {
+		t.Fatalf(
+			"the dry run event has context %+v and outcome %s instead of a completed read of %s",
+			eventContext,
+			event.Outcome,
+			previewCommandTarget,
+		)
 	}
-	if eventContext.Read == nil || eventContext.Read.PayloadSHA256 != payloadDigest(payload) || eventContext.Read.PayloadFormat != "application/json" {
-		t.Fatalf("the dry run read evidence is %+v instead of the JSON payload digest %s", eventContext.Read, payloadDigest(payload))
+
+	if eventContext.Read == nil || eventContext.Read.PayloadSHA256 != payloadDigest(payload) ||
+		eventContext.Read.PayloadFormat != "application/json" {
+		t.Fatalf(
+			"the dry run read evidence is %+v instead of the JSON payload digest %s",
+			eventContext.Read,
+			payloadDigest(payload),
+		)
 	}
+
 	deliverReadThroughRelay(t, yugabyteReadBackend(t), event.EventID)
 }
 
@@ -78,6 +112,7 @@ func printedPayload(t *testing.T, printed []byte) []byte {
 	if start < 0 {
 		t.Fatalf("the dry run did not print a JSON document:\n%s", printed)
 	}
+
 	return bytes.Clone(printed[start:])
 }
 
@@ -88,5 +123,6 @@ func printedResult(t *testing.T, printed []byte) json.RawMessage {
 	if err := json.Unmarshal(printed, &document); err != nil {
 		t.Fatalf("decoding the printed document %q failed: %v", printed, err)
 	}
+
 	return document.Result
 }

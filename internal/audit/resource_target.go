@@ -32,8 +32,15 @@ const (
 //	target := ResourceTarget(uri)
 func ResourceTarget(uri string) Target {
 	return Target{
-		Kind: TargetKindResource, NodeType: "", Reference: "", Name: "", URI: uri,
-		RelationType: "", ID: uuid.Nil, SourceID: uuid.Nil, TargetID: uuid.Nil,
+		Kind:         TargetKindResource,
+		NodeType:     "",
+		Reference:    "",
+		Name:         "",
+		URI:          uri,
+		RelationType: "",
+		ID:           uuid.Nil,
+		SourceID:     uuid.Nil,
+		TargetID:     uuid.Nil,
 	}
 }
 
@@ -48,8 +55,15 @@ func ResourceTarget(uri string) Target {
 //	target.Reference == "audit/verify-bundle"
 func ExternalTarget(reference string) Target {
 	return Target{
-		Kind: TargetKindExternal, NodeType: "", Reference: reference, Name: "", URI: "",
-		RelationType: "", ID: uuid.Nil, SourceID: uuid.Nil, TargetID: uuid.Nil,
+		Kind:         TargetKindExternal,
+		NodeType:     "",
+		Reference:    reference,
+		Name:         "",
+		URI:          "",
+		RelationType: "",
+		ID:           uuid.Nil,
+		SourceID:     uuid.Nil,
+		TargetID:     uuid.Nil,
 	}
 }
 
@@ -86,6 +100,7 @@ func CanonicalUUID(value string) string {
 	if err != nil {
 		return ""
 	}
+
 	return id.String()
 }
 
@@ -100,5 +115,6 @@ func ResourceURI(prefix, value string) string {
 	if id == "" {
 		return prefix + InvalidURISegment
 	}
+
 	return prefix + id
 }

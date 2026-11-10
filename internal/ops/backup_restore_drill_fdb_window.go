@@ -50,21 +50,28 @@ const (
 func fdbRestorableWindowFromDescribe(describe string) (fdbRestorableWindow, error) {
 	if !describeReportsRestorable(describe) {
 		return fdbRestorableWindow{}, errors.New(
-			"fdbbackup describe does not report the backup as restorable")
+			"fdbbackup describe does not report the backup as restorable",
+		)
 	}
+
 	minTime, err := fdbDescribeTimestamp(describe, fdbDescribeMinLabel)
 	if err != nil {
 		return fdbRestorableWindow{}, err
 	}
+
 	maxTime, err := fdbDescribeTimestamp(describe, fdbDescribeMaxLabel)
 	if err != nil {
 		return fdbRestorableWindow{}, err
 	}
+
 	if maxTime.Before(minTime) {
 		return fdbRestorableWindow{}, fmt.Errorf(
 			"fdbbackup describe reports an inverted restorable window %s .. %s",
-			formatFDBTime(minTime), formatFDBTime(maxTime))
+			formatFDBTime(minTime),
+			formatFDBTime(maxTime),
+		)
 	}
+
 	return fdbRestorableWindow{Min: minTime, Max: maxTime}, nil
 }
 
@@ -77,6 +84,7 @@ func describeReportsRestorable(describe string) bool {
 			return true
 		}
 	}
+
 	return false
 }
 
@@ -97,20 +105,28 @@ type fdbRestorableVersions struct {
 func fdbRestorableVersionsFromDescribe(describe string) (fdbRestorableVersions, error) {
 	if !describeReportsRestorable(describe) {
 		return fdbRestorableVersions{}, errors.New(
-			"fdbbackup describe does not report the backup as restorable")
+			"fdbbackup describe does not report the backup as restorable",
+		)
 	}
+
 	minVersion, err := fdbDescribeVersion(describe, fdbDescribeMinLabel)
 	if err != nil {
 		return fdbRestorableVersions{}, err
 	}
+
 	maxVersion, err := fdbDescribeVersion(describe, fdbDescribeMaxLabel)
 	if err != nil {
 		return fdbRestorableVersions{}, err
 	}
+
 	if maxVersion < minVersion {
 		return fdbRestorableVersions{}, fmt.Errorf(
-			"fdbbackup describe reports an inverted restorable window %d .. %d", minVersion, maxVersion)
+			"fdbbackup describe reports an inverted restorable window %d .. %d",
+			minVersion,
+			maxVersion,
+		)
 	}
+
 	return fdbRestorableVersions{MinVersion: minVersion, MaxVersion: maxVersion}, nil
 }
 
@@ -123,13 +139,19 @@ func fdbDescribeVersion(describe string, label string) (int64, error) {
 		if !found {
 			continue
 		}
+
 		rawVersion, _, _ := strings.Cut(value, "(")
 		version, err := strconv.ParseInt(strings.TrimSpace(rawVersion), 10, 64)
 		if err != nil || version <= 0 {
-			return 0, fmt.Errorf("fdbbackup describe line %q does not carry a positive version", strings.TrimSpace(line))
+			return 0, fmt.Errorf(
+				"fdbbackup describe line %q does not carry a positive version",
+				strings.TrimSpace(line),
+			)
 		}
+
 		return version, nil
 	}
+
 	return 0, fmt.Errorf("fdbbackup describe has no %s line", label)
 }
 
@@ -144,19 +166,30 @@ func fdbDescribeTimestamp(describe string, label string) (time.Time, error) {
 		if !strings.HasPrefix(trimmed, label) {
 			continue
 		}
+
 		openIndex := strings.Index(trimmed, "(")
 		closeIndex := strings.LastIndex(trimmed, ")")
 		if openIndex < 0 || closeIndex < openIndex {
-			return time.Time{}, fmt.Errorf("fdbbackup describe line %q carries no timestamp;"+
-				" describe needs --version-timestamps and a source cluster file", trimmed)
+			return time.Time{}, fmt.Errorf(
+				"fdbbackup describe line %q carries no timestamp;"+
+					" describe needs --version-timestamps and a source cluster file",
+				trimmed,
+			)
 		}
+
 		stamp := trimmed[openIndex+1 : closeIndex]
-		at, err := time.Parse(fdbStatusTimestampLayout, stamp)
+		timestamp, err := time.Parse(fdbStatusTimestampLayout, stamp)
 		if err != nil {
-			return time.Time{}, fmt.Errorf("fdbbackup describe line %q carries no timestamp;"+
-				" describe needs --version-timestamps and a source cluster file: %w", trimmed, err)
+			return time.Time{}, fmt.Errorf(
+				"fdbbackup describe line %q carries no timestamp;"+
+					" describe needs --version-timestamps and a source cluster file: %w",
+				trimmed,
+				err,
+			)
 		}
-		return at, nil
+
+		return timestamp, nil
 	}
+
 	return time.Time{}, fmt.Errorf("fdbbackup describe has no %s line", label)
 }

@@ -16,7 +16,12 @@ import (
 
 // sessionChanges returns the change rows of verb on nodeType targets of
 // sessionID, ordered by event time.
-func sessionChanges(rows []audit.Row, sessionID uuid.UUID, verb audit.Verb, nodeType string) []audit.Row {
+func sessionChanges(
+	rows []audit.Row,
+	sessionID uuid.UUID,
+	verb audit.Verb,
+	nodeType string,
+) []audit.Row {
 	selected := []audit.Row{}
 	for _, row := range rows {
 		target := row.Context.Target
@@ -25,7 +30,10 @@ func sessionChanges(rows []audit.Row, sessionID uuid.UUID, verb audit.Verb, node
 			selected = append(selected, row)
 		}
 	}
-	slices.SortFunc(selected, func(left, right audit.Row) int { return left.EventTime.Compare(right.EventTime) })
+	slices.SortFunc(
+		selected,
+		func(left, right audit.Row) int { return left.EventTime.Compare(right.EventTime) },
+	)
 	return selected
 }
 
@@ -86,18 +94,30 @@ func deltaMembers(t *testing.T, value json.RawMessage) map[string]json.RawMessag
 func memberReference(t *testing.T, members map[string]json.RawMessage, member string) uuid.UUID {
 	t.Helper()
 	var reference audit.ProtectedReference
-	if err := json.Unmarshal(members[member], &reference); err != nil || reference.PIIRef == uuid.Nil {
+	if err := json.Unmarshal(members[member], &reference); err != nil ||
+		reference.PIIRef == uuid.Nil {
 		t.Fatalf("member %s = %s, want a protected reference: %v", member, members[member], err)
 	}
 	return reference.PIIRef
 }
 
-func (f sessionAuditFixture) requireProtectedMember(t *testing.T, members map[string]json.RawMessage, member string, want []byte) {
+func (f sessionAuditFixture) requireProtectedMember(
+	t *testing.T,
+	members map[string]json.RawMessage,
+	member string,
+	want []byte,
+) {
 	t.Helper()
 	reference := memberReference(t, members, member)
 	stored, found := protectedValues(t, f.redactorPool, []uuid.UUID{reference})[reference]
 	if !found || stored.Redacted || !bytes.Equal(stored.Value, want) {
-		t.Fatalf("audit.pii value of member %s = %+v, found %t, want %s", member, stored, found, want)
+		t.Fatalf(
+			"audit.pii value of member %s = %+v, found %t, want %s",
+			member,
+			stored,
+			found,
+			want,
+		)
 	}
 }
 

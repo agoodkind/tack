@@ -63,6 +63,7 @@ func drillFDBRestoreFiles() fdbRestoreFiles {
 // is the only thing carrying a value from outside.
 func fdbRestoreLaunchScript(files fdbRestoreFiles) string {
 	log, exit, partial := shellQuote(files.Log), shellQuote(files.Exit), shellQuote(files.Partial)
+
 	return "rm -f " + log + " " + exit + " " + partial + " || exit 1; " +
 		`{ "$@"; echo $? >` + partial + "; " +
 		"mv " + partial + " " + exit + "; } >" + log + " 2>&1 &"
@@ -85,16 +86,32 @@ func fdbRestoreLaunchArgv(files fdbRestoreFiles, restore []string) []string {
 // The vector is built elsewhere and arrives as the shell's positional
 // parameters, so the destination URL inside it is never parsed as shell program
 // text.
-func launchFDBRestore(ctx context.Context, r *restoreDrillCtx, container string, restore []string) error {
+func launchFDBRestore(
+	ctx context.Context,
+	r *restoreDrillCtx,
+	container string,
+	restore []string,
+) error {
 	logger := telemetry.L(ctx)
 	argv := fdbRestoreLaunchArgv(drillFDBRestoreFiles(), restore)
 	res, err := containerExec(ctx, r.Cli, container, argv)
 	if err != nil || res.ExitCode != 0 {
-		wrapped := fmt.Errorf("launch fdbrestore: exit %d: %s: %w", res.ExitCode,
-			redactSecret(r.Cfg, strings.TrimSpace(res.Stderr)), err)
-		logger.ErrorContext(ctx, "backup.restore_drill.fdb.failed", slog.String("err", wrapped.Error()))
+		wrapped := fmt.Errorf(
+			"launch fdbrestore: exit %d: %s: %w",
+			res.ExitCode,
+			redactSecret(r.Cfg, strings.TrimSpace(res.Stderr)),
+			err,
+		)
+		logger.ErrorContext(
+			ctx,
+			"backup.restore_drill.fdb.failed",
+			slog.String("err", wrapped.Error()),
+		)
+
 		return wrapped
 	}
+
 	logger.InfoContext(ctx, "backup.restore_drill.fdb.restore_started")
+
 	return nil
 }

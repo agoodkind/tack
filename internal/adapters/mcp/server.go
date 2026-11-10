@@ -105,7 +105,9 @@ func NewHandler(d Deps) *Handler {
 }
 
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	ctx, span := telemetry.StartSpan(r.Context(), "mcp.http.request",
+	ctx, span := telemetry.StartSpan(
+		r.Context(),
+		"mcp.http.request",
 		trace.WithSpanKind(trace.SpanKindServer),
 		trace.WithAttributes(
 			attribute.String("http.route", "/mcp"),
@@ -120,16 +122,20 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		span.SetStatus(codes.Error, "unauthenticated")
 		http.Error(w, `{"error":"unauthenticated"}`, http.StatusUnauthorized)
+
 		return
 	}
+
 	ctx = telemetry.WithTraceLogger(ctx, slog.String("user_id", userID.String()))
 	metadata, err := readMCPRequestMetadata(r)
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "read_request_body_failed")
 		http.Error(w, `{"error":"invalid request body"}`, http.StatusBadRequest)
+
 		return
 	}
+
 	// One context chain carries the JSON-RPC id, the session id, and the
 	// membership set into the MCP server. A create's idempotency key reads
 	// the first two, so a context rebuilt without them lets a retried create
@@ -153,10 +159,13 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			span.SetStatus(codes.Error, "list_org_ids_failed")
 			log.Error("mcp: list org ids", "err", err)
 			http.Error(w, `{"error":"membership unavailable"}`, http.StatusInternalServerError)
+
 			return
 		}
+
 		ctx = auth.WithOrgMembership(ctx, orgIDs)
 	}
+
 	r = r.WithContext(ctx)
 
 	c, err := h.userServer(ctx, span, userID, orgIDs)
@@ -164,6 +173,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		metadataUnavailable(w, span, err)
 		return
 	}
+
 	addMetadataTargets(ctx, c)
 	c.httpSvr.ServeHTTP(w, r)
 }

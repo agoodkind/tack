@@ -81,10 +81,16 @@ func (s *SearchQueryService) runSnapshotStep(
 	planned snapshotEvidence,
 	effect func(context.Context) (snapshotEvidence, error),
 ) error {
-	return s.runEncodedStep(ctx, session, operation, planned, func(ctx context.Context) (json.RawMessage, error) {
-		observed, effectErr := effect(ctx)
-		return encodeEvidence(ctx, session.ID, observed, effectErr)
-	})
+	return s.runEncodedStep(
+		ctx,
+		session,
+		operation,
+		planned,
+		func(ctx context.Context) (json.RawMessage, error) {
+			observed, effectErr := effect(ctx)
+			return encodeEvidence(ctx, session.ID, observed, effectErr)
+		},
+	)
 }
 
 func (s *SearchQueryService) runEncodedStep(
@@ -96,74 +102,163 @@ func (s *SearchQueryService) runEncodedStep(
 ) error {
 	mutation, err := audit.RequireMutationContext(ctx)
 	if err != nil {
-		return errors.Join(audit.ErrEventNotRecorded, snapshotStepFailure(ctx, session.ID, "read the audit operation", err))
+		return errors.Join(
+			audit.ErrEventNotRecorded,
+			snapshotStepFailure(ctx, session.ID, "read the audit operation", err),
+		)
 	}
+
 	encoded, err := encodeEvidence(ctx, session.ID, planned, nil)
 	if err != nil {
 		return err
 	}
+
 	mutation.Context.WorkspaceID, mutation.Context.ScopeID, mutation.Context.ParentID = session.EntryPointID, uuid.Nil, uuid.Nil
-	intent := audit.ExternalIntent(mutation, operation.verb, audit.SearchSessionTarget(session.ID, session.PrincipalID), session.AuthorityID)
-	target := audit.Target{
-		Kind: audit.TargetKindExternal, NodeType: "", Name: "", URI: "", RelationType: "",
-		Reference: snapshotReferencePrefix + session.ID.String() + "/" + operation.action,
-		ID:        uuid.Nil, SourceID: uuid.Nil, TargetID: uuid.Nil,
-	}
+	intent := audit.ExternalIntent(
+		mutation,
+		operation.verb,
+		audit.SearchSessionTarget(session.ID, session.PrincipalID),
+		session.AuthorityID,
+	)
+	target := snapshotStepTarget(session, operation)
 	step := audit.ExternalStep(target, encoded)
-	err = audit.RunExternalStep(ctx, s.ports.Audit, intent, step, func(ctx context.Context, steps audit.StepRecorder) (audit.OutcomeDetails, error) {
-		details := audit.OutcomeDetails{
-			Outcome: audit.OutcomeFailed, FailureCode: snapshotStepFailedCode, FailureMessage: snapshotStepFailedMessage, CommittedSteps: nil,
-		}
-		observed, effectErr := effect(ctx)
-		switch {
-		case effectErr == nil:
-			details = audit.OutcomeDetails{Outcome: audit.OutcomeCompleted, FailureCode: "", FailureMessage: "", CommittedSteps: nil}
-		case errors.Is(effectErr, searchdomain.ErrSnapshotUncertain):
-			details = audit.OutcomeDetails{Outcome: audit.OutcomeIncomplete, FailureCode: snapshotStepUncertainCode, FailureMessage: snapshotStepUncertainMessage, CommittedSteps: nil}
-		case errors.Is(effectErr, searchdomain.ErrSnapshotPartial):
-			details = audit.OutcomeDetails{Outcome: audit.OutcomePartiallyCompleted, FailureCode: snapshotStepPartialCode, FailureMessage: snapshotStepPartialMessage, CommittedSteps: []string{target.Reference}}
-		}
-		writeContext, cancel := context.WithTimeout(context.WithoutCancel(ctx), snapshotWriteTimeout)
-		defer cancel()
-		if finishErr := steps.FinishStep(writeContext, audit.FinishedStep(step, details, observed)); finishErr != nil {
-			slog.ErrorContext(ctx, "search.snapshot.step_failed", slog.String("err", finishErr.Error()))
-			return details, errors.Join(effectErr, fmt.Errorf("record the result of the point in time step for session %s: %w", session.ID, finishErr))
-		}
-		return details, effectErr
-	})
+	err = audit.RunExternalStep(
+		ctx,
+		s.ports.Audit,
+		intent,
+		step,
+		func(ctx context.Context, steps audit.StepRecorder) (audit.OutcomeDetails, error) {
+			details := audit.OutcomeDetails{
+				Outcome:        audit.OutcomeFailed,
+				FailureCode:    snapshotStepFailedCode,
+				FailureMessage: snapshotStepFailedMessage,
+				CommittedSteps: nil,
+			}
+			observed, effectErr := effect(ctx)
+			switch {
+			case effectErr == nil:
+				details = audit.OutcomeDetails{
+					Outcome:        audit.OutcomeCompleted,
+					FailureCode:    "",
+					FailureMessage: "",
+					CommittedSteps: nil,
+				}
+			case errors.Is(effectErr, searchdomain.ErrSnapshotUncertain):
+				details = audit.OutcomeDetails{
+					Outcome:        audit.OutcomeIncomplete,
+					FailureCode:    snapshotStepUncertainCode,
+					FailureMessage: snapshotStepUncertainMessage,
+					CommittedSteps: nil,
+				}
+			case errors.Is(effectErr, searchdomain.ErrSnapshotPartial):
+				details = audit.OutcomeDetails{
+					Outcome:        audit.OutcomePartiallyCompleted,
+					FailureCode:    snapshotStepPartialCode,
+					FailureMessage: snapshotStepPartialMessage,
+					CommittedSteps: []string{target.Reference},
+				}
+			}
+
+			writeContext, cancel := context.WithTimeout(
+				context.WithoutCancel(ctx),
+				snapshotWriteTimeout,
+			)
+			defer cancel()
+			if finishErr := steps.FinishStep(
+				writeContext,
+				audit.FinishedStep(step, details, observed),
+			); finishErr != nil {
+				slog.ErrorContext(
+					ctx,
+					"search.snapshot.step_failed",
+					slog.String("err", finishErr.Error()),
+				)
+
+				return details, errors.Join(
+					effectErr,
+					fmt.Errorf(
+						"record the result of the point in time step for session %s: %w",
+						session.ID,
+						finishErr,
+					),
+				)
+			}
+
+			return details, effectErr
+		},
+	)
 	if err != nil {
 		return snapshotStepError{err: err}
 	}
+
 	return nil
 }
 
-func (s *SearchQueryService) closeSnapshot(ctx context.Context, session searchdomain.Session, snapshot searchdomain.Snapshot) error {
+func (s *SearchQueryService) closeSnapshot(
+	ctx context.Context,
+	session searchdomain.Session,
+	snapshot searchdomain.Snapshot,
+) error {
 	if snapshot.PITID == "" {
 		return nil
 	}
+
 	planned := snapshotEvidence{SessionID: session.ID, Index: snapshot.Index, PITID: snapshot.PITID}
-	return s.runEncodedStep(ctx, session, snapshotDelete, planned, func(ctx context.Context) (json.RawMessage, error) {
-		closeErr := s.ports.Ranker.Close(ctx, snapshot)
-		alreadyClosed := errors.Is(closeErr, searchdomain.ErrSnapshotLost)
-		if closeErr != nil && !alreadyClosed {
-			return nil, snapshotStepError{err: closeErr}
-		}
-		return encodeEvidence(ctx, session.ID, closedSnapshotEvidence{snapshotEvidence: planned, AlreadyClosed: alreadyClosed}, nil)
-	})
+
+	return s.runEncodedStep(
+		ctx,
+		session,
+		snapshotDelete,
+		planned,
+		func(ctx context.Context) (json.RawMessage, error) {
+			closeErr := s.ports.Ranker.Close(ctx, snapshot)
+			alreadyClosed := errors.Is(closeErr, searchdomain.ErrSnapshotLost)
+			if closeErr != nil && !alreadyClosed {
+				return nil, snapshotStepError{err: closeErr}
+			}
+
+			return encodeEvidence(
+				ctx,
+				session.ID,
+				closedSnapshotEvidence{snapshotEvidence: planned, AlreadyClosed: alreadyClosed},
+				nil,
+			)
+		},
+	)
 }
 
 // recordCleanupFailure records one failed cleanup step. If the audit save
 // fails, it logs the failure and returns an error containing
 // searchdomain.ErrEngineUnavailable, audit.ErrEventNotRecorded, the cleanup
 // error, and the save error.
-func (s *SearchQueryService) recordCleanupFailure(ctx context.Context, sessionID uuid.UUID, step searchdomain.CleanupStep, cause error) error {
+func (s *SearchQueryService) recordCleanupFailure(
+	ctx context.Context,
+	sessionID uuid.UUID,
+	step searchdomain.CleanupStep,
+	cause error,
+) error {
 	if err := s.ports.Sessions.RecordCleanupFailure(ctx, sessionID, step, cause); err != nil {
-		wrapped := errors.Join(searchdomain.ErrEngineUnavailable, audit.ErrEventNotRecorded,
+		wrapped := errors.Join(
+			searchdomain.ErrEngineUnavailable,
+			audit.ErrEventNotRecorded,
 			fmt.Errorf("search session %s cleanup step %s failed: %w", sessionID, step, cause),
-			fmt.Errorf("record the failed cleanup step %s of search session %s: %w", step, sessionID, err))
-		telemetry.L(ctx).ErrorContext(ctx, "search.session.audit_failed", slog.String("err", wrapped.Error()), slog.String("session_id", sessionID.String()))
+			fmt.Errorf(
+				"record the failed cleanup step %s of search session %s: %w",
+				step,
+				sessionID,
+				err,
+			),
+		)
+		telemetry.L(ctx).ErrorContext(
+			ctx,
+			"search.session.audit_failed",
+			slog.String("err", wrapped.Error()),
+			slog.String("session_id", sessionID.String()),
+		)
+
 		return wrapped
 	}
+
 	return nil
 }
 
@@ -171,16 +266,38 @@ type snapshotEvidenceValue interface {
 	snapshotEvidence | closedSnapshotEvidence
 }
 
-func encodeEvidence[Evidence snapshotEvidenceValue](ctx context.Context, sessionID uuid.UUID, evidence Evidence, effectErr error) (json.RawMessage, error) {
+func encodeEvidence[Evidence snapshotEvidenceValue](
+	ctx context.Context,
+	sessionID uuid.UUID,
+	evidence Evidence,
+	effectErr error,
+) (json.RawMessage, error) {
 	encoded, err := json.Marshal(evidence)
 	if err != nil {
-		return nil, snapshotStepFailure(ctx, sessionID, "encode the point in time evidence", errors.Join(effectErr, err))
+		return nil, snapshotStepFailure(
+			ctx,
+			sessionID,
+			"encode the point in time evidence",
+			errors.Join(effectErr, err),
+		)
 	}
+
 	return encoded, effectErr
 }
 
-func snapshotStepFailure(ctx context.Context, sessionID uuid.UUID, operation string, err error) error {
+func snapshotStepFailure(
+	ctx context.Context,
+	sessionID uuid.UUID,
+	operation string,
+	err error,
+) error {
 	wrapped := fmt.Errorf("search snapshot step for session %s: %s: %w", sessionID, operation, err)
-	slog.ErrorContext(ctx, "search.snapshot.step_failed", slog.String("err", wrapped.Error()), slog.String("session_id", sessionID.String()))
+	slog.ErrorContext(
+		ctx,
+		"search.snapshot.step_failed",
+		slog.String("err", wrapped.Error()),
+		slog.String("session_id", sessionID.String()),
+	)
+
 	return wrapped
 }

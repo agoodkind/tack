@@ -27,7 +27,12 @@ func TestReferencePropertyToolUsesMetadataNames(t *testing.T) {
 		ReferenceTargetTypeKey: "phase",
 	}
 
-	tool := referencePropertyTool(nodeType, propertyDef, referencePropertyAlias(propertyDef.Name), binding)
+	tool := referencePropertyTool(
+		nodeType,
+		propertyDef,
+		referencePropertyAlias(propertyDef.Name),
+		binding,
+	)
 
 	if tool.Name != "tack_set_task_phase" {
 		t.Fatalf("tool name: got %q want tack_set_task_phase", tool.Name)
@@ -51,11 +56,13 @@ func TestGettingStartedListsGeneratedReferenceSetters(t *testing.T) {
 			"phase": phaseType,
 		},
 	}
-	propertyDefs := []*node.PropertyDef{{
-		Name:                   "phase_id",
-		Type:                   node.PropertyTypeUUID,
-		ReferenceTargetTypeKey: "phase",
-	}}
+	propertyDefs := []*node.PropertyDef{
+		{
+			Name:                   "phase_id",
+			Type:                   node.PropertyTypeUUID,
+			ReferenceTargetTypeKey: "phase",
+		},
+	}
 
 	body := buildGettingStartedText(resolver, []*node.NodeType{taskType, phaseType}, propertyDefs)
 

@@ -71,10 +71,14 @@ func OpenSearchWithMemory(t T, memoryBytes int64) OpenSearchFixture {
 	engine.once.Do(func() {
 		ctx, cancel := context.WithTimeout(t.Context(), provisionTimeout)
 		defer cancel()
-		engine.fixture, _, engine.err = provisionOpenSearch(ctx, openSearchEngineSettings{
-			memoryBytes: memoryBytes, dataVolume: "",
-			nodeSettings: sharedOpenSearchNodeSettings(),
-		})
+		engine.fixture, _, engine.err = provisionOpenSearch(
+			ctx,
+			openSearchEngineSettings{
+				memoryBytes:  memoryBytes,
+				dataVolume:   "",
+				nodeSettings: sharedOpenSearchNodeSettings(),
+			},
+		)
 		if engine.err == nil {
 			engine.err = CheckOpenSearchDiskReadiness(ctx, engine.fixture)
 		}
@@ -83,6 +87,7 @@ func OpenSearchWithMemory(t T, memoryBytes int64) OpenSearchFixture {
 		_, _ = fmt.Fprintf(t.Output(), "testenv: %v\n", engine.err)
 		t.FailNow()
 	}
+
 	return engine.fixture
 }
 
@@ -92,7 +97,11 @@ func OpenSearchWithMemory(t T, memoryBytes int64) OpenSearchFixture {
 func skipWithoutSearchIntegration(t T) {
 	t.Helper()
 	if testing.Testing() && os.Getenv(SearchIntegrationVariable) != "1" {
-		_, _ = fmt.Fprintf(t.Output(), "testenv: OpenSearch-backed test skipped; set %s=1 to run it\n", SearchIntegrationVariable)
+		_, _ = fmt.Fprintf(
+			t.Output(),
+			"testenv: OpenSearch-backed test skipped; set %s=1 to run it\n",
+			SearchIntegrationVariable,
+		)
 		t.SkipNow()
 	}
 }
@@ -103,14 +112,22 @@ func openSearchEngineFor(memoryBytes int64) *openSearchEngine {
 	if openSearchEngines.byMemory == nil {
 		openSearchEngines.byMemory = map[int64]*openSearchEngine{}
 	}
+
 	engine, exists := openSearchEngines.byMemory[memoryBytes]
 	if !exists {
 		engine = &openSearchEngine{
-			once:    sync.Once{},
-			fixture: OpenSearchFixture{Endpoint: "", CA: "", Username: "", Password: "", Container: ""},
-			err:     nil,
+			once: sync.Once{},
+			fixture: OpenSearchFixture{
+				Endpoint:  "",
+				CA:        "",
+				Username:  "",
+				Password:  "",
+				Container: "",
+			},
+			err: nil,
 		}
 		openSearchEngines.byMemory[memoryBytes] = engine
 	}
+
 	return engine
 }

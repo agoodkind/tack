@@ -30,15 +30,21 @@ type migrateInput struct {
 
 func migrateSpec() audit.Spec {
 	return audit.Spec{
-		Verb: string(audit.VerbDatabaseMigrate), Mutates: true, Class: audit.OperationExternal,
-		Targets: migrationTargets, SafeInput: safeMigrateInput,
+		Verb:      string(audit.VerbDatabaseMigrate),
+		Mutates:   true,
+		Class:     audit.OperationExternal,
+		Targets:   migrationTargets,
+		SafeInput: safeMigrateInput,
 	}
 }
 
 func migrationStatusSpec() audit.Spec {
 	return audit.Spec{
-		Verb: string(audit.VerbDatabaseMigrate), Reads: true, Class: audit.OperationRead,
-		Targets: migrationTargets, SafeInput: safeMigrateInput,
+		Verb:      string(audit.VerbDatabaseMigrate),
+		Reads:     true,
+		Class:     audit.OperationRead,
+		Targets:   migrationTargets,
+		SafeInput: safeMigrateInput,
 	}
 }
 
@@ -61,16 +67,26 @@ func migrateCommand(f *cli.Factory) *cobra.Command {
 		Args:  cobra.NoArgs,
 	}
 	cmd.Flags().IntVar(&in.To, "to", 0, "apply migrations through this version only")
-	cmd.Flags().IntVar(&in.ExpectFrom, "expect-from", 0, "refuse the run unless the database is at this migration version")
+	cmd.Flags().IntVar(
+		&in.ExpectFrom,
+		"expect-from",
+		0,
+		"refuse the run unless the database is at this migration version",
+	)
 	input := func() (json.RawMessage, error) {
 		encoded, err := json.Marshal(in)
 		if err != nil {
 			slog.Error("migrate.input_encode_failed", slog.String("err", err.Error()))
 			return nil, fmt.Errorf("migrate: encode the command input: %w", err)
 		}
+
 		return encoded, nil
 	}
-	clispec.AttachExternalPreview(cmd, f, migrateSpec(), input,
+	clispec.AttachExternalPreview(
+		cmd,
+		f,
+		migrateSpec(),
+		input,
 		func(ctx context.Context, steps audit.StepRecorder) (audit.OutcomeDetails, error) {
 			return runMigrations(ctx, f, in, steps)
 		},
@@ -79,32 +95,57 @@ func migrateCommand(f *cli.Factory) *cobra.Command {
 			if err != nil {
 				return err
 			}
+
 			return printMigrationStatus(ctx, f, encoded)
-		})
+		},
+	)
+
 	return cmd
 }
 
 // runMigrations applies migrations after checking the version requirements
 // and prints the applied version.
-func runMigrations(ctx context.Context, f *cli.Factory, in migrateInput, steps audit.StepRecorder) (audit.OutcomeDetails, error) {
+func runMigrations(
+	ctx context.Context,
+	f *cli.Factory,
+	in migrateInput,
+	steps audit.StepRecorder,
+) (audit.OutcomeDetails, error) {
 	guard := schemastatus.Guard{ExpectFrom: int64(in.ExpectFrom), To: int64(in.To)}
-	applied, details, err := schemastatus.ApplyRecorded(ctx, f.Cfg.DatabaseURL, migrations.FS, guard, steps)
+	applied, details, err := schemastatus.ApplyRecorded(
+		ctx,
+		f.Cfg.DatabaseURL,
+		migrations.FS,
+		guard,
+		steps,
+	)
 	if err != nil {
 		slog.ErrorContext(ctx, "migrate.failed", slog.String("err", err.Error()))
 		return details, fmt.Errorf("migrate: %w", err)
 	}
-	if err := clispec.NewCLISink(f).WriteText(ctx, fmt.Sprintf("migrations complete through version %d", applied)); err != nil {
+
+	if err := clispec.NewCLISink(f).WriteText(
+		ctx,
+		fmt.Sprintf("migrations complete through version %d", applied),
+	); err != nil {
 		slog.ErrorContext(ctx, "migrate.output_failed", slog.String("err", err.Error()))
 		return details, fmt.Errorf("migrate: write the result: %w", err)
 	}
+
 	return details, nil
 }
 
 func printMigrationStatus(ctx context.Context, f *cli.Factory, input json.RawMessage) error {
 	jsonOutput := f.OutputFormat() == cli.FormatJSON
-	payload, err := clispec.RunAuditedRead(ctx, f, migrationStatusSpec(), input, func(ctx context.Context) (audit.OperatorReadOutput, error) {
-		return readMigrationStatus(ctx, f, jsonOutput)
-	})
+	payload, err := clispec.RunAuditedRead(
+		ctx,
+		f,
+		migrationStatusSpec(),
+		input,
+		func(ctx context.Context) (audit.OperatorReadOutput, error) {
+			return readMigrationStatus(ctx, f, jsonOutput)
+		},
+	)
 	if err != nil {
 		slog.ErrorContext(ctx, "migrate.status_failed", slog.String("err", err.Error()))
 		return fmt.Errorf("migrate: read the migration state: %w", err)
@@ -115,12 +156,18 @@ func printMigrationStatus(ctx context.Context, f *cli.Factory, input json.RawMes
 		slog.ErrorContext(ctx, "migrate.status_output_failed", slog.String("err", err.Error()))
 		return fmt.Errorf("migrate: write the migration state: %w", err)
 	}
+
 	return nil
 }
 
 // renderMigrationStatus returns the bytes that CLISink renders for the
 // migration status in the requested output format.
-func renderMigrationStatus(ctx context.Context, f *cli.Factory, body []byte, jsonOutput bool) ([]byte, error) {
+func renderMigrationStatus(
+	ctx context.Context,
+	f *cli.Factory,
+	body []byte,
+	jsonOutput bool,
+) ([]byte, error) {
 	var buffer bytes.Buffer
 
 	view := *f
@@ -134,37 +181,60 @@ func renderMigrationStatus(ctx context.Context, f *cli.Factory, body []byte, jso
 	} else {
 		err = sink.WriteText(ctx, string(body))
 	}
+
 	if err != nil {
 		slog.ErrorContext(ctx, "migrate.status_render_failed", slog.String("err", err.Error()))
 		return nil, fmt.Errorf("render the migration state: %w", err)
 	}
+
 	return buffer.Bytes(), nil
 }
 
 // readMigrationStatus reads the migration state and returns the exact bytes
 // that the command prints. It also returns one target for each embedded migration.
-func readMigrationStatus(ctx context.Context, f *cli.Factory, jsonOutput bool) (audit.OperatorReadOutput, error) {
+func readMigrationStatus(
+	ctx context.Context,
+	f *cli.Factory,
+	jsonOutput bool,
+) (audit.OperatorReadOutput, error) {
 	status, err := schemastatus.Read(ctx, f.Cfg.DatabaseURL, migrations.FS)
 	if err != nil {
 		slog.ErrorContext(ctx, "migrate.status_failed", slog.String("err", err.Error()))
 		return audit.OperatorReadOutput{}, fmt.Errorf("read the migration state: %w", err)
 	}
+
 	targets := schemastatus.MigrationTargets(status.Available)
 	if !jsonOutput {
 		rendered, err := renderMigrationStatus(ctx, f, []byte(status.Summary()), false)
 		if err != nil {
 			return audit.OperatorReadOutput{}, err
 		}
-		return audit.OperatorReadOutput{Payload: rendered, Format: textPayloadFormat, Targets: targets}, nil
+
+		return audit.OperatorReadOutput{
+			Payload: rendered,
+			Format:  textPayloadFormat,
+			Targets: targets,
+		}, nil
 	}
+
 	body, err := json.Marshal(status)
 	if err != nil {
 		slog.ErrorContext(ctx, "migrate.status_encode_failed", slog.String("err", err.Error()))
-		return audit.OperatorReadOutput{}, fmt.Errorf("encode the migration state at version %d: %w", status.AppliedVersion, err)
+		return audit.OperatorReadOutput{}, fmt.Errorf(
+			"encode the migration state at version %d: %w",
+			status.AppliedVersion,
+			err,
+		)
 	}
+
 	rendered, err := renderMigrationStatus(ctx, f, body, true)
 	if err != nil {
 		return audit.OperatorReadOutput{}, err
 	}
-	return audit.OperatorReadOutput{Payload: rendered, Format: jsonPayloadFormat, Targets: targets}, nil
+
+	return audit.OperatorReadOutput{
+		Payload: rendered,
+		Format:  jsonPayloadFormat,
+		Targets: targets,
+	}, nil
 }

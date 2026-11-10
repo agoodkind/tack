@@ -25,10 +25,17 @@ func backupFDBRestoreVersionCommand(factory *cli.Factory) *cobra.Command {
 		Short: "Convert a moment into the FoundationDB version to restore to, from the object store alone",
 		Args:  cobra.NoArgs,
 	}
-	cmd.Flags().StringVar(&requestedAt, "at", "",
-		"the moment to restore to, as RFC 3339 (2026-08-30T01:07:23Z) or 2026/08/30.01:07:23+0000 (default: now)")
-	clispec.AttachRawRead(cmd, factory,
-		singletonReadSpec(audit.VerbOpsBackupFDBRestoreVersion, "backup/restore-version"), emptyCommandInput,
+	cmd.Flags().StringVar(
+		&requestedAt,
+		"at",
+		"",
+		"the moment to restore to, as RFC 3339 (2026-08-30T01:07:23Z) or 2026/08/30.01:07:23+0000 (default: now)",
+	)
+	clispec.AttachRawRead(
+		cmd,
+		factory,
+		singletonReadSpec(audit.VerbOpsBackupFDBRestoreVersion, "backup/restore-version"),
+		emptyCommandInput,
 		func(ctx context.Context) (audit.OperatorReadOutput, error) {
 			want := opsNow().UTC()
 
@@ -48,8 +55,13 @@ func backupFDBRestoreVersionCommand(factory *cli.Factory) *cobra.Command {
 				return audit.OperatorReadOutput{}, err
 			}
 
-			return audit.OperatorReadOutput{Payload: answer.Bytes(), Format: restoreVersionPayloadFormat, Targets: nil}, nil
-		})
+			return audit.OperatorReadOutput{
+				Payload: answer.Bytes(),
+				Format:  restoreVersionPayloadFormat,
+				Targets: nil,
+			}, nil
+		},
+	)
 
 	return cmd
 }

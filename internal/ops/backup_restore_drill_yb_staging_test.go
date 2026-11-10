@@ -38,6 +38,7 @@ func newYBDrillStage(t *testing.T, cfg *config.Config) (*restoreDrillCtx, string
 	if err := os.MkdirAll(stageDir, 0o777); err != nil {
 		t.Fatalf("mkdir stage: %v", err)
 	}
+
 	return &restoreDrillCtx{
 		Cfg:            cfg,
 		Cli:            nil,
@@ -56,24 +57,33 @@ func newYBDrillStage(t *testing.T, cfg *config.Config) (*restoreDrillCtx, string
 func filesUnder(t *testing.T, root string) []string {
 	t.Helper()
 	var found []string
-	walkErr := filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if entry.IsDir() {
+	walkErr := filepath.WalkDir(
+		root,
+		func(path string, entry fs.DirEntry, err error) error {
+			if err != nil {
+				return err
+			}
+
+			if entry.IsDir() {
+				return nil
+			}
+
+			relative, relErr := filepath.Rel(root, path)
+			if relErr != nil {
+				return relErr
+			}
+
+			found = append(found, filepath.ToSlash(relative))
+
 			return nil
-		}
-		relative, relErr := filepath.Rel(root, path)
-		if relErr != nil {
-			return relErr
-		}
-		found = append(found, filepath.ToSlash(relative))
-		return nil
-	})
+		},
+	)
 	if walkErr != nil {
 		t.Fatalf("walk %s: %v", root, walkErr)
 	}
+
 	slices.Sort(found)
+
 	return found
 }
 
@@ -84,30 +94,51 @@ func filesUnder(t *testing.T, root string) []string {
 // This is what ties the sweep below to the path the production code actually
 // builds: a staging step that stopped joining names this way would fail here.
 func TestStageYBDrillArtifactsWritesEachDeclaredNameDirectlyUnderTheStage(t *testing.T) {
-	manifest := newYBSnapshotManifest(ybStageStoredRunID, "snap-1", "tack",
-		[]string{"yb1", "yb2"}, ybTestArtifactNames())
+	manifest := newYBSnapshotManifest(
+		ybStageStoredRunID,
+		"snap-1",
+		"tack",
+		[]string{"yb1", "yb2"},
+		ybTestArtifactNames(),
+	)
 	store := newBackupTestStore(t, ybExportRunObjects(t, ybStageStoredRunID, manifest))
 	s3Client := store.client
 	drill, root, stageDir := newYBDrillStage(t, store.config())
 
-	inventories, err := stageYBDrillArtifacts(context.Background(), drill, s3Client, manifest, stageDir)
+	inventories, err := stageYBDrillArtifacts(
+		context.Background(),
+		drill,
+		s3Client,
+		manifest,
+		stageDir,
+	)
 	if err != nil {
 		t.Fatalf("stageYBDrillArtifacts: %v", err)
 	}
+
 	nodeNames := make([]string, 0, len(inventories))
 	for _, inventory := range inventories {
 		if inventory.RunID != ybStageStoredRunID {
-			t.Fatalf("inventory for %s was read for run %q, want %q", inventory.Node, inventory.RunID, ybStageStoredRunID)
+			t.Fatalf(
+				"inventory for %s was read for run %q, want %q",
+				inventory.Node,
+				inventory.RunID,
+				ybStageStoredRunID,
+			)
 		}
+
 		nodeNames = append(nodeNames, inventory.Node)
 	}
+
 	if !reflect.DeepEqual(nodeNames, []string{"yb1", "yb2"}) {
 		t.Fatalf("inventoried nodes = %v, want [yb1 yb2]", nodeNames)
 	}
+
 	stageRelative, err := filepath.Rel(root, stageDir)
 	if err != nil {
 		t.Fatalf("relative stage: %v", err)
 	}
+
 	want := []string{
 		filepath.ToSlash(filepath.Join(stageRelative, ybSnapshotMetadataObject)),
 		filepath.ToSlash(filepath.Join(stageRelative, ybSnapshotRolesObject)),
@@ -135,8 +166,13 @@ func TestStageYBDrillArtifactsWritesEachDeclaredNameDirectlyUnderTheStage(t *tes
 // selection decides, the throwaway root must hold no file outside the stage.
 func TestYBDrillWritesNothingOutsideTheStageForAClimbingArtifactName(t *testing.T) {
 	const climbing = "../../escaped.txt"
-	manifest := newYBSnapshotManifest(ybStageStoredRunID, "snap-1", "tack",
-		[]string{"yb1"}, append(ybTestArtifactNames(), climbing))
+	manifest := newYBSnapshotManifest(
+		ybStageStoredRunID,
+		"snap-1",
+		"tack",
+		[]string{"yb1"},
+		append(ybTestArtifactNames(), climbing),
+	)
 	objects := ybExportRunObjects(t, ybStageStoredRunID, manifest)
 	climbingKey := ybSnapshotKeyPrefix(ybStageStoredRunID) + climbing
 	objects[path.Clean(climbingKey)] = objects[climbingKey]
@@ -150,9 +186,18 @@ func TestYBDrillWritesNothingOutsideTheStageForAClimbingArtifactName(t *testing.
 	resolved, err := resolveYBDrillExport(ctx, drill, s3Client)
 	if err == nil {
 		_, stageErr := stageYBDrillArtifacts(ctx, drill, s3Client, resolved, stageDir)
-		t.Errorf("a manifest declaring %q must not be drilled; staging returned %v", climbing, stageErr)
+		t.Errorf(
+			"a manifest declaring %q must not be drilled; staging returned %v",
+			climbing,
+			stageErr,
+		)
 	}
+
 	if got := filesUnder(t, root); len(got) > 0 {
-		t.Fatalf("the drill wrote %v; a declared name must not put a file anywhere in %s", got, root)
+		t.Fatalf(
+			"the drill wrote %v; a declared name must not put a file anywhere in %s",
+			got,
+			root,
+		)
 	}
 }

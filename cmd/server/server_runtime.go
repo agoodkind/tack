@@ -25,6 +25,7 @@ func runServer(ctx context.Context, cfg *config.Config) error {
 	if err != nil {
 		return fmt.Errorf("server: build runtime: %w", err)
 	}
+
 	graph.StartSearchWorkers(ctx)
 	graph.StartSearchModelRepair(ctx)
 	graph.StartDeleteResumer(ctx)
@@ -34,13 +35,21 @@ func runServer(ctx context.Context, cfg *config.Config) error {
 	mux := graph.Routes
 
 	addr := fmt.Sprintf(":%d", cfg.Port)
-	slog.InfoContext(ctx, "starting server",
-		"addr", addr,
-		"version", version.Tag(),
-		"commit", version.Commit(),
-		"build_hash", version.BuildHash(),
-		"build_time", version.BuildTime(),
-		"dirty", version.Dirty(),
+	slog.InfoContext(
+		ctx,
+		"starting server",
+		"addr",
+		addr,
+		"version",
+		version.Tag(),
+		"commit",
+		version.Commit(),
+		"build_hash",
+		version.BuildHash(),
+		"build_time",
+		version.BuildTime(),
+		"dirty",
+		version.Dirty(),
 	)
 
 	// Enable HTTP/1.1 and unencrypted HTTP/2 (h2c) on the server directly,
@@ -82,5 +91,6 @@ func runServer(ctx context.Context, cfg *config.Config) error {
 	if err := srv.Shutdown(shutCtx); err != nil {
 		slog.ErrorContext(ctx, "http.shutdown_failed", slog.String("err", err.Error()))
 	}
+
 	return nil
 }

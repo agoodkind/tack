@@ -17,8 +17,17 @@ func TestSearchUnavailableWhileDisabled(t *testing.T) {
 	fixture := newQueryFixture(t, options)
 	workspace := fixture.Workspaces[0]
 	kind := putOpaqueKind(t, fixture, workspace.OrgID)
-	nodeID := putOpaqueNode(t, fixture, kind, entryPoint(t, fixture, workspace), "Quartz ledger rotation", "quartz ledger rotation notes", "hidden")
+	nodeID := putOpaqueNode(
+		t,
+		fixture,
+		kind,
+		entryPoint(t, fixture, workspace),
+		"Quartz ledger rotation",
+		"quartz ledger rotation notes",
+		"hidden",
+	)
 	drainSearchWork(t, fixture.Worker, 500)
+
 	for _, arguments := range []map[string]any{
 		searchArguments(fixture.Harness, "quartz ledger", ""),
 		searchArguments(fixture.Harness, "Quartz ledger rotation", ""),
@@ -30,6 +39,7 @@ func TestSearchUnavailableWhileDisabled(t *testing.T) {
 		if err != nil {
 			t.Fatalf("call search: %v", err)
 		}
+
 		if !isError || text != unavailableSearchMessage {
 			t.Fatalf("disabled search returned isError=%t text %q", isError, text)
 		}
@@ -40,11 +50,16 @@ func TestSearchUnavailableWhileDisabled(t *testing.T) {
 // result that mentions the query for an empty, blank, or oversized query.
 func TestSearchEmptyQuery(t *testing.T) {
 	fixture := newQueryFixture(t, defaultQueryOptions())
+
 	for _, query := range []string{"", "   ", strings.Repeat("q", 1025)} {
-		text, isError, err := rawSearchCall(fixture.Harness, searchArguments(fixture.Harness, query, ""))
+		text, isError, err := rawSearchCall(
+			fixture.Harness,
+			searchArguments(fixture.Harness, query, ""),
+		)
 		if err != nil {
 			t.Fatalf("call search: %v", err)
 		}
+
 		if !isError || !strings.Contains(text, "query") {
 			t.Fatalf("query of %d bytes returned isError=%t text %q", len(query), isError, text)
 		}
@@ -63,16 +78,34 @@ func TestSearchAuthenticatedResults(t *testing.T) {
 	workspace := fixture.Workspaces[0]
 	kind := putOpaqueKind(t, fixture, workspace.OrgID)
 	entryID := entryPoint(t, fixture, workspace)
-	target := putOpaqueNode(t, fixture, kind, entryID, "Heliotrope cache rebuild", "heliotrope cache rebuild steps", excludedAuthValue)
-	other := putOpaqueNode(t, fixture, kind, entryID, "Unrelated", "unrelated text", excludedAuthValue+" "+excludedAuthValue)
+	target := putOpaqueNode(
+		t,
+		fixture,
+		kind,
+		entryID,
+		"Heliotrope cache rebuild",
+		"heliotrope cache rebuild steps",
+		excludedAuthValue,
+	)
+	other := putOpaqueNode(
+		t,
+		fixture,
+		kind,
+		entryID,
+		"Unrelated",
+		"unrelated text",
+		excludedAuthValue+" "+excludedAuthValue,
+	)
 	drainSearchWork(t, fixture.Worker, 500)
 	pages := callEverySearchPage(t, "heliotrope cache", fixture.Harness)
 	if !slices.Contains(pages.IDs, target) {
 		t.Fatalf("search did not return the indexed node %s: %v", target, pages.IDs)
 	}
+
 	for _, nodeID := range []uuid.UUID{target, other} {
 		requireStoredTextExcludes(t, fixture, nodeID, excludedAuthValue)
 	}
+
 	requireUnauthenticatedRefused(t, fixture.Harness)
 }
 
@@ -84,10 +117,12 @@ func requireStoredTextExcludes(t *testing.T, fixture queryFixture, nodeID uuid.U
 	if len(pages) == 0 {
 		t.Fatalf("node %s has no active page documents", nodeID)
 	}
+
 	for _, page := range pages {
 		if page.PageText == nil {
 			t.Fatalf("page %s of node %s has no page_text", page.ID, nodeID)
 		}
+
 		if strings.Contains(*page.PageText, value) {
 			t.Fatalf("page %s of node %s stores the excluded value %q", page.ID, nodeID, value)
 		}

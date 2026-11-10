@@ -23,15 +23,30 @@ func verifyReadFailureAfterCommit(t *testing.T, s *scenario) {
 	output, code := s.applyRole(t, renamed, "2", infinity)
 	proxy.recover(t)
 	if code == exitSuccess || !strings.Contains(output, "could not read the name of role OID") {
-		t.Fatalf("the update exited %d; the test expects a final role read error:\n%s", code, output)
+		t.Fatalf(
+			"the update exited %d; the test expects a final role read error:\n%s",
+			code,
+			output,
+		)
 	}
 	actual, found := s.target.roleNameByOID(t, oid)
 	if !found || actual != renamed {
-		t.Fatalf("the database role OID %d has name %q and found is %t; the test expects %s", oid, actual, found, renamed)
+		t.Fatalf(
+			"the database role OID %d has name %q and found is %t; the test expects %s",
+			oid,
+			actual,
+			found,
+			renamed,
+		)
 	}
 	got := s.space.stateValues(t)
 	if got.ID != renamed || got.OID != oid || got.Version != "1" {
-		t.Fatalf("state is %+v; the test expects id %s, role_oid %d, and password version 1", got, renamed, oid)
+		t.Fatalf(
+			"state is %+v; the test expects id %s, role_oid %d, and password version 1",
+			got,
+			renamed,
+			oid,
+		)
 	}
 	s.requirePlanRequestsPassword(t, s.planRole(t, renamed, "2", infinity, exitChanges))
 	if output, code := s.applyRole(t, renamed, "2", infinity); code != exitSuccess {
@@ -48,7 +63,10 @@ func TestYugabyteExternalCreateDisconnectAfterOID(t *testing.T) {
 	output, code := s.apply(t, "1", infinity)
 	proxy.recover(t)
 	if code == exitSuccess {
-		t.Fatalf("the create succeeded after the proxy denied further database operations:\n%s", output)
+		t.Fatalf(
+			"the create succeeded after the proxy denied further database operations:\n%s",
+			output,
+		)
 	}
 	if !s.target.roleExists(t, s.role) {
 		t.Fatal("the database did not retain the role after OID capture")

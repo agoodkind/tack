@@ -17,6 +17,7 @@ func createArgs(harness *MCPHarness, state *outageScenarioState, nodeType string
 		args["project_reference"] = state.ids["project"]
 		args["issue_reference"] = state.ids["issue"]
 	}
+
 	return args
 }
 
@@ -29,10 +30,15 @@ func listArgs(harness *MCPHarness, state *outageScenarioState, nodeType string) 
 		args["project_reference"] = state.ids["project"]
 		args["issue_reference"] = state.ids["issue"]
 	}
+
 	return args
 }
 
-func stateSetterArgs(harness *MCPHarness, state *outageScenarioState, nodeType string) map[string]any {
+func stateSetterArgs(
+	harness *MCPHarness,
+	state *outageScenarioState,
+	nodeType string,
+) map[string]any {
 	return map[string]any{
 		"workspace_reference":   harness.Workspace,
 		"project_reference":     state.ids["project"],

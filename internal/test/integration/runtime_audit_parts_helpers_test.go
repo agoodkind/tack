@@ -39,16 +39,23 @@ func newPartsPipeline(t *testing.T) partsPipeline {
 	if err != nil {
 		t.Fatalf("admin pool: %v", err)
 	}
+
 	t.Cleanup(admin.Close)
 	reader, err := audit.NewReader(t.Context(), ledgerDSN)
 	if err != nil {
 		t.Fatalf("open the audit reader: %v", err)
 	}
+
 	t.Cleanup(reader.Close)
 	suffix := uuid.NewString()[:8]
+
 	return partsPipeline{
-		topic: "audit.parts-test-" + suffix, group: "tack-parts-test-" + suffix,
-		brokers: testenv.Kafka(t), ledger: ledgerDSN, admin: admin, reader: reader,
+		topic:   "audit.parts-test-" + suffix,
+		group:   "tack-parts-test-" + suffix,
+		brokers: testenv.Kafka(t),
+		ledger:  ledgerDSN,
+		admin:   admin,
+		reader:  reader,
 	}
 }
 
@@ -61,37 +68,61 @@ func (p partsPipeline) stack() runtimeAuditStack {
 // and registers cleanup.
 func (p partsPipeline) startConsumer(t *testing.T) *audit.Consumer {
 	t.Helper()
-	consumer, err := audit.NewConsumer(t.Context(), audit.ConsumerConfig{
-		Brokers: []string{p.brokers}, Topic: p.topic, GroupID: p.group,
-		BatchSize: 32, PollInterval: 100 * time.Millisecond, YugabyteDSN: p.ledger,
-	})
+	consumer, err := audit.NewConsumer(
+		t.Context(),
+		audit.ConsumerConfig{
+			Brokers:      []string{p.brokers},
+			Topic:        p.topic,
+			GroupID:      p.group,
+			BatchSize:    32,
+			PollInterval: 100 * time.Millisecond,
+			YugabyteDSN:  p.ledger,
+		},
+	)
 	if err != nil {
 		t.Fatalf("start the audit consumer: %v", err)
 	}
+
 	consumer.Start(t.Context())
 	t.Cleanup(func() { _ = consumer.Close() })
+
 	return consumer
 }
 
 // startRelay starts the production relay for the YugabyteDB outbox with the
 // given AfterProduce hook and registers cleanup.
-func (p partsPipeline) startRelay(t *testing.T, afterProduce func(context.Context, uuid.UUID) error) *audit.Relay {
+func (p partsPipeline) startRelay(
+	t *testing.T,
+	afterProduce func(context.Context, uuid.UUID) error,
+) *audit.Relay {
 	t.Helper()
 	recorder, err := audit.NewKafkaRecorder(audit.KafkaConfig{
-		Brokers: []string{p.brokers}, Topic: p.topic, ClientID: "tack-parts-test", ProduceTimeout: 30 * time.Second,
+		Brokers: []string{
+			p.brokers,
+		},
+		Topic:          p.topic,
+		ClientID:       "tack-parts-test",
+		ProduceTimeout: 30 * time.Second,
 	})
 	if err != nil {
 		t.Fatalf("open the relay producer: %v", err)
 	}
+
 	relay, err := audit.NewRelay(audit.RelayConfig{
-		Recorder: recorder, Yugabyte: audit.NewPoolOutbox(p.admin), FoundationDB: nil,
-		PollInterval: 100 * time.Millisecond, BatchSize: 64, AfterProduce: afterProduce,
+		Recorder:     recorder,
+		Yugabyte:     audit.NewPoolOutbox(p.admin),
+		FoundationDB: nil,
+		PollInterval: 100 * time.Millisecond,
+		BatchSize:    64,
+		AfterProduce: afterProduce,
 	})
 	if err != nil {
 		t.Fatalf("open the relay: %v", err)
 	}
+
 	relay.Start(t.Context())
 	t.Cleanup(func() { _ = relay.Close() })
+
 	return relay
 }
 
@@ -103,24 +134,36 @@ func (p partsPipeline) deliverUntilStopped(t *testing.T, eventID uuid.UUID, reco
 	var once sync.Once
 	acknowledged := 0
 	stopped := make(chan struct{})
-	relay := p.startRelay(t, func(_ context.Context, produced uuid.UUID) error {
-		mutex.Lock()
-		defer mutex.Unlock()
-		if produced != eventID {
-			return nil
-		}
-		acknowledged++
-		if acknowledged < records {
-			return nil
-		}
-		once.Do(func() { close(stopped) })
-		return errStopDelivery
-	})
+	relay := p.startRelay(
+		t,
+		func(_ context.Context, produced uuid.UUID) error {
+			mutex.Lock()
+			defer mutex.Unlock()
+			if produced != eventID {
+				return nil
+			}
+
+			acknowledged++
+			if acknowledged < records {
+				return nil
+			}
+
+			once.Do(func() { close(stopped) })
+
+			return errStopDelivery
+		},
+	)
 	select {
 	case <-stopped:
 	case <-time.After(runtimeAuditDeadline):
-		t.Fatalf("relay did not produce %d records of event %s within %s", records, eventID, runtimeAuditDeadline)
+		t.Fatalf(
+			"relay did not produce %d records of event %s within %s",
+			records,
+			eventID,
+			runtimeAuditDeadline,
+		)
 	}
+
 	_ = relay.Close()
 }
 
@@ -128,19 +171,25 @@ func (p partsPipeline) deliverUntilStopped(t *testing.T, eventID uuid.UUID, reco
 // the topic high-water marks, which mark the end of each partition.
 func (p partsPipeline) waitForConsumed(t *testing.T) {
 	t.Helper()
-	waitFor(t, "consumption of every record", func() bool {
-		return topicConsumed(t, p.reader, p.brokers, p.topic, p.group)
-	})
+	waitFor(
+		t,
+		"consumption of every record",
+		func() bool {
+			return topicConsumed(t, p.reader, p.brokers, p.topic, p.group)
+		},
+	)
 }
 
 // waitFor polls a condition and fails the test if the deadline expires.
 func waitFor(t *testing.T, what string, done func() bool) {
 	t.Helper()
 	deadline := clock.Now().Add(runtimeAuditDeadline)
+
 	for !done() {
 		if clock.Now().After(deadline) {
 			t.Fatalf("%s did not happen within %s", what, runtimeAuditDeadline)
 		}
+
 		time.Sleep(200 * time.Millisecond)
 	}
 }
@@ -152,13 +201,24 @@ func (p partsPipeline) requireActorPII(t *testing.T, actor audit.Actor, row audi
 	if row.PIIRef == nil {
 		t.Fatalf("ledger row %s does not reference the actor's personal data", row.EventID)
 	}
+
 	stored := protectedValues(t, p.admin, []uuid.UUID{*row.PIIRef})[*row.PIIRef]
 	var personal struct {
 		Email string `json:"email"`
 		Name  string `json:"name"`
 	}
-	if err := json.Unmarshal(stored.Value, &personal); err != nil || personal.Email != actor.Email || personal.Name != actor.Name {
-		t.Fatalf("audit.pii row %s of event %s = %s, %v, want the actor's email and name", *row.PIIRef, row.EventID, stored.Value, err)
+	if err := json.Unmarshal(
+		stored.Value,
+		&personal,
+	); err != nil || personal.Email != actor.Email ||
+		personal.Name != actor.Name {
+		t.Fatalf(
+			"audit.pii row %s of event %s = %s, %v, want the actor's email and name",
+			*row.PIIRef,
+			row.EventID,
+			stored.Value,
+			err,
+		)
 	}
 }
 
@@ -175,5 +235,6 @@ func countRows(t *testing.T, pool *pgxpool.Pool, query string, eventID uuid.UUID
 	if err := pool.QueryRow(t.Context(), query, eventID).Scan(&total); err != nil {
 		t.Fatalf("count with %q: %v", query, err)
 	}
+
 	return total
 }

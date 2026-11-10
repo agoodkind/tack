@@ -43,6 +43,7 @@ func (proxy *pageDelayProxy) forwardAbandoned(request *http.Request) {
 	if delay <= 0 {
 		return
 	}
+
 	time.Sleep(delay)
 	recorder := httptest.NewRecorder()
 	proxy.engine.ServeHTTP(recorder, request.WithContext(context.WithoutCancel(request.Context())))
@@ -57,6 +58,7 @@ func (proxy *pageDelayProxy) forwardAbandoned(request *http.Request) {
 func (proxy *pageDelayProxy) forwarded() (time.Time, int) {
 	proxy.mutex.Lock()
 	defer proxy.mutex.Unlock()
+
 	return proxy.forwardedAt, proxy.forwardStatus
 }
 
@@ -69,18 +71,41 @@ func TestSearchWorkerWaitsForAbandonedPageWrite(t *testing.T) {
 	abandoned := abandonPageOne(t, storedWriteHorizon, abandonedWriteDelay)
 	env, proxy, nodeID := abandoned.env, abandoned.proxy, abandoned.nodeID
 	bound := abandoned.abandonedAt.Add(abandonedWriteDelay + storedWriteMargin)
-	indexed := runSlicesUntil(t, env, bound, func() bool { return indexMismatch(t, env, nodeID) == "" })
+	indexed := runSlicesUntil(
+		t,
+		env,
+		bound,
+		func() bool { return indexMismatch(t, env, nodeID) == "" },
+	)
 	forwardedAt, status := proxy.forwarded()
 	if forwardedAt.IsZero() || status != http.StatusOK {
-		t.Fatalf("the engine answered the abandoned write at %s with status %d, want status %d", forwardedAt, status, http.StatusOK)
+		t.Fatalf(
+			"the engine answered the abandoned write at %s with status %d, want status %d",
+			forwardedAt,
+			status,
+			http.StatusOK,
+		)
 	}
+
 	if !indexed {
-		t.Fatalf("node %s was not indexed by %s, %s after the abandon at %s: %s",
-			nodeID, bound, bound.Sub(abandoned.abandonedAt), abandoned.abandonedAt, indexMismatch(t, env, nodeID))
+		t.Fatalf(
+			"node %s was not indexed by %s, %s after the abandon at %s: %s",
+			nodeID,
+			bound,
+			bound.Sub(abandoned.abandonedAt),
+			abandoned.abandonedAt,
+			indexMismatch(t, env, nodeID),
+		)
 	}
+
 	if writes := pageWrites(proxy, nodeID, 1); len(writes) != 1 {
-		t.Fatalf("the proxy received %d writes of page 1 %+v, want only the abandoned write", len(writes), writes)
+		t.Fatalf(
+			"the proxy received %d writes of page 1 %+v, want only the abandoned write",
+			len(writes),
+			writes,
+		)
 	}
+
 	env.runIdle(t)
 	requireIndexedNode(t, env, nodeID)
 }
@@ -89,11 +114,13 @@ func TestSearchWorkerWaitsForAbandonedPageWrite(t *testing.T) {
 func (proxy *pageDelayProxy) writesOf(nodeID uuid.UUID) []delayedPageWrite {
 	proxy.mutex.Lock()
 	defer proxy.mutex.Unlock()
+
 	writes := make([]delayedPageWrite, 0, len(proxy.writes))
 	for _, write := range proxy.writes {
 		if write.nodeID == nodeID.String() {
 			writes = append(writes, write)
 		}
 	}
+
 	return writes
 }

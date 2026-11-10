@@ -40,20 +40,29 @@ func ledgerNodePrepareCommand(f *cli.Factory) *cobra.Command {
 		Args: cobra.NoArgs,
 	}
 	spec := externalSpec(audit.VerbOpsLedgerNodePrepare, ledgerNodeTarget)
-	clispec.AttachExternalPreview(cmd, f, spec, emptyCommandInput,
+	clispec.AttachExternalPreview(
+		cmd,
+		f,
+		spec,
+		emptyCommandInput,
 		func(ctx context.Context, steps audit.StepRecorder) (audit.OutcomeDetails, error) {
 			return runLedgerNodePrepareRecorded(ctx, f.Cfg, clispec.NewCLISink(f), steps)
 		},
 		func(ctx context.Context) error {
 			return previewLedgerNodePrepare(ctx, f, clispec.NewCLISink(f))
-		})
+		},
+	)
+
 	return cmd
 }
 
 // ledgerNodeWaitCommand builds `ops ledger node-wait`. With --execute, the
 // command records the wait as one external step with the observed health.
 func ledgerNodeWaitCommand(f *cli.Factory) *cobra.Command {
-	in := ledgerNodeWaitInput{Stall: ledgerNodeWaitDefaultStall.String(), Poll: ledgerNodeWaitDefaultPoll.String()}
+	in := ledgerNodeWaitInput{
+		Stall: ledgerNodeWaitDefaultStall.String(),
+		Poll:  ledgerNodeWaitDefaultPoll.String(),
+	}
 	cmd := &cobra.Command{
 		Use:   "node-wait",
 		Short: "Wait until this guest's ledger node is healthy, bounded by inactivity rather than a clock",
@@ -64,12 +73,28 @@ func ledgerNodeWaitCommand(f *cli.Factory) *cobra.Command {
 			"waits for as long as it needs.",
 		Args: cobra.NoArgs,
 	}
-	cmd.Flags().StringVar(&in.Stall, "stall", ledgerNodeWaitDefaultStall.String(), "how long with no progress before the wait fails")
-	cmd.Flags().StringVar(&in.Poll, "poll", ledgerNodeWaitDefaultPoll.String(), "how often to read the node and the masters")
+	cmd.Flags().StringVar(
+		&in.Stall,
+		"stall",
+		ledgerNodeWaitDefaultStall.String(),
+		"how long with no progress before the wait fails",
+	)
+	cmd.Flags().StringVar(
+		&in.Poll,
+		"poll",
+		ledgerNodeWaitDefaultPoll.String(),
+		"how often to read the node and the masters",
+	)
 	input := func() (json.RawMessage, error) { return encodeCommandInput(in) }
-	clispec.AttachExternal(cmd, f, externalSpec(audit.VerbOpsLedgerNodeWait, ledgerNodeTarget+"/health"), input,
+	clispec.AttachExternal(
+		cmd,
+		f,
+		externalSpec(audit.VerbOpsLedgerNodeWait, ledgerNodeTarget+"/health"),
+		input,
 		func(ctx context.Context, steps audit.StepRecorder) (audit.OutcomeDetails, error) {
 			return runLedgerNodeWaitRecorded(ctx, f.Cfg, in, clispec.NewCLISink(f), steps)
-		})
+		},
+	)
+
 	return cmd
 }

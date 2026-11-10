@@ -19,14 +19,23 @@ import (
 // roles file is one of the things it vouches for: without it a restore has no
 // identity to grant the schema's privileges to.
 func TestYBSnapshotUploadArtifactsManifestLast(t *testing.T) {
-	files := ybSnapshotUploadArtifacts("/stage", "/stage/schema.sql", "/stage/roles.sql", "/stage/manifest.json")
+	files := ybSnapshotUploadArtifacts(
+		"/stage",
+		"/stage/schema.sql",
+		"/stage/roles.sql",
+		"/stage/manifest.json",
+	)
+
 	got := make([]string, 0, len(files))
 	for _, file := range files {
 		got = append(got, file.name)
 	}
+
 	want := []string{
-		ybSnapshotMetadataObject, ybSnapshotSchemaObject,
-		ybSnapshotRolesObject, ybSnapshotManifestObject,
+		ybSnapshotMetadataObject,
+		ybSnapshotSchemaObject,
+		ybSnapshotRolesObject,
+		ybSnapshotManifestObject,
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("artifact order:\n got=%v\nwant=%v", got, want)
@@ -39,7 +48,12 @@ func TestYBSnapshotUploadArtifactsManifestLast(t *testing.T) {
 // every other artifact the export uploads must be gated without the gate being
 // told which artifacts exist.
 func TestYBSnapshotGatedArtifactNamesExcludeTheManifest(t *testing.T) {
-	files := ybSnapshotUploadArtifacts("/stage", "/stage/schema.sql", "/stage/roles.sql", "/stage/manifest.json")
+	files := ybSnapshotUploadArtifacts(
+		"/stage",
+		"/stage/schema.sql",
+		"/stage/roles.sql",
+		"/stage/manifest.json",
+	)
 	got := ybSnapshotGatedArtifactNames(files)
 	want := []string{ybSnapshotMetadataObject, ybSnapshotSchemaObject, ybSnapshotRolesObject}
 	if !reflect.DeepEqual(got, want) {
@@ -59,16 +73,23 @@ func TestYBSnapshotGatedArtifactNamesExcludeTheManifest(t *testing.T) {
 // a restored database.
 func TestYBSchemaDumpArgsDescribePrivileges(t *testing.T) {
 	args := ybSchemaDumpArgs(&config.Config{YugabyteDB: "tack"})
+
 	for _, banned := range []string{"--no-privileges", "-x", "--dump-role-checks"} {
 		if slices.Contains(args, banned) {
-			t.Fatalf("schema dump passes %s, which drops or conditions the grants: %v", banned, args)
+			t.Fatalf(
+				"schema dump passes %s, which drops or conditions the grants: %v",
+				banned,
+				args,
+			)
 		}
 	}
+
 	for _, required := range []string{"--schema-only", "--include-yb-metadata", "--no-owner"} {
 		if !slices.Contains(args, required) {
 			t.Fatalf("schema dump is missing %s: %v", required, args)
 		}
 	}
+
 	if !slices.Contains(args, "-d") || !slices.Contains(args, "tack") {
 		t.Fatalf("schema dump does not name the database: %v", args)
 	}
@@ -80,11 +101,13 @@ func TestYBSchemaDumpArgsDescribePrivileges(t *testing.T) {
 // the grants the schema carries name roles a restore must already have.
 func TestYBRolesDumpArgsCarryIdentitiesNotCredentials(t *testing.T) {
 	args := ybRolesDumpArgs(&config.Config{YugabyteDB: "tack"})
+
 	for _, required := range []string{"--roles-only", "--no-role-passwords"} {
 		if !slices.Contains(args, required) {
 			t.Fatalf("roles dump is missing %s: %v", required, args)
 		}
 	}
+
 	if !slices.Contains(args, ybDumpOutDir+"/"+ybSnapshotRolesObject) {
 		t.Fatalf("roles dump does not write the roles artifact: %v", args)
 	}
@@ -101,10 +124,21 @@ func TestUploadYBSnapshotArtifactsUploadsInOrder(t *testing.T) {
 	t.Cleanup(func() { putYBSnapshotObject = putObjectFromFile })
 
 	cfg := &config.Config{BackupS3BucketMain: "backups"}
-	files := ybSnapshotUploadArtifacts("/stage", "/stage/schema.sql", "/stage/roles.sql", "/stage/manifest.json")
-	if err := uploadYBSnapshotArtifacts(context.Background(), cfg, ybSnapshotKeyPrefix("run-1"), files); err != nil {
+	files := ybSnapshotUploadArtifacts(
+		"/stage",
+		"/stage/schema.sql",
+		"/stage/roles.sql",
+		"/stage/manifest.json",
+	)
+	if err := uploadYBSnapshotArtifacts(
+		context.Background(),
+		cfg,
+		ybSnapshotKeyPrefix("run-1"),
+		files,
+	); err != nil {
 		t.Fatalf("uploadYBSnapshotArtifacts: %v", err)
 	}
+
 	want := []string{
 		"yugabyte-snapshot/run-1/metadata.snapshot",
 		"yugabyte-snapshot/run-1/schema.sql",
@@ -132,9 +166,15 @@ func TestYBNodeArtifactsUploadTheArchiveLast(t *testing.T) {
 	cfg := &config.Config{BackupS3BucketMain: "backups"}
 	node := ybSnapshotManifestNode{Name: "yb1", Prefix: "nodes/yb1/"}
 	prefix := ybNodeKeyPrefix("run-1", node)
-	if err := uploadYBSnapshotArtifacts(context.Background(), cfg, prefix, ybNodeUploadArtifacts("/stage")); err != nil {
+	if err := uploadYBSnapshotArtifacts(
+		context.Background(),
+		cfg,
+		prefix,
+		ybNodeUploadArtifacts("/stage"),
+	); err != nil {
 		t.Fatalf("uploadYBSnapshotArtifacts: %v", err)
 	}
+
 	want := []string{
 		"yugabyte-snapshot/run-1/nodes/yb1/tablets.inventory",
 		"yugabyte-snapshot/run-1/nodes/yb1/tablets.tar.gz",
@@ -153,17 +193,25 @@ func TestUploadYBSnapshotArtifactsStopsBeforeManifest(t *testing.T) {
 		if key == "yugabyte-snapshot/run-1/schema.sql" {
 			return fmt.Errorf("schema upload failed")
 		}
+
 		uploaded = append(uploaded, key)
+
 		return nil
 	}
 	t.Cleanup(func() { putYBSnapshotObject = putObjectFromFile })
 
 	cfg := &config.Config{BackupS3BucketMain: "backups"}
-	files := ybSnapshotUploadArtifacts("/stage", "/stage/schema.sql", "/stage/roles.sql", "/stage/manifest.json")
+	files := ybSnapshotUploadArtifacts(
+		"/stage",
+		"/stage/schema.sql",
+		"/stage/roles.sql",
+		"/stage/manifest.json",
+	)
 	err := uploadYBSnapshotArtifacts(context.Background(), cfg, ybSnapshotKeyPrefix("run-1"), files)
 	if err == nil {
 		t.Fatal("uploadYBSnapshotArtifacts must fail when a payload upload fails")
 	}
+
 	for _, key := range uploaded {
 		if key == "yugabyte-snapshot/run-1/manifest.json" {
 			t.Fatal("manifest uploaded even though a gated payload failed")
@@ -202,6 +250,7 @@ func TestUnmarshalYBScheduleSnapshotIDs(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unmarshalYBScheduleSnapshotIDs: %v", err)
 	}
+
 	want := map[string]bool{
 		"aaaa1111-1111-2222-3333-444455556666": true,
 		"bbbb1111-1111-2222-3333-444455556666": true,
@@ -281,15 +330,23 @@ func TestCleanupYBExportRunsManifestErrorSkipsOrphanPass(t *testing.T) {
 		return nil
 	}
 
-	referenced, orphanPassOK := cleanupYBExportRuns(context.Background(),
-		[]string{"run-1", "run-2", "run-3"}, states, fetch, exists, deleteSnapshot)
+	referenced, orphanPassOK := cleanupYBExportRuns(
+		context.Background(),
+		[]string{"run-1", "run-2", "run-3"},
+		states,
+		fetch,
+		exists,
+		deleteSnapshot,
+	)
 
 	if orphanPassOK {
 		t.Fatal("orphan pass allowed even though run-2's manifest fetch failed")
 	}
+
 	if !reflect.DeepEqual(deleted, []string{"snap-3"}) {
 		t.Fatalf("deleted = %v, want only the satisfied run's snapshot [snap-3]", deleted)
 	}
+
 	if !referenced["snap-3"] {
 		t.Fatal("satisfied run's snapshot missing from the reference set")
 	}
@@ -304,6 +361,7 @@ func TestCleanupYBExportRunsMissingManifestAllowsOrphanPass(t *testing.T) {
 		if runID == "run-1" {
 			return ybSnapshotManifest{}, fmt.Errorf("get manifest: %w", &s3types.NotFound{})
 		}
+
 		return ybCleanupManifestFixture(runID, "snap-2"), nil
 	}
 	exists := func(string) (bool, error) { return true, nil }
@@ -313,15 +371,23 @@ func TestCleanupYBExportRunsMissingManifestAllowsOrphanPass(t *testing.T) {
 		return nil
 	}
 
-	referenced, orphanPassOK := cleanupYBExportRuns(context.Background(),
-		[]string{"run-1", "run-2"}, states, fetch, exists, deleteSnapshot)
+	referenced, orphanPassOK := cleanupYBExportRuns(
+		context.Background(),
+		[]string{"run-1", "run-2"},
+		states,
+		fetch,
+		exists,
+		deleteSnapshot,
+	)
 
 	if !orphanPassOK {
 		t.Fatal("orphan pass forbidden even though every manifest resolved cleanly")
 	}
+
 	if !reflect.DeepEqual(deleted, []string{"snap-2"}) {
 		t.Fatalf("deleted = %v, want [snap-2]", deleted)
 	}
+
 	if !referenced["snap-2"] {
 		t.Fatal("satisfied run's snapshot missing from the reference set")
 	}
@@ -341,13 +407,19 @@ func TestCleanupYBExportRunsNoRunsSkipsOrphanPass(t *testing.T) {
 		return nil
 	}
 
-	referenced, orphanPassOK := cleanupYBExportRuns(context.Background(),
-		nil, map[string]ybSnapshotStatus{"snap-1": ybSnapStatusComplete},
-		fetch, exists, deleteSnapshot)
+	referenced, orphanPassOK := cleanupYBExportRuns(
+		context.Background(),
+		nil,
+		map[string]ybSnapshotStatus{"snap-1": ybSnapStatusComplete},
+		fetch,
+		exists,
+		deleteSnapshot,
+	)
 
 	if orphanPassOK {
 		t.Fatal("orphan pass allowed with zero run prefixes")
 	}
+
 	if len(referenced) != 0 {
 		t.Fatalf("referenced = %v, want empty", referenced)
 	}

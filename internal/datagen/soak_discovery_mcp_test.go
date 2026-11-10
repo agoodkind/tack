@@ -23,16 +23,20 @@ func (f *soakDiscoveryMCP) ServeHTTP(writer http.ResponseWriter, request *http.R
 	case "tack_list_projects":
 		writeDiscoveryList(writer, "projects", "Q0101", "QA Project 1.1 seed 777")
 	case "tack_list_labels":
-		writeDiscoveryListItems(writer, "labels", []collectionItem{
-			{
-				Reference: "qa-777-o01-w01::developer-experience-01-w01-seed-777",
-				Name:      "developer-experience-01-w01-seed-777",
+		writeDiscoveryListItems(
+			writer,
+			"labels",
+			[]collectionItem{
+				{
+					Reference: "qa-777-o01-w01::developer-experience-01-w01-seed-777",
+					Name:      "developer-experience-01-w01-seed-777",
+				},
+				{
+					Reference: "qa-777-o01-w01::Soak label op-00000007 seed-777",
+					Name:      "Soak label op-00000007 seed-777",
+				},
 			},
-			{
-				Reference: "qa-777-o01-w01::Soak label op-00000007 seed-777",
-				Name:      "Soak label op-00000007 seed-777",
-			},
-		})
+		)
 	case "tack_list_states":
 		writeDiscoveryList(writer, "states", "Q0101::Todo", "Todo")
 	case "tack_list_issues":
@@ -97,10 +101,16 @@ func writeDiscoveryListItems(
 
 func discoveryListText(plural, reference, name string) string {
 	var builder strings.Builder
-	writeDiscoveryListText(&builder, plural, []collectionItem{{
-		Reference: reference,
-		Name:      name,
-	}})
+	writeDiscoveryListText(
+		&builder,
+		plural,
+		[]collectionItem{
+			{
+				Reference: reference,
+				Name:      name,
+			},
+		},
+	)
 	return builder.String()
 }
 

@@ -45,8 +45,13 @@ const (
 // restarted engine elect itself leader in seconds rather than a minute; the
 // buckets and objects survive the restart either way.
 var objectStoreCommand = []string{
-	"server", "-dir=/data", "-s3", "-s3.config=" + objectStoreConfigPath,
-	"-ip.bind=::", "-master.volumeSizeLimitMB=1024", "-volume.max=" + objectStoreVolumeCount,
+	"server",
+	"-dir=/data",
+	"-s3",
+	"-s3.config=" + objectStoreConfigPath,
+	"-ip.bind=::",
+	"-master.volumeSizeLimitMB=1024",
+	"-volume.max=" + objectStoreVolumeCount,
 	"-master.resumeState=false",
 }
 
@@ -107,6 +112,7 @@ func ObjectStore(t T) ObjectStoreBucket {
 		_, _ = fmt.Fprintf(t.Output(), "testenv: %v\n", err)
 		t.FailNow()
 	}
+
 	return bucket
 }
 
@@ -121,43 +127,58 @@ func provisionObjectStore(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", err
 	}
+
 	contents, err := json.Marshal(identities)
 	if err != nil {
 		slog.ErrorContext(ctx, "testenv.objectstore.config_failed", slog.String("err", err.Error()))
 		return "", fmt.Errorf("render the object store identities: %w", err)
 	}
+
 	cli, err := dockerClient(ctx)
 	if err != nil {
 		return "", err
 	}
+
 	defer func() { _ = cli.Close() }()
-	holder, err := startEngine(ctx, cli, engineSpec{
-		kind:       "seaweedfs-address",
-		image:      objectStoreImage,
-		platform:   nil,
-		entrypoint: []string{"sleep"},
-		cmd:        []string{objectStoreHolderSeconds},
-		env:        nil,
-	})
+	holder, err := startEngine(
+		ctx,
+		cli,
+		engineSpec{
+			kind:       "seaweedfs-address",
+			image:      objectStoreImage,
+			platform:   nil,
+			entrypoint: []string{engineSleepCommand},
+			cmd:        []string{objectStoreHolderSeconds},
+			env:        nil,
+		},
+	)
 	if err != nil {
 		return "", err
 	}
-	started, err := startEngine(ctx, cli, engineSpec{
-		kind:      "seaweedfs",
-		image:     objectStoreImage,
-		platform:  nil,
-		cmd:       objectStoreCommand,
-		env:       objectStoreEnv,
-		files:     map[string][]byte{objectStoreConfigPath: contents},
-		networkOf: holder.name,
-	})
+
+	started, err := startEngine(
+		ctx,
+		cli,
+		engineSpec{
+			kind:      "seaweedfs",
+			image:     objectStoreImage,
+			platform:  nil,
+			cmd:       objectStoreCommand,
+			env:       objectStoreEnv,
+			files:     map[string][]byte{objectStoreConfigPath: contents},
+			networkOf: holder.name,
+		},
+	)
 	if err != nil {
 		return "", err
 	}
+
 	if _, err := waitForObjectStore(ctx, cli, started.name); err != nil {
 		return "", err
 	}
+
 	slog.InfoContext(ctx, "testenv.objectstore.ready", slog.String("container", started.name))
+
 	return started.name, nil
 }
 
@@ -165,23 +186,28 @@ func provisionObjectStore(ctx context.Context) (string, error) {
 // anything, and one that may only read and list.
 func newObjectStoreConfig(ctx context.Context) (objectStoreConfig, error) {
 	keys := make([]string, 0, 4)
+
 	for range 4 {
 		key, err := randomHex(ctx, objectStoreKeyBytes)
 		if err != nil {
 			return objectStoreConfig{}, err
 		}
+
 		keys = append(keys, key)
 	}
-	return objectStoreConfig{Identities: []objectStoreIdentity{
-		{
-			Name:        objectStoreWriterName,
-			Credentials: []objectStoreCredential{{AccessKey: keys[0], SecretKey: keys[1]}},
-			Actions:     []string{"Admin", "Read", "Write", "List"},
+
+	return objectStoreConfig{
+		Identities: []objectStoreIdentity{
+			{
+				Name:        objectStoreWriterName,
+				Credentials: []objectStoreCredential{{AccessKey: keys[0], SecretKey: keys[1]}},
+				Actions:     []string{"Admin", "Read", "Write", "List"},
+			},
+			{
+				Name:        objectStoreReaderName,
+				Credentials: []objectStoreCredential{{AccessKey: keys[2], SecretKey: keys[3]}},
+				Actions:     []string{"Read", "List"},
+			},
 		},
-		{
-			Name:        objectStoreReaderName,
-			Credentials: []objectStoreCredential{{AccessKey: keys[2], SecretKey: keys[3]}},
-			Actions:     []string{"Read", "List"},
-		},
-	}}, nil
+	}, nil
 }

@@ -43,7 +43,8 @@ func providerPIDs(tofuPID int) ([]int, error) {
 	}
 	var pids []int
 	for _, info := range processes {
-		if info.parentPID == tofuPID && strings.HasSuffix(info.arguments[0], "terraform-provider-postgresql") {
+		if info.parentPID == tofuPID &&
+			strings.HasSuffix(info.arguments[0], "terraform-provider-postgresql") {
 			pids = append(pids, info.pid)
 		}
 	}
@@ -68,7 +69,11 @@ type providerPacer struct {
 }
 
 func startPacer(tofuPID int) *providerPacer {
-	pacer := &providerPacer{tofuPID: tofuPID, quit: make(chan struct{}), finished: make(chan struct{})}
+	pacer := &providerPacer{
+		tofuPID:  tofuPID,
+		quit:     make(chan struct{}),
+		finished: make(chan struct{}),
+	}
 	go pacer.run()
 	return pacer
 }
@@ -131,7 +136,12 @@ func requireProvidersStopped(t *testing.T, tofuPID int) {
 			return
 		}
 		if time.Now().After(deadline) {
-			t.Fatalf("%d provider processes of tofu %d are not stopped within %s", running, tofuPID, stoppedStateTimeout)
+			t.Fatalf(
+				"%d provider processes of tofu %d are not stopped within %s",
+				running,
+				tofuPID,
+				stoppedStateTimeout,
+			)
 		}
 		time.Sleep(processFindPeriod)
 	}

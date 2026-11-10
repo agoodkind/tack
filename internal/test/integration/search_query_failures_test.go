@@ -48,10 +48,28 @@ func TestSearchQueryFailuresReturnExplicitErrors(t *testing.T) {
 	workspace := fixture.Workspaces[0]
 	kind := integration.PutOpaqueKind(t, fixture, workspace.OrgID)
 	entryID := integration.EntryPoint(t, fixture, workspace)
-	corrupted := integration.PutOpaqueNode(t, fixture, kind, entryID, "Failure node 0", failureQuery, "excluded")
+	corrupted := integration.PutOpaqueNode(
+		t,
+		fixture,
+		kind,
+		entryID,
+		"Failure node 0",
+		failureQuery,
+		"excluded",
+	)
+
 	for number := 1; number < failureNodes; number++ {
-		integration.PutOpaqueNode(t, fixture, kind, entryID, fmt.Sprintf("Failure node %d", number), failureQuery, "excluded")
+		integration.PutOpaqueNode(
+			t,
+			fixture,
+			kind,
+			entryID,
+			fmt.Sprintf("Failure node %d", number),
+			failureQuery,
+			"excluded",
+		)
 	}
+
 	integration.DrainSearchWork(t, fixture.Worker, 10*failureNodes+100)
 
 	first := integration.CallSearch(t, fixture.Harness, failureQuery, "")
@@ -66,11 +84,23 @@ func TestSearchQueryFailuresReturnExplicitErrors(t *testing.T) {
 	integration.ReplaceRawValue(t, resolveKey, resolve)
 	integration.CallSearch(t, fixture.Harness, failureQuery, "")
 
-	info, err := fixture.Adapter.IndexInfo(integration.WithTestOperation(t, t.Context()), fixture.Index)
+	info, err := fixture.Adapter.IndexInfo(
+		integration.WithTestOperation(t, t.Context()),
+		fixture.Index,
+	)
 	if err != nil {
 		t.Fatalf("read serving index mapping metadata: %v", err)
 	}
-	putMappingMeta(t, fixture, failureMappingMeta{MappingVersion: info.MappingVersion, ModelID: info.ModelID, TokenizerSHA256: foreignTokenizerDigest})
+
+	putMappingMeta(
+		t,
+		fixture,
+		failureMappingMeta{
+			MappingVersion:  info.MappingVersion,
+			ModelID:         info.ModelID,
+			TokenizerSHA256: foreignTokenizerDigest,
+		},
+	)
 	requireSearchError(t, fixture.Harness, "", unexpectedErrorText)
 }
 
@@ -80,7 +110,12 @@ func requireSearchError(t *testing.T, harness *integration.MCPHarness, cursor, w
 	t.Helper()
 	page, err := integration.TrySearch(harness, failureQuery, cursor)
 	if err == nil || !strings.Contains(err.Error(), want) {
-		t.Fatalf("tack_search returned %d results and error %v, want an error result containing %q", len(page.IDs), err, want)
+		t.Fatalf(
+			"tack_search returned %d results and error %v, want an error result containing %q",
+			len(page.IDs),
+			err,
+			want,
+		)
 	}
 }
 
@@ -91,9 +126,17 @@ func deletePointInTime(t *testing.T, fixture integration.QueryFixture, pitID str
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = fixture.Client.PointInTime.Delete(integration.WithTestOperation(t, t.Context()), &opensearchapi.DeletePITReq{
-		Body: &opensearchapi.DeletePITBody{PITID: []opensearchapi.PITID{id}}, Header: nil, Params: &opensearchapi.DeletePITParams{},
-	})
+
+	_, err = fixture.Client.PointInTime.Delete(
+		integration.WithTestOperation(t, t.Context()),
+		&opensearchapi.DeletePITReq{
+			Body: &opensearchapi.DeletePITBody{
+				PITID: []opensearchapi.PITID{id},
+			},
+			Header: nil,
+			Params: &opensearchapi.DeletePITParams{},
+		},
+	)
 	if err != nil {
 		t.Fatalf("delete point in time of the open session: %v", err)
 	}
@@ -106,9 +149,18 @@ func putMappingMeta(t *testing.T, fixture integration.QueryFixture, meta failure
 	if err != nil {
 		t.Fatalf("encode mapping metadata: %v", err)
 	}
-	_, err = fixture.Client.Indices.PutMapping(integration.WithTestOperation(t, t.Context()), &opensearchapi.IndicesPutMappingReq{
-		Indices: []string{fixture.Index}, BodyReader: strings.NewReader(string(body)), Header: nil, Params: &opensearchapi.IndicesPutMappingParams{},
-	})
+
+	_, err = fixture.Client.Indices.PutMapping(
+		integration.WithTestOperation(t, t.Context()),
+		&opensearchapi.IndicesPutMappingReq{
+			Indices: []string{
+				fixture.Index,
+			},
+			BodyReader: strings.NewReader(string(body)),
+			Header:     nil,
+			Params:     &opensearchapi.IndicesPutMappingParams{},
+		},
+	)
 	if err != nil {
 		t.Fatalf("replace mapping metadata of %s: %v", fixture.Index, err)
 	}

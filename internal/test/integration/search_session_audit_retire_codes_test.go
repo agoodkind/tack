@@ -41,37 +41,48 @@ func TestSearchSessionAuditRetireCodesSurviveEitherOrder(t *testing.T) {
 		{index: "node-pages-recorder-first", firstWriteFirst: false},
 	}
 	for _, current := range cases {
-		t.Run(current.index, func(t *testing.T) {
-			stores := sessionStoreStores(t)
-			stack := startRuntimeAuditStack(t)
-			rebuilds := stores.SearchRebuilds(clock.Wall{}).WithFailureRecorder(stack.recorder)
-			container := testenv.FoundationDBContainer(testenv.FoundationDB(t))
-			beginRetiringRebuild(t, stores, current.index)
-			session := retiringSession(t, stores, current.index)
-			var written audit.Event
-			hooks := installRetireLogHooks(t, session.ID.String(), map[string]func(){
-				retireCleanupFailedMessage: func() {
-					written = attemptFailureEvent(t)
-					setContainerPaused(t, container, true)
-				},
-				retireCodesFailedMessage: func() {
-					setContainerPaused(t, container, false)
-					if current.firstWriteFirst {
-						stack.record(t, written)
-						stack.waitForRow(t, written.EventID)
-					}
-				},
-			})
+		t.Run(
+			current.index,
+			func(t *testing.T) {
+				stores := sessionStoreStores(t)
+				stack := startRuntimeAuditStack(t)
+				rebuilds := stores.SearchRebuilds(clock.Wall{}).WithFailureRecorder(stack.recorder)
+				container := testenv.FoundationDBContainer(testenv.FoundationDB(t))
+				beginRetiringRebuild(t, stores, current.index)
+				session := retiringSession(t, stores, current.index)
+				var written audit.Event
+				hooks := installRetireLogHooks(
+					t,
+					session.ID.String(),
+					map[string]func(){
+						retireCleanupFailedMessage: func() {
+							written = attemptFailureEvent(t)
+							setContainerPaused(t, container, true)
+						},
+						retireCodesFailedMessage: func() {
+							setContainerPaused(t, container, false)
+							if current.firstWriteFirst {
+								stack.record(t, written)
+								stack.waitForRow(t, written.EventID)
+							}
+						},
+					},
+				)
 
-			_, err := rebuilds.RetireIndexSessions(withFutureOperation(t, t.Context()), current.index, retireSliceLimit)
-			hooks.requireFinished(t)
-			requireRecordedFailureCauses(t, current.index, err)
-			if !current.firstWriteFirst {
-				waitForAttemptRows(t, stack, written, 1)
-				stack.record(t, written)
-			}
-			requireAttemptRows(t, waitForAttemptRows(t, stack, written, 2), written)
-		})
+				_, err := rebuilds.RetireIndexSessions(
+					withFutureOperation(t, t.Context()),
+					current.index,
+					retireSliceLimit,
+				)
+				hooks.requireFinished(t)
+				requireRecordedFailureCauses(t, current.index, err)
+				if !current.firstWriteFirst {
+					waitForAttemptRows(t, stack, written, 1)
+					stack.record(t, written)
+				}
+				requireAttemptRows(t, waitForAttemptRows(t, stack, written, 2), written)
+			},
+		)
 	}
 }
 
@@ -80,9 +91,18 @@ func TestSearchSessionAuditRetireCodesSurviveEitherOrder(t *testing.T) {
 func requireRecordedFailureCauses(t *testing.T, index string, err error) {
 	t.Helper()
 	if err == nil || errors.Is(err, audit.ErrEventNotRecorded) {
-		t.Fatalf("RetireIndexSessions of %s with a recorded failure = %v, want an error without %v", index, err, audit.ErrEventNotRecorded)
+		t.Fatalf(
+			"RetireIndexSessions of %s with a recorded failure = %v, want an error without %v",
+			index,
+			err,
+			audit.ErrEventNotRecorded,
+		)
 	}
-	for _, want := range []string{changeEventFailure, cleanupRecordingFailure, transactionTimedOutText} {
+	for _, want := range []string{
+		changeEventFailure,
+		cleanupRecordingFailure,
+		transactionTimedOutText,
+	} {
 		if !strings.Contains(err.Error(), want) {
 			t.Fatalf("RetireIndexSessions of %s error = %v, want text %q", index, err, want)
 		}
@@ -104,15 +124,30 @@ func attemptFailureEvent(t *testing.T) audit.Event {
 
 // waitForAttemptRows waits until audit.events has count rows under the
 // operation of event for its action, actor, and entity.
-func waitForAttemptRows(t *testing.T, stack runtimeAuditStack, event audit.Event, count int) []audit.Row {
+func waitForAttemptRows(
+	t *testing.T,
+	stack runtimeAuditStack,
+	event audit.Event,
+	count int,
+) []audit.Row {
 	t.Helper()
 	deadline := clock.Now().Add(runtimeAuditDeadline)
 	found := 0
 	for clock.Now().Before(deadline) {
-		rows, err := stack.reader.Query(t.Context(), audit.QueryFilter{
-			OrgID: event.Context.OrgID, Oldest: event.Context.StartedAt.Add(-retireRowWindow), Latest: event.Context.StartedAt.Add(retireRowWindow),
-			Action: event.Verb, ActorID: event.Actor.ID, EntityID: event.Entity.ID, RequestID: "", TraceID: "", Limit: retireRowLimit,
-		})
+		rows, err := stack.reader.Query(
+			t.Context(),
+			audit.QueryFilter{
+				OrgID:     event.Context.OrgID,
+				Oldest:    event.Context.StartedAt.Add(-retireRowWindow),
+				Latest:    event.Context.StartedAt.Add(retireRowWindow),
+				Action:    event.Verb,
+				ActorID:   event.Actor.ID,
+				EntityID:  event.Entity.ID,
+				RequestID: "",
+				TraceID:   "",
+				Limit:     retireRowLimit,
+			},
+		)
 		if err != nil {
 			t.Fatalf("query the rows of attempt event %s: %v", event.EventID, err)
 		}
@@ -131,7 +166,13 @@ func waitForAttemptRows(t *testing.T, stack runtimeAuditStack, event audit.Event
 		}
 		time.Sleep(retireRowPoll)
 	}
-	t.Fatalf("attempt event %s has %d rows after %s, want %d", event.EventID, found, runtimeAuditDeadline, count)
+	t.Fatalf(
+		"attempt event %s has %d rows after %s, want %d",
+		event.EventID,
+		found,
+		runtimeAuditDeadline,
+		count,
+	)
 	return nil
 }
 
@@ -140,7 +181,14 @@ func requireAttemptRows(t *testing.T, rows []audit.Row, event audit.Event) {
 	withCodes := 0
 	for _, row := range rows {
 		if row.ActorID != event.Actor.ID || !row.Context.StartedAt.Equal(event.Context.StartedAt) {
-			t.Fatalf("row %s has actor %s and start %s, want %s and %s", row.EventID, row.ActorID, row.Context.StartedAt, event.Actor.ID, event.Context.StartedAt)
+			t.Fatalf(
+				"row %s has actor %s and start %s, want %s and %s",
+				row.EventID,
+				row.ActorID,
+				row.Context.StartedAt,
+				event.Actor.ID,
+				event.Context.StartedAt,
+			)
 		}
 		if row.EventID == event.EventID {
 			var evidence retireFailureEvidence
@@ -149,8 +197,15 @@ func requireAttemptRows(t *testing.T, rows []audit.Row, event audit.Event) {
 					t.Fatalf("decode the evidence of row %s: %v", row.EventID, err)
 				}
 			}
-			if row.Outcome != audit.OutcomeFailed || evidence.Cleanup != "" || evidence.Recording != "" {
-				t.Fatalf("row %s has outcome %s and evidence %s, want %s and zero failure codes", row.EventID, row.Outcome, row.Extra, audit.OutcomeFailed)
+			if row.Outcome != audit.OutcomeFailed || evidence.Cleanup != "" ||
+				evidence.Recording != "" {
+				t.Fatalf(
+					"row %s has outcome %s and evidence %s, want %s and zero failure codes",
+					row.EventID,
+					row.Outcome,
+					row.Extra,
+					audit.OutcomeFailed,
+				)
 			}
 			continue
 		}
@@ -158,7 +213,11 @@ func requireAttemptRows(t *testing.T, rows []audit.Row, event audit.Event) {
 		withCodes++
 	}
 	if withCodes != 1 {
-		t.Fatalf("attempt event %s has %d rows with failure codes, want 1", event.EventID, withCodes)
+		t.Fatalf(
+			"attempt event %s has %d rows with failure codes, want 1",
+			event.EventID,
+			withCodes,
+		)
 	}
 }
 
@@ -170,9 +229,17 @@ func requireFailedRowCodes(t *testing.T, row audit.Row, recordingCode string) {
 	if err := json.Unmarshal(row.Extra, &evidence); err != nil {
 		t.Fatalf("decode the evidence of row %s: %v", row.EventID, err)
 	}
-	if row.Outcome != audit.OutcomeFailed || evidence.Cleanup != unclassifiedFailureCode || evidence.Recording != recordingCode {
-		t.Fatalf("row %s has outcome %s and evidence %s, want %s with cleanup code %q and recording code %q",
-			row.EventID, row.Outcome, row.Extra, audit.OutcomeFailed, unclassifiedFailureCode, recordingCode)
+	if row.Outcome != audit.OutcomeFailed || evidence.Cleanup != unclassifiedFailureCode ||
+		evidence.Recording != recordingCode {
+		t.Fatalf(
+			"row %s has outcome %s and evidence %s, want %s with cleanup code %q and recording code %q",
+			row.EventID,
+			row.Outcome,
+			row.Extra,
+			audit.OutcomeFailed,
+			unclassifiedFailureCode,
+			recordingCode,
+		)
 	}
 	encoded, err := json.Marshal(row)
 	if err != nil {

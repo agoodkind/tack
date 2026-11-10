@@ -37,7 +37,13 @@ const changedWatchNote = "Changed after the export"
 func TestNodeIntegrityRepairExecuteDeleteStopsChangedRelationship(t *testing.T) {
 	env := integration.SetupTestEnv(t)
 	graph := newRepairGraph(t, env)
-	entry := deleteFixtureEntry(t, env, graph, "tack-582-delete-relationship", filepath.Join(repairDirectory(t), "relationship.json"))
+	entry := deleteFixtureEntry(
+		t,
+		env,
+		graph,
+		"tack-582-delete-relationship",
+		filepath.Join(repairDirectory(t), "relationship.json"),
+	)
 	watchedID := createRepairIssue(t, env, graph.projectID, "Watched issue")
 	writeWatchesEdge(t, env, entry.NodeID, watchedID, map[string]json.RawMessage{})
 	manifest := freezeRepairRequest(t, repairRequest(entry))
@@ -47,32 +53,69 @@ func TestNodeIntegrityRepairExecuteDeleteStopsChangedRelationship(t *testing.T) 
 	if err != nil || before == nil {
 		t.Fatalf("read checkpoint %s = %+v, %v", entry.RepairID, before, err)
 	}
-	writeWatchesEdge(t, env, entry.NodeID, watchedID, map[string]json.RawMessage{"note": textValue(changedWatchNote)})
+
+	writeWatchesEdge(
+		t,
+		env,
+		entry.NodeID,
+		watchedID,
+		map[string]json.RawMessage{"note": textValue(changedWatchNote)},
+	)
 
 	applied, err := executeRepairManifest(t, manifest)
 	if err != nil {
 		t.Fatalf("execute after the relationship changed: %v", err)
 	}
+
 	outcome := requireApplyStatus(t, applied, entry.RepairID, ops.RepairApplyConflicted)
 	if !strings.Contains(outcome.Reason, "differs from the export") {
 		t.Fatalf("conflict reason = %q, want the exported edge check", outcome.Reason)
 	}
+
 	requireRepairNodePresent(t, env, entry.NodeID)
 	after, err := env.Stores.Repairs().RepairCheckpoint(env.Ctx, entry.RepairID)
 	if err != nil || after == nil || *after != *before {
-		t.Fatalf("checkpoint %s = %+v, %v, want the unchanged exported checkpoint %+v", entry.RepairID, after, err, before)
+		t.Fatalf(
+			"checkpoint %s = %+v, %v, want the unchanged exported checkpoint %+v",
+			entry.RepairID,
+			after,
+			err,
+			before,
+		)
 	}
-	edges, err := env.Stores.Relationships.ListBySource(env.Ctx, env.OrgID, entry.NodeID, node.RelWatches)
+
+	edges, err := env.Stores.Relationships.ListBySource(
+		env.Ctx,
+		env.OrgID,
+		entry.NodeID,
+		node.RelWatches,
+	)
 	if err != nil || len(edges) != 1 || propText(t, edges[0].Props, "note") != changedWatchNote {
-		t.Fatalf("watches edges of %s = %+v, %v, want the changed relationship", entry.NodeID, edges, err)
+		t.Fatalf(
+			"watches edges of %s = %+v, %v, want the changed relationship",
+			entry.NodeID,
+			edges,
+			err,
+		)
 	}
 }
 
-func writeWatchesEdge(t *testing.T, env *integration.TestEnv, sourceID, targetID uuid.UUID, props map[string]json.RawMessage) {
+func writeWatchesEdge(
+	t *testing.T,
+	env *integration.TestEnv,
+	sourceID uuid.UUID,
+	targetID uuid.UUID,
+	props map[string]json.RawMessage,
+) {
 	t.Helper()
 	relationship := &node.Relationship{
-		OrgID: env.OrgID, SourceID: sourceID, RelationType: node.RelWatches, TargetID: targetID,
-		CreatedBy: uuid.New(), CreatedAt: time.Now().UTC(), Props: props,
+		OrgID:        env.OrgID,
+		SourceID:     sourceID,
+		RelationType: node.RelWatches,
+		TargetID:     targetID,
+		CreatedBy:    uuid.New(),
+		CreatedAt:    time.Now().UTC(),
+		Props:        props,
 	}
 	if err := env.Stores.Relationships.Add(env.Ctx, relationship); err != nil {
 		t.Fatalf("write the watches edge of %s: %v", sourceID, err)
@@ -84,29 +127,47 @@ func writeWatchesEdge(t *testing.T, env *integration.TestEnv, sourceID, targetID
 // RepairStore.RepairExport and writes the export document to the entry's
 // export path. It records the exported checkpoint with the file's SHA-256
 // digest through RepairStore.AdvanceRepairCheckpoint.
-func recordStoppedExport(t *testing.T, env *integration.TestEnv, manifest ops.NodeIntegrityManifest, entry ops.NodeIntegrityEntry) {
+func recordStoppedExport(
+	t *testing.T,
+	env *integration.TestEnv,
+	manifest ops.NodeIntegrityManifest,
+	entry ops.NodeIntegrityEntry,
+) {
 	t.Helper()
 	repairs := env.Stores.Repairs()
 	record, err := repairs.RepairExport(env.Ctx, entry.NodeID)
 	if err != nil || !record.Found {
 		t.Fatalf("read the export record of %s = %+v, %v", entry.NodeID, record, err)
 	}
+
 	document := stoppedExportDocument{
-		RepairID: entry.RepairID, ManifestDigest: manifest.Digest, NodeID: entry.NodeID,
-		PrimaryDigest: entry.Source.PrimaryDigest, Primary: record.Primary, Relationships: record.Relationships,
+		RepairID:       entry.RepairID,
+		ManifestDigest: manifest.Digest,
+		NodeID:         entry.NodeID,
+		PrimaryDigest:  entry.Source.PrimaryDigest,
+		Primary:        record.Primary,
+		Relationships:  record.Relationships,
 	}
 	encoded, err := json.MarshalIndent(document, "", "  ")
 	if err != nil {
 		t.Fatalf("encode the export of %s: %v", entry.NodeID, err)
 	}
+
 	if err := os.WriteFile(entry.Delete.ExportFile, encoded, 0o600); err != nil {
 		t.Fatalf("write the export of %s: %v", entry.NodeID, err)
 	}
+
 	sum := sha256.Sum256(encoded)
 	checkpoint := node.RepairCheckpoint{
-		RepairID: entry.RepairID, ManifestDigest: manifest.Digest, NodeID: entry.NodeID, SourceDigest: entry.Source.PrimaryDigest,
-		Phase: node.RepairPhaseExported, ExportPath: entry.Delete.ExportFile, ExportDigest: hex.EncodeToString(sum[:]),
-		ActorID: uuid.MustParse(repairOperatorID), UpdatedAt: time.Now().UTC(),
+		RepairID:       entry.RepairID,
+		ManifestDigest: manifest.Digest,
+		NodeID:         entry.NodeID,
+		SourceDigest:   entry.Source.PrimaryDigest,
+		Phase:          node.RepairPhaseExported,
+		ExportPath:     entry.Delete.ExportFile,
+		ExportDigest:   hex.EncodeToString(sum[:]),
+		ActorID:        uuid.MustParse(repairOperatorID),
+		UpdatedAt:      time.Now().UTC(),
 	}
 	if err := repairs.AdvanceRepairCheckpoint(env.Ctx, "", checkpoint); err != nil {
 		t.Fatalf("record the exported checkpoint of %s: %v", entry.RepairID, err)

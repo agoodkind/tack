@@ -31,18 +31,25 @@ func TestFallbackSeedStopsBeforeCallsWhenContextCanceled(t *testing.T) {
 			cancel()
 		}
 		writer.Header().Set("Content-Type", "application/json")
-		_, _ = writer.Write([]byte(
-			`{"jsonrpc":"2.0","id":"1","result":{"content":[` +
-				`{"type":"text","text":"ok"}]}}`,
-		))
+		_, _ = writer.Write(
+			[]byte(
+				`{"jsonrpc":"2.0","id":"1","result":{"content":[` +
+					`{"type":"text","text":"ok"}]}}`,
+			),
+		)
 	})
 	driver := NewDriver(testGraph(handler), false, 245)
 	session := &runSession{
 		driver:  driver,
 		content: content,
-		identities: Identities{Workspaces: []WorkspaceIdentity{{
-			Slug: "workspace", Actors: []Actor{{Token: "token"}},
-		}}},
+		identities: Identities{
+			Workspaces: []WorkspaceIdentity{
+				{
+					Slug:   "workspace",
+					Actors: []Actor{{Token: "token"}},
+				},
+			},
+		},
 		scale: scale,
 		seed:  245,
 		seedCorpusStarted: func() {
@@ -110,10 +117,12 @@ func TestSoakSignalWaitsForInflightCall(t *testing.T) {
 			return
 		}
 		writer.Header().Set("Content-Type", "application/json")
-		_, _ = writer.Write([]byte(
-			`{"jsonrpc":"2.0","id":"1","result":{"content":[` +
-				`{"type":"text","text":"ok"}]}}`,
-		))
+		_, _ = writer.Write(
+			[]byte(
+				`{"jsonrpc":"2.0","id":"1","result":{"content":[` +
+					`{"type":"text","text":"ok"}]}}`,
+			),
+		)
 	})
 	content, err := NewContent(t.Context(), 245)
 	if err != nil {
@@ -122,11 +131,13 @@ func TestSoakSignalWaitsForInflightCall(t *testing.T) {
 	soak := &Soak{
 		driver:  NewDriver(testGraph(handler), false, 245),
 		content: content,
-		projects: []*soakProject{{
-			Workspace: WorkspaceIdentity{Actors: []Actor{{Token: "token"}}},
-			States:    []soakNode{{RawID: "state", Group: stateGroupCompleted}},
-			Issues:    []*soakIssue{{soakNode: soakNode{RawID: "issue"}}},
-		}},
+		projects: []*soakProject{
+			{
+				Workspace: WorkspaceIdentity{Actors: []Actor{{Token: "token"}}},
+				States:    []soakNode{{RawID: "state", Group: stateGroupCompleted}},
+				Issues:    []*soakIssue{{soakNode: soakNode{RawID: "issue"}}},
+			},
+		},
 		options: SoakOptions{Rate: 1_000_000},
 		clock:   clock.Wall{},
 	}

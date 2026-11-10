@@ -40,7 +40,12 @@ func RunTests(m *testing.M) int {
 
 	build := exec.CommandContext(
 		context.Background(),
-		"go", "build", "-buildvcs=false", "-o", commandPath, commandPackage,
+		"go",
+		"build",
+		"-buildvcs=false",
+		"-o",
+		commandPath,
+		commandPackage,
 	)
 	build.Stdout = os.Stdout
 	build.Stderr = os.Stderr

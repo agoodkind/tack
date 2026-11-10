@@ -19,7 +19,10 @@ func (s *Stores) SearchSessions(source clock.Clock, idleTimeout time.Duration) *
 
 // SearchRollouts constructs the access policy rollout store on the shared
 // connection with the injected clock.
-func (s *Stores) SearchRollouts(source clock.Clock, policies *searchaccess.PolicySet) *SearchAccessRolloutStore {
+func (s *Stores) SearchRollouts(
+	source clock.Clock,
+	policies *searchaccess.PolicySet,
+) *SearchAccessRolloutStore {
 	return NewSearchAccessRolloutStore(s.db, NewSearchWorkStore(s.db, source), policies)
 }
 
@@ -27,7 +30,11 @@ func (s *Stores) SearchRollouts(source clock.Clock, policies *searchaccess.Polic
 // connection with the injected clock. Its session store deletes expired
 // sessions and renews no idle deadline.
 func (s *Stores) SearchRebuilds(source clock.Clock) *SearchRebuildStore {
-	return NewSearchRebuildStore(s.db, NewSearchWorkStore(s.db, source), NewSearchSessionStore(s.db, source, 0))
+	return NewSearchRebuildStore(
+		s.db,
+		NewSearchWorkStore(s.db, source),
+		NewSearchSessionStore(s.db, source, 0),
+	)
 }
 
 // SearchRestoreEpoch reads the restore epoch that a restored index
@@ -35,17 +42,27 @@ func (s *Stores) SearchRebuilds(source clock.Clock) *SearchRebuildStore {
 func (s *Stores) SearchRestoreEpoch(ctx context.Context) (epoch int64, err error) {
 	defer telemetry.FDBOp(ctx, "store.search_restore_epoch.read")(&err)
 	var encoded []byte
-	err = transactSession(ctx, s.db, s.Nodes.clock, "read search restore epoch", uuid.Nil, func(tr fdb.Transaction) error {
-		value, readErr := tr.Get(fdb.Key(searchRestoreEpochKey())).Get()
-		if readErr != nil {
-			return sessionStepError{operation: "read search restore epoch", err: readErr}
-		}
-		encoded = value
-		return nil
-	})
+	err = transactSession(
+		ctx,
+		s.db,
+		s.Nodes.clock,
+		"read search restore epoch",
+		uuid.Nil,
+		func(tr fdb.Transaction) error {
+			value, readErr := tr.Get(fdb.Key(searchRestoreEpochKey())).Get()
+			if readErr != nil {
+				return sessionStepError{operation: "read search restore epoch", err: readErr}
+			}
+
+			encoded = value
+
+			return nil
+		},
+	)
 	if err != nil || len(encoded) == 0 {
 		return 0, err
 	}
+
 	return unpackCounter(ctx, encoded)
 }
 
@@ -59,19 +76,30 @@ func (s *Stores) NodeSummaries(policies *searchaccess.PolicySet) *NodeSummarySto
 // is recorded.
 func (s *Stores) ServingSearchIndex(ctx context.Context) (index string, err error) {
 	defer telemetry.FDBOp(ctx, "store.search_index.read")(&err)
-	err = transactSession(ctx, s.db, s.Nodes.clock, "read serving search index", uuid.Nil, func(tr fdb.Transaction) error {
-		value, readErr := tr.Get(fdb.Key(searchIndexKey())).Get()
-		if readErr != nil {
-			return sessionStepError{operation: "read serving search index", err: readErr}
-		}
-		index = string(value)
-		return nil
-	})
+	err = transactSession(
+		ctx,
+		s.db,
+		s.Nodes.clock,
+		"read serving search index",
+		uuid.Nil,
+		func(tr fdb.Transaction) error {
+			value, readErr := tr.Get(fdb.Key(searchIndexKey())).Get()
+			if readErr != nil {
+				return sessionStepError{operation: "read serving search index", err: readErr}
+			}
+
+			index = string(value)
+
+			return nil
+		},
+	)
 	if err != nil {
 		return "", err
 	}
+
 	if index == "" {
 		return "", searchdomain.ErrNoServingIndex
 	}
+
 	return index, nil
 }

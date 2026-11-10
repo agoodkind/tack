@@ -20,67 +20,100 @@ type retentionFDBAction struct {
 	ExpireBeforeVersion int64                 `json:"expire_before_version,omitempty"`
 }
 
-func planRetentionFDB(ctx context.Context, cfg *config.Config, cutoff time.Time) ([]retentionFDBAction, error) {
+func planRetentionFDB(
+	ctx context.Context,
+	cfg *config.Config,
+	cutoff time.Time,
+) ([]retentionFDBAction, error) {
 	if _, err := fdbRestoreTimestampArg(cutoff.UTC()); err != nil {
 		return nil, err
 	}
-	markers, err := listImmediateObjects(ctx, newBackupS3Client(cfg), cfg.BackupS3BucketMain, fdbBackupMarkerPrefix)
+
+	markers, err := listImmediateObjects(
+		ctx,
+		newBackupS3Client(cfg),
+		cfg.BackupS3BucketMain,
+		fdbBackupMarkerPrefix,
+	)
 	if err != nil {
 		return nil, err
 	}
+
 	if len(markers) == 0 {
 		return nil, nil
 	}
+
 	cutoffVersion, err := retentionFDBCutoffVersion(ctx, cfg, cutoff)
 	if err != nil {
 		return nil, err
 	}
+
 	activeName, err := readRetentionFDBActiveName(ctx, cfg)
 	if err != nil {
 		return nil, err
 	}
-	windows := make(map[string]fdbRestorableVersions, len(markers))
-	for _, name := range fdbBackupNames(markers) {
-		if _, err := time.Parse("20060102T150405Z", name); err != nil {
-			return nil, fmt.Errorf("FoundationDB backup marker %q is not a timestamp run identifier", name)
-		}
-		window, err := retentionFDBWindow(ctx, cfg, name)
-		if err != nil {
-			return nil, err
-		}
-		windows[name] = window
+
+	windows, err := retentionFDBWindows(ctx, cfg, markers, activeName)
+	if err != nil {
+		return nil, err
 	}
-	if activeName != "" {
-		if _, exists := windows[activeName]; !exists {
-			return nil, fmt.Errorf("active FoundationDB backup %q does not have a discovered marker", activeName)
-		}
-	}
+
 	actions := make([]retentionFDBAction, 0, len(markers))
 	for _, name := range fdbBackupNames(markers) {
 		window := windows[name]
 		if window.MinVersion >= cutoffVersion {
 			continue
 		}
+
 		if window.MaxVersion >= cutoffVersion {
 			version, err := retentionFDBExpireVersion(ctx, cfg, name, cutoff)
 			if err != nil {
 				return nil, err
 			}
-			actions = append(actions, retentionFDBAction{Name: name, Action: retentionFDBExpire, Window: window, ExpireBeforeVersion: version})
+
+			actions = append(
+				actions,
+				retentionFDBAction{
+					Name:                name,
+					Action:              retentionFDBExpire,
+					Window:              window,
+					ExpireBeforeVersion: version,
+				},
+			)
 			continue
 		}
+
 		if name == activeName {
-			return nil, fmt.Errorf("active FoundationDB backup %s does not establish restorability at cutoff %s", name, formatFDBTime(cutoff))
+			return nil, fmt.Errorf(
+				"active FoundationDB backup %s does not establish restorability at cutoff %s",
+				name,
+				formatFDBTime(cutoff),
+			)
 		}
+
 		survives, err := retentionFDBHasSurvivor(ctx, cfg, name, cutoff, cutoffVersion, windows)
 		if err != nil {
 			return nil, err
 		}
+
 		if !survives {
-			return nil, fmt.Errorf("expired FoundationDB backup %s does not have a verified newer retained survivor", name)
+			return nil, fmt.Errorf(
+				"expired FoundationDB backup %s does not have a verified newer retained survivor",
+				name,
+			)
 		}
-		actions = append(actions, retentionFDBAction{Name: name, Action: retentionFDBDelete, Window: window, ExpireBeforeVersion: 0})
+
+		actions = append(
+			actions,
+			retentionFDBAction{
+				Name:                name,
+				Action:              retentionFDBDelete,
+				Window:              window,
+				ExpireBeforeVersion: 0,
+			},
+		)
 	}
+
 	return actions, nil
 }
 
@@ -96,18 +129,23 @@ func retentionFDBHasSurvivor(
 	windows map[string]fdbRestorableVersions,
 ) (bool, error) {
 	for otherName, otherWindow := range windows {
-		if otherName <= name || otherWindow.MinVersion > cutoffVersion || otherWindow.MaxVersion < cutoffVersion {
+		if otherName <= name || otherWindow.MinVersion > cutoffVersion ||
+			otherWindow.MaxVersion < cutoffVersion {
 			continue
 		}
+
 		destination, err := fdbBlobstoreURL(cfg, otherName)
 		if err != nil {
 			return false, err
 		}
+
 		if _, err := retentionFDBRetainedVersion(ctx, cfg, destination, cutoff); err != nil {
 			return false, err
 		}
+
 		return true, nil
 	}
+
 	return false, nil
 }
 
@@ -123,49 +161,107 @@ func readRetentionFDBActiveName(ctx context.Context, cfg *config.Config) (string
 	if err != nil {
 		return "", err
 	}
+
 	active, err := fdbBackupActiveFromStatus(cfg, status)
 	if err != nil {
 		wrapped := fmt.Errorf("identify active FoundationDB backup: %w", err)
-		telemetry.L(ctx).ErrorContext(ctx, "backup.retention.fdb.identity_failed", slog.String("err", wrapped.Error()))
+		telemetry.L(ctx).ErrorContext(
+			ctx,
+			"backup.retention.fdb.identity_failed",
+			slog.String("err", wrapped.Error()),
+		)
+
 		return "", wrapped
 	}
+
 	if !active {
 		lower := strings.ToLower(status)
-		closed := slices.ContainsFunc(fdbClosedBackupStatuses, func(phrase string) bool { return strings.Contains(lower, phrase) })
+		closed := slices.ContainsFunc(
+			fdbClosedBackupStatuses,
+			func(phrase string) bool { return strings.Contains(lower, phrase) },
+		)
 		if !closed {
-			return "", fmt.Errorf("FoundationDB status does not establish an active or closed backup identity")
+			return "", fmt.Errorf(
+				"FoundationDB status does not establish an active or closed backup identity",
+			)
 		}
+
 		return "", nil
 	}
+
 	backupURL, _ := fdbBackupURLFromStatus(status)
 	parsed, err := url.Parse(backupURL)
 	if err != nil {
 		return "", fmt.Errorf("parse active FoundationDB backup identity")
 	}
+
 	name := strings.TrimPrefix(parsed.Path, "/")
 	if _, err := time.Parse("20060102T150405Z", name); err != nil {
 		return "", fmt.Errorf("active FoundationDB backup does not identify a timestamp run")
 	}
+
 	return name, nil
 }
 
 // retentionFDBWindow reads the restorable versions of backup name. It runs
 // describe without --version-timestamps, because that flag fails on a backup
 // with hundreds of snapshots (TACK-609).
-func retentionFDBWindow(ctx context.Context, cfg *config.Config, name string) (fdbRestorableVersions, error) {
+func retentionFDBWindow(
+	ctx context.Context,
+	cfg *config.Config,
+	name string,
+) (fdbRestorableVersions, error) {
 	destination, err := fdbBlobstoreURL(cfg, name)
 	if err != nil {
 		return fdbRestorableVersions{}, err
 	}
+
 	output, err := retentionFDBCommand(ctx, cfg, retentionFDBDescribe, "-d", destination)
 	if err != nil {
 		return fdbRestorableVersions{}, err
 	}
+
 	window, err := fdbRestorableVersionsFromDescribe(output)
 	if err != nil {
 		wrapped := fmt.Errorf("read FoundationDB backup %s window: %w", name, err)
-		telemetry.L(ctx).ErrorContext(ctx, "backup.retention.fdb.window_failed", slog.String("name", name), slog.String("err", wrapped.Error()))
+		telemetry.L(ctx).ErrorContext(
+			ctx,
+			"backup.retention.fdb.window_failed",
+			slog.String("name", name),
+			slog.String("err", wrapped.Error()),
+		)
+
 		return fdbRestorableVersions{}, wrapped
 	}
+
 	return window, nil
+}
+
+func retentionFDBWindows(
+	ctx context.Context,
+	cfg *config.Config,
+	markers []string,
+	activeName string,
+) (map[string]fdbRestorableVersions, error) {
+	windows := make(map[string]fdbRestorableVersions, len(markers))
+	for _, name := range fdbBackupNames(markers) {
+		if _, err := time.Parse("20060102T150405Z", name); err != nil {
+			return nil, &fdbBackupMarkerError{marker: name}
+		}
+
+		window, err := retentionFDBWindow(ctx, cfg, name)
+		if err != nil {
+			return nil, err
+		}
+
+		windows[name] = window
+	}
+
+	if activeName != "" {
+		if _, exists := windows[activeName]; !exists {
+			return nil, &fdbActiveBackupMarkerError{name: activeName}
+		}
+	}
+
+	return windows, nil
 }

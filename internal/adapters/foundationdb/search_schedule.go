@@ -46,7 +46,10 @@ const (
 )
 
 var searchNodeClasses = []searchdomain.WorkClass{
-	searchdomain.WorkClassLive, searchdomain.WorkClassAccess, searchdomain.WorkClassCleanup, searchdomain.WorkClassCopy,
+	searchdomain.WorkClassLive,
+	searchdomain.WorkClassAccess,
+	searchdomain.WorkClassCleanup,
+	searchdomain.WorkClassCopy,
 }
 
 // scheduleSearchChange records desired search work for one node inside the
@@ -58,40 +61,66 @@ var searchNodeClasses = []searchdomain.WorkClass{
 // becomes a repair, and a deletion clears the node's exclusion.
 // now is the enqueue time read from the caller's injected clock. It returns
 // the record of the new generation.
-func scheduleSearchChange(ctx context.Context, tr fdb.Transaction, now time.Time, orgID, nodeID uuid.UUID, change searchChange) (searchWorkRecord, error) {
+func scheduleSearchChange(
+	ctx context.Context,
+	tr fdb.Transaction,
+	now time.Time,
+	orgID uuid.UUID,
+	nodeID uuid.UUID,
+	change searchChange,
+) (searchWorkRecord, error) {
 	change, err := exclusionAdjustedChange(ctx, tr, orgID, nodeID, change)
 	if err != nil {
 		return searchWorkRecord{}, err
 	}
+
 	generation, err := incrementSearchCounter(ctx, tr, searchGenerationKey(orgID, nodeID))
 	if err != nil {
 		return searchWorkRecord{}, err
 	}
+
 	revision, err := readSearchCounter(ctx, tr, searchRevisionKey(orgID, nodeID))
 	if err != nil {
 		return searchWorkRecord{}, err
 	}
-	if change == searchChangeContent || change == searchChangeExclusion || change == searchChangeRepair {
+
+	if change == searchChangeContent || change == searchChangeExclusion ||
+		change == searchChangeRepair {
 		revision = generation
 		writeSearchCounter(tr, searchRevisionKey(orgID, nodeID), revision)
 	}
+
 	current := searchWorkRecord{
-		OrgID: orgID, NodeID: nodeID, Generation: generation, Revision: revision,
-		Deleted: change == searchChangeDeletion, EnqueuedAt: now.UTC(),
+		OrgID:      orgID,
+		NodeID:     nodeID,
+		Generation: generation,
+		Revision:   revision,
+		Deleted:    change == searchChangeDeletion,
+		EnqueuedAt: now.UTC(),
 	}
+
 	for _, class := range searchNodeClasses {
-		if err := applySearchRecordPlan(ctx, tr, class, searchRecordPlanFor(change, class), current); err != nil {
+		if err := applySearchRecordPlan(
+			ctx,
+			tr,
+			class,
+			searchRecordPlanFor(change, class),
+			current,
+		); err != nil {
 			return searchWorkRecord{}, err
 		}
 	}
+
 	if change == searchChangeAccess || change == searchChangeRepair {
 		if err := recordRolloutAffected(ctx, tr, orgID, nodeID); err != nil {
 			return searchWorkRecord{}, err
 		}
 	}
+
 	if change == searchChangeDeletion {
 		return current, nil
 	}
+
 	return current, initializeSearchAccess(ctx, tr, orgID, nodeID)
 }
 
@@ -151,29 +180,36 @@ func applySearchRecordPlan(
 	if err != nil {
 		return err
 	}
+
 	if plan == searchRecordRemove {
 		if found {
 			removeSearchWork(tr, class, existing)
 		}
+
 		tr.Clear(fdb.Key(searchClaimKey(string(class), bucket, current.OrgID, current.NodeID)))
 		tr.Clear(cursorKey)
 		clearPendingWrites(tr, class, current.OrgID, current.NodeID)
+
 		return nil
 	}
+
 	if !found && plan != searchRecordPut {
 		return nil
 	}
+
 	next := current
 	var previous *searchWorkRecord
 	if found {
 		previous = &existing
 	}
+
 	if plan == searchRecordRewrite {
 		next.Revision = existing.Revision
 		next.Deleted = existing.Deleted
 	} else {
 		tr.Clear(cursorKey)
 	}
+
 	return writeSearchWork(ctx, tr, class, next, previous)
 }
 
@@ -181,6 +217,7 @@ func earliestSearchTime(first, second time.Time) time.Time {
 	if first.IsZero() || second.Before(first) {
 		return second
 	}
+
 	return first
 }
 
@@ -192,5 +229,6 @@ func searchBucket(orgID, nodeID uuid.UUID) int {
 	copy(identity[:16], orgID[:])
 	copy(identity[16:], nodeID[:])
 	digest := sha256.Sum256(identity[:])
+
 	return int(digest[0])
 }

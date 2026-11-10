@@ -47,10 +47,15 @@ func TestIsolationRetainsFirstNetwork(t *testing.T) {
 	project := os.Getenv(projectVariable)
 	network := os.Getenv(networkVariable)
 	for _, item := range listed.Items {
-		if item.Labels["com.docker.compose.project"] != project || item.Labels["com.docker.compose.service"] != "testenv-engine" {
+		if item.Labels["com.docker.compose.project"] != project ||
+			item.Labels["com.docker.compose.service"] != "testenv-engine" {
 			continue
 		}
-		inspected, err := cli.ContainerInspect(t.Context(), item.ID, client.ContainerInspectOptions{Size: false})
+		inspected, err := cli.ContainerInspect(
+			t.Context(),
+			item.ID,
+			client.ContainerInspectOptions{Size: false},
+		)
 		if err != nil {
 			t.Fatalf("inspect test engine: %v", err)
 		}

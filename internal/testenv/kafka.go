@@ -33,6 +33,7 @@ var kafkaState provisioned
 func Kafka(t T) string {
 	t.Helper()
 	skipWhenShort(t)
+
 	return kafkaState.get(t, provisionKafka)
 }
 
@@ -45,37 +46,51 @@ func provisionKafka(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", err
 	}
+
 	defer func() { _ = cli.Close() }()
-	holder, err := startEngine(ctx, cli, engineSpec{
-		kind:       "kafka-address",
-		image:      kafkaImage,
-		platform:   nil,
-		entrypoint: []string{"sleep"},
-		cmd:        []string{kafkaHolderSeconds},
-		env:        nil,
-	})
+	holder, err := startEngine(
+		ctx,
+		cli,
+		engineSpec{
+			kind:       "kafka-address",
+			image:      kafkaImage,
+			platform:   nil,
+			entrypoint: []string{engineSleepCommand},
+			cmd:        []string{kafkaHolderSeconds},
+			env:        nil,
+		},
+	)
 	if err != nil {
 		return "", err
 	}
+
 	clusterID, err := kafkaClusterID(ctx)
 	if err != nil {
 		return "", err
 	}
+
 	bootstrap := net.JoinHostPort(holder.address, kafkaPort)
-	if _, err := startEngine(ctx, cli, engineSpec{
-		kind:      "kafka",
-		image:     kafkaImage,
-		platform:  nil,
-		cmd:       nil,
-		env:       kafkaEnvironment(bootstrap, clusterID),
-		networkOf: holder.name,
-	}); err != nil {
+	if _, err := startEngine(
+		ctx,
+		cli,
+		engineSpec{
+			kind:      "kafka",
+			image:     kafkaImage,
+			platform:  nil,
+			cmd:       nil,
+			env:       kafkaEnvironment(bootstrap, clusterID),
+			networkOf: holder.name,
+		},
+	); err != nil {
 		return "", err
 	}
+
 	if err := waitForKafka(ctx, bootstrap); err != nil {
 		return "", err
 	}
+
 	slog.InfoContext(ctx, "testenv.kafka.ready", slog.String("bootstrap", bootstrap))
+
 	return bootstrap, nil
 }
 
@@ -109,6 +124,7 @@ func kafkaClusterID(ctx context.Context) (string, error) {
 		slog.ErrorContext(ctx, "testenv.kafka.cluster_id_failed", slog.String("err", err.Error()))
 		return "", fmt.Errorf("generate the kafka cluster id: %w", err)
 	}
+
 	return base64.RawURLEncoding.EncodeToString(raw), nil
 }
 
@@ -120,15 +136,22 @@ func waitForKafka(ctx context.Context, bootstrap string) error {
 		return fmt.Errorf("open a kafka client for %s: %w", bootstrap, err)
 	}
 	defer client.Close()
+
 	for {
 		lastErr := client.Ping(ctx)
 		if lastErr == nil {
 			return nil
 		}
+
 		slog.DebugContext(ctx, "testenv.kafka.probe", slog.String("err", lastErr.Error()))
 		if !sleepOrDone(ctx) {
 			slog.ErrorContext(ctx, "testenv.kafka.not_ready", slog.String("err", lastErr.Error()))
-			return fmt.Errorf("the test kafka broker at %s answered no metadata request before the deadline: %w", bootstrap, lastErr)
+
+			return fmt.Errorf(
+				"the test kafka broker at %s answered no metadata request before the deadline: %w",
+				bootstrap,
+				lastErr,
+			)
 		}
 	}
 }

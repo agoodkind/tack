@@ -57,23 +57,41 @@ func newQueryFixture(t *testing.T, options queryOptions) queryFixture {
 	if err != nil {
 		t.Fatalf("provision search model: %v", err)
 	}
+
 	// The engine refuses to auto-create node-pages-* indexes, as production does.
 	index := "node-pages-" + uuid.Must(uuid.NewV7()).String()
 	deleteNativeIndex(t, client, index)
 	t.Cleanup(func() { deleteNativeIndex(t, client, index) })
-	spec := search.IndexSpec{Model: model, MappingVersion: search.MappingVersion, Primaries: options.Primaries, RoutingShards: 24, Replicas: 0}
+	spec := search.IndexSpec{
+		Model:          model,
+		MappingVersion: search.MappingVersion,
+		Primaries:      options.Primaries,
+		RoutingShards:  24,
+		Replicas:       0,
+	}
 	if err := adapter.EnsureIndex(WithTestOperation(t, t.Context()), index, spec); err != nil {
-		if readinessErr := testenv.CheckOpenSearchDiskReadiness(context.WithoutCancel(t.Context()), testenv.OpenSearch(t)); readinessErr != nil {
+		if readinessErr := testenv.CheckOpenSearchDiskReadiness(
+			context.WithoutCancel(t.Context()),
+			testenv.OpenSearch(t),
+		); readinessErr != nil {
 			t.Logf("create-index readiness: %v", readinessErr)
 		}
+
 		t.Fatalf("create search index: %v", err)
 	}
-	if err := adapter.SetAlias(WithTestOperation(t, t.Context()), search.PublicAlias, index); err != nil {
+
+	if err := adapter.SetAlias(
+		WithTestOperation(t, t.Context()),
+		search.PublicAlias,
+		index,
+	); err != nil {
 		t.Fatalf("set public alias: %v", err)
 	}
+
 	if err := stores.InitializeSearchIndex(WithTestOperation(t, t.Context()), index); err != nil {
 		t.Fatalf("record serving search index: %v", err)
 	}
+
 	configureSearchRuntime(t)
 	configureQueryEnvironment(t, options)
 	cfg := queryConfig(t)
@@ -82,25 +100,53 @@ func newQueryFixture(t *testing.T, options queryOptions) queryFixture {
 	if err != nil {
 		t.Fatalf("parse scale: %v", err)
 	}
+
 	seed := nextHarnessSeed()
-	identities, err := datagen.BootstrapIdentities(WithTestOperation(t, t.Context()), cfg, seed, scale)
+	identities, err := datagen.BootstrapIdentities(
+		WithTestOperation(t, t.Context()),
+		cfg,
+		seed,
+		scale,
+	)
 	if err != nil {
 		t.Fatalf("bootstrap identities: %v", err)
 	}
+
 	workspace := identities.Workspaces[0]
 	harness := &MCPHarness{
-		driver: datagen.NewDriver(graph, false, seed), handler: graph.MCPRoute,
-		token: workspace.Actors[0].Token, ledgerDSN: cfg.DatabaseURL, orgID: workspace.OrgID,
-		Workspace: workspace.Slug, Project: "", outbox: stores.OpsOutbox, titles: datagen.NewSearchTitles(),
+		driver:    datagen.NewDriver(graph, false, seed),
+		handler:   graph.MCPRoute,
+		token:     workspace.Actors[0].Token,
+		ledgerDSN: cfg.DatabaseURL,
+		orgID:     workspace.OrgID,
+		Workspace: workspace.Slug,
+		Project:   "",
+		outbox:    stores.OpsOutbox,
+		titles:    datagen.NewSearchTitles(),
 	}
-	worker := newSearchWorker(t, stores, adapter, clock.Wall{}, searchWorkerSettings(runtimePageBytes))
+	worker := newSearchWorker(
+		t,
+		stores,
+		adapter,
+		clock.Wall{},
+		searchWorkerSettings(runtimePageBytes),
+	)
+
 	fixture := queryFixture{
-		Stores: stores, Adapter: adapter, Client: client, Index: index, Config: cfg,
-		Graph: graph, Harness: harness, Workspaces: identities.Workspaces, Worker: worker,
+		Stores:     stores,
+		Adapter:    adapter,
+		Client:     client,
+		Index:      index,
+		Config:     cfg,
+		Graph:      graph,
+		Harness:    harness,
+		Workspaces: identities.Workspaces,
+		Worker:     worker,
 	}
 	for _, bootstrapped := range identities.Workspaces {
 		entryPoint(t, fixture, bootstrapped)
 	}
+
 	return fixture
 }
 
@@ -110,6 +156,7 @@ func configureQueryEnvironment(t *testing.T, options queryOptions) {
 	if _, err := rand.Read(key); err != nil {
 		t.Fatalf("generate cursor key: %v", err)
 	}
+
 	t.Setenv("ENV", "production")
 	t.Setenv("OPENSEARCH_PUBLIC_ENABLED", strconv.FormatBool(options.Public))
 	t.Setenv("OPENSEARCH_CURSOR_KEY", base64.StdEncoding.EncodeToString(key))
@@ -125,6 +172,7 @@ func queryConfig(t *testing.T) *config.Config {
 	cfg.AuditWriterDSN = cfg.DatabaseURL
 	cfg.AuditAllowUnrecorded = false
 	cfg.AuditReadFlushInterval = 10 * time.Millisecond
+
 	return cfg
 }
 
@@ -135,16 +183,24 @@ func buildQueryGraph(t *testing.T, cfg *config.Config) *appruntime.Graph {
 	if err != nil {
 		t.Fatalf("build graph: %v", err)
 	}
+
 	t.Cleanup(graph.Close)
+
 	return graph
 }
 
 // processHarness returns a harness for another process with the same token.
 func processHarness(harness *MCPHarness, graph *appruntime.Graph) *MCPHarness {
 	return &MCPHarness{
-		driver: harness.driver, handler: graph.MCPRoute, token: harness.token,
-		ledgerDSN: harness.ledgerDSN, orgID: harness.orgID, Workspace: harness.Workspace, Project: "",
-		outbox: harness.outbox, titles: harness.titles,
+		driver:    harness.driver,
+		handler:   graph.MCPRoute,
+		token:     harness.token,
+		ledgerDSN: harness.ledgerDSN,
+		orgID:     harness.orgID,
+		Workspace: harness.Workspace,
+		Project:   "",
+		outbox:    harness.outbox,
+		titles:    harness.titles,
 	}
 }
 
@@ -156,22 +212,34 @@ func entryPoint(t *testing.T, fixture queryFixture, workspace datagen.WorkspaceI
 	if err != nil {
 		t.Fatalf("list node types: %v", err)
 	}
+
 	for _, kind := range types {
 		if !kind.Features.Has(node.FeatureIsEntryPoint) {
 			continue
 		}
-		views, err := fixture.Stores.Views.List(WithTestOperation(t, t.Context()), node.NodeListQuery{OrgID: workspace.OrgID, NodeType: kind.TypeKey})
+
+		views, err := fixture.Stores.Views.List(
+			WithTestOperation(t, t.Context()),
+			node.NodeListQuery{OrgID: workspace.OrgID, NodeType: kind.TypeKey},
+		)
 		if err != nil {
 			t.Fatalf("list entry points: %v", err)
 		}
+
 		for _, view := range views {
 			if view.Name == workspace.Name {
-				fixture.Harness.titles.Add(datagen.SearchItem{Title: workspace.Slug, NodeType: kind.TypeKey}, view.ID)
+				fixture.Harness.titles.Add(
+					datagen.SearchItem{Title: workspace.Slug, NodeType: kind.TypeKey},
+					view.ID,
+				)
+
 				return view.ID
 			}
 		}
 	}
+
 	t.Fatalf("workspace %s has no entry node", workspace.Slug)
+
 	return uuid.Nil
 }
 
@@ -180,8 +248,15 @@ func entryPoint(t *testing.T, fixture queryFixture, workspace datagen.WorkspaceI
 func requireUnauthenticatedRefused(t *testing.T, harness *MCPHarness) {
 	t.Helper()
 	anonymous := &MCPHarness{
-		driver: harness.driver, handler: harness.handler, token: "", ledgerDSN: harness.ledgerDSN,
-		orgID: harness.orgID, Workspace: harness.Workspace, Project: "", outbox: harness.outbox, titles: harness.titles,
+		driver:    harness.driver,
+		handler:   harness.handler,
+		token:     "",
+		ledgerDSN: harness.ledgerDSN,
+		orgID:     harness.orgID,
+		Workspace: harness.Workspace,
+		Project:   "",
+		outbox:    harness.outbox,
+		titles:    harness.titles,
 	}
 	status := rawCallStatus(t, anonymous, "tack_search", map[string]any{"query": "anything"})
 	if status != http.StatusUnauthorized {

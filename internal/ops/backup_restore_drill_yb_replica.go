@@ -31,6 +31,7 @@ func ybTabletDirOf(path string) string {
 	if len(parts) <= ybTabletDirComponents {
 		return ""
 	}
+
 	return strings.Join(parts[:ybTabletDirComponents], "/")
 }
 
@@ -58,11 +59,13 @@ func newYBNodeExtraction(inventory ybArchiveInventory, missing []ybArchivedFile)
 			extraction.carried[dir]++
 		}
 	}
+
 	for _, file := range missing {
 		if dir := ybTabletDirOf(file.Path); dir != "" {
 			extraction.missing[dir]++
 		}
 	}
+
 	return extraction
 }
 
@@ -92,7 +95,8 @@ type ybTabletDefect struct {
 // twice.
 func chooseYBTabletReplicas(
 	remaps []ybTabletRemap,
-	exportRoot, exportSnap string,
+	exportRoot string,
+	exportSnap string,
 	nodes []ybNodeExtraction,
 ) (placements []ybTabletPlacement, defects []ybTabletDefect) {
 	decided := make(map[string]bool, len(remaps))
@@ -101,6 +105,7 @@ func chooseYBTabletReplicas(
 		if decided[identity] {
 			continue
 		}
+
 		decided[identity] = true
 		dir := ybTabletSourceDir(remap, exportSnap)
 		source, defect := chooseYBTabletReplica(remap, dir, exportRoot, nodes)
@@ -108,8 +113,10 @@ func chooseYBTabletReplicas(
 			placements = append(placements, ybTabletPlacement{remap: remap, source: source})
 			continue
 		}
+
 		defects = append(defects, defect)
 	}
+
 	return placements, defects
 }
 
@@ -117,22 +124,27 @@ func chooseYBTabletReplicas(
 // describing the best any node could offer.
 func chooseYBTabletReplica(
 	remap ybTabletRemap,
-	dir, exportRoot string,
+	dir string,
+	exportRoot string,
 	nodes []ybNodeExtraction,
 ) (string, ybTabletDefect) {
 	defect := ybTabletDefect{identity: ybTabletIdentity(remap), carried: false, missing: 0}
+
 	for _, node := range nodes {
 		if node.carried[dir] == 0 {
 			continue
 		}
+
 		missing := node.missing[dir]
 		if missing == 0 {
 			return exportRoot + "/" + node.node + "/" + dir, defect
 		}
+
 		if !defect.carried || missing < defect.missing {
 			defect = ybTabletDefect{identity: defect.identity, carried: true, missing: missing}
 		}
 	}
+
 	return "", defect
 }
 
@@ -143,8 +155,13 @@ func ybTabletDefectError(defects []ybTabletDefect, wanted int) error {
 	for _, defect := range defects {
 		reasons = append(reasons, defect.reason())
 	}
-	return fmt.Errorf("the export cannot supply %d of the %d tablets the import created: %s",
-		len(defects), wanted, sampleTabletIdentities(reasons))
+
+	return fmt.Errorf(
+		"the export cannot supply %d of the %d tablets the import created: %s",
+		len(defects),
+		wanted,
+		sampleTabletIdentities(reasons),
+	)
 }
 
 // reason says why one tablet cannot be placed.
@@ -152,6 +169,10 @@ func (d ybTabletDefect) reason() string {
 	if !d.carried {
 		return d.identity + " (no node's archive carried it)"
 	}
-	return fmt.Sprintf("%s (%d archived files are missing from every node that carried it)",
-		d.identity, d.missing)
+
+	return fmt.Sprintf(
+		"%s (%d archived files are missing from every node that carried it)",
+		d.identity,
+		d.missing,
+	)
 }

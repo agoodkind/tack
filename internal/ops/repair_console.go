@@ -73,11 +73,22 @@ func NewRepairConsole(
 	if len(relationships) > 0 {
 		relationshipRepo = relationships[0]
 	}
-	updater, err := service.NewNodeService(nodes, reader, nodeTypes, propertyDefs, relationshipRepo, nil, members, memberTargets)
+
+	updater, err := service.NewNodeService(
+		nodes,
+		reader,
+		nodeTypes,
+		propertyDefs,
+		relationshipRepo,
+		nil,
+		members,
+		memberTargets,
+	)
 	if err != nil {
 		slog.Error("repair.console_failed", slog.String("err", err.Error()))
 		return nil, fmt.Errorf("build the repair console: %w", err)
 	}
+
 	return &RepairConsole{
 		nodeTypes:     nodeTypes,
 		propertyDefs:  propertyDefs,
@@ -101,44 +112,74 @@ func NewRepairConsoleFromEnv(env *Env) (*RepairConsole, error) {
 }
 
 // Preview plans one repair without mutating storage.
-func (c *RepairConsole) Preview(ctx context.Context, in RepairPreviewInput) (*RepairPreview, error) {
+func (c *RepairConsole) Preview(
+	ctx context.Context,
+	in RepairPreviewInput,
+) (*RepairPreview, error) {
 	if in.NodeID == uuid.Nil {
 		return nil, fmt.Errorf("repair preview node_id required: %w", domain.ErrInvalidArgument)
 	}
+
 	plan, err := c.plan(ctx, in.Class, in.NodeID, in.Profile)
 	if err != nil {
 		return nil, err
 	}
+
 	return plan.preview, nil
 }
 
 // Apply re-plans the repair and writes only when the token still matches.
-func (c *RepairConsole) Apply(ctx context.Context, in RepairApplyInput) (*RepairApplyResult, error) {
+func (c *RepairConsole) Apply(
+	ctx context.Context,
+	in RepairApplyInput,
+) (*RepairApplyResult, error) {
 	if in.ActorID == uuid.Nil {
 		return nil, fmt.Errorf("repair apply actor_id required: %w", domain.ErrInvalidArgument)
 	}
+
 	if strings.TrimSpace(in.ConfirmationToken) == "" {
-		return nil, fmt.Errorf("repair apply confirmation token required: %w", domain.ErrInvalidArgument)
+		return nil, fmt.Errorf(
+			"repair apply confirmation token required: %w",
+			domain.ErrInvalidArgument,
+		)
 	}
+
 	plan, err := c.plan(ctx, in.Class, in.NodeID, in.Profile)
 	if err != nil {
 		return nil, err
 	}
+
 	if !plan.preview.CanApply {
-		return nil, fmt.Errorf("repair %s for node %s is not applicable: %w", in.Class, in.NodeID, domain.ErrFailedPrecondition)
+		return nil, fmt.Errorf(
+			"repair %s for node %s is not applicable: %w",
+			in.Class,
+			in.NodeID,
+			domain.ErrFailedPrecondition,
+		)
 	}
+
 	if in.ConfirmationToken != plan.preview.ConfirmationToken {
-		return nil, fmt.Errorf("repair %s confirmation token mismatch for node %s: %w", in.Class, in.NodeID, domain.ErrFailedPrecondition)
+		return nil, fmt.Errorf(
+			"repair %s confirmation token mismatch for node %s: %w",
+			in.Class,
+			in.NodeID,
+			domain.ErrFailedPrecondition,
+		)
 	}
-	view, err := c.updater.Update(ctx, service.UpdateInput{
-		NodeID:              in.NodeID,
-		Props:               plan.props,
-		RelationshipChanges: plan.relationshipChanges,
-		ActorID:             in.ActorID,
-	})
+
+	view, err := c.updater.Update(
+		ctx,
+		service.UpdateInput{
+			NodeID:              in.NodeID,
+			Props:               plan.props,
+			RelationshipChanges: plan.relationshipChanges,
+			ActorID:             in.ActorID,
+		},
+	)
 	if err != nil {
 		return nil, err
 	}
+
 	return &RepairApplyResult{Applied: true, Preview: plan.preview, View: view}, nil
 }
 
@@ -148,7 +189,12 @@ type repairPlan struct {
 	relationshipChanges node.RelationshipChanges
 }
 
-func (c *RepairConsole) plan(ctx context.Context, class RepairClass, nodeID uuid.UUID, profile *RepairReferenceProfile) (*repairPlan, error) {
+func (c *RepairConsole) plan(
+	ctx context.Context,
+	class RepairClass,
+	nodeID uuid.UUID,
+	profile *RepairReferenceProfile,
+) (*repairPlan, error) {
 	switch class {
 	case RepairClassReferenceProperty:
 		return c.planReferenceProperty(ctx, nodeID, profile)

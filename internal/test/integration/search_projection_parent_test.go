@@ -25,14 +25,32 @@ func TestSearchProjectionOmitsParentReference(t *testing.T) {
 	if err := env.Seeder.SeedOrg(env.Ctx, orgID); err != nil {
 		t.Fatalf("seed organization %s: %v", orgID, err)
 	}
+
 	referenceName := opaqueName("r")
 	reference := &node.PropertyDef{
-		ID: uuid.Must(uuid.NewV7()), OrgID: orgID, Name: referenceName, Type: node.PropertyTypeText, ReferenceTargetTypeKey: "state",
+		ID:                     uuid.Must(uuid.NewV7()),
+		OrgID:                  orgID,
+		Name:                   referenceName,
+		Type:                   node.PropertyTypeText,
+		ReferenceTargetTypeKey: "state",
 	}
 	if err := env.Stores.PropertyDefs.Set(env.Ctx, reference); err != nil {
-		t.Fatalf("store reference definition %s without a search declaration: %v", referenceName, err)
+		t.Fatalf(
+			"store reference definition %s without a search declaration: %v",
+			referenceName,
+			err,
+		)
 	}
-	workspaceID := putHierarchyNode(t, env, orgID, "workspace", "Reference workspace", nil, uuid.Nil)
+
+	workspaceID := putHierarchyNode(
+		t,
+		env,
+		orgID,
+		"workspace",
+		"Reference workspace",
+		nil,
+		uuid.Nil,
+	)
 	parentID := putHierarchyNode(t, env, orgID, "project", "Reference project", nil, workspaceID)
 	referencedID := uuid.Must(uuid.NewV7())
 	props := map[string]json.RawMessage{
@@ -42,15 +60,26 @@ func TestSearchProjectionOmitsParentReference(t *testing.T) {
 		"group":       json.RawMessage(`"started"`),
 	}
 	nodeID := putHierarchyNode(t, env, orgID, "state", "Reference node", props, parentID)
-	page, err := env.Stores.SearchContent(env.Stores.SearchPolicySet()).Content(env.Ctx, searchdomain.ContentRequest{
-		NodeID: nodeID, Cursor: "", ProjectionConfig: "", AccessVersions: nil, MaxBytes: 4096, SearchGeneration: 0,
-	})
+	page, err := env.Stores.SearchContent(env.Stores.SearchPolicySet()).Content(
+		env.Ctx,
+		searchdomain.ContentRequest{
+			NodeID:           nodeID,
+			Cursor:           "",
+			ProjectionConfig: "",
+			AccessVersions:   nil,
+			MaxBytes:         4096,
+			SearchGeneration: 0,
+		},
+	)
 	if err != nil {
 		t.Fatalf("read the search text of node %s: %v", nodeID, err)
 	}
-	if !strings.HasPrefix(page.Text, "Reference node\n") || !strings.Contains(page.Text, "started\n") {
+
+	if !strings.HasPrefix(page.Text, "Reference node\n") ||
+		!strings.Contains(page.Text, "started\n") {
 		t.Fatalf("search text = %q, want the name and the group label", page.Text)
 	}
+
 	for _, referenced := range []uuid.UUID{parentID, referencedID} {
 		if strings.Contains(page.Text, referenced.String()) {
 			t.Fatalf("search text %q contains the referenced node ID %s", page.Text, referenced)
@@ -65,23 +94,57 @@ func putHierarchyNode(
 	t *testing.T,
 	env *integration.TestEnv,
 	orgID uuid.UUID,
-	typeKey, name string,
+	typeKey string,
+	name string,
 	props map[string]json.RawMessage,
 	parentID uuid.UUID,
 ) uuid.UUID {
 	t.Helper()
 	nodeID := uuid.Must(uuid.NewV7())
 	now := clock.Now().UTC()
-	value := &node.Node{ID: nodeID, OrgID: orgID, NodeType: typeKey, Name: name, Props: props, CreatedAt: now, UpdatedAt: now}
-	view := &node.NodeView{ID: nodeID, OrgID: orgID, NodeType: typeKey, Name: name, Props: props, CreatedAt: now, UpdatedAt: now}
+	value := &node.Node{
+		ID:        nodeID,
+		OrgID:     orgID,
+		NodeType:  typeKey,
+		Name:      name,
+		Props:     props,
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+	view := &node.NodeView{
+		ID:        nodeID,
+		OrgID:     orgID,
+		NodeType:  typeKey,
+		Name:      name,
+		Props:     props,
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
 	var relationships []*node.Relationship
 	if parentID != uuid.Nil {
-		relationships = append(relationships, &node.Relationship{
-			OrgID: orgID, SourceID: nodeID, RelationType: node.RelChildOf, TargetID: parentID, CreatedAt: now,
-		})
+		relationships = append(
+			relationships,
+			&node.Relationship{
+				OrgID:        orgID,
+				SourceID:     nodeID,
+				RelationType: node.RelChildOf,
+				TargetID:     parentID,
+				CreatedAt:    now,
+			},
+		)
 	}
-	if err := env.Stores.Nodes.CreateAtomic(env.Ctx, value, view, relationships, nil, nil, nil); err != nil {
+
+	if err := env.Stores.Nodes.CreateAtomic(
+		env.Ctx,
+		value,
+		view,
+		relationships,
+		nil,
+		nil,
+		nil,
+	); err != nil {
 		t.Fatalf("create %s node %s: %v", typeKey, nodeID, err)
 	}
+
 	return nodeID
 }

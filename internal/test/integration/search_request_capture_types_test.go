@@ -51,6 +51,7 @@ func decodeCapturedRequest(t *testing.T, search capturedSearch) capturedRequest 
 	if err := json.Unmarshal(search.Request, &request); err != nil {
 		t.Fatalf("decode ranked search request %s: %v", search.Request, err)
 	}
+
 	return request
 }
 
@@ -60,5 +61,6 @@ func decodeCapturedHits(t *testing.T, search capturedSearch) capturedHitList {
 	if err := json.Unmarshal(search.Response, &response); err != nil {
 		t.Fatalf("decode ranked search response: %v", err)
 	}
+
 	return response.Hits
 }

@@ -19,6 +19,8 @@ import (
 // label and the engine's testenv.engine.started log line.
 const processLabel = managedLabel + ".process"
 
+const engineSleepCommand = "sleep"
+
 // engineSpec describes one engine container.
 type engineSpec struct {
 	// kind names the engine in the container name.
@@ -72,55 +74,74 @@ func startEngine(ctx context.Context, cli *client.Client, spec engineSpec) (engi
 	if err := ensureNetwork(ctx, cli); err != nil {
 		return engine{}, err
 	}
+
 	if err := joinNetworkWhenContainerized(ctx, cli); err != nil {
 		return engine{}, err
 	}
+
 	if err := ensureImage(ctx, cli, spec); err != nil {
 		return engine{}, err
 	}
+
 	name, err := engineName(ctx, spec)
 	if err != nil {
 		return engine{}, err
 	}
+
 	owner, err := prepareCreate(ctx, cli)
 	if err != nil {
 		return engine{}, err
 	}
+
 	hostConfig, networking := engineNetworking(spec)
-	_, err = cli.ContainerCreate(ctx, client.ContainerCreateOptions{
-		Config: &container.Config{
-			Image:       spec.image,
-			Hostname:    spec.name,
-			Entrypoint:  spec.entrypoint,
-			Cmd:         spec.cmd,
-			Env:         spec.env,
-			Healthcheck: spec.healthcheck,
-			Labels:      isolationLabels(ownerLabels(owner)),
+	_, err = cli.ContainerCreate(
+		ctx,
+		client.ContainerCreateOptions{
+			Config: &container.Config{
+				Image:       spec.image,
+				Hostname:    spec.name,
+				Entrypoint:  spec.entrypoint,
+				Cmd:         spec.cmd,
+				Env:         spec.env,
+				Healthcheck: spec.healthcheck,
+				Labels:      isolationLabels(ownerLabels(owner)),
+			},
+			HostConfig:       hostConfig,
+			NetworkingConfig: networking,
+			Platform:         spec.platform,
+			Name:             name,
 		},
-		HostConfig:       hostConfig,
-		NetworkingConfig: networking,
-		Platform:         spec.platform,
-		Name:             name,
-	})
+	)
 	if err != nil {
 		slog.ErrorContext(ctx, "testenv.engine.create_failed", slog.String("err", err.Error()))
 		return engine{}, fmt.Errorf("create container %s from %s: %w", name, spec.image, err)
 	}
+
 	own(name)
+
 	for path, contents := range spec.files {
 		if err := writeContainerFile(ctx, cli, name, path, contents); err != nil {
 			return engine{}, err
 		}
 	}
+
 	if _, err := cli.ContainerStart(ctx, name, client.ContainerStartOptions{}); err != nil {
 		slog.ErrorContext(ctx, "testenv.engine.start_failed", slog.String("err", err.Error()))
 		return engine{}, fmt.Errorf("start container %s: %w", name, err)
 	}
+
 	address, err := containerAddressOn(ctx, cli, name, engineNetwork(spec))
 	if err != nil {
 		return engine{}, engineStartFailure(ctx, cli, name, err)
 	}
-	slog.InfoContext(ctx, "testenv.engine.started", slog.String("container", name), slog.String("image", spec.image))
+
+	slog.InfoContext(
+		ctx,
+		"testenv.engine.started",
+		slog.String("container", name),
+		slog.String("image", spec.image),
+	)
+
 	return engine{name: name, address: address}, nil
 }
 
@@ -130,6 +151,7 @@ func engineName(ctx context.Context, spec engineSpec) (string, error) {
 	if spec.name != "" {
 		return spec.name, nil
 	}
+
 	return generatedEngineName(ctx, spec.kind)
 }
 
@@ -140,6 +162,7 @@ func generatedEngineName(ctx context.Context, kind string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+
 	return "tack-testenv-" + kind + "-" + strconv.Itoa(os.Getpid()) + "-" + suffix, nil
 }
 
@@ -152,21 +175,32 @@ func ensureImage(ctx context.Context, cli *client.Client, spec engineSpec) error
 		inspectOptions = append(inspectOptions, client.ImageInspectWithPlatform(spec.platform))
 		pullPlatforms = append(pullPlatforms, *spec.platform)
 	}
+
 	if _, err := cli.ImageInspect(ctx, spec.image, inspectOptions...); err == nil {
 		return nil
 	}
-	pulled, err := cli.ImagePull(ctx, spec.image, client.ImagePullOptions{
-		All: false, RegistryAuth: "", PrivilegeFunc: nil, Platforms: pullPlatforms,
-	})
+
+	pulled, err := cli.ImagePull(
+		ctx,
+		spec.image,
+		client.ImagePullOptions{
+			All:           false,
+			RegistryAuth:  "",
+			PrivilegeFunc: nil,
+			Platforms:     pullPlatforms,
+		},
+	)
 	if err != nil {
 		slog.ErrorContext(ctx, "testenv.image.pull_failed", slog.String("err", err.Error()))
 		return fmt.Errorf("pull image %s: %w", spec.image, err)
 	}
+
 	defer func() { _ = pulled.Close() }()
 	if err := pulled.Wait(ctx); err != nil {
 		slog.ErrorContext(ctx, "testenv.image.pull_failed", slog.String("err", err.Error()))
 		return fmt.Errorf("pull image %s: %w", spec.image, err)
 	}
+
 	return nil
 }
 

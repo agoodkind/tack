@@ -18,8 +18,13 @@ func TestCreateCommentReturnsShortConfirmation(t *testing.T) {
 
 	text := result.Text()
 	if len(text) > maxWriteConfirmationBytes {
-		t.Fatalf("comment confirmation is %d bytes, want at most %d", len(text), maxWriteConfirmationBytes)
+		t.Fatalf(
+			"comment confirmation is %d bytes, want at most %d",
+			len(text),
+			maxWriteConfirmationBytes,
+		)
 	}
+
 	if result.RawID() == "" {
 		t.Fatalf("comment confirmation has no raw id:\n%s", text)
 	}

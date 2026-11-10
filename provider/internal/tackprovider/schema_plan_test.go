@@ -23,7 +23,11 @@ const guardedVersion = 19
 // planVersion plans tack_schema at target for an installation that state
 // records at the applied version in status. It returns the planned
 // applied_version, the planned pending list, and the diagnostics.
-func planVersion(t *testing.T, status migrationStatus, target int64) (types.Int64, types.List, diag.Diagnostics) {
+func planVersion(
+	t *testing.T,
+	status migrationStatus,
+	target int64,
+) (types.Int64, types.List, diag.Diagnostics) {
 	t.Helper()
 	ctx := t.Context()
 	schemaResource := tackprovider.New("test")().Resources(ctx)[0]()
@@ -31,10 +35,14 @@ func planVersion(t *testing.T, status migrationStatus, target int64) (types.Int6
 	if !ok {
 		t.Fatal("tack_schema does not modify plans")
 	}
+
 	var schemaResp resource.SchemaResponse
 	schemaResource.Schema(ctx, resource.SchemaRequest{}, &schemaResp)
 
-	state := tfsdk.State{Schema: schemaResp.Schema, Raw: tftypes.NewValue(schemaResp.Schema.Type().TerraformType(ctx), nil)}
+	state := tfsdk.State{
+		Schema: schemaResp.Schema,
+		Raw:    tftypes.NewValue(schemaResp.Schema.Type().TerraformType(ctx), nil),
+	}
 	recorded := map[string]attr.Value{
 		"id":              types.StringValue("suburban/217:/root/tack"),
 		"node":            types.StringValue("suburban"),
@@ -47,9 +55,11 @@ func planVersion(t *testing.T, status migrationStatus, target int64) (types.Int6
 		"pending":         migrationList(t, nil),
 	}
 	var diags diag.Diagnostics
+
 	for name, value := range recorded {
 		diags.Append(state.SetAttribute(ctx, path.Root(name), value)...)
 	}
+
 	plan := tfsdk.Plan{Schema: schemaResp.Schema, Raw: state.Raw.Copy()}
 	diags.Append(plan.SetAttribute(ctx, path.Root("version"), types.Int64Value(target))...)
 	if diags.HasError() {
@@ -67,6 +77,7 @@ func planVersion(t *testing.T, status migrationStatus, target int64) (types.Int6
 	var pending types.List
 	resp.Diagnostics.Append(resp.Plan.GetAttribute(ctx, path.Root("applied_version"), &applied)...)
 	resp.Diagnostics.Append(resp.Plan.GetAttribute(ctx, path.Root("pending"), &pending)...)
+
 	return applied, pending, resp.Diagnostics
 }
 
@@ -75,14 +86,20 @@ func diagnosticsText(diags diag.Diagnostics) string {
 	for _, diagnostic := range diags {
 		parts = append(parts, diagnostic.Summary()+": "+diagnostic.Detail())
 	}
+
 	return strings.Join(parts, "; ")
 }
 
 func TestPlanRejectsInvalidVersions(t *testing.T) {
 	highest := statusDocument(t, 0).highest()
 	if highest < guardedVersion {
-		t.Fatalf("the image embeds migrations through %d, want at least %d", highest, guardedVersion)
+		t.Fatalf(
+			"the image embeds migrations through %d, want at least %d",
+			highest,
+			guardedVersion,
+		)
 	}
+
 	cases := []struct {
 		name    string
 		applied int64
@@ -90,29 +107,54 @@ func TestPlanRejectsInvalidVersions(t *testing.T) {
 		want    string
 	}{
 		{
-			name: "below the applied version", applied: highest, target: highest - 1,
-			want: fmt.Sprintf("version %d is below the applied migration version %d", highest-1, highest),
+			name:    "below the applied version",
+			applied: highest,
+			target:  highest - 1,
+			want: fmt.Sprintf(
+				"version %d is below the applied migration version %d",
+				highest-1,
+				highest,
+			),
 		},
 		{
-			name: "above the highest available version", applied: highest, target: highest + 1,
-			want: fmt.Sprintf("version %d exceeds the highest available migration version %d", highest+1, highest),
+			name:    "above the highest available version",
+			applied: highest,
+			target:  highest + 1,
+			want: fmt.Sprintf(
+				"version %d exceeds the highest available migration version %d",
+				highest+1,
+				highest,
+			),
 		},
 		{
-			name: "at the guarded version while the applied version is below it", applied: 17, target: guardedVersion,
-			want: fmt.Sprintf("version %d is at or below version %d. The applied migration version is 17",
-				guardedVersion, guardedVersion),
+			name:    "at the guarded version while the applied version is below it",
+			applied: 17,
+			target:  guardedVersion,
+			want: fmt.Sprintf(
+				"version %d is at or below version %d. The applied migration version is 17",
+				guardedVersion,
+				guardedVersion,
+			),
 		},
 	}
 	for _, testCase := range cases {
-		t.Run(testCase.name, func(t *testing.T) {
-			_, _, diags := planVersion(t, statusDocument(t, testCase.applied), testCase.target)
-			if !diags.HasError() {
-				t.Fatalf("plan of version %d at applied version %d succeeded, want an error", testCase.target, testCase.applied)
-			}
-			if text := diagnosticsText(diags); !strings.Contains(text, testCase.want) {
-				t.Fatalf("plan diagnostics = %q, want %q", text, testCase.want)
-			}
-		})
+		t.Run(
+			testCase.name,
+			func(t *testing.T) {
+				_, _, diags := planVersion(t, statusDocument(t, testCase.applied), testCase.target)
+				if !diags.HasError() {
+					t.Fatalf(
+						"plan of version %d at applied version %d succeeded, want an error",
+						testCase.target,
+						testCase.applied,
+					)
+				}
+
+				if text := diagnosticsText(diags); !strings.Contains(text, testCase.want) {
+					t.Fatalf("plan diagnostics = %q, want %q", text, testCase.want)
+				}
+			},
+		)
 	}
 }
 
@@ -122,8 +164,14 @@ func TestPlanAtTheAppliedVersionChangesNothing(t *testing.T) {
 	if len(diags) != 0 {
 		t.Fatalf("plan diagnostics = %q, want none", diagnosticsText(diags))
 	}
-	if applied.ValueInt64() != status.AppliedVersion || pending.IsUnknown() || len(pending.Elements()) != 0 {
-		t.Fatalf("planned applied_version %v and pending %v, want %d and an empty list",
-			applied, pending, status.AppliedVersion)
+
+	if applied.ValueInt64() != status.AppliedVersion || pending.IsUnknown() ||
+		len(pending.Elements()) != 0 {
+		t.Fatalf(
+			"planned applied_version %v and pending %v, want %d and an empty list",
+			applied,
+			pending,
+			status.AppliedVersion,
+		)
 	}
 }

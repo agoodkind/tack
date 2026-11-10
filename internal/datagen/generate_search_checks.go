@@ -16,7 +16,9 @@ const searchVerificationScale = "small"
 
 // errPublicSearchDisabled reports that tack_search in this environment
 // returns its fixed unavailable response.
-var errPublicSearchDisabled = errors.New("public search is disabled; set OPENSEARCH_PUBLIC_ENABLED=true in this environment")
+var errPublicSearchDisabled = errors.New(
+	"public search is disabled; set OPENSEARCH_PUBLIC_ENABLED=true in this environment",
+)
 
 // SearchVerification reports the verified organization, property warning
 // case, and relevance probe. AbandonedSessionID identifies the session
@@ -39,7 +41,10 @@ func VerifySearch(ctx context.Context, cfg *config.Config) (SearchVerification, 
 // first. It then writes one organization for seed, opaque search metadata,
 // and nodes, and calls tack_search through authenticated MCP requests.
 // It returns a SearchVerification report with the property warning case and relevance probe.
-func VerifySearchWithSeed(ctx context.Context, cfg *config.Config, seed int64) (SearchVerification, error) {
+func VerifySearchWithSeed(ctx context.Context, cfg *config.Config, seed int64) (
+	SearchVerification,
+	error,
+) {
 	var report SearchVerification
 	if err := ValidateTarget(cfg); err != nil {
 		return report, loggedError(ctx, "qa datagen: validate search target", err)
@@ -85,9 +90,17 @@ func VerifySearchWithSeed(ctx context.Context, cfg *config.Config, seed int64) (
 		return report, err
 	}
 	run := searchRun{
-		driver: NewDriver(graph, false, seed), token: workspace.Actors[0].Token, entry: workspace.Slug,
-		limits:  searchLimits{MaxResults: limits.MaxResults, MaxResponseBytes: limits.MaxResponseBytes, IdleTimeout: limits.IdleTimeout},
-		fixture: fixture, phrases: phrases, pages: graph,
+		driver: NewDriver(graph, false, seed),
+		token:  workspace.Actors[0].Token,
+		entry:  workspace.Slug,
+		limits: searchLimits{
+			MaxResults:       limits.MaxResults,
+			MaxResponseBytes: limits.MaxResponseBytes,
+			IdleTimeout:      limits.IdleTimeout,
+		},
+		fixture: fixture,
+		phrases: phrases,
+		pages:   graph,
 	}
 	if err := run.verify(ctx, workspace); err != nil {
 		return report, err
@@ -98,13 +111,21 @@ func VerifySearchWithSeed(ctx context.Context, cfg *config.Config, seed int64) (
 	if report.Relevance, err = run.probeRelevance(ctx); err != nil {
 		return report, err
 	}
-	if report.AbandonedSessionID, err = run.verifySessionLifecycle(ctx, tools.NewSearchCursorCodec(cursorKey)); err != nil {
+	if report.AbandonedSessionID, err = run.verifySessionLifecycle(
+		ctx,
+		tools.NewSearchCursorCodec(cursorKey),
+	); err != nil {
 		return report, err
 	}
 	if err := run.verifyAccess(ctx, cfg, seed, workspace); err != nil {
 		return report, err
 	}
-	slog.InfoContext(ctx, "qa.datagen.search_verified", slog.String("workspace", workspace.Slug),
-		slog.String("org_id", workspace.OrgID.String()), slog.Int64("seed", seed))
+	slog.InfoContext(
+		ctx,
+		"qa.datagen.search_verified",
+		slog.String("workspace", workspace.Slug),
+		slog.String("org_id", workspace.OrgID.String()),
+		slog.Int64("seed", seed),
+	)
 	return report, nil
 }

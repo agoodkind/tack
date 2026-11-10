@@ -23,10 +23,13 @@ func (d manifestDeclaration) readEvidence(eventID uuid.UUID) (*ReadEvidence, err
 	if len(d.raw) > EventPartMaxBytes {
 		return nil, fmt.Errorf("event %s declares oversized read evidence", eventID)
 	}
+
 	format, err := strconv.ParseUint(d.format, 10, 16)
-	if err != nil || (format != uint64(AuditFormatLegacy) && format != uint64(AuditFormatComplete)) {
+	if err != nil ||
+		(format != uint64(AuditFormatLegacy) && format != uint64(AuditFormatComplete)) {
 		return nil, fmt.Errorf("event %s declares an invalid audit format", eventID)
 	}
+
 	var read *ReadEvidence
 	if d.raw != nil {
 		decoder := json.NewDecoder(bytes.NewReader(d.raw))
@@ -35,6 +38,7 @@ func (d manifestDeclaration) readEvidence(eventID uuid.UUID) (*ReadEvidence, err
 			return nil, fmt.Errorf("event %s does not declare valid read evidence", eventID)
 		}
 	}
+
 	if format == uint64(AuditFormatComplete) {
 		var event Event
 		event.Context.OperationClass = OperationClass(d.class)
@@ -44,17 +48,31 @@ func (d manifestDeclaration) readEvidence(eventID uuid.UUID) (*ReadEvidence, err
 		if validatePhase(event.Context.OperationClass, event.Context.Phase, event.Outcome) != nil {
 			return nil, fmt.Errorf("event %s declares invalid read evidence", eventID)
 		}
-		if (event.Context.OperationClass == OperationRead || read != nil) && validateClassEvidence(event) != nil {
+
+		if (event.Context.OperationClass == OperationRead || read != nil) &&
+			validateClassEvidence(event) != nil {
 			return nil, fmt.Errorf("event %s declares invalid read evidence", eventID)
 		}
 	} else if read != nil {
-		return nil, fmt.Errorf("event %s declares invalid read evidence for its audit format", eventID)
+		return nil, fmt.Errorf(
+			"event %s declares invalid read evidence for its audit format",
+			eventID,
+		)
 	}
+
 	if read == nil {
-		return nil, fmt.Errorf("event %s did not record read evidence; manifest verification is unavailable", eventID)
+		return nil, fmt.Errorf(
+			"event %s did not record read evidence; manifest verification is unavailable",
+			eventID,
+		)
 	}
+
 	if read.Count == 0 && read.ManifestParts == 0 && read.ManifestSHA256 == "" {
-		return nil, fmt.Errorf("event %s did not record a manifest declaration; manifest verification is unavailable", eventID)
+		return nil, fmt.Errorf(
+			"event %s did not record a manifest declaration; manifest verification is unavailable",
+			eventID,
+		)
 	}
+
 	return read, nil
 }

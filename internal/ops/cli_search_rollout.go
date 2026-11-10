@@ -38,33 +38,61 @@ func (opsClockSource) Since(start time.Time) time.Duration { return opsNow().Sub
 func searchRolloutCommand(f *cli.Factory) *cobra.Command {
 	in := searchRolloutInput{Authority: "", Candidate: ""}
 	cmd := &cobra.Command{
-		Use: "access-rollout", Short: "Begin an access policy rollout for one permission authority.", Args: cobra.NoArgs,
+		Use:   "access-rollout",
+		Short: "Begin an access policy rollout for one permission authority.",
+		Args:  cobra.NoArgs,
 	}
-	cmd.Flags().StringVar(&in.Authority, "authority", "", "Specify the permission authority (organization) UUID.")
-	cmd.Flags().StringVar(&in.Candidate, "candidate", "", "Specify the registered policy version to roll out.")
+	cmd.Flags().StringVar(
+		&in.Authority,
+		"authority",
+		"",
+		"Specify the permission authority (organization) UUID.",
+	)
+	cmd.Flags().StringVar(
+		&in.Candidate,
+		"candidate",
+		"",
+		"Specify the registered policy version to roll out.",
+	)
 	_ = cmd.MarkFlagRequired("authority")
 	_ = cmd.MarkFlagRequired("candidate")
 	input := func() (json.RawMessage, error) { return encodeCommandInput(in) }
 	spec := searchRolloutSpec()
-	clispec.AttachExternalPreview(cmd, f, spec, input,
+	clispec.AttachExternalPreview(
+		cmd,
+		f,
+		spec,
+		input,
 		func(ctx context.Context, steps audit.StepRecorder) (audit.OutcomeDetails, error) {
 			return runSearchRolloutRecorded(ctx, f, in, clispec.NewCLISink(f), steps)
 		},
-		recordedSearchPreview(f, spec, input, func(ctx context.Context, sink clispec.ResultSink) error {
-			return previewSearchRollout(ctx, f, in, sink)
-		}))
+		recordedSearchPreview(
+			f,
+			spec,
+			input,
+			func(ctx context.Context, sink clispec.ResultSink) error {
+				return previewSearchRollout(ctx, f, in, sink)
+			},
+		),
+	)
+
 	return cmd
 }
 
 func searchRolloutSpec() audit.Spec {
 	return audit.Spec{
-		Verb: string(audit.VerbOpsSearchAccessRollout), Mutates: true, Class: audit.OperationExternal,
+		Verb:    string(audit.VerbOpsSearchAccessRollout),
+		Mutates: true,
+		Class:   audit.OperationExternal,
 		Targets: func(ctx context.Context, input json.RawMessage) ([]audit.Target, error) {
 			var decoded searchRolloutInput
 			if err := json.Unmarshal(input, &decoded); err != nil {
 				return nil, searchRolloutFailure(ctx, "decode access rollout input", err)
 			}
-			return []audit.Target{audit.ExternalTarget(searchdomain.AccessRolloutTargetReference(decoded.Authority))}, nil
+
+			return []audit.Target{
+				audit.ExternalTarget(searchdomain.AccessRolloutTargetReference(decoded.Authority)),
+			}, nil
 		},
 		SafeInput: func(input json.RawMessage) (json.RawMessage, error) { return input, nil },
 	}
@@ -94,6 +122,7 @@ func runSearchRolloutRecorded(
 		wrapped := searchRolloutFailure(ctx, "parse authority "+in.Authority, err)
 		return commandOutcome(audit.OutcomeRefused, invalidInputCode, wrapped), wrapped
 	}
+
 	env, err := NewEnv(ctx, f.Cfg)
 	if err != nil {
 		wrapped := searchRolloutFailure(ctx, "open search rollout environment", err)
@@ -102,56 +131,98 @@ func runSearchRolloutRecorded(
 	defer env.Close()
 	policies := env.Stores.SearchPolicySet()
 	if !policies.Supports(in.Candidate) {
-		wrapped := searchRolloutFailure(ctx, "check candidate version "+in.Candidate, errUnknownCandidate)
+		wrapped := searchRolloutFailure(
+			ctx,
+			"check candidate version "+in.Candidate,
+			errUnknownCandidate,
+		)
+
 		return commandOutcome(audit.OutcomeRefused, invalidInputCode, wrapped), wrapped
 	}
+
 	rollouts := env.Stores.SearchRollouts(opsClockSource{}, policies)
 	current, err := rollouts.Current(ctx, authorityID)
 	if err != nil {
-		wrapped := searchRolloutFailure(ctx, "read access rollout of authority "+authorityID.String(), err)
+		wrapped := searchRolloutFailure(
+			ctx,
+			"read access rollout of authority "+authorityID.String(),
+			err,
+		)
+
 		return commandOutcome(audit.OutcomeFailed, commandFailedCode, wrapped), wrapped
 	}
+
 	if current.Phase != searchdomain.AccessStable {
-		refused := commandOutcome(audit.OutcomeRefused, rolloutInProgressCode, searchdomain.ErrRolloutInProgress)
+		refused := commandOutcome(
+			audit.OutcomeRefused,
+			rolloutInProgressCode,
+			searchdomain.ErrRolloutInProgress,
+		)
+
 		return refused, writeSearchRolloutResult(ctx, sink, rollouts, current, false)
 	}
+
 	initiation, err := commandInitiation(ctx)
 	if err != nil {
 		return commandOutcome(audit.OutcomeFailed, commandFailedCode, err), err
 	}
-	planned := accessRolloutEvidence{
-		AuthorityID: authorityID.String(), CandidateVersion: in.Candidate, ExpectedGeneration: current.Generation,
-		ActiveVersion: current.ActiveVersion, Phase: "", WriteVersions: nil, Generation: 0,
-	}
+
+	planned := accessRolloutPlan(authorityID, in, current)
 	var begun searchdomain.AccessRollout
-	details, err := searchStep(ctx, steps, searchdomain.AccessRolloutTargetReference(authorityID.String()), planned,
+	details, err := searchStep(
+		ctx,
+		steps,
+		searchdomain.AccessRolloutTargetReference(authorityID.String()),
+		planned,
 		func(ctx context.Context) error {
-			rollout, beginErr := rollouts.Begin(ctx, searchdomain.BeginAccessRollout{
-				AuthorityID: authorityID, CandidateVersion: in.Candidate, ExpectedGeneration: current.Generation,
-				Initiation: initiation,
-			})
+			rollout, beginErr := rollouts.Begin(
+				ctx,
+				searchdomain.BeginAccessRollout{
+					AuthorityID:        authorityID,
+					CandidateVersion:   in.Candidate,
+					ExpectedGeneration: current.Generation,
+					Initiation:         initiation,
+				},
+			)
 			if beginErr != nil {
-				return searchRolloutFailure(ctx, "begin access rollout of authority "+authorityID.String(), beginErr)
+				return searchRolloutFailure(
+					ctx,
+					"begin access rollout of authority "+authorityID.String(),
+					beginErr,
+				)
 			}
+
 			begun = rollout
+
 			return nil
 		},
 		func(ctx context.Context) (json.RawMessage, error) {
 			observed := planned
-			observed.Phase, observed.WriteVersions, observed.Generation = string(begun.Phase), begun.WriteVersions, begun.Generation
+			observed.Phase, observed.WriteVersions, observed.Generation = string(
+				begun.Phase,
+			), begun.WriteVersions, begun.Generation
+
 			return encodeEvidence(ctx, observed)
-		})
+		},
+	)
 	if err != nil {
 		return details, err
 	}
+
 	return details, writeSearchRolloutResult(ctx, sink, rollouts, begun, false)
 }
 
-func previewSearchRollout(ctx context.Context, f *cli.Factory, in searchRolloutInput, sink clispec.ResultSink) error {
+func previewSearchRollout(
+	ctx context.Context,
+	f *cli.Factory,
+	in searchRolloutInput,
+	sink clispec.ResultSink,
+) error {
 	authorityID, err := uuid.Parse(in.Authority)
 	if err != nil {
 		return searchRolloutFailure(ctx, "parse authority "+in.Authority, err)
 	}
+
 	env, err := NewEnv(ctx, f.Cfg)
 	if err != nil {
 		return searchRolloutFailure(ctx, "open search rollout environment", err)
@@ -160,7 +231,12 @@ func previewSearchRollout(ctx context.Context, f *cli.Factory, in searchRolloutI
 	rollouts := env.Stores.SearchRollouts(opsClockSource{}, env.Stores.SearchPolicySet())
 	current, err := rollouts.Current(ctx, authorityID)
 	if err != nil {
-		return searchRolloutFailure(ctx, "read access rollout of authority "+authorityID.String(), err)
+		return searchRolloutFailure(
+			ctx,
+			"read access rollout of authority "+authorityID.String(),
+			err,
+		)
 	}
+
 	return writeSearchRolloutResult(ctx, sink, rollouts, current, true)
 }

@@ -32,11 +32,18 @@ func TestDeployVerifyComparesTheGivenIndexDigest(t *testing.T) {
 	if err != nil {
 		t.Fatalf("deploy verify with the pushed index digests: %v\n%s", err, output)
 	}
+
 	t.Logf("matching digests: %s", strings.TrimSpace(output))
 	output, err = fixture.verify(t, consumerDigest, consumerDigest)
-	if err == nil || !strings.Contains(err.Error(), "descriptor digest differs") || !strings.Contains(err.Error(), "tack-app-1") {
-		t.Fatalf("deploy verify with the other index digest for tack-server = %v, want a refusal for tack-app-1\n%s", err, output)
+	if err == nil || !strings.Contains(err.Error(), "descriptor digest differs") ||
+		!strings.Contains(err.Error(), "tack-app-1") {
+		t.Fatalf(
+			"deploy verify with the other index digest for tack-server = %v, want a refusal for tack-app-1\n%s",
+			err,
+			output,
+		)
 	}
+
 	t.Logf("mismatching digest refused: %v", err)
 }
 
@@ -46,16 +53,38 @@ const deployVerifyOperatorID = "019dd226-440e-729a-a442-281aaf73ca30"
 // runOpsDeployVerify runs the audited ops deploy verify command as operatorID
 // with the two digest flags, the real operator outbox, and the real YugabyteDB
 // read lifecycle.
-func runOpsDeployVerify(t *testing.T, cfg *config.Config, ledgerDSN, operatorID, serverDigest, consumerDigest string) (string, error) {
+func runOpsDeployVerify(
+	t *testing.T,
+	cfg *config.Config,
+	ledgerDSN string,
+	operatorID string,
+	serverDigest string,
+	consumerDigest string,
+) (string, error) {
 	t.Helper()
-	return runOpsDeployVerifyArgs(t, cfg, ledgerDSN, operatorID,
-		"--tack-server-digest", serverDigest, "--tack-audit-consumer-digest", consumerDigest)
+
+	return runOpsDeployVerifyArgs(
+		t,
+		cfg,
+		ledgerDSN,
+		operatorID,
+		"--tack-server-digest",
+		serverDigest,
+		"--tack-audit-consumer-digest",
+		consumerDigest,
+	)
 }
 
 // runOpsDeployVerifyArgs runs the audited ops deploy verify command as
 // operatorID with verifyArgs after the command path, the real operator
 // outbox, and the real YugabyteDB read lifecycle.
-func runOpsDeployVerifyArgs(t *testing.T, cfg *config.Config, ledgerDSN, operatorID string, verifyArgs ...string) (string, error) {
+func runOpsDeployVerifyArgs(
+	t *testing.T,
+	cfg *config.Config,
+	ledgerDSN string,
+	operatorID string,
+	verifyArgs ...string,
+) (string, error) {
 	t.Helper()
 	pool, err := pgxpool.New(t.Context(), ledgerDSN)
 	if err != nil {
@@ -71,11 +100,19 @@ func runOpsDeployVerifyArgs(t *testing.T, cfg *config.Config, ledgerDSN, operato
 	root := searchCommandRoot(factory)
 	root.SetContext(t.Context())
 	args := []string{
-		"--execute", "--operator-id", operatorID,
-		"--operator-email", "operator@example.com", "--operator-name", "Deploy Verify Test",
-		"ops", "deploy", "verify",
+		"--execute",
+		"--operator-id",
+		operatorID,
+		"--operator-email",
+		"operator@example.com",
+		"--operator-name",
+		"Deploy Verify Test",
+		"ops",
+		"deploy",
+		"verify",
 	}
 	root.SetArgs(append(args, verifyArgs...))
 	runErr := root.Execute()
+
 	return output.String(), runErr
 }
