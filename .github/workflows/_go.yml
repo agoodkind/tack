@@ -1,0 +1,90 @@
+name: Go module checks and builds
+
+on:
+  workflow_call:
+    inputs:
+      build:
+        description: Run the module binary build.
+        type: boolean
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  module:
+    name: ${{ matrix.component }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - component: Server
+            directory: .
+            foundationdb: true
+            test_packages: $(GO_TEST_PACKAGES)
+          - component: Tack provider
+            directory: provider
+            foundationdb: false
+            test_packages: ./...
+    defaults:
+      run:
+        working-directory: ${{ matrix.directory }}
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GOLANGCI_LINT_INSTALL: github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.15.0
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: ${{ matrix.directory }}/go.mod
+          cache-dependency-path: ${{ matrix.directory }}/go.sum
+      - name: Read the FoundationDB client version
+        if: matrix.foundationdb
+        id: foundationdb
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const dockerfile = require('node:fs').readFileSync('Dockerfile', 'utf8');
+            const version = /^ARG FDB_VERSION=(\S+)$/m.exec(dockerfile)?.[1];
+            if (!version) throw new Error('Dockerfile must declare FDB_VERSION.');
+            core.setOutput('version', version);
+      - name: Download the FoundationDB client
+        if: matrix.foundationdb
+        env:
+          FDB_VERSION: ${{ steps.foundationdb.outputs.version }}
+        run: >-
+          gh release download "${FDB_VERSION}" --repo apple/foundationdb
+          --pattern "foundationdb-clients_${FDB_VERSION}-1_amd64.deb"
+          --output "${RUNNER_TEMP}/fdb-clients.deb"
+      - name: Install the FoundationDB client
+        if: matrix.foundationdb
+        run: sudo dpkg -i "${RUNNER_TEMP}/fdb-clients.deb"
+      - name: Install golangci-lint
+        uses: golangci/golangci-lint-action@v9
+        with:
+          version: v2.15.0
+          install-only: true
+          skip-cache: true
+      - name: Resolve the lint cache
+        id: cache
+        run: make go-mk-cache-manifest
+      - name: Cache lint analysis
+        uses: actions/cache@v6
+        with:
+          path: ${{ steps.cache.outputs.lint_cache_paths }}
+          key: go-mk-golangci-${{ runner.os }}-${{ runner.arch }}-${{ matrix.directory }}-golangci-v2.15.0-${{ hashFiles(format('{0}/go.mod', matrix.directory), format('{0}/go.sum', matrix.directory), format('{0}/go.work', matrix.directory), format('{0}/go.work.sum', matrix.directory)) }}-${{ github.sha }}
+          restore-keys: |
+            go-mk-golangci-${{ runner.os }}-${{ runner.arch }}-${{ matrix.directory }}-golangci-v2.15.0-${{ hashFiles(format('{0}/go.mod', matrix.directory), format('{0}/go.sum', matrix.directory), format('{0}/go.work', matrix.directory), format('{0}/go.work.sum', matrix.directory)) }}-
+      - name: Run static checks
+        if: ${{ !inputs.build }}
+        run: make build-check
+      - name: Run unit tests
+        if: ${{ !inputs.build && !cancelled() }}
+        env:
+          DOCKER_HOST: unix://${{ runner.temp }}/tack-pr-ci-no-docker.sock
+        run: make test GO_TEST_TARGETS='-short -count=1 -timeout 20m ${{ matrix.test_packages }}'
+      - name: Build the module binary
+        if: inputs.build
+        run: make build
