@@ -1,6 +1,5 @@
-// backup_restore_drill_scratch_image_test.go reads the engine images the
-// scratch tests boot from docker-compose.yml, so they run the versions the
-// live stores run, the same source internal/testenv reads its engines from.
+// Scratch tests read engine images from docker-compose.yml, matching the
+// versions that internal/testenv uses for live-store tests.
 
 package ops
 
@@ -12,11 +11,11 @@ import (
 	"go.yaml.in/yaml/v3"
 )
 
-// composeDefaultedVariable matches the compose form ${NAME:-default}.
+// composeDefaultedVariable matches the Compose form ${NAME:-default}.
 var composeDefaultedVariable = regexp.MustCompile(`\$\{([A-Za-z_][A-Za-z0-9_]*):-([^}]*)\}`)
 
-// composeServiceImage returns the image docker-compose.yml runs for service,
-// with any ${NAME:-default} reference resolved the way compose resolves it.
+// composeServiceImage reads a service image and resolves ${NAME:-default}
+// references using Compose's nonempty-environment-value rule.
 func composeServiceImage(t *testing.T, service string) string {
 	t.Helper()
 	path := repoFilePath(t, "docker-compose.yml")
@@ -36,7 +35,7 @@ func composeServiceImage(t *testing.T, service string) string {
 
 	image := stack.Services[service].Image
 	if image == "" {
-		t.Fatalf("%s declares no image for service %s", path, service)
+		t.Fatalf("%s does not specify an image for service %s", path, service)
 	}
 
 	return composeDefaultedVariable.ReplaceAllStringFunc(

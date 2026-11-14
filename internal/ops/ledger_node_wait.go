@@ -1,10 +1,6 @@
-// ledger_node_wait.go decides when a restarted ledger node has stopped coming
-// up, not when it has taken too long. A node that replays a large write-ahead
-// log is quiet for as long as the log is long, so a fixed budget for the whole
-// start is a wall a growing ledger eventually hits, and it hit one on
-// production (TACK-488). Only inactivity is bounded here, the way the
-// FoundationDB restore wait bounds it: a node that keeps making progress
-// waits for as long as it needs.
+// ledger_node_wait.go limits startup inactivity rather than total startup
+// time (TACK-488). A large write-ahead log can require a long replay. The wait
+// continues while the node makes progress, as the FoundationDB restore wait does.
 
 package ops
 
@@ -21,42 +17,38 @@ import (
 )
 
 const (
-	// ledgerNodeWaitDefaultStall is how long the node may show no progress at
-	// all before the wait calls it stalled. It bounds inactivity and never
-	// total work.
+	// ledgerNodeWaitDefaultStall limits time without progress, not total work.
 	ledgerNodeWaitDefaultStall = 5 * time.Minute
-	// ledgerNodeWaitDefaultPoll is how often the wait reads the node.
+	// ledgerNodeWaitDefaultPoll specifies the interval between node reads.
 	ledgerNodeWaitDefaultPoll = 10 * time.Second
-	// Names of the falling counters, as the master reports them.
+	// These keys identify the master's counters that decrease during recovery.
 	ledgerCounterDeadNodes       = "dead_nodes"
 	ledgerCounterUnderReplicated = "under_replicated_tablets"
 )
 
-// ledgerNodeHealth is what the container runtime says about the node.
+// ledgerNodeHealth records the node's container status.
 type ledgerNodeHealth struct {
 	status  string
 	running bool
 }
 
-// ledgerClusterCounts is what the master quorum says about the cluster: how
-// many nodes it cannot reach and how many tablets are short a replica. Both
-// fall as a restarted node registers and brings its tablets back, so a fall
-// in either is the evidence the node is still moving.
+// ledgerClusterCounts records unavailable nodes and tablets missing replicas.
+// A decrease in either count indicates recovery progress.
 type ledgerClusterCounts struct {
 	deadNodes       int
 	underReplicated int
 }
 
-// ledgerNodeWatch is what the wait reads on each poll. Both are functions so
-// the loop is exercised in tests without a Docker daemon or a cluster.
+// ledgerNodeWatch supplies container health and cluster counts for each poll.
+// Function fields permit testing the wait without Docker or a cluster.
 type ledgerNodeWatch struct {
 	Health  func(ctx context.Context) (ledgerNodeHealth, error)
 	Cluster func(ctx context.Context) (ledgerClusterCounts, error)
 }
 
-// ledgerNodeProgress remembers the lowest value each counter has reached.
-// Marks, rather than the last reading, are what stop a count that moves both
-// ways from looking like progress forever.
+// ledgerNodeProgress records each counter's lowest observed value. Comparing
+// against the minimum prevents repeated increases and decreases from extending
+// the wait indefinitely.
 type ledgerNodeProgress struct {
 	lowWater map[string]int
 }
@@ -65,9 +57,8 @@ func newLedgerNodeProgress() *ledgerNodeProgress {
 	return &ledgerNodeProgress{lowWater: map[string]int{}}
 }
 
-// observe records one reading and reports whether any counter fell past its
-// mark. The first reading counts as movement, because the cluster answering
-// at all is progress for a node that was just restarted.
+// observe reports progress on the first successful cluster read or when a
+// counter decreases below its recorded minimum.
 func (p *ledgerNodeProgress) observe(counts ledgerClusterCounts) bool {
 	moved := p.observeFall(ledgerCounterDeadNodes, counts.deadNodes)
 	if p.observeFall(ledgerCounterUnderReplicated, counts.underReplicated) {
@@ -88,8 +79,8 @@ func (p *ledgerNodeProgress) observeFall(name string, value int) bool {
 	return true
 }
 
-// summary renders every mark in a stable order, and says so when no reading
-// ever arrived.
+// summary renders recorded minima in a stable order. It reports when the
+// masters did not provide a readable cluster result.
 func (p *ledgerNodeProgress) summary() string {
 	if len(p.lowWater) == 0 {
 		return "no cluster reading was ever readable from the masters"
@@ -103,10 +94,9 @@ func (p *ledgerNodeProgress) summary() string {
 	return strings.Join(parts, " ")
 }
 
-// awaitLedgerNode blocks until the node's container reports healthy, exits,
-// or stops making progress. stallWindow bounds only the time since the last
-// observed movement. A container that is not running ends the wait at once:
-// nothing will make it healthy.
+// awaitLedgerNode waits until the container reports healthy, exits, or stops
+// making progress. stallWindow limits time since the last observed progress.
+// A stopped container ends the wait immediately.
 func awaitLedgerNode(
 	ctx context.Context,
 	watch ledgerNodeWatch,
@@ -170,8 +160,8 @@ func awaitLedgerNode(
 	}
 }
 
-// ledgerNodeStallError names what the wait saw before it gave up, so a wedged
-// node reads differently from masters the wait could not reach.
+// ledgerNodeStallError includes observed progress and the last cluster read
+// failure to distinguish stalled recovery from unavailable masters.
 func ledgerNodeStallError(
 	stalled time.Duration,
 	health string,

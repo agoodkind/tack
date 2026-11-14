@@ -237,7 +237,7 @@ func runDropKilltestSchema(
 
 	_, document, found := strings.Cut(output.String(), "{")
 	if !found {
-		t.Fatalf("the command printed no JSON report: %q", output.String())
+		t.Fatalf("the command did not print a JSON report: %q", output.String())
 	}
 
 	if err := json.Unmarshal([]byte("{"+document), &report); err != nil {

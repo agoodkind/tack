@@ -21,17 +21,15 @@ type auditSignersInput struct {
 	AllowUnverified     bool
 }
 
-// auditSignersResult is the `audit signers` output: the scan of
-// audit.notarizations against the valid signer set.
+// auditSignersResult reports the audit.notarizations signer check.
 type auditSignersResult struct {
 	clispec.ResultMarker `exhaustruct:"optional"`
 	Command              string             `json:"command"`
 	Report               audit.SignerReport `json:"report"`
 }
 
-// auditSignersOp declares `audit signers`: every notarization since a point
-// in time is checked against the valid signer set, and any signed outside it
-// is reported by identifier and claimed host (TACK-437).
+// auditSignersOp checks notarizations since a given time against the valid
+// signer set and reports disallowed signers and their claimed hosts (TACK-437).
 func auditSignersOp(f *cli.Factory) clispec.Operation[auditSignersInput] {
 	return clispec.Operation[auditSignersInput]{
 		Name:     clispec.Name{Canonical: "signers", CLIOverride: ""},
@@ -41,13 +39,13 @@ func auditSignersOp(f *cli.Factory) clispec.Operation[auditSignersInput] {
 		Aliases:  nil,
 		Hidden:   false,
 		Short:    "Check every notarization against the valid signer set and report any signed outside it",
-		Long: "Run it through the app service, which mounts the signing key and carries the set. " +
-			"Reads audit.notarizations through the reader role. A row whose signing key is " +
-			"outside the set fails the command and is reported with the hosts it claimed; a row " +
-			"under the local key has its signature verified; a row under another allowed key " +
-			"cannot be verified here and fails the command unless --allow-unverified is passed. " +
-			"The set comes from AUDIT_VALID_SIGNERS or --signers, the key from " +
-			"AUDIT_SIGNING_KEY_PATH or --pub, and the command refuses to run without either.",
+		Long: "Run through the app service, which mounts the signing key and configures the signer set. " +
+			"The command reads audit.notarizations through the reader role. It reports rows " +
+			"with signing keys outside the set, including their claimed hosts, and fails. " +
+			"It verifies signatures under the local key. Rows under other allowed keys fail " +
+			"unless --allow-unverified accepts them without signature verification. " +
+			"The command requires both a signer set from AUDIT_VALID_SIGNERS or --signers " +
+			"and a key from AUDIT_SIGNING_KEY_PATH or --pub.",
 		Examples: nil,
 		Args:     nil,
 		Params: []clispec.Param[auditSignersInput]{
@@ -74,7 +72,7 @@ func auditSignersOp(f *cli.Factory) clispec.Operation[auditSignersInput] {
 			),
 			clispec.BoolParam(
 				"allow-unverified",
-				"accept rows under allowed identifiers this host holds no key for",
+				"accept rows for allowed signers other than the local signer",
 				false,
 				func(in *auditSignersInput, v bool) { in.AllowUnverified = v },
 			),
@@ -113,8 +111,8 @@ func runAuditSigners(
 		}
 
 		if !set.Configured() {
-			// Refused before anything is opened: an empty set would accept
-			// nothing and a skipped check would accept everything.
+			// Require a signer set before opening the reader.
+			// An empty set rejects all rows; skipping the check accepts all rows.
 			slog.ErrorContext(
 				ctx,
 				"audit.signers_no_set",
@@ -162,8 +160,7 @@ func runAuditSigners(
 			return fmt.Errorf("audit signers: render report: %w", writeErr)
 		}
 
-		// The report prints either way; the exit code carries the verdict for
-		// a script or a release gate that reads nothing else.
+		// Print the report before returning a failing verdict for automation.
 		if verdictErr := report.Err(); verdictErr != nil {
 			slog.ErrorContext(ctx, "audit.signers_rejected", slog.String("err", verdictErr.Error()))
 			return fmt.Errorf("audit signers: %w", verdictErr)
@@ -173,9 +170,8 @@ func runAuditSigners(
 	}
 }
 
-// auditSignerSet parses the set from the flag, else from AUDIT_VALID_SIGNERS.
-// An empty result is a set with no members, which the callers treat as
-// unconfigured.
+// auditSignerSet parses the flag or AUDIT_VALID_SIGNERS.
+// Callers treat an empty set as unconfigured.
 func auditSignerSet(
 	ctx context.Context,
 	f *cli.Factory,
@@ -195,10 +191,8 @@ func auditSignerSet(
 	return set, nil
 }
 
-// auditLocalPublicKey loads the public half of the local signing key from the
-// flag, else from AUDIT_SIGNING_KEY_PATH. No key is a refusal: a run that
-// verified no signature would read as a pass while proving only that
-// identifier strings matched.
+// auditLocalPublicKey loads the public key from the flag or AUDIT_SIGNING_KEY_PATH.
+// Require a key to prevent success based only on matching signer identifiers.
 func auditLocalPublicKey(
 	ctx context.Context,
 	f *cli.Factory,

@@ -13,11 +13,9 @@ import (
 	"goodkind.io/tack/internal/config"
 )
 
-// TestYBSnapshotGatedArtifactNamesExcludeTheManifest proves the manifest
-// declares every artifact except itself. Its own presence is what makes the run
-// visible to a walk at all, so a manifest gating it would assert nothing, while
-// every other artifact the export uploads must be gated without the gate being
-// told which artifacts exist.
+// TestYBSnapshotGatedArtifactNamesExcludeTheManifest checks that the manifest
+// requires every uploaded artifact except itself. Discovery already requires
+// the manifest's presence.
 func TestYBSnapshotGatedArtifactNamesExcludeTheManifest(t *testing.T) {
 	files := ybSnapshotUploadArtifacts(
 		"/stage",
@@ -32,16 +30,10 @@ func TestYBSnapshotGatedArtifactNamesExcludeTheManifest(t *testing.T) {
 	}
 }
 
-// TestYBSchemaDumpArgsDescribePrivileges proves the schema dump asks the engine
-// to describe the database's access control.
-//
-// The dump used to pass --no-privileges, which stripped every GRANT and REVOKE
-// from the artifact. A restore then rebuilt the tables and the row-level
-// security policies with none of the privileges those policies depend on, and
-// the ledger came back unreadable to every application role, including the
-// audit_reader the product reads through (TACK-474). Nothing else in a recovery
-// re-establishes them: the migration that granted them is never re-run against
-// a restored database.
+// TestYBSchemaDumpArgsDescribePrivileges checks that schema dumps retain GRANT
+// and REVOKE statements. Restored row-level security policies require these
+// privileges for application roles, including audit_reader (TACK-474).
+// Recovery does not rerun the migrations that granted them.
 func TestYBSchemaDumpArgsDescribePrivileges(t *testing.T) {
 	args := ybSchemaDumpArgs(&config.Config{YugabyteDB: "tack"})
 
@@ -62,15 +54,14 @@ func TestYBSchemaDumpArgsDescribePrivileges(t *testing.T) {
 	}
 
 	if !slices.Contains(args, "-d") || !slices.Contains(args, "tack") {
-		t.Fatalf("schema dump does not name the database: %v", args)
+		t.Fatalf("schema dump does not specify the database: %v", args)
 	}
 }
 
-// TestYBRolesDumpArgsCarryIdentitiesNotCredentials proves the roles dump asks
-// for the cluster's roles and refuses to carry their passwords. Roles are
-// cluster objects, so the per-database schema dump cannot describe them, and
-// the grants the schema carries name roles a restore must already have.
-func TestYBRolesDumpArgsCarryIdentitiesNotCredentials(t *testing.T) {
+// TestYBRolesDumpArgsExcludePasswords checks that the cluster
+// roles dump excludes passwords. Database schema grants reference these roles;
+// the per-database schema dump cannot create cluster roles.
+func TestYBRolesDumpArgsExcludePasswords(t *testing.T) {
 	args := ybRolesDumpArgs(&config.Config{YugabyteDB: "tack"})
 
 	for _, required := range []string{"--roles-only", "--no-role-passwords"} {
@@ -84,8 +75,8 @@ func TestYBRolesDumpArgsCarryIdentitiesNotCredentials(t *testing.T) {
 	}
 }
 
-// TestUploadYBSnapshotArtifactsUploadsInOrder proves the uploader preserves
-// slice order, so the manifest-last contract survives the actual upload loop.
+// TestUploadYBSnapshotArtifactsUploadsInOrder checks that the upload loop
+// preserves slice order and uploads the manifest last.
 func TestUploadYBSnapshotArtifactsUploadsInOrder(t *testing.T) {
 	var uploaded []string
 	putYBSnapshotObject = func(_ context.Context, _ *s3.Client, _, key, _ string) error {
@@ -121,11 +112,9 @@ func TestUploadYBSnapshotArtifactsUploadsInOrder(t *testing.T) {
 	}
 }
 
-// TestYBNodeArtifactsUploadTheArchiveLast proves one node's run publishes its
-// inventory before the archive. The archive's presence is what the completeness
-// gate and the archive command's own idempotency probe read, so an archive that
-// landed first could stand for a run whose inventory never arrived, and every
-// later reader would treat that node as done.
+// TestYBNodeArtifactsUploadTheArchiveLast checks that each node uploads its
+// inventory before its archive. Completeness and idempotency checks require
+// both artifacts.
 func TestYBNodeArtifactsUploadTheArchiveLast(t *testing.T) {
 	var uploaded []string
 	putYBSnapshotObject = func(_ context.Context, _ *s3.Client, _, key, _ string) error {
@@ -155,9 +144,8 @@ func TestYBNodeArtifactsUploadTheArchiveLast(t *testing.T) {
 	}
 }
 
-// TestUploadYBSnapshotArtifactsStopsBeforeManifest proves a failed payload
-// upload prevents the manifest from ever landing, so a partially uploaded run
-// can never pass the completeness gate.
+// TestUploadYBSnapshotArtifactsStopsBeforeManifest checks that failed payload
+// uploads prevent manifest publication and acceptance of an incomplete run.
 func TestUploadYBSnapshotArtifactsStopsBeforeManifest(t *testing.T) {
 	var uploaded []string
 	putYBSnapshotObject = func(_ context.Context, _ *s3.Client, _, key, _ string) error {
@@ -190,9 +178,8 @@ func TestUploadYBSnapshotArtifactsStopsBeforeManifest(t *testing.T) {
 	}
 }
 
-// TestParseYBClusterSnapshots parses list_snapshots output into id and state,
-// ignoring the header, non-UUID rows, and the restoration section whose ids
-// are also UUIDs but are not snapshots.
+// TestParseYBClusterSnapshots checks snapshot IDs and states while excluding
+// headers, non-UUID rows, and restoration UUIDs.
 func TestParseYBClusterSnapshots(t *testing.T) {
 	out := "Snapshot UUID                            State      Creation Time\n" +
 		"11111111-1111-2222-3333-444455556666     COMPLETE   2026-08-26 03:00:00\n" +
@@ -209,10 +196,8 @@ func TestParseYBClusterSnapshots(t *testing.T) {
 	}
 }
 
-// TestUnmarshalYBScheduleSnapshotIDs decodes the documented
-// list_snapshot_schedules JSON into the set of schedule-owned snapshot ids,
-// and rejects unparseable output so the orphan pass is skipped rather than
-// run against an unknown schedule state.
+// TestUnmarshalYBScheduleSnapshotIDs checks schedule-owned snapshot IDs and
+// rejects malformed JSON. Unknown schedule state must prevent orphan cleanup.
 func TestUnmarshalYBScheduleSnapshotIDs(t *testing.T) {
 	out := `{"schedules":[` +
 		`{"id":"6eaaa4fb-397f-41e2-a8fe-a93e0c9f5256","snapshots":[{"id":"aaaa1111-1111-2222-3333-444455556666"}]},` +
@@ -236,10 +221,9 @@ func TestUnmarshalYBScheduleSnapshotIDs(t *testing.T) {
 	}
 }
 
-// TestReconcileYBOrphanSnapshots exercises the orphan verdicts: snapshots a
-// walked manifest references are ignored, schedule-owned snapshots and
-// non-deletable states are kept with a reason, and the rest are deleted as
-// leftovers of exports that died before their manifest upload.
+// TestReconcileYBOrphanSnapshots checks that cleanup ignores referenced
+// snapshots, retains schedule-owned snapshots and non-deletable states with a
+// reason, and deletes unreferenced export leftovers.
 func TestReconcileYBOrphanSnapshots(t *testing.T) {
 	states := map[string]ybSnapshotStatus{
 		"referenced-1": ybSnapStatusComplete,
@@ -263,8 +247,8 @@ func TestReconcileYBOrphanSnapshots(t *testing.T) {
 	}
 }
 
-// ybCleanupManifestFixture is a satisfied one-node manifest for runID whose
-// snapshot id is snapshotID, for cleanupYBExportRuns tests.
+// ybCleanupManifestFixture creates a complete one-node manifest for cleanup
+// tests with the supplied run and snapshot IDs.
 func ybCleanupManifestFixture(runID, snapshotID string) ybSnapshotManifest {
 	return ybSnapshotManifest{
 		RunID:      runID,
@@ -274,11 +258,10 @@ func ybCleanupManifestFixture(runID, snapshotID string) ybSnapshotManifest {
 	}
 }
 
-// TestCleanupYBExportRunsManifestErrorSkipsOrphanPass proves a non-NotFound
-// manifest fetch failure on one run forbids the orphan pass, because that
-// run's snapshot id never reached the reference set, while the satisfied-run
-// deletion for the other walked runs still happens. A NotFound manifest on a
-// third run stays a clean skip and does not forbid anything on its own.
+// TestCleanupYBExportRunsManifestErrorSkipsOrphanPass checks that a manifest
+// fetch error other than NotFound prevents orphan cleanup when its snapshot
+// cannot enter the reference set. Complete runs still permit snapshot deletion;
+// NotFound alone does not prevent orphan cleanup.
 func TestCleanupYBExportRunsManifestErrorSkipsOrphanPass(t *testing.T) {
 	states := map[string]ybSnapshotStatus{
 		"snap-3":   ybSnapStatusComplete,
@@ -323,9 +306,9 @@ func TestCleanupYBExportRunsManifestErrorSkipsOrphanPass(t *testing.T) {
 	}
 }
 
-// TestCleanupYBExportRunsMissingManifestAllowsOrphanPass proves a NotFound
-// manifest counts as cleanly resolved: a run that never uploaded its manifest
-// is exactly what the orphan pass exists to reap, so it must not forbid it.
+// TestCleanupYBExportRunsMissingManifestAllowsOrphanPass checks that NotFound
+// permits orphan cleanup, which deletes snapshots from runs that never
+// published their manifests.
 func TestCleanupYBExportRunsMissingManifestAllowsOrphanPass(t *testing.T) {
 	states := map[string]ybSnapshotStatus{"snap-2": ybSnapStatusComplete}
 	fetch := func(runID string) (ybSnapshotManifest, error) {
@@ -364,9 +347,9 @@ func TestCleanupYBExportRunsMissingManifestAllowsOrphanPass(t *testing.T) {
 	}
 }
 
-// TestCleanupYBExportRunsNoRunsSkipsOrphanPass proves an empty run listing
-// forbids the orphan pass: with no manifests to reference, every non-schedule
-// cluster snapshot would look like an orphan and be deleted.
+// TestCleanupYBExportRunsNoRunsSkipsOrphanPass checks that an empty run listing
+// prevents deletion. Without manifests, cleanup cannot distinguish export
+// orphans from other snapshots outside schedules.
 func TestCleanupYBExportRunsNoRunsSkipsOrphanPass(t *testing.T) {
 	fetch := func(string) (ybSnapshotManifest, error) {
 		t.Fatal("fetch must not be called with no run prefixes")

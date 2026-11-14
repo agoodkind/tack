@@ -8,12 +8,9 @@ import (
 	"goodkind.io/tack/internal/clispec"
 )
 
-// storeGroup is the parent of the commands that change the product store's
-// cluster configuration. Together they are the online migration from one
-// process on the owner guest to one process per data guest: join the new
-// processes by starting them, raise the redundancy, move the coordinators onto
-// the data guests' pinned addresses, then exclude the process that is leaving
-// (TACK-408).
+// storeGroup defines cluster configuration commands for distributed storage
+// (TACK-408). Migration starts new processes, raises redundancy, replaces
+// coordinators with pinned data-guest addresses, and excludes old processes.
 var storeGroup = &clispec.Group{
 	Use:    "store",
 	Short:  "Read and change the product store's cluster configuration",
@@ -21,15 +18,13 @@ var storeGroup = &clispec.Group{
 	Parent: opsGroup,
 }
 
-// storeRedundancyInput is the redundancy word, empty for the environment's own
-// TACK_OPS_FDB_REDUNDANCY_MODE.
+// storeRedundancyInput selects a mode. Empty uses TACK_OPS_FDB_REDUNDANCY_MODE.
 type storeRedundancyInput struct {
 	clispec.InputMarker
 	Mode string
 }
 
-// storeAddressesInput is a comma-separated list of the guests' pinned
-// addresses.
+// storeAddressesInput lists pinned guest addresses separated by commas.
 type storeAddressesInput struct {
 	clispec.InputMarker
 	Addresses string
@@ -44,12 +39,10 @@ func storeStatusOp(f *cli.Factory) clispec.Operation[noInput] {
 		Group:    storeGroup,
 		Aliases:  nil,
 		Hidden:   false,
-		Short:    "Print what the product store reports about itself",
-		Long: "Runs the cluster's own status report and prints it verbatim: the " +
-			"process count, the redundancy mode, the coordinators, the fault " +
-			"tolerance, and the running backup sessions. Every acceptance " +
-			"reading for the distributed store is taken from this output rather " +
-			"than from what a deploy intended.",
+		Short:    "Print the product store's cluster status",
+		Long: "Print the cluster's status report verbatim, including process count, " +
+			"redundancy mode, coordinators, fault tolerance, and backup sessions. " +
+			"Validate the distributed store against this observed state, not deployment intent.",
 		Examples: nil,
 		Args:     nil,
 		Params:   nil,
@@ -70,12 +63,11 @@ func storeSetRedundancyOp(f *cli.Factory) clispec.Operation[storeRedundancyInput
 		Aliases:  nil,
 		Hidden:   false,
 		Short:    "Set how many copies of every key the product store keeps",
-		Long: "double keeps two copies and survives the loss of one data guest; " +
-			"triple needs all three guests live, so it turns one guest's loss " +
-			"into an outage on a three-guest cluster; single keeps one copy and " +
-			"is the local and single-guest value. The change is online: the " +
-			"cluster replicates in the background while it keeps serving. " +
-			"Without --mode the command sets TACK_OPS_FDB_REDUNDANCY_MODE.",
+		Long: "double stores two copies and tolerates one data-guest failure. " +
+			"triple requires all three guests on a three-guest cluster; one guest's " +
+			"failure causes an outage. single stores one copy for local or single-guest " +
+			"environments. The cluster continues serving requests during background " +
+			"replication. Without --mode, the command uses TACK_OPS_FDB_REDUNDANCY_MODE.",
 		Examples: nil,
 		Args:     nil,
 		Params: []clispec.Param[storeRedundancyInput]{
@@ -106,15 +98,12 @@ func storeSetCoordinatorsOp(f *cli.Factory) clispec.Operation[storeAddressesInpu
 		Aliases:  nil,
 		Hidden:   false,
 		Short:    "Replace the product store's coordinators with the given addresses",
-		Long: "Takes a comma-separated list of the data guests' pinned addresses " +
-			"from the service inventory, each with an optional port that " +
-			"defaults to 4500. The count must be odd, because the coordinators " +
-			"decide by quorum. The cluster writes the new list into every " +
-			"connected client's cluster file itself, so a client that mounts " +
-			"that file writable needs no restart. Container addresses and names " +
-			"are refused: a container address disappears on the next recreate, " +
-			"and a name leaves for site DNS, where the wildcard record answers " +
-			"as the proxy.",
+		Long: "Supply an odd number of pinned data-guest addresses from the service " +
+			"inventory, separated by commas. The optional port defaults to 4500. " +
+			"Coordinators require an odd count for quorum decisions. The cluster " +
+			"updates connected clients' writable cluster files without a restart. " +
+			"The command refuses container addresses and names. Container addresses " +
+			"change on recreation, and site DNS resolves names to the wildcard proxy.",
 		Examples: nil,
 		Args:     nil,
 		Params: []clispec.Param[storeAddressesInput]{
@@ -144,13 +133,12 @@ func storeExcludeOp(f *cli.Factory) clispec.Operation[storeAddressesInput] {
 		Group:    storeGroup,
 		Aliases:  nil,
 		Hidden:   false,
-		Short:    "Take the named store processes out of service, moving their data first",
-		Long: "The cluster moves every copy of a key off the named addresses and " +
-			"the command returns only once it has, so the processes can then be " +
-			"stopped without losing a copy. This is the step that retires the " +
-			"process on the guest the store started on. While an address still " +
-			"stores the last copy of a key, the command keeps waiting rather " +
-			"than letting that key go.",
+		Short:    "Exclude store processes after replicating their keys elsewhere",
+		Long: "The cluster replicates each excluded process's keys on other " +
+			"addresses before the command returns. Stop the processes only after " +
+			"the command succeeds. This operation retires the original guest's " +
+			"store process during relocation. The command continues waiting while " +
+			"an excluded address stores the last copy of a key.",
 		Examples: nil,
 		Args:     nil,
 		Params: []clispec.Param[storeAddressesInput]{

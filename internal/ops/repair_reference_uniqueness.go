@@ -32,16 +32,14 @@ type RepairReferenceOptions struct {
 	Execute bool
 	// Keep selects the retained node: oldest or newest. Empty keeps oldest.
 	Keep string
-	// FailAfterRenames stops the run once it has applied that many renames,
-	// so a partway failure can be produced against a real store on a testbed.
-	// Zero disables it. The CLI refuses the flag outside a QA or local target,
-	// so a production run cannot reach this (TACK-452).
+	// FailAfterRenames stops execution after the specified number of renames
+	// to test recording of partial repairs against a real store. Zero disables
+	// the fault. The CLI permits it only on QA or local targets (TACK-452).
 	FailAfterRenames int
 }
 
-// ErrRepairFaultInjected is what a run stopped by FailAfterRenames returns.
-// It is a real failure by design: the point is to leave applied renames behind
-// and prove the command still records them.
+// ErrRepairFaultInjected reports a stop requested by FailAfterRenames.
+// Applied renames still require audit records after this failure.
 var ErrRepairFaultInjected = errors.New("repair stopped by the injected testbed fault")
 
 // ReferenceRename records one repaired node reference.
@@ -69,9 +67,8 @@ type ReferenceKeyWrite struct {
 	Encoded      string
 }
 
-// RepairReferenceReport records the work one repair run planned or applied.
-// Each slice names its items rather than counting them, because the ledger
-// records one event per item and a count cannot be turned back into one.
+// RepairReferenceReport records each planned or applied change. The ledger
+// requires one event per item; counts cannot reconstruct the changed items.
 type RepairReferenceReport struct {
 	Renumbered []ReferenceRename
 	Counters   []ReferenceCounterSeed
@@ -114,7 +111,7 @@ func runRepairReferenceUniqueness(ctx context.Context, env *Env) error {
 }
 
 // RepairReferenceUniqueness seeds counters, renumbers duplicates, and writes
-// reference keys. It applies no changes unless opts.Execute is true.
+// reference keys. It does not change state unless opts.Execute is true.
 func RepairReferenceUniqueness(
 	ctx context.Context,
 	env *Env,
@@ -143,10 +140,9 @@ func RepairReferenceUniqueness(
 		return report, err
 	}
 
-	// Every stage returns what it applied even when it fails, and the partial
-	// work is folded into the report before the error goes up. A run that dies
-	// midway has already written those changes to FoundationDB, so the report
-	// the caller records from has to carry them (TACK-452).
+	// Each stage returns committed changes even on failure. Add them to the
+	// report before returning the error. The caller must record every change
+	// that FoundationDB committed before a partial failure (TACK-452).
 	for orgID := range orgIDs {
 		seeded, seedErr := seedReferenceCounters(ctx, env, orgID, opts.Execute)
 		report.Counters = append(report.Counters, seeded...)

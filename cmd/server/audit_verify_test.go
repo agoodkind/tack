@@ -22,14 +22,9 @@ import (
 	"goodkind.io/tack/internal/clispec"
 )
 
-// TestAuditVerifyCommandFailsOnTamperedBundle runs the real command against a
-// bundle whose row hash does not match its contents, and asserts the command
-// returns an error.
-//
-// The verdict rule itself is covered in the audit package against a genuinely
-// valid bundle. This test exists for the wiring: deleting the command's call
-// to the report verdict leaves that other test green, and the command would
-// silently go back to exiting successfully on a tampered bundle.
+// TestAuditVerifyCommandFailsOnTamperedBundle checks that the command returns
+// an error for a mismatched row hash, even with a valid signature and signer.
+// Audit-package verdict tests alone do not check that the command uses the verdict.
 func TestAuditVerifyCommandFailsOnTamperedBundle(t *testing.T) {
 	dir := t.TempDir()
 	keyPath := writeVerifyTestKey(t, dir)
@@ -47,8 +42,7 @@ func TestAuditVerifyCommandFailsOnTamperedBundle(t *testing.T) {
 
 	factory := &cli.Factory{Cfg: nil, In: nil, Out: os.Stdout, Err: os.Stderr}
 	operation := auditVerifyOp(factory)
-	// The set names the verifying key, so the only failure left to catch is
-	// the row hash the test planted.
+	// Include the verifying key in the set to isolate row-hash rejection.
 	input := auditVerifyInput{
 		InputMarker: clispec.InputMarker{},
 		Bundle:      bundleDir,
@@ -58,12 +52,12 @@ func TestAuditVerifyCommandFailsOnTamperedBundle(t *testing.T) {
 
 	err = operation.Run(context.Background(), input, clispec.NewCLISink(factory))
 	if err == nil {
-		t.Fatal("command accepted a bundle whose row hash does not match, want failure")
+		t.Fatal("command accepted a mismatched row hash; expected failure")
 	}
 
 	if !strings.Contains(err.Error(), "failed their hash check") ||
 		strings.Contains(err.Error(), "signer") {
-		t.Fatalf("error = %v, want the row hash named and nothing about the signer", err)
+		t.Fatalf("error = %v, want a row-hash failure without a signer failure", err)
 	}
 }
 
@@ -94,10 +88,8 @@ func writeVerifyTestKey(t *testing.T, dir string) string {
 	return path
 }
 
-// writeMismatchedBundle writes a correctly signed bundle whose single row
-// carries a stored hash that does not match the row. The signature and the
-// file digest are valid, so the only thing that can reject this bundle is the
-// row hash comparison, which is the check under test.
+// writeMismatchedBundle writes a signed bundle with a mismatched stored row
+// hash. A valid signature and file digest isolate the row-hash check.
 func writeMismatchedBundle(t *testing.T, bundleDir, keyPath string) {
 	t.Helper()
 	priv, keyID, err := loadAuditKey(keyPath)
@@ -118,7 +110,7 @@ func writeMismatchedBundle(t *testing.T, bundleDir, keyPath string) {
 		Outcome:    audit.OutcomeOK,
 		EntityKind: "system",
 		EntityID:   orgID,
-		// Version 3 recomputes in one try; a wrong stored hash fails outright.
+		// Version 3 computes one hash and rejects a mismatch.
 		Context:     audit.EventContext{OrgID: orgID, Source: audit.SourceSystem},
 		HashVersion: 3,
 		RowHash:     []byte("this is not the hash of this row"),
@@ -141,8 +133,7 @@ func writeMismatchedBundle(t *testing.T, bundleDir, keyPath string) {
 		Oldest:   now.Add(-time.Hour),
 		Latest:   now.Add(time.Hour),
 		RowCount: 1,
-		// The manifest names the key that signs it, so the signer checks pass
-		// and the planted row hash is the only thing left to reject.
+		// Identify the actual signing key to isolate row-hash rejection.
 		FileSHA256:  hex.EncodeToString(digest[:]),
 		SignatureBy: keyID,
 	}

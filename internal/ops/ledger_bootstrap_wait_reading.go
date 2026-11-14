@@ -131,7 +131,7 @@ type ybUniverseConfig struct {
 func unmarshalUniverseNumReplicas(ctx context.Context, output string) (int, error) {
 	start, end := strings.Index(output, "{"), strings.LastIndex(output, "}")
 	if start < 0 || end < start {
-		return 0, errors.New("get_universe_config printed no JSON object")
+		return 0, errors.New("get_universe_config did not print a JSON object")
 	}
 
 	var universe ybUniverseConfig
@@ -148,7 +148,7 @@ func unmarshalUniverseNumReplicas(ctx context.Context, output string) (int, erro
 
 	if universe.ReplicationInfo == nil || universe.ReplicationInfo.LiveReplicas == nil ||
 		universe.ReplicationInfo.LiveReplicas.NumReplicas == nil {
-		return 0, errors.New("get_universe_config has no replicationInfo.liveReplicas.numReplicas")
+		return 0, errors.New("get_universe_config does not include replicationInfo.liveReplicas.numReplicas")
 	}
 
 	return *universe.ReplicationInfo.LiveReplicas.NumReplicas, nil

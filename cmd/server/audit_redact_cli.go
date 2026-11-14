@@ -16,11 +16,10 @@ type auditRedactActorInput struct {
 	ActorID             string
 }
 
-// auditRedactActorOp declares `audit redact-actor`: GDPR erasure of the PII
-// payload behind every event one org recorded for one actor. The global
-// --execute is the only action gate: without it the command reports what it
-// would erase and records nothing; with it the choke-point records intent
-// and outcome under audit.pii_redacted around the erasure.
+// auditRedactActorOp declares GDPR erasure of one actor's PII within one org.
+// Without --execute, the command reports the plan but does not erase PII or
+// record erasure. With --execute, the audit choke-point records intent and
+// outcome under audit.pii_redacted around the erasure.
 func auditRedactActorOp(f *cli.Factory) clispec.Operation[auditRedactActorInput] {
 	return clispec.Operation[auditRedactActorInput]{
 		Name:     clispec.Name{Canonical: "redact-actor", CLIOverride: ""},
@@ -30,10 +29,9 @@ func auditRedactActorOp(f *cli.Factory) clispec.Operation[auditRedactActorInput]
 		Aliases:  nil,
 		Hidden:   false,
 		Short:    "Erase the audit PII payloads of one actor within one org",
-		Long: "Prints how many audit.pii rows would be erased and changes nothing until " +
-			"--execute is passed. The ledger rows and their hash chain stay intact; only " +
-			"the actor's PII payload becomes null. Events the actor left in other orgs " +
-			"are untouched.",
+		Long: "Without --execute, the command counts audit.pii rows eligible for erasure " +
+			"but does not erase them. With --execute, it sets the actor's PII payload to null " +
+			"without changing ledger rows, their hash chain, or events in other orgs.",
 		Examples: nil,
 		Args:     nil,
 		Params: []clispec.Param[auditRedactActorInput]{
@@ -46,7 +44,7 @@ func auditRedactActorOp(f *cli.Factory) clispec.Operation[auditRedactActorInput]
 			),
 			clispec.StringParam(
 				"actor-id",
-				"actor_id (UUID) whose PII payloads to erase",
+				"actor_id (UUID) for PII erasure",
 				"",
 				true,
 				func(in *auditRedactActorInput, v string) { in.ActorID = v },

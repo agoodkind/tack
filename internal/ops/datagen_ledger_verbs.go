@@ -57,7 +57,7 @@ var datagenSearchSettingsVerbs = []string{
 }
 
 // readDatagenLedgerVerbs reads the presence of each host-only ledger verb
-// through AUDIT_READER_DSN. It records nothing of its own.
+// through AUDIT_READER_DSN. It does not record events of its own.
 func readDatagenLedgerVerbs(ctx context.Context, f *cli.Factory) (datagenLedgerVerbsReport, error) {
 	return readDatagenVerbPresence(
 		ctx,

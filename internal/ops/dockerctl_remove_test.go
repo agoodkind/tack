@@ -81,7 +81,7 @@ func TestRemoveContainerForceRemovesAnonymousVolumes(t *testing.T) {
 	}
 
 	if anonymous == "" {
-		t.Fatal("the container must carry an anonymous volume at /scratch before teardown")
+		t.Fatal("the container must mount an anonymous volume at /scratch before teardown")
 	}
 
 	removeContainerForce(ctx, cli, created.ID)

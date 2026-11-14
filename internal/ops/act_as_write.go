@@ -86,7 +86,7 @@ func recordActAsGrant(
 	defer cancel()
 	if err := outbox.WriteOutbox(recordCtx, event); err != nil {
 		slog.ErrorContext(ctx, "act_as.grant_record_failed", slog.String("err", err.Error()))
-		return fmt.Errorf("record the act-as grant, so the write did not happen: %w", err)
+		return fmt.Errorf("act-as grant recording failed; the product write did not run: %w", err)
 	}
 
 	return nil

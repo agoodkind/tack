@@ -54,7 +54,7 @@ func TestFindDuplicateReferencesReportsLegacyCollision(t *testing.T) {
 	}
 }
 
-func TestFindDuplicateReferencesReturnsNoGroupsWithoutCollisions(t *testing.T) {
+func TestFindDuplicateReferencesReturnsEmptyGroupsWithoutCollisions(t *testing.T) {
 	env := SetupTestEnv(t)
 	registerOpsOrg(t, env)
 	actor := uuid.New()

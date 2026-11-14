@@ -1,14 +1,6 @@
-// backup_yb_dump_endpoints.go decides which node a SQL dump talks to, and what
-// happens when one will not serve it.
-//
-// The dump used to be pinned to the first entry of master_addresses, which made
-// both SQL artifacts depend on one named node: with that node down, the export
-// produced neither the schema nor the roles even though the remaining nodes
-// held quorum and the cluster was serving reads and writes. A backup available
-// only while one particular node is up is less available than the data it backs
-// up. So a dump walks the configured nodes in order and stops at the first that
-// hands back a usable file, and only a cluster where none of them will is a
-// failure.
+// SQL exports try configured ledger endpoints in order until one produces a
+// usable artifact. A single unavailable node must not prevent backups while
+// the remaining cluster serves reads and writes.
 
 package ops
 
@@ -26,11 +18,8 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// ybDumpHosts returns the YSQL endpoints a dump may use, in the order
-// master_addresses lists them, with ports stripped and repeats dropped. The
-// master list is the cluster membership the export already trusts for
-// yb-admin, and every node in it serves YSQL, so it is also the list of nodes
-// that can answer a dump.
+// ybDumpHosts extracts unique YSQL hosts in master_addresses order, without
+// RPC ports. These configured cluster members also serve YSQL.
 func ybDumpHosts(masterAddresses string) []string {
 	var hosts []string
 	seen := map[string]bool{}
@@ -48,16 +37,13 @@ func ybDumpHosts(masterAddresses string) []string {
 	return hosts
 }
 
-// ybDumpEndpointRefusal is one endpoint's failure to hand back the artifact,
-// kept so a dump that runs out of endpoints can name each node it tried and
-// what that node did.
+// ybDumpEndpointRefusal records an endpoint and its failure for the final error.
 type ybDumpEndpointRefusal struct {
 	host   string
 	reason string
 }
 
-// runYBDumpOneShot runs one dumper against the cluster's configured endpoints
-// until one of them hands back the artifact.
+// runYBDumpOneShot tries configured endpoints until one writes the artifact.
 func runYBDumpOneShot(
 	ctx context.Context,
 	cli *client.Client,
@@ -65,16 +51,12 @@ func runYBDumpOneShot(
 	stageDir string,
 	spec ybDumpSpec,
 ) error {
-	// A ledger that encrypts client traffic but names no certificate
-	// directory is a half-configured host, and a dump against it must not
-	// start. Without the authority the client library falls back to its own
-	// default, which accepts an unverified connection, so the export would
-	// quietly produce an artifact over a connection nobody checked. Refuse
-	// here, before any container runs, and say which setting is missing
-	// (TACK-460).
+	// TLS without a certificate authority directory cannot verify the node.
+	// Reject it before container creation rather than accepting the client
+	// library's unverified default connection mode (TACK-460).
 	if cfg.LedgerTLSEnabled && ledgerCertsDir(cfg) == "" {
 		err := fmt.Errorf(
-			"ysql %s dump: the ledger encrypts client traffic but TACK_LEDGER_CERTS_DIR is empty, so the node cannot be verified",
+			"ysql %s dump: TLS node verification requires TACK_LEDGER_CERTS_DIR, which is empty",
 			spec.label,
 		)
 		telemetry.L(ctx).ErrorContext(ctx, spec.failEvent, slog.String("err", err.Error()))
@@ -92,17 +74,9 @@ func runYBDumpOneShot(
 	)
 }
 
-// walkYBDumpEndpoints tries hosts in order and returns as soon as one produces
-// a usable file. Each refusal is logged as it happens, so a dump that
-// succeeded on a later node still leaves a record that an earlier one would
-// not serve it, which is how an operator learns a node is down from a run that
-// otherwise passed.
-//
-// Exhausting the endpoints is a hard failure naming every host tried and what
-// each one did. There is no partial success: the caller uploads nothing without
-// the artifact, and an export that shipped without it would restore into a
-// database missing whatever the artifact described. dump is a closure so the
-// walk stays testable without a cluster.
+// walkYBDumpEndpoints logs each refusal, including refusals before a later
+// endpoint succeeds. Exhaustion fails with every attempted host and reason.
+// The caller must not upload a run without the complete SQL artifact.
 func walkYBDumpEndpoints(
 	ctx context.Context,
 	hosts []string,
@@ -112,7 +86,7 @@ func walkYBDumpEndpoints(
 	logger := telemetry.L(ctx)
 	if len(hosts) == 0 {
 		wrapped := fmt.Errorf(
-			"ysql %s dump: the configured master addresses name no endpoint to dump from",
+			"ysql %s dump: the configured master addresses do not specify an endpoint",
 			spec.label,
 		)
 		logger.ErrorContext(ctx, spec.failEvent, slog.String("err", wrapped.Error()))
@@ -148,7 +122,7 @@ func walkYBDumpEndpoints(
 		}
 
 		wrapped := fmt.Errorf(
-			"ysql %s dump: no endpoint served it, tried %s: %s",
+			"ysql %s dump: every endpoint failed; tried %s: %s",
 			spec.label,
 			strings.Join(hosts, ", "),
 			strings.Join(described, "; "),
@@ -169,18 +143,11 @@ func walkYBDumpEndpoints(
 	return nil
 }
 
-// dumpYBFromEndpoint runs one dumper against one endpoint in a one-shot
-// container the same way the yb-admin one-shots run, with the stage dir
-// bind-mounted. It reports the artifact's size, or the reason this endpoint did
-// not produce one; a dump that wrote nothing counts as a refusal rather than a
-// success, because an empty artifact restores as an absence nobody notices.
-//
-// The reason is not inspected to decide whether to move on. Telling a node that
-// is down apart from a dump that would fail everywhere means reading the
-// dumper's own error text, which the client renders in its message locale, so
-// every refusal is treated the same and the endpoints simply run out. The cost
-// of that is a few one-shots on a dump that was never going to work, and what
-// it buys is that the decision never depends on a translated sentence.
+// dumpYBFromEndpoint runs a dump container with the staging bind mount and
+// returns the artifact size or refusal reason. Empty artifacts count as
+// failures because they cannot restore the expected schema or roles.
+// Every refusal permits the next endpoint without interpreting localized
+// dumper error text, even when another attempt may repeat the failure.
 func dumpYBFromEndpoint(
 	ctx context.Context,
 	cli *client.Client,
@@ -221,20 +188,10 @@ func dumpYBFromEndpoint(
 	return ybDumpAttemptOutcome(res, err, spec.outPath)
 }
 
-// ybDumpTransport returns the connection settings and the mount a dump
-// one-shot needs against a ledger that encrypts client traffic (TACK-460).
-// The dumpers take no connection-string flag, so the settings ride in the
-// environment the client library reads, and they verify the node fully: the
-// dumpers dial the guests' pinned addresses, which every node certificate
-// carries beside its name.
-//
-// A plaintext ledger gets nothing, so a dump against it still connects. An
-// encrypted ledger always gets the full-verification setting, even where the
-// directory is unnamed and the mount therefore cannot be made: the caller
-// refuses that host before any container starts, and setting the mode here
-// regardless means no path through this function can leave a dump falling back
-// to the client library's default, which would accept an unverified
-// connection.
+// ybDumpTransport supplies libpq TLS settings and a read-only certificate
+// directory bind (TACK-460). Plaintext connections do not require either.
+// TLS always selects verify-full, even when the caller must reject a missing
+// directory before launch. The library must not select its unverified default.
 func ybDumpTransport(cfg *config.Config) (env []string, binds []string) {
 	if !cfg.LedgerTLSEnabled {
 		return nil, nil
@@ -254,11 +211,8 @@ func ybDumpTransport(cfg *config.Config) (env []string, binds []string) {
 	return env, binds
 }
 
-// ybDumpAttemptOutcome reads one attempt's result and the file it was supposed
-// to leave behind, and reports the artifact's size or why there is no artifact.
-// A dump that exited cleanly but wrote nothing counts as a refusal like any
-// other, because an empty artifact restores as an absence nobody notices, and
-// because a later endpoint may still write a real one.
+// ybDumpAttemptOutcome checks container execution and the expected output file.
+// A successful process without a nonempty artifact still fails this attempt.
 func ybDumpAttemptOutcome(
 	res execResult,
 	runErr error,

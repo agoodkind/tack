@@ -7,9 +7,8 @@ import (
 	"github.com/moby/moby/client"
 )
 
-// newLocalDockerClient pins the daemon-bound tests to the local daemon by
-// overriding any DOCKER_HOST inherited from the environment, so a test never
-// reaches a remote daemon by accident.
+// newLocalDockerClient connects tests to the local daemon. It overrides
+// DOCKER_HOST to prevent tests from using a remote daemon.
 func newLocalDockerClient(_ context.Context) (*client.Client, error) {
 	cli, err := client.New(client.WithHost(client.DefaultDockerHost))
 	if err != nil {

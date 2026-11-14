@@ -17,11 +17,9 @@ type repairedReferenceKey struct {
 	Key  node.ReferenceKey
 }
 
-// writeAllReferenceKeys re-asserts every rendered reference key in the org and
-// returns the keys that changed hands: the ones no node held, or another node
-// held, before the write. A key the same node already held is written again
-// but not returned, because re-asserting a claim changes nothing and must not
-// read as a mutation in the ledger the caller records into.
+// writeAllReferenceKeys reasserts rendered reference keys for an org. It returns
+// only claims that were absent or belonged to another node before the write.
+// Reasserting a node's existing claim does not require a mutation event.
 func writeAllReferenceKeys(
 	ctx context.Context,
 	env *Env,
@@ -45,18 +43,15 @@ func writeAllReferenceKeys(
 
 	written, err := writeReferenceKeysByNode(ctx, env.Stores.Nodes, orgID, keysByNode)
 	if err != nil {
-		// The keys that changed hands on the nodes written before the failure
-		// are returned with the error, so the caller can record them. Returning
-		// every claimed key would over-report changes that never happened, and
-		// returning none would under-report ones that did (TACK-452).
+		// Return exactly the new claims from successful writes for audit recording.
+		// Include partial changes without reporting writes that failed (TACK-452).
 		return claimedOnWrittenNodes(claimed, written), err
 	}
 
 	return claimed, nil
 }
 
-// claimedOnWrittenNodes narrows the keys that changed hands to the nodes whose
-// write actually landed.
+// claimedOnWrittenNodes selects claims from nodes with successful writes.
 func claimedOnWrittenNodes(
 	claimed []ReferenceKeyWrite,
 	written map[uuid.UUID]bool,
@@ -75,9 +70,8 @@ type referenceKeyWriter interface {
 	SetReferenceKeys(context.Context, uuid.UUID, uuid.UUID, []node.ReferenceKey) error
 }
 
-// writeReferenceKeysByNode writes each node's keys and reports which nodes it
-// wrote, including on failure, so a caller can tell applied work from work that
-// never started.
+// writeReferenceKeysByNode reports successful writes, including partial work
+// before a failure.
 func writeReferenceKeysByNode(
 	ctx context.Context,
 	writer referenceKeyWriter,
@@ -202,9 +196,8 @@ func referenceKeysForRepairedView(
 	view *node.NodeView,
 	scopeCache map[uuid.UUID]map[string]string,
 ) ([]node.ReferenceKey, error) {
-	// No templates means no keys to claim, which the storage layer reads as
-	// leave ownership alone. Returning an empty non-nil slice instead would
-	// read as an explicit release and strip claims a node already holds.
+	// Without templates, return nil to preserve existing claims. An empty
+	// non-nil slice requests release of all claims for the node.
 	if len(nodeType.ReferenceTemplates) == 0 {
 		return nil, nil
 	}

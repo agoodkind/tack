@@ -1,10 +1,6 @@
-// backup_restore_drill_yb_mapping.go reads the tablet mapping out of
-// `yb-admin import_snapshot` output and is where the ids in it are contained.
-// They are fields of engine output, but that output is produced by importing a
-// metadata file staged from the object store, so a crafted file controls them,
-// and the placement builds paths under the scratch cluster's data directory
-// from them. The form the engine emits is required here, at the boundary, so
-// nothing downstream has to look for what an id might do.
+// Snapshot import mapping validation restricts table and tablet IDs before
+// placement uses them in paths under the scratch cluster's data directory.
+// A crafted metadata file from the object store can control these IDs.
 
 package ops
 
@@ -14,52 +10,40 @@ import (
 	"strings"
 )
 
-// ybTabletRemap is one row of the import_snapshot mapping: the table id is
-// preserved while the tablet id is reassigned, so the export's tablet files
-// (named by the old tablet id) are copied into the new tablet's snapshot dir.
+// ybTabletRemap records a preserved table ID and old and new tablet IDs.
+// Placement copies the old tablet's exported files into the new snapshot
+// directory.
 type ybTabletRemap struct {
 	table string
 	old   string
 	new   string
 }
 
-// ybObjectIDPattern is the form of every table and tablet id the import
-// mapping names: 32 lowercase hexadecimal characters, a 16-byte UUID rendered
-// without dashes. That is what the engine generates for both, per the
-// YugabyteDB 2024.2 source: a tablet id comes from GenerateObjectId
-// (src/yb/util/oid_generator.cc, b2a_hex of a random UUID), and a YSQL table
-// id from GetPgsqlTableId (src/yb/common/entity_ids.cc, UuidToString, whose
-// IsPgsqlId check requires exactly 32 characters). The colocated parent table
-// forms, which append ".colocated.parent.uuid" and the like, do not arise
-// because the tack database is not colocated, and a row in any other form is
-// refused by name rather than placed. The tablet-server ids `yb-admin
-// list_all_tablet_servers` prints have the same form (observed live against
-// 2024.2.8.0), unlike the dashed snapshot ids ybUUIDPattern matches, so the
-// export's server listing reads them with this pattern too.
+// ybObjectIDPattern matches 32 lowercase hexadecimal characters, the engine's
+// table and tablet ID format. YugabyteDB 2024.2 generates tablet IDs with
+// GenerateObjectId in src/yb/util/oid_generator.cc using b2a_hex of a random
+// UUID. GetPgsqlTableId in src/yb/common/entity_ids.cc uses UuidToString for
+// YSQL tables; IsPgsqlId requires exactly 32 characters. Tack does not use
+// colocated tables with suffixes such as ".colocated.parent.uuid".
+// list_all_tablet_servers also prints this format, as verified on 2024.2.8.0.
+// Snapshot IDs instead use the dashed format that ybUUIDPattern matches.
 //
-// Requiring the form at the parse boundary is what contains the ids: they
-// come out of `yb-admin import_snapshot`, whose input is the metadata file
-// staged from the object store, and the placement builds source and
-// destination paths from them. An id in this form is one path component, so
-// no value that reaches the placement can name a parent directory or a
-// separator.
+// Object-store metadata controls the import mapping. Restricting IDs to one
+// hexadecimal path component prevents directory traversal and separators in
+// source and destination paths.
 var ybObjectIDPattern = regexp.MustCompile(`^[0-9a-f]{32}$`)
 
-// parseYBSnapshotMapping extracts the table-id-preserved, tablet-id-remapped
-// rows from import_snapshot output. The mapping section begins at the line
-// starting with "Object"; a "Table" row sets the current table id and each
-// following "Tablet" row pairs an old tablet id with its new one. yb-admin
-// prints each row as the object type, the old id, and the new id separated by
-// " \t" (ImportSnapshotMetaFile in src/yb/tools/yb-admin_client.cc), with the
-// tablet rows numbered, which is why a tablet's ids are its third and fourth
-// fields.
+// parseYBSnapshotMapping reads preserved table IDs and remapped tablet IDs.
+// The mapping begins with "Object". A "Table" row sets the current table ID;
+// following "Tablet" rows pair old and new IDs. ImportSnapshotMetaFile in
+// src/yb/tools/yb-admin_client.cc separates fields with " \t" and numbers
+// tablet rows. Tablet IDs occupy the third and fourth fields.
 //
-// Every id is required to have the engine's form before it is kept, a table
-// row must carry its id and, when it carries a new id too, that must be the
-// same id, since the import preserves table ids, and a tablet row must carry
-// both of its ids and follow a table row. The whole mapping is refused on the
-// first row that does not, naming it, because a row dropped in silence would
-// be a tablet the placement never tries and the audit never misses.
+// Every ID must match the engine's format. A table row must include its ID
+// and repeat that ID if it includes a new one. A tablet row must include both
+// IDs and follow a table row. Validation rejects the entire mapping at the
+// first invalid row. Silently omitting a row would exclude that tablet from
+// placement and its audit.
 func parseYBSnapshotMapping(out string) ([]ybTabletRemap, error) {
 	var remaps []ybTabletRemap
 	started := false
@@ -87,14 +71,14 @@ func parseYBSnapshotMapping(out string) ([]ybTabletRemap, error) {
 			if len(fields) < ybTabletRowFields {
 				return nil, ybMappingRowError(
 					fields,
-					"does not name both an old and a new tablet id",
+					"does not include both an old and a new tablet id",
 				)
 			}
 
 			if table == "" {
 				return nil, ybMappingRowError(
 					fields,
-					"precedes every Table row, so its tablet belongs to no table",
+					"precedes every Table row and does not identify its table",
 				)
 			}
 
@@ -109,14 +93,12 @@ func parseYBSnapshotMapping(out string) ([]ybTabletRemap, error) {
 	return remaps, nil
 }
 
-// parseYBMappingTableRow reads the preserved table id out of a Table row. The
-// engine prints the id twice, old and new, and they are the same id because
-// the import keeps YSQL table ids; a row whose two ids differ is refused
-// rather than read for one of them, since the placement's paths are built
-// from whichever is kept. A row naming the id once is read for it.
+// parseYBMappingTableRow accepts a table ID once or twice. Snapshot import
+// preserves YSQL table IDs. Validation rejects different old and new IDs
+// rather than selecting one for placement paths.
 func parseYBMappingTableRow(fields []string) (string, error) {
 	if len(fields) < ybTableRowFields {
-		return "", ybMappingRowError(fields, "names no table id")
+		return "", ybMappingRowError(fields, "does not include a table id")
 	}
 
 	old := fields[1]
@@ -136,7 +118,7 @@ func parseYBMappingTableRow(fields []string) (string, error) {
 	if newID != old {
 		return "", ybMappingRowError(
 			fields,
-			"names a new table id that differs from its old one, which the import preserves",
+			"includes a new table id that differs from its old one, which the import preserves",
 		)
 	}
 
@@ -144,23 +126,21 @@ func parseYBMappingTableRow(fields []string) (string, error) {
 }
 
 const (
-	// ybTableRowFields is the fewest fields a Table row carries: the word and
-	// the preserved table id.
+	// ybTableRowFields counts the minimum fields: "Table" and the table ID.
 	ybTableRowFields = 2
-	// ybTabletRowFields is the fewest fields a Tablet row carries: the word,
-	// its number, the old tablet id, and the new one.
+	// ybTabletRowFields counts "Tablet", its number, and both tablet IDs.
 	ybTabletRowFields = 4
 )
 
-// requireYBObjectIDs refuses a mapping row carrying an id that is not in the
-// engine's form, naming the row's fields and the id.
+// requireYBObjectIDs rejects IDs outside the engine's format and reports the
+// invalid ID and row fields.
 func requireYBObjectIDs(row []string, ids ...string) error {
 	for _, id := range ids {
 		if !ybObjectIDPattern.MatchString(id) {
 			return ybMappingRowError(
 				row,
 				fmt.Sprintf(
-					"names %q, which is not a 32-character"+
+					"includes %q, which is not a 32-character"+
 						" hexadecimal table or tablet id",
 					id,
 				),
@@ -171,8 +151,7 @@ func requireYBObjectIDs(row []string, ids ...string) error {
 	return nil
 }
 
-// ybMappingRowError refuses one mapping row, naming its fields and what is
-// wrong with it.
+// ybMappingRowError reports the row fields and validation failure.
 func ybMappingRowError(row []string, reason string) error {
 	return fmt.Errorf("import_snapshot mapping row %q %s", strings.Join(row, " "), reason)
 }

@@ -1,7 +1,6 @@
-// ledger_node_launcher_config.go moves the ledger node's saved launcher config
-// in and out of its container. Both directions go through the Docker API as a
-// tar stream, which works on a stopped container and on a running one alike,
-// so the command never opens the data volume from the host.
+// ledger_node_launcher_config.go reads and writes saved launcher config using
+// Docker's tar API for running or stopped containers. The command does not open
+// the data volume from the host.
 
 package ops
 
@@ -18,9 +17,8 @@ import (
 	"github.com/moby/moby/client"
 )
 
-// launcherConfigFile is a saved config as read from the container: its bytes
-// and the tar header they came with, so a rewrite keeps the file's owner and
-// mode and the launcher, which runs as that owner, can still write it.
+// launcherConfigFile stores config bytes and the original tar header.
+// Rewrites must preserve ownership and mode to permit later launcher writes.
 type launcherConfigFile struct {
 	header  tar.Header
 	content []byte
@@ -88,7 +86,7 @@ func firstTarFile(ctx context.Context, stream io.Reader) (launcherConfigFile, er
 	for {
 		header, err := reader.Next()
 		if errors.Is(err, io.EOF) {
-			return none, errors.New("the archive holds no regular file")
+			return none, errors.New("the archive does not contain a regular file")
 		}
 
 		if err != nil {

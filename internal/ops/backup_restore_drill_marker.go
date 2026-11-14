@@ -1,7 +1,6 @@
-// backup_restore_drill_marker.go records a passing restore drill in the object
-// store. The marker put is retried on its own, because a put that fails after
-// every leg has passed is the only step worth repeating: re-running the drill
-// would repeat two restores to reach the same put.
+// Restore drills record success in the object store after all legs pass.
+// Marker writes retry independently to avoid repeating two successful restores
+// after a temporary object-store failure.
 
 package ops
 
@@ -12,58 +11,42 @@ import (
 	"time"
 )
 
-// restoreDrillMarkerAttempts is how many times the rehearsal marker put is
-// tried before the drill reports the marker missing.
+// restoreDrillMarkerAttempts limits marker write attempts before failure.
 const restoreDrillMarkerAttempts = 5
 
-// restoreDrillMarkerFirstWait is the pause before the second put attempt. Each
-// later pause doubles it, so the five attempts span about two minutes, long
-// enough to ride out a brief object-store fault and short enough that a real
-// outage still fails the run promptly.
+// restoreDrillMarkerFirstWait starts exponential retry delays. Five attempts
+// span about two minutes to tolerate brief faults without hiding an outage.
 const restoreDrillMarkerFirstWait = 8 * time.Second
 
-// restoreDrillMarkerExitStatus is the process exit status of a drill whose
-// every leg passed and whose marker still did not land. It is not 1 so the
-// unit that runs the drill can decline to restart it: a restart would repeat
-// both restores to reach the same put.
+// restoreDrillMarkerExitStatus distinguishes marker failure from restore
+// failure. The service can avoid restarting both successful restores.
 const restoreDrillMarkerExitStatus = 3
 
-// RestoreDrillMarkerError is the failure of a drill whose every leg passed
-// and whose rehearsal marker did not land after every put attempt. Err is the
-// last put's error.
+// RestoreDrillMarkerError reports marker failure after every restore leg
+// passed. Err records the last write failure.
 type RestoreDrillMarkerError struct {
 	Err error
 }
 
-// Error names the marker as the failed step so the operator does not read the
-// failure as a failed restore.
+// Error identifies the marker write as the failed step.
 func (e *RestoreDrillMarkerError) Error() string {
-	return "restore-drill: every leg passed but the rehearsal marker did not land: " + e.Err.Error()
+	return "restore-drill: every leg passed but the rehearsal marker write failed: " + e.Err.Error()
 }
 
-// Unwrap exposes the last put's error.
+// Unwrap returns the last write error.
 func (e *RestoreDrillMarkerError) Unwrap() error { return e.Err }
 
-// OperatorExitStatus is the process exit status the CLI reports for this
-// failure. The name is deliberately not ExitCode, which other error types such
-// as a child process's exit error also carry, so a child's status is never
-// mistaken for this one.
+// OperatorExitStatus returns the CLI status for marker failure. The distinct
+// method avoids confusing this status with child-process ExitCode methods.
 func (e *RestoreDrillMarkerError) OperatorExitStatus() int { return restoreDrillMarkerExitStatus }
 
-// recordRestoreDrillRehearsal records a passing drill so the staleness check
-// can tell how long ago recovery was last rehearsed. The marker is part of the
-// drill's success, not a side effect: a drill nobody can date is
-// indistinguishable from a drill that never ran, which is the failure the
-// staleness alert exists to catch. put is bound to the object store by the
-// caller, so what the drill records stays checkable against what the staleness
-// check reads.
+// recordRestoreDrillRehearsal writes a dated success for the staleness check.
+// A successful marker write forms part of the drill's success because an
+// undated rehearsal cannot establish recent recovery coverage.
 //
-// A failed put is retried with a bounded backoff, and the marker keeps the
-// time the drill passed rather than the time an attempt landed. When every
-// attempt fails, or the context ends between attempts, the returned error is
-// a RestoreDrillMarkerError, which names the marker as the failed step and
-// carries its own exit status, so neither the operator nor the unit reads it
-// as a failed restore.
+// Retries preserve the original pass time. Exhausted attempts or cancellation
+// between attempts return RestoreDrillMarkerError with its marker-specific
+// status rather than reporting a failed restore.
 func recordRestoreDrillRehearsal(
 	ctx context.Context,
 	put func(key string, body []byte) error,

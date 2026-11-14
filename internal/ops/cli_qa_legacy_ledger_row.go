@@ -47,15 +47,13 @@ func datagenLegacyLedgerRowOp(f *cli.Factory) clispec.Operation[datagenLegacyLed
 		Audit:    audit.Spec{Verb: string(audit.VerbOpsDatagenLegacyLedgerRow), Mutates: true},
 		Group:    datagenGroup,
 		Short:    "Write one ledger row in the shape that predates the outcome column",
-		Long: "Appends a row whose hash version is 1 and whose outcome, error, and " +
-			"extra columns are NULL, which is what the writer produced before " +
-			"migration 006 added them. Only production holds such rows, so the " +
-			"contract that both read tiers report a missing outcome as unrecorded " +
-			"cannot otherwise be proven on a testbed. The row joins the real hash " +
-			"chain, so verification covers it. Pass --action and --tool to carry a " +
-			"different verb, and --delete-node to remove a node first, which " +
-			"reproduces production's post-repair deletion whose row names no node. " +
-			"Defaults to a dry run.",
+		Long: "The command appends a hash-version-1 row with NULL outcome, error, and " +
+			"extra columns, matching the writer before migration 006. This tests " +
+			"whether both read tiers report a missing outcome as unrecorded. " +
+			"Hash-chain verification includes the row. Use --action and --tool to " +
+			"set a different verb and tool. Use --delete-node to remove a node first " +
+			"and reproduce production's post-repair deletion without a node ID in " +
+			"the ledger row. The command defaults to a dry run.",
 		Params: []clispec.Param[datagenLegacyLedgerRowInput]{
 			clispec.BoolParam(
 				"commit",
@@ -65,7 +63,7 @@ func datagenLegacyLedgerRowOp(f *cli.Factory) clispec.Operation[datagenLegacyLed
 			),
 			clispec.StringParam(
 				"org",
-				"org whose chain the row extends (UUID)",
+				"org UUID for the ledger chain to extend",
 				"",
 				true,
 				func(input *datagenLegacyLedgerRowInput, value string) { input.Org = value },
@@ -162,11 +160,9 @@ func runDatagenLegacyLedgerRow(
 		return fmt.Errorf("open the ops environment for the legacy ledger row: %w", err)
 	}
 	defer env.Close()
-	// The row is a ledger write, so it goes through the writer role the
-	// ledger's grants admit; the application pool holds nothing on the audit
-	// schema (TACK-180). Opened before the deletion below: a missing or
-	// refused writer must fail with the node still present, never after it
-	// is gone with no row to say so.
+	// The audit schema requires the writer role, not the application role
+	// (TACK-180). Open the writer before deletion to preserve the node if
+	// credentials or connection setup fail.
 	if factory.Cfg.AuditWriterDSN == "" {
 		err := errors.New("legacy ledger row: AUDIT_WRITER_DSN required")
 		slog.ErrorContext(
@@ -189,9 +185,7 @@ func runDatagenLegacyLedgerRow(
 		return fmt.Errorf("open the ledger writer pool for the legacy ledger row: %w", err)
 	}
 	defer writer.Close()
-	// The node is removed before the row is written, so the ledger's own
-	// ordering matches production: the deletion row is the last trace of a node
-	// that is already gone.
+	// Delete before writing the row to reproduce production's event order.
 	if deleteNodeID != uuid.Nil {
 		if err := env.Stores.NodeDeleter.DeleteNode(ctx, orgID, deleteNodeID); err != nil {
 			slog.ErrorContext(
@@ -231,8 +225,7 @@ func runDatagenLegacyLedgerRow(
 	return writeLegacyLedgerRowReport(ctx, sink, result)
 }
 
-// parseOptionalNodeID reads the --delete-node value. Empty means no deletion;
-// anything else must be a UUID, so a typo cannot pass as "delete nothing".
+// parseOptionalNodeID accepts an empty value or a UUID and rejects other input.
 func parseOptionalNodeID(ctx context.Context, value string) (uuid.UUID, error) {
 	trimmed := strings.TrimSpace(value)
 	if trimmed == "" {

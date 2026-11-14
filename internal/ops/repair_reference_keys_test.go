@@ -49,8 +49,8 @@ func TestWriteReferenceKeysByNodeKeepsTheLowestIDOnConflict(t *testing.T) {
 		t.Fatalf("duplicate key owner = %s, want %s", owner, firstID)
 	}
 
-	// The node written before the failure is reported, and the one that failed
-	// is not: that split is what lets the caller record exactly what landed.
+	// Report successful node writes and exclude failed writes to permit
+	// recording exactly the committed changes.
 	if !written[firstID] || written[secondID] {
 		t.Fatalf("written = %v, want only %s", written, firstID)
 	}

@@ -129,8 +129,8 @@ func TestAuditHostCommandsReadAndRedactWithinOneOrg(t *testing.T) {
 		}
 	}
 
-	// pagination: a full page carries next_cursor, and the cursor walks the
-	// remaining rows without overlap or a gap.
+	// A full page includes next_cursor. Subsequent requests must return the
+	// remaining rows without overlap or gaps.
 	var pageOne auditQueryResult
 	decodeCommandOutput(
 		t,

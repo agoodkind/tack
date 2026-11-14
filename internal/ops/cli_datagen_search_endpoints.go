@@ -53,7 +53,7 @@ func validateDatagenSearchEndpoint(endpoint string) error {
 		)
 	}
 	if parsed.Host == "" {
-		return fmt.Errorf("qa datagen search: endpoint %q has no host", endpoint)
+		return fmt.Errorf("qa datagen search: endpoint %q does not specify a host", endpoint)
 	}
 	return nil
 }

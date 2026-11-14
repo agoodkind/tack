@@ -34,11 +34,9 @@ func TestRepairReferenceUniquenessSeedsHighestGeneratedValue(t *testing.T) {
 	}
 }
 
-// TestRepairReferenceUniquenessRejectsUnreadableGeneratedValue pins that
-// seeding refuses to guess. A node whose number cannot be read might hold the
-// highest value in its scope, and counting it as zero would leave the counter
-// below a number already in use, so the next node created would receive that
-// number a second time.
+// TestRepairReferenceUniquenessRejectsUnreadableGeneratedValue checks that
+// seeding rejects an unreadable sequence rather than assuming zero. An unreadable
+// sequence could exceed the counter and cause a later create to reuse its number.
 func TestRepairReferenceUniquenessRejectsUnreadableGeneratedValue(t *testing.T) {
 	env, _, project := repairReferenceEnv(t)
 	mustCreateLegacyRepairReference(t, env, "issue", "Readable", project.ID, 1)
@@ -58,9 +56,8 @@ func TestRepairReferenceUniquenessRejectsUnreadableGeneratedValue(t *testing.T) 
 	}
 }
 
-// TestRepairReferenceUniquenessSeedsFromNumericStringValue covers a number
-// stored as text. Rendering accepts it, so seeding must count it; ignoring it
-// would leave the counter low enough to reissue that number.
+// TestRepairReferenceUniquenessSeedsFromNumericStringValue checks that counter
+// seeding includes numeric strings, which reference rendering also accepts.
 func TestRepairReferenceUniquenessSeedsFromNumericStringValue(t *testing.T) {
 	env, _, project := repairReferenceEnv(t)
 	writeNodeWithRawGeneratedValue(t, env, "issue", "Textual", project.ID, `"7"`)
@@ -139,7 +136,7 @@ func TestRepairReferenceUniquenessKeepNewestOfThree(t *testing.T) {
 	assertNoDuplicateReferences(t, env)
 }
 
-func TestRepairReferenceUniquenessDryRunChangesNothing(t *testing.T) {
+func TestRepairReferenceUniquenessDryRunPreservesDuplicateGroups(t *testing.T) {
 	env, _, project := repairReferenceEnv(t)
 	mustCreateLegacyRepairReference(t, env, "epic", "First", project.ID, 1)
 	mustCreateLegacyRepairReference(t, env, "issue", "Second", project.ID, 1)

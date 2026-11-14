@@ -17,20 +17,20 @@ func init() {
 		Name:        "reference.duplicates",
 		Lifetime:    clispec.Permanent,
 		Audit:       singletonReadSpec(audit.VerbOpsReferenceDuplicates, "reference/duplicates"),
-		Description: "Report every case where two nodes render the same reference for one template their org declared. Read-only.",
+		Description: "Report nodes that render the same reference for an org-declared template without changing state.",
 		Run:         runReferenceDuplicates,
 	})
 }
 
-// DuplicateReference identifies one rendered reference held by multiple nodes.
+// DuplicateReference identifies a rendered reference shared by multiple nodes.
 type DuplicateReference struct {
-	// OrgID owns every node in the duplicate group.
+	// OrgID identifies the organization containing every node in the group.
 	OrgID uuid.UUID
 	// TemplateName identifies the template that rendered Encoded.
 	TemplateName string
 	// Encoded is the rendered human-readable reference.
 	Encoded string
-	// NodeIDs holds the duplicate candidates in stable order.
+	// NodeIDs lists the duplicate candidates in stable order.
 	NodeIDs []uuid.UUID
 }
 
@@ -213,9 +213,8 @@ func collectRenderedReferences(
 	for _, template := range nodeType.ReferenceTemplates {
 		encoded, renderErr := template.Render(input)
 		if renderErr != nil {
-			// A node whose reference cannot render is invisible to the
-			// report, so the omission must be loud or the blast-radius count
-			// silently understates.
+			// Log rendering failures because the report omits these nodes and
+			// cannot count their duplicate references.
 			env.Log.WarnContext(
 				ctx,
 				"reference.duplicates.render_failed",

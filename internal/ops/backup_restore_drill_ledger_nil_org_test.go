@@ -1,8 +1,6 @@
-// backup_restore_drill_ledger_nil_org_test.go covers the chain the restored
-// ledger holds under the nil org: rows recorded before every event carried an
-// org. The reader refuses a nil org by default, so a drill that asked for it
-// the way it asks for a tenant org left that chain unverified and failed the
-// run on the refusal.
+// Nil-org ledger rows predate mandatory organization IDs. The reader rejects
+// nil orgs by default, but restore verification must explicitly export and
+// verify this historical chain as well as tenant chains.
 
 package ops
 
@@ -16,10 +14,8 @@ import (
 	"github.com/google/uuid"
 )
 
-// TestRestoredLedgerChainVerifiesTheNilOrgChain is the defect: a restored
-// ledger holding a tenant org and the nil org must pass when both chains are
-// intact, with the nil org's rows exported, digested, signed, and re-hashed
-// with the same rigor as the tenant's rather than refused as a missing org.
+// TestRestoredLedgerChainVerifiesTheNilOrgChain checks complete export, digest,
+// signature, and row-hash verification for tenant and nil-org chains.
 func TestRestoredLedgerChainVerifiesTheNilOrgChain(t *testing.T) {
 	tenant := uuid.Must(uuid.NewV7())
 	ledger := twoOrgLedger(t, tenant)
@@ -27,7 +23,7 @@ func TestRestoredLedgerChainVerifiesTheNilOrgChain(t *testing.T) {
 	reports, verdict := runChainLegOver(t, ledger)
 	if verdict != nil {
 		t.Fatalf(
-			"a restored ledger with intact chains under a tenant and the nil org failed: %v",
+			"a restored ledger with intact tenant and nil-org chains failed: %v",
 			verdict,
 		)
 	}
@@ -51,7 +47,7 @@ func TestRestoredLedgerChainVerifiesTheNilOrgChain(t *testing.T) {
 
 	for _, report := range reports {
 		if !report.SignatureOK || !report.FileSHA256OK || report.HashMatches != report.RowsScanned {
-			t.Fatalf("a bundle passed the leg without verifying: %+v", report)
+			t.Fatalf("a bundle passed without complete verification: %+v", report)
 		}
 
 		scanned += report.RowsScanned
@@ -62,9 +58,8 @@ func TestRestoredLedgerChainVerifiesTheNilOrgChain(t *testing.T) {
 	}
 }
 
-// TestRestoredLedgerChainFailsOnABreakInTheNilOrgChain pins that the nil org's
-// chain is judged, not merely exported: a row under it whose stored hash does
-// not recompute fails the leg, and the failure names the nil org and no other.
+// TestRestoredLedgerChainFailsOnABreakInTheNilOrgChain checks that a corrupt
+// nil-org row fails verification and identifies only the broken chain's org.
 func TestRestoredLedgerChainFailsOnABreakInTheNilOrgChain(t *testing.T) {
 	tenant := uuid.Must(uuid.NewV7())
 	ledger := twoOrgLedger(t, tenant)
@@ -72,27 +67,25 @@ func TestRestoredLedgerChainFailsOnABreakInTheNilOrgChain(t *testing.T) {
 
 	_, verdict := runChainLegOver(t, ledger)
 	if verdict == nil {
-		t.Fatal("the drill passed a restored ledger whose nil-org chain is broken")
+		t.Fatal("the drill accepted a broken nil-org chain")
 	}
 
 	if !strings.Contains(verdict.Error(), "chain break(s)") {
-		t.Fatalf("error = %v, want the chain break to be the reason", verdict)
+		t.Fatalf("error = %v, want the chain break as the reason", verdict)
 	}
 
 	if !strings.Contains(verdict.Error(), uuid.Nil.String()) {
-		t.Fatalf("error = %v, want it to name the nil org", verdict)
+		t.Fatalf("error = %v, want the nil org identifier", verdict)
 	}
 
 	if strings.Contains(verdict.Error(), tenant.String()) {
-		t.Fatalf("error = %v, want the intact tenant chain left out of the failure", verdict)
+		t.Fatalf("error = %v, the intact tenant chain must not appear", verdict)
 	}
 }
 
-// TestDrillExportNamesTheNilOrgOnPurpose pins the filter the drill hands the
-// ledger for each org it lists: the nil org is named as such, and a tenant org
-// is not, so the reader's guard against a forgotten org still applies to every
-// other export.
-func TestDrillExportNamesTheNilOrgOnPurpose(t *testing.T) {
+// TestDrillExportEnablesNilOrgOnlyForNilIdentity checks explicit nil-org
+// permission while preserving the reader's omitted-org guard for tenant exports.
+func TestDrillExportEnablesNilOrgOnlyForNilIdentity(t *testing.T) {
 	_, privateKey, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
 		t.Fatalf("generate key: %v", err)

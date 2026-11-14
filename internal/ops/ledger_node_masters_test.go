@@ -10,9 +10,8 @@ import (
 	"goodkind.io/tack/internal/config"
 )
 
-// savedLauncherConfig is a saved yugabyted.conf in the shape the launcher on
-// QA data1 wrote on 2026-09-13, cut down to the keys that matter here plus a
-// few neighbours, so the rewrite is exercised against the real layout.
+// savedLauncherConfig preserves the launcher's QA config structure with the
+// required keys and neighboring fields for testing selective rewrites.
 const savedLauncherConfig = `{
     "advertise_address": "yb1",
     "callhome": true,

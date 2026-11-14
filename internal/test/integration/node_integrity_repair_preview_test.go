@@ -11,10 +11,10 @@ import (
 	"goodkind.io/tack/internal/test/integration"
 )
 
-// TestNodeIntegrityRepairPreviewWritesNothing checks that command dry runs
+// TestNodeIntegrityRepairPreviewPreservesStoredKeysAndValues checks that command dry runs
 // freeze and preview a repair without changing FoundationDB keys or values.
 // The preview must report the entry as planned.
-func TestNodeIntegrityRepairPreviewWritesNothing(t *testing.T) {
+func TestNodeIntegrityRepairPreviewPreservesStoredKeysAndValues(t *testing.T) {
 	env := integration.SetupTestEnv(t)
 	graph := newRepairGraph(t, env)
 	before := storedKeyValues(t)

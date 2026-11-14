@@ -14,8 +14,8 @@ import (
 	"goodkind.io/tack/internal/testenv"
 )
 
-// repairAuditReadLimit is above the row count the gated test packages leave
-// in the outbox, because the org filter runs after the read.
+// repairAuditReadLimit exceeds test package row counts. The org filter applies
+// after reading the outbox.
 const repairAuditReadLimit = 10000
 
 // repairAuditOutbox opens the ledger outbox and returns a fresh org id.
@@ -135,11 +135,8 @@ func repairAuditEventOfClass(t *testing.T, events []audit.Event, class string) a
 	return found
 }
 
-// TestReferenceRepairRecordsEveryChangeItApplied is the point of TACK-448:
-// the repair changes references a person may have written down, and until now
-// only its own command pair reached the ledger. A history query for a
-// repaired ticket returned nothing, which is the hole the 2026-08-07
-// production repair left.
+// TestReferenceRepairRecordsEveryChangeItApplied checks that each rename,
+// counter seed, and key claim produces a detailed audit event (TACK-448).
 func TestReferenceRepairRecordsEveryChangeItApplied(t *testing.T) {
 	outbox, orgID := repairAuditOutbox(t)
 	occurredAt := time.Date(2026, time.August, 16, 21, 0, 0, 0, time.UTC)
@@ -166,7 +163,7 @@ func TestReferenceRepairRecordsEveryChangeItApplied(t *testing.T) {
 	}
 
 	if rename.Entity.Type != "node" || rename.Entity.Identifier != "APP-18" {
-		t.Fatalf("rename entity = %+v, want the renamed node holding APP-18", rename.Entity)
+		t.Fatalf("rename entity = %+v, want the renamed node with reference APP-18", rename.Entity)
 	}
 
 	renameExtra := repairAuditExtra(t, rename)
@@ -209,10 +206,8 @@ func TestReferenceRepairRecordsEveryChangeItApplied(t *testing.T) {
 	}
 }
 
-// TestReferenceRepairRowsAreNotReconstructions pins that a live repair row
-// has no reconstruction marker, historical time, or evidence citation,
-// because a reader tells reconstructed history from live history by those
-// fields.
+// TestReferenceRepairRowsAreNotReconstructions checks that live repair events
+// do not include reconstruction markers, historical times, or evidence citations.
 func TestReferenceRepairRowsAreNotReconstructions(t *testing.T) {
 	outbox, orgID := repairAuditOutbox(t)
 	err := recordReferenceRepair(
@@ -235,7 +230,7 @@ func TestReferenceRepairRowsAreNotReconstructions(t *testing.T) {
 		for _, absent := range []string{"reconstruction", "historical_time", "evidence"} {
 			if _, present := fields[absent]; present {
 				t.Fatalf(
-					"%s carries %q, so a reader would read it as reconstructed history",
+					"%s includes reconstruction field %q on a live repair event",
 					event.Verb,
 					absent,
 				)
@@ -244,11 +239,9 @@ func TestReferenceRepairRowsAreNotReconstructions(t *testing.T) {
 	}
 }
 
-// TestReferenceRepairSecondRunRecordsNothingNew covers the run that changes
-// nothing but still seeds every counter and rewrites every key, which is what
-// a second execute does. Event identity comes from the fact recorded, so the
-// ledger keeps one row per fact however many times the repair runs.
-func TestReferenceRepairSecondRunRecordsNothingNew(t *testing.T) {
+// TestReferenceRepairDeduplicatesRepeatedChangeRecords checks that repeated recording
+// of the same changes preserves one row per change, with the first run's identity.
+func TestReferenceRepairDeduplicatesRepeatedChangeRecords(t *testing.T) {
 	outbox, orgID := repairAuditOutbox(t)
 	principal := repairAuditTestPrincipal()
 	first := time.Date(2026, time.August, 16, 21, 0, 0, 0, time.UTC)
@@ -304,8 +297,8 @@ func TestReferenceRepairSecondRunRecordsNothingNew(t *testing.T) {
 	}
 }
 
-// TestReferenceRepairRefusesAnOutboxItCannotDedupe stops the repair from
-// recording through a writer that would append a second copy on every run.
+// TestReferenceRepairRefusesAnOutboxItCannotDedupe checks refusal of a writer
+// that would append duplicate events on repeated runs.
 func TestReferenceRepairRefusesAnOutboxItCannotDedupe(t *testing.T) {
 	err := recordReferenceRepair(
 		context.Background(),
@@ -319,7 +312,7 @@ func TestReferenceRepairRefusesAnOutboxItCannotDedupe(t *testing.T) {
 	}
 }
 
-// appendOnlyRepairOutbox writes events and offers no idempotent write.
+// appendOnlyRepairOutbox writes events without an idempotent write method.
 type appendOnlyRepairOutbox struct{}
 
 func (appendOnlyRepairOutbox) WriteOutbox(context.Context, audit.Event) error { return nil }

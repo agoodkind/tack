@@ -1,8 +1,6 @@
-// backup_status_marker.go holds the success markers the staleness check reads:
-// one small JSON object per backup mechanism under backup-status/, written by
-// whichever command observed that mechanism succeed. A mechanism whose last
-// success is already datable from an artifact it publishes anyway, such as the
-// ledger export's run key, needs no marker and gets none.
+// Commands record backup successes as JSON markers for the staleness check.
+// Mechanisms with timestamped artifacts, such as ledger export run keys, do not
+// need separate markers.
 
 package ops
 
@@ -16,13 +14,11 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// backupStatusPrefix is the object-store folder that holds one success marker
-// per backup mechanism.
+// backupStatusPrefix is the object-store folder for backup success markers.
 const backupStatusPrefix = "backup-status/"
 
-// backupStatusMarker records one mechanism's last observed success. Detail
-// names what was observed so an operator reading the marker can tell which run
-// or probe wrote it.
+// backupStatusMarker records a mechanism's last observed success.
+// Detail identifies the run or probe that observed it.
 type backupStatusMarker struct {
 	At     time.Time `json:"at"`
 	Detail string    `json:"detail"`
@@ -33,9 +29,8 @@ func backupStatusKey(metric string) string {
 	return backupStatusPrefix + metric + ".json"
 }
 
-// writeBackupStatusMarker records a success for metric through put, which the
-// caller binds to the object store. The timestamp is stored in UTC so markers
-// written by hosts in different zones compare directly.
+// writeBackupStatusMarker records a success through the caller's object-store
+// put function. It stores the timestamp in UTC for comparisons across time zones.
 func writeBackupStatusMarker(
 	ctx context.Context,
 	put func(key string, body []byte) error,
@@ -72,11 +67,9 @@ func writeBackupStatusMarker(
 	return nil
 }
 
-// readBackupStatusMarker fetches and decodes one mechanism's marker through
-// get, which the caller binds to the object store. found is false when the
-// marker is absent, which means the mechanism has never recorded a success.
-// A marker that decodes but carries no timestamp is an error rather than a
-// success: it would otherwise read as a success at the zero time.
+// readBackupStatusMarker decodes a marker from the caller's object-store get
+// function. It returns found=false for an absent marker and rejects a zero
+// timestamp rather than reporting success at the zero time.
 func readBackupStatusMarker(
 	ctx context.Context,
 	get func(key string) ([]byte, error),
@@ -102,7 +95,7 @@ func readBackupStatusMarker(
 	}
 
 	if marker.At.IsZero() {
-		wrapped := fmt.Errorf("backup status marker %s carries no at timestamp", key)
+		wrapped := fmt.Errorf("backup status marker %s does not contain a nonzero at timestamp", key)
 		logger.ErrorContext(ctx, "backup.status.marker_failed", slog.String("err", wrapped.Error()))
 
 		return absent, false, wrapped

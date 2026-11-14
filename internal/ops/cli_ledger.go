@@ -37,11 +37,11 @@ func ledgerAuditBootstrapOp(f *cli.Factory) clispec.Operation[noInput] {
 		Aliases: nil,
 		Hidden:  false,
 		Short:   "Run the migrations and seed the audit roles on an empty ledger, creating the operator outbox",
-		Long: "Refuses before any change when the ledger already contains the migration table, " +
-			"public.ops_outbox, or the tack_audit_operator role; ops provision runs on a populated " +
-			"ledger. On an empty ledger it runs the migrations and seeds the audit login roles through " +
-			"DATABASE_URL, with no FoundationDB, Docker, backup, or product seed step. Without --execute " +
-			"it reports and writes nothing.",
+		Long: "The command refuses changes when the ledger contains the migration table, " +
+			"public.ops_outbox, or the tack_audit_operator role. Use ops provision on a populated " +
+			"ledger. On an empty ledger, it runs migrations and seeds audit login roles through " +
+			"DATABASE_URL. It does not run FoundationDB, Docker, backup, or product seed steps. " +
+			"Without --execute, it only reports the plan.",
 		Examples: nil,
 		Args:     nil,
 		Params:   nil,

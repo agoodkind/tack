@@ -1,9 +1,7 @@
-// deploy_verify.go is the post-deploy correctness gate: the app and
-// audit-consumer containers must run the images the deploy named. A mismatch
-// means compose kept or rolled back to a stale image, and the check fails
-// loudly so the operator notices before walking away. Images are built by the
-// repository's build workflow and rolled by the configs deploy; this command
-// only reads the daemon it runs against.
+// deploy_verify.go checks that app and audit-consumer containers run the
+// images specified by deployment. It reports a mismatch if Compose retains
+// or restores a stale image. The build workflow creates images, and the configs
+// deployment installs them. This command only reads the Docker daemon.
 
 package ops
 
@@ -19,10 +17,9 @@ import (
 	"goodkind.io/tack/internal/config"
 )
 
-// runDeployVerify compares each container of services with the given index
-// digest when digests is set, and otherwise with the registry digest the
-// daemon records for the expected image tag. It returns the printed lines as
-// the payload and one external target per checked container.
+// runDeployVerify compares container images with supplied index digests or
+// registry digests recorded by the daemon for expected tags. It returns printed
+// results and an external audit target for each checked container.
 func runDeployVerify(
 	ctx context.Context,
 	cfg *config.Config,
@@ -67,8 +64,8 @@ func deployVerifyFailure(ctx context.Context, err error) error {
 	return fmt.Errorf("ops deploy verify: %w", err)
 }
 
-// verifyLocalTagDigests reads each expected image's registry digest from the
-// daemon and compares it with the digest that each replica runs.
+// verifyLocalTagDigests compares each replica's digest with its expected image's
+// registry digest from the daemon.
 func verifyLocalTagDigests(
 	ctx context.Context,
 	cli *client.Client,
@@ -121,9 +118,8 @@ func verifyLocalTagDigests(
 	return lines, nil
 }
 
-// inspectImageDigest returns the first registry digest of the named image,
-// the content-addressable manifest digest a registry returns on push. An empty
-// string means the image was never pulled from or pushed to a registry.
+// inspectImageDigest returns the image's first registry manifest digest.
+// An empty result indicates that the daemon does not record a registry digest.
 func inspectImageDigest(ctx context.Context, cli *client.Client, ref string) (string, error) {
 	insp, err := cli.ImageInspect(ctx, ref)
 	if err != nil {
@@ -147,11 +143,9 @@ func inspectImageDigest(ctx context.Context, cli *client.Client, ref string) (st
 	return "", nil
 }
 
-// containerImageDigest returns the manifest digest the named container is
-// actually running. The inspect response's Image field holds either an
-// `image:tag` reference or a `sha256:...` digest depending on how the
-// container was started; this normalizes to digest form by re-inspecting the
-// image when needed.
+// containerImageDigest returns the running container's manifest digest. The
+// inspect response's Image field contains an image:tag reference or sha256
+// digest. The function inspects the image again when it needs a digest for a tag.
 func containerImageDigest(ctx context.Context, cli *client.Client, name string) (string, error) {
 	insp, err := cli.ContainerInspect(ctx, name, client.ContainerInspectOptions{})
 	if err != nil {
@@ -198,9 +192,8 @@ func containerImageDigest(ctx context.Context, cli *client.Client, name string) 
 	return imgInsp.ID, nil
 }
 
-// compareDigests is the assertion. Either side may be `sha256:...` (a
-// content digest) or `algorithm:hex` of differing case; canonical forms
-// are compared after trimming the algorithm prefix when both have it.
+// compareDigests compares canonical digests after trimming algorithm prefixes
+// and normalizing hex case. Either input may use an algorithm:hex form.
 func compareDigests(container, expected, actual string) error {
 	exp := normalizeDigest(expected)
 	act := normalizeDigest(actual)
@@ -225,9 +218,8 @@ func compareDigests(container, expected, actual string) error {
 	return nil
 }
 
-// normalizeDigest strips the optional algorithm prefix so a `sha256:abc...`
-// digest compares equal to the bare hex form. Lowercase the hex to make the
-// comparison case-insensitive.
+// normalizeDigest trims the optional algorithm prefix and lowercases hex for
+// case-insensitive comparison with a bare digest.
 func normalizeDigest(d string) string {
 	d = strings.TrimSpace(d)
 	if d == "" {

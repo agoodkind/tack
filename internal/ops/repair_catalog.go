@@ -7,7 +7,7 @@ import (
 	"goodkind.io/tack/internal/domain"
 )
 
-// RepairClassInfo describes one supported repair class.
+// RepairClassInfo identifies a supported repair class and explains its action.
 type RepairClassInfo struct {
 	Class       RepairClass
 	Description string

@@ -73,7 +73,7 @@ func readRepairManifest(ctx context.Context, path string) (*RepairManifest, erro
 	}
 
 	if len(manifest.Nodes) == 0 {
-		return nil, fmt.Errorf("repair manifest %q has no nodes", path)
+		return nil, fmt.Errorf("repair manifest %q does not contain any nodes", path)
 	}
 
 	return &manifest, nil

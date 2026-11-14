@@ -180,7 +180,7 @@ func repairParentChange(
 			return nil, repairRefused(
 				ctx,
 				entry,
-				"the node has no parent to keep",
+				"the node does not have a parent to keep",
 				domain.ErrConflict,
 			)
 		}
@@ -260,7 +260,7 @@ func removedEdgeExpectations(
 			return nil, repairRefused(
 				ctx,
 				entry,
-				fmt.Sprintf("the node has no %s edge to %s", edge.RelationType, edge.TargetID),
+				fmt.Sprintf("the node does not have a %s edge to %s", edge.RelationType, edge.TargetID),
 				domain.ErrConflict,
 			)
 		}

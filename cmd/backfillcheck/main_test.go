@@ -110,7 +110,7 @@ var lifetime = clispec.Lifetime{Ticket: "TACK-461", RemoveBy: removeBy}
 	}
 }
 
-func TestTestFilesAreNotScanned(t *testing.T) {
+func TestBackfillCheckSkipsTestFiles(t *testing.T) {
 	chdirToCommandFile(
 		t,
 		"cli_backfill_test.go",

@@ -101,7 +101,7 @@ func checkManifestHeader(version int, ticket string, entries int) error {
 	}
 
 	if entries == 0 {
-		return errors.New("manifest has no entries")
+		return errors.New("manifest does not contain any entries")
 	}
 
 	return nil
@@ -127,7 +127,7 @@ func checkEntries(entries []NodeIntegrityEntry) error {
 
 		repairIDs[entry.RepairID] = true
 		if entry.NodeID == uuid.Nil {
-			return fmt.Errorf("repair %s has no node_id", entry.RepairID)
+			return fmt.Errorf("repair %s does not specify node_id", entry.RepairID)
 		}
 
 		if nodeIDs[entry.NodeID] {
@@ -150,7 +150,7 @@ func checkEntries(entries []NodeIntegrityEntry) error {
 func checkFrozenSource(ctx context.Context, entry NodeIntegrityEntry) error {
 	source := entry.Source
 	if source == nil {
-		return fmt.Errorf("repair %s has no frozen source", entry.RepairID)
+		return fmt.Errorf("repair %s does not include a frozen source", entry.RepairID)
 	}
 
 	if source.PrimaryDigest != primaryDigest(source.Primary) {

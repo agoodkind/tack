@@ -119,10 +119,10 @@ func execSeed(ctx context.Context, cfg *config.Config) error {
 		return err
 	}
 
-	// The org case has no parent, so orgID == the node's own ID. To detect an
-	// existing org by slug via the org-scoped node_by_property index, we need a
-	// known orgID, derived from the user's existing org membership (if any). On
-	// a first seed the membership list is empty and a new org is created.
+	// An org does not have a parent; its orgID equals its node ID. Looking up
+	// an existing org by slug in node_by_property requires an orgID from the
+	// user's existing membership. First-time seeding creates an org when
+	// the user does not have any memberships.
 	existingOrgIDs, memberErr := members.ListOrgIDsForUser(ctx, u.ID)
 	if memberErr != nil {
 		log.WarnContext(ctx, "seed.list_memberships_failed", "err", memberErr)
@@ -142,7 +142,7 @@ func execSeed(ctx context.Context, cfg *config.Config) error {
 		return err
 	}
 
-	// orgID is the parent of the workspace, so it doubles as the lookup orgID.
+	// orgID specifies both the workspace's parent and its lookup organization.
 	wsID, err := ensureNode(
 		ctx,
 		fdbStores,
@@ -156,9 +156,9 @@ func execSeed(ctx context.Context, cfg *config.Config) error {
 		return err
 	}
 
-	// Production mode: SHA-256 hash of the bearer is looked up in api_tokens.
-	// Dev mode (ENV=development): the bearer is the raw user UUID directly, no
-	// api_tokens lookup. Print both so the operator picks the right one.
+	// Production authentication looks up the bearer's SHA-256 hash in api_tokens.
+	// ENV=development uses the raw user UUID without a token lookup.
+	// Print both credentials for selecting the one the environment requires.
 	if err := seedToken(ctx, cfg, tokenRepo, u, orgID); err != nil {
 		return err
 	}
