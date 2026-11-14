@@ -6,7 +6,7 @@ TACK-582 repairs existing records under the [node integrity contract](2026-10-16
 
 The October 16 pull read all 5,090 materialized nodes in the main organization across all 11 registered node types. It directly compared 454 suspect primary records with their views; every compared property map matched. Three referenced parent UUIDs lacked primary, view, and resolution records.
 
-Search verification reported 450 exclusions and zero stuck work items. Hierarchy failures affected 443 excluded nodes. The remaining seven exclusions involved undeclared properties. Failure classes overlap; their counts must not be added as distinct nodes.
+Search verification reported 450 exclusions and zero stuck work items. Hierarchy failures affected 443 excluded nodes. The remaining seven exclusions involved undeclared properties. Failure classes overlap. Do not add their counts as distinct nodes.
 
 The complete classification covers 2,909 distinct records after combining the suspect set with metadata applicability exceptions. Each captured record includes evidence, intended action, source hash, review reasons, and an execution-disabled marker. [TACK-582](https://tack.home.goodkind.io/browse/TACK-582) contains the classified inventory and all 178 parent mappings. Regenerate the executable manifest from current records under those rules. Production exports remain outside the repository.
 

@@ -117,8 +117,8 @@ chunks, and sparse weights. Undeploy the model. Submit a bulk partial update wit
 generation 2 that runs the access update script and replaces only `search_generation` and `access`.
 Require success, changed access values, and byte-identical text, chunks, and
 weights. Submit generation 1 again and require the script refusal that the bulk
-parser maps to `ErrObsoleteWrite`. Submit generation 2 again and require no
-change. This test must fail if the update invokes model inference.
+parser maps to `ErrObsoleteWrite`. Submit generation 2 again and require unchanged
+stored data. This test must fail if the update invokes model inference.
 
 ```json
 {"update":{"_index":"node-pages-test","_id":"page-id","retry_on_conflict":3}}
@@ -127,7 +127,7 @@ change. This test must fail if the update invokes model inference.
 
 - [ ] **Step 9: Add retirement and byte-bound coverage.**
 
-Read the stored generation, sequence number, and primary term of a same-ID document, then replace it with `{"retired":true}` at the retirement generation with `if_seq_no` and `if_primary_term` from that read. Require no text or semantic fields and no active match. Reject page text above 4,096 UTF-8 bytes before an engine request.
+Read the stored generation, sequence number, and primary term of a same-ID document, then replace it with `{"retired":true}` at the retirement generation with `if_seq_no` and `if_primary_term` from that read. Require the retired document to omit text and semantic fields and search to exclude it. Reject page text above 4,096 UTF-8 bytes before an engine request.
 
 - [ ] **Step 10: Add endpoint and resource coverage.**
 

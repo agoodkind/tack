@@ -72,7 +72,7 @@ Run `bundle exec rspec spec/ansible/tack_search_spec.rb spec/ansible/tack_search
 
 - [ ] **Step 3: Reserve the two initial guest identities.**
 
-Inspect the complete committed service mapping and Proxmox inventory in the Configs worktree. Add one production `tack_search1` entry and one QA entry with `_suburban`. Use a QA VMID equal to the production VMID plus 100 only when both values are unused in the committed inventory. Allocate distinct IPv6 addresses, pinned MACs, and Docker IPv6 subnets that are unused in the committed inventory. Keep `tack_data1/2/3` unchanged. Do not reserve later production guests. Add live collision verification as a checklist item in the release plan before any OpenTofu plan or apply. Do not query Proxmox or another host during this task.
+Inspect the complete committed service mapping and Proxmox inventory in the Configs worktree. Add one production `tack_search1` entry and one QA entry with `_suburban`. Use a QA VMID equal to the production VMID plus 100 only when the committed inventory does not assign either ID. Allocate distinct IPv6 addresses, pinned MACs, and Docker IPv6 subnets that the committed inventory does not assign. Keep `tack_data1/2/3` unchanged. Do not reserve later production guests. Add live collision verification as a checklist item in the release plan before any OpenTofu plan or apply. Do not query Proxmox or another host during this task.
 
 - [ ] **Step 4: Define guest resources and host prerequisites.**
 

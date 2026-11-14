@@ -4,11 +4,11 @@ TACK-517 defines the complete search replacement. TACK-518 through TACK-520 defi
 
 ## Problem
 
-The previous search path used one Meilisearch 1.12 container with a 2 GiB memory limit. Production did not return results for ordinary or exact-title queries on September 18, 2026. The endpoint did not have accepted result behavior for the replacement to preserve. Migrating or preserving Meilisearch state adds work without protecting source data. FoundationDB already stores the authoritative nodes and can rebuild the index. Meilisearch could not enforce the tenant boundary. Every organization shared one master-key connection, and the adapter formatted filters as strings. The MCP tool had to read each result from FoundationDB and apply current organization and scope checks. Search stopped when the container or its guest stopped. The deployed index had no copy on another guest. Meilisearch matched words rather than meaning. Queries such as `db` required maintained synonyms to find `Database failover`.
+The previous search path used one Meilisearch 1.12 container with a 2 GiB memory limit. Production did not return results for ordinary or exact-title queries on September 18, 2026. The endpoint did not have accepted result behavior for the replacement to preserve. Migrating or preserving Meilisearch state adds work without protecting source data. FoundationDB already stores the authoritative nodes and can rebuild the index. Meilisearch could not enforce the tenant boundary. Every organization shared one master-key connection, and the adapter formatted filters as strings. The MCP tool had to read each result from FoundationDB and apply current organization and scope checks. Search stopped when the container or its guest stopped. The deployment did not replicate the index to another guest. Meilisearch matched words rather than meaning. Queries such as `db` required maintained synonyms to find `Database failover`.
 
 ## Decision
 
-Tack replaces Meilisearch with OpenSearch 3.8. QA and production each start with one node and no replica. QA uses OpenSearch's single-node discovery mode. Production forms a normal cluster with one initial member. Later nodes join that cluster without a Tack change or an embedding rebuild. OpenSearch generates local sparse semantic embeddings through its native `semantic` field and ranks any number of bounded reader pages. FoundationDB remains authoritative for nodes, metadata, relationships, authorization, durable indexing work, search sessions, and rebuild coordination. Tack does not select shard nodes, count model tokens, or implement a tokenizer.
+Tack replaces Meilisearch with OpenSearch 3.8. QA and production each start with one node without replicas. QA uses OpenSearch's single-node discovery mode. Production forms a normal cluster with one initial member. Later nodes join that cluster without a Tack change or an embedding rebuild. OpenSearch generates local sparse semantic embeddings through its native `semantic` field and ranks any number of bounded reader pages. FoundationDB remains authoritative for nodes, metadata, relationships, authorization, durable indexing work, search sessions, and rebuild coordination. Tack does not select shard nodes, count model tokens, or implement a tokenizer.
 
 Removal and replacement ship as separate releases. The first release deletes the Meilisearch client, adapters, dependency, configuration, startup setup, indexing hooks, batch reindex operation, Meilisearch test environment, deployed service, credentials, and operational documentation. The `tack_search` tool remains registered, but every call returns exactly `Search is temporarily unavailable.` This response also applies to exact node references. Every other MCP tool and every FoundationDB or SQL source write continues to operate. The release keeps the old Meilisearch volume. Deleting that volume requires separate authorization.
 
@@ -128,8 +128,8 @@ leaves durable work pending.
 After workers refresh new pages, they retire every older page through bounded
 resumable operations. A delayed writer cannot restore retired text. Converged FDB
 state contains one desired generation per node plus current issued IDs. Completion
-deletes obsolete work, cursor, error, and issued-ID records. Rebuild journals are
-removed after no active rebuild needs them. State does not grow with mutation
+deletes obsolete work, cursor, error, and issued-ID records. Cleanup removes rebuild journals after the last active rebuild stops needing
+them. State does not grow with mutation
 history.
 
 ## Index replacement lifecycle
@@ -174,14 +174,14 @@ Tack. The endpoint and every search guest in an environment depend on the same
 hypervisor.
 
 OpenSearch dispatches ML work across eligible ML nodes and routes search across primary
-and replica shards. Model deployment specifies no node IDs and includes new ML
-nodes. ML-only nodes increase inference capacity. Data nodes and replicas increase
+and replica shards. Model deployment does not specify node IDs and includes new
+ML nodes. ML-only nodes increase inference capacity. Data nodes and replicas increase
 ranking capacity. Native index splitting increases primary shards without regenerating
 existing embeddings when the reserved routing path permits it. Tack selects neither
 ML workers nor shard nodes. After a node restart, when ML Commons leaves the model
-`PARTIALLY_DEPLOYED` or `DEPLOY_FAILED` with no deploy task running for 30 seconds,
-one Tack process sends a native deploy with no node IDs, at most three times per
-stuck episode, and automatic redeploy stays enabled.
+`PARTIALLY_DEPLOYED` or `DEPLOY_FAILED` without an active deploy task for 30 seconds,
+one Tack process sends at most three native deployment requests without node IDs
+per stuck episode. Native automatic redeployment remains enabled.
 
 The final GTE sparse workload opened the ML memory circuit breaker at 4 GiB. It completed at 8 GiB and used about 3.4 GiB afterward. Eight GiB is the per-guest floor, not a capacity result. Suburban can provision one capped 8 GiB QA guest, but the permanent workload must keep at least 6.26 GiB of host memory available. QA activation requires a complete indexing, query, and rebuild workload before the guest remains enabled. The earlier 3.4 GiB post-workload reading plus the proxy would leave about 6.69 GiB, but that reading did not measure peak use. One guest passes the host CPU and fast-storage projections.
 

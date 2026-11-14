@@ -97,7 +97,7 @@ func TestBackupSubcommandsPresent(t *testing.T) {
 			want[name] = true
 		}
 		if name == "verify" {
-			t.Fatal("verify subcommand must be deleted with the manifest machinery")
+			t.Fatal("delete the verify subcommand with the manifest machinery")
 		}
 	}
 	for name, seen := range want {
@@ -115,7 +115,7 @@ func TestBackupSubcommandsPresent(t *testing.T) {
 
 ```go
 RunE: func(cmd *cobra.Command, _ []string) error {
-	return fmt.Errorf("ops backup requires a subcommand (%s); the bare command deliberately runs nothing", strings.Join(backupSubcommandNames(cmd), ", "))
+	return fmt.Errorf("ops backup requires a subcommand (%s); the bare command does not run backup work", strings.Join(backupSubcommandNames(cmd), ", "))
 },
 ```
 

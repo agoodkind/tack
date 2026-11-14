@@ -3,7 +3,7 @@
 ## Summary
 
 The existing reader derives a human-readable reference such as `FAN-13` from two
-properties on every read without recording that the reference is taken. The
+properties on every read without recording which node claims the reference. The
 writer does not reject duplicate references, and the resolver returns its first
 match. A second node with the same reference cannot use that address.
 
