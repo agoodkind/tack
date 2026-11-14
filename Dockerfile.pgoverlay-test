@@ -8,7 +8,7 @@
 
 ARG TOFU_VERSION=1.13.2
 
-FROM golang:1.27.3-bookworm AS provider
+FROM golang:1.27.4-bookworm AS provider
 WORKDIR /overlay
 COPY postgresql-overlay/Makefile postgresql-overlay/bootstrap.mk postgresql-overlay/go.mod postgresql-overlay/go.sum \
      postgresql-overlay/.go-mk-applied-notices \
@@ -36,7 +36,7 @@ RUN set -eux \
     && echo "${tofu_sha256}  /tmp/tofu.tar.gz" | sha256sum -c - \
     && tar -xzf /tmp/tofu.tar.gz -C /usr/local/bin tofu
 
-FROM golang:1.27.3-bookworm
+FROM golang:1.27.4-bookworm
 ARG TOFU_VERSION
 
 WORKDIR /src
