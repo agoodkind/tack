@@ -6,7 +6,7 @@ CMD    := ./cmd/server
 
 # CGO required for FoundationDB bindings; -tags fdb gates the FDB code paths.
 export CGO_ENABLED := 1
-GO_BUILD_TAGS     := fdb
+GO_BUILD_TAGS       := fdb
 
 # Pipeline modules (skip go-release.mk: tack ships prebuilt container images
 # from CI, not GoReleaser).
@@ -15,22 +15,24 @@ GO_MK_MODULES := go-build.mk
 # CI runs the integration package separately through test-store-host-shard.
 GO_TEST_INTEGRATION_PACKAGE := goodkind.io/tack/internal/test/integration
 ifneq ($(filter test,$(MAKECMDGOALS)),)
-GO_TEST_PACKAGES := $(filter-out $(GO_TEST_INTEGRATION_PACKAGE) $(GO_TEST_INTEGRATION_PACKAGE)/%,$(shell go list ./...))
-ifeq ($(strip $(GO_TEST_PACKAGES)),)
-$(error make test could not select any packages. Check go list ./... output and the integration package filter.)
-endif
+  GO_TEST_PACKAGES := $(filter-out \
+      $(GO_TEST_INTEGRATION_PACKAGE) $(GO_TEST_INTEGRATION_PACKAGE)/%,\
+      $(shell go list ./...))
+  ifeq ($(strip $(GO_TEST_PACKAGES)),)
+    $(error make test could not select any packages. Check go list ./... output and the integration package filter.)
+  endif
 endif
 GO_TEST_TARGETS := -timeout 20m $(GO_TEST_PACKAGES)
 
 # Reject deploy before go-build.mk can add its install prerequisite.
 ifneq ($(filter deploy,$(MAKECMDGOALS)),)
-$(error make deploy is retired: use './server ops deploy' for app images or Ansible deploy-tack.yml for the full stack)
+  $(error make deploy is retired: use './server ops deploy' for app images or Ansible deploy-tack.yml for the full stack)
 endif
 
 include bootstrap.mk
 
 ifeq ($(GITHUB_ACTIONS),true)
-GO_TEST_TARGETS := -short -count=1 $(GO_TEST_TARGETS)
+  GO_TEST_TARGETS := -short -count=1 $(GO_TEST_TARGETS)
 endif
 
 # Reject backfills after their clispec.Lifetime removal day (TACK-512).
@@ -58,34 +60,40 @@ seed:
 # Tests start stores through internal/testenv. TestMain, signal handlers, and
 # a watcher remove owned engines. After SIGKILL ends the whole runner, the
 # next engine start or test-env-down removes engines of exited processes.
-TEST_RUNNER := TACK_TEST_ROOT=$(CURDIR) docker compose -f docker-compose.test.yml --profile runner
+TEST_RUNNER := TACK_TEST_ROOT=$(CURDIR) \
+	docker compose -f docker-compose.test.yml --profile runner
 TEST_COMPOSE_TARGETS := test-unit test-integration test-runtime-audit test-search
 
-test-unit: TEST_ARGS = -count=1 -timeout 30m ./internal/ops/... ./internal/adapters/postgres/... ./internal/audit/... ./internal/service/...
+test-unit: TEST_ARGS = -count=1 -timeout 30m \
+	./internal/ops/... ./internal/adapters/postgres/... \
+	./internal/audit/... ./internal/service/...
 
 # Host targets need the FoundationDB client library and a Docker daemon.
 TEST_STORE_OTHER_PACKAGES := ./internal/adapters/foundationdb/... ./internal/audit/... \
 	./internal/ops/... ./internal/datagen/... ./cmd/server/... ./internal/testenv/...
-TEST_STORE_PACKAGES := ./internal/test/integration/... $(TEST_STORE_OTHER_PACKAGES)
+TEST_STORE_PACKAGES       := ./internal/test/integration/... $(TEST_STORE_OTHER_PACKAGES)
 # The integration tag includes audit partition and FoundationDB retention tests.
 TEST_STORE_FLAGS := -tags integration -count=1 -timeout 30m -v
-TEST_STORE_ARGS := $(TEST_STORE_FLAGS) $(TEST_STORE_PACKAGES)
+TEST_STORE_ARGS  := $(TEST_STORE_FLAGS) $(TEST_STORE_PACKAGES)
 
 test-store-host test-integration: TEST_ARGS = $(TEST_STORE_ARGS)
 
 # CI partitions integration tests by the first character after Test.
 ifeq ($(SHARD),integration-a-through-l)
-test-store-host-shard: TEST_ARGS = $(TEST_STORE_FLAGS) -run '^Test[A-L]' ./internal/test/integration/...
+  test-store-host-shard: TEST_ARGS = $(TEST_STORE_FLAGS) \
+	-run '^Test[A-L]' ./internal/test/integration/...
 else ifeq ($(SHARD),remaining-integration-tests)
-test-store-host-shard: TEST_ARGS = $(TEST_STORE_FLAGS) -run '^Test[^A-L]' ./internal/test/integration/...
+  test-store-host-shard: TEST_ARGS = $(TEST_STORE_FLAGS) \
+	-run '^Test[^A-L]' ./internal/test/integration/...
 else ifeq ($(SHARD),other-store-packages)
-test-store-host-shard: TEST_ARGS = $(TEST_STORE_FLAGS) $(TEST_STORE_OTHER_PACKAGES)
+  test-store-host-shard: TEST_ARGS = $(TEST_STORE_FLAGS) $(TEST_STORE_OTHER_PACKAGES)
 else
-test-store-host-shard: TEST_ARGS = $(error test-store-host-shard requires SHARD=integration-a-through-l, SHARD=remaining-integration-tests, or SHARD=other-store-packages)
+  test-store-host-shard: TEST_ARGS = $(error test-store-host-shard requires SHARD=integration-a-through-l, SHARD=remaining-integration-tests, or SHARD=other-store-packages)
 endif
 
 TEST_RUNTIME_AUDIT_ARGS := -tags integration,runtimeaudit -count=1 -timeout 40m -v \
 	-run '^TestRuntimeAudit(Coverage|CoverageWaitsForTargetEvent|TopLevelCoverage|Scaling|MixedVersionRollout)$$' ./internal/test/integration/...
+
 test-runtime-audit-host test-runtime-audit: TEST_ARGS = $(TEST_RUNTIME_AUDIT_ARGS)
 
 # test-postgresql-overlay runs the patched PostgreSQL provider from
@@ -105,7 +113,8 @@ PG_OVERLAY_TEST_ARGS := -tags pgoverlay -count=1 -timeout 30m -v ./internal/test
 # does not treat the engines as orphans, and the trap removes them by label.
 # Cleanup does not affect other Compose projects. The recipe exits with the test
 # status, or with 1 when the tests passed and a cleanup step failed.
-PG_OVERLAY_COMPOSE = TACK_TEST_ROOT=$(CURDIR) docker compose -p "$$project" -f docker-compose.test.yml --profile pgoverlay-runner
+PG_OVERLAY_COMPOSE = TACK_TEST_ROOT=$(CURDIR) \
+	docker compose -p "$$project" -f docker-compose.test.yml --profile pgoverlay-runner
 
 # The Go caches are external volumes that every run shares and no run removes.
 # The names must equal the volume names in docker-compose.test.yml. Creating an
@@ -114,7 +123,9 @@ PG_OVERLAY_CACHE_VOLUMES := tack-pgoverlay-go-cache tack-pgoverlay-go-mod
 
 .PHONY: test-postgresql-overlay
 test-postgresql-overlay:
-	for volume in $(PG_OVERLAY_CACHE_VOLUMES); do docker volume create "$$volume" > /dev/null || exit 1; done; \
+	for volume in $(PG_OVERLAY_CACHE_VOLUMES); do \
+	    docker volume create "$$volume" > /dev/null || exit 1; \
+	done; \
 	project="tack-pgoverlay-$$$$"; \
 	status=0; \
 	fail() { \
@@ -124,7 +135,9 @@ test-postgresql-overlay:
 	cleanup() { \
 	    trap - EXIT INT TERM; \
 	    $(PG_OVERLAY_COMPOSE) down --remove-orphans || fail "compose down failed for project $$project"; \
-	    leftovers=$$(docker ps -aq --filter "label=com.docker.compose.project=$$project" --filter "label=com.docker.compose.service=testenv-engine"); \
+	    leftovers=$$(docker ps -aq \
+	        --filter "label=com.docker.compose.project=$$project" \
+	        --filter "label=com.docker.compose.service=testenv-engine"); \
 	    if [ -n "$$leftovers" ]; then \
 	        docker rm -f -v $$leftovers > /dev/null || fail "removing the test engines of project $$project failed"; \
 	    fi; \
@@ -150,8 +163,10 @@ test-service-secrets:
 
 # Search opt-in starts an 8 GiB engine and downloads the 555 MB model.
 TEST_SEARCH_ARGS := -count=1 -timeout 90m -v -run '^TestSearch' ./internal/test/integration/...
+
 test-search-host test-search: TEST_ARGS = $(TEST_SEARCH_ARGS)
-test-search-host test-search test-search-host-group test-search-group: TEST_ENV = TACK_TEST_SOURCE_REVISION="$(shell git rev-parse HEAD)" TACK_SEARCH_INTEGRATION=1
+test-search-host test-search test-search-host-group test-search-group: TEST_ENV = \
+	TACK_TEST_SOURCE_REVISION="$(shell git rev-parse HEAD)" TACK_SEARCH_INTEGRATION=1
 
 # Dedicated groups exclude their tests from the alphabetical partitions.
 # Cluster groups require TACK_SEARCH_CLUSTER=1. The Mac runner runs those
@@ -160,6 +175,7 @@ SEARCH_RUNTIME_AND_SESSION_AUDIT_TESTS := ^TestSearch(RuntimeAudit|SessionAudit)
 SEARCH_SEPARATE_FEATURE_TESTS := ^(TestSearchContinuationTraversesDuplicateHeavyCorpus|TestSearchActualOSProcessThroughput|TestSearchSplit.*|TestSearchRestore.*|TestSearchRebuild.*|TestSearchCluster.*)$$
 SEARCH_REPEAT_REPLACEMENT_TESTS := TestSearchRebuildExcludesOrphanNodes|TestSearchRebuildStepFitsLease|TestSearchRebuildFailsAfterPauseLimit|TestSearchRebuildDuringChanges|TestSearchRestoreRejectsCursors|TestSearchSplitDuringChanges|TestSearchSplitWithoutModel
 SEARCH_REPEAT_ACCESS_CURSOR_WORKER_TESTS := TestSearchAccessDependentsSurviveEdit|TestSearchAccessUpdatesOlderActiveRevision|TestSearchAccessVersionWithoutRebuild|TestSearchAccessMembershipQueryOnly|TestSearchAccessResourceRefresh|TestSearchAccessRolloutRecovery|TestSearchAccessOnlyUpdateWithoutModel|TestSearchCursorAcrossProcesses|TestSearchCursorExactSortValues|TestSearchCursorOnePredictionPerSession|TestSearchCursorReplayAndConcurrency|TestSearchAccessChangeKeepsPendingContent|TestSearchCursorActualOSProcesses|TestSearchFiltersForbiddenPagesBeforeRanking|TestSearchFinalCheckRejectsCorruptIndexedAccess|TestSearchRevokedAccessRejectsLaterResultsAndReplay|TestSearchDelayedWriter|TestSearchRuntimeIndexesThroughGraph
+
 SEARCH_continuation-with-duplicate-pages_ARGS := -count=1 -timeout 60m -run '^TestSearchContinuationTraversesDuplicateHeavyCorpus$$'
 SEARCH_throughput-with-server-processes_ARGS := -count=1 -timeout 30m -run '^TestSearchActualOSProcessThroughput$$'
 SEARCH_rebuild-split-and-restore_ARGS := -count=1 -timeout 45m -run '^TestSearch(Split|Restore|Rebuild)'
@@ -171,6 +187,7 @@ SEARCH_model-repair-enablement_ARGS := -count=1 -timeout 5m -run '^TestSearchClu
 SEARCH_repeat-continuation-with-duplicate-pages_ARGS := -count=3 -timeout 180m -run '^TestSearchContinuationTraversesDuplicateHeavyCorpus$$'
 SEARCH_repeat-rebuild-split-and-restore_ARGS := -count=3 -timeout 85m -run '^($(SEARCH_REPEAT_REPLACEMENT_TESTS))$$'
 SEARCH_repeat-access-cursors-and-workers_ARGS := -count=3 -timeout 50m -run '^($(SEARCH_REPEAT_ACCESS_CURSOR_WORKER_TESTS))$$'
+
 SEARCH_GROUP_ARGS = $(or $(SEARCH_$(GROUP)_ARGS),$(error GROUP must be one of continuation-with-duplicate-pages throughput-with-server-processes rebuild-split-and-restore cluster-failures-and-recovery features-a-through-m remaining-features runtime-and-session-audit model-repair-enablement repeat-continuation-with-duplicate-pages repeat-rebuild-split-and-restore repeat-access-cursors-and-workers))
 TEST_SEARCH_RUNNER ?= compose
 
@@ -188,7 +205,7 @@ test-search-group:
 	"$(CURDIR)/dist/testenv" run-mac --root "$(CURDIR)" --image "$(MAC_RUNNER_IMAGE)" \
 	    --evidence-dir "$(MAC_RUNNER_EVIDENCE_DIR)" -- -v $(SEARCH_GROUP_ARGS)
 else ifeq ($(TEST_SEARCH_RUNNER),compose)
-TEST_COMPOSE_TARGETS += test-search-group
+  TEST_COMPOSE_TARGETS += test-search-group
 else
 test-search-group:
 	$(error TEST_SEARCH_RUNNER must be compose or mac)

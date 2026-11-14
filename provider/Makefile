@@ -18,18 +18,19 @@ GO_MK_MODULES := go-build.mk go-release.mk
 # this directory, stays unchanged. The tag, package, and publish stages compile
 # nothing and need no workspace.
 ifneq ($(filter release,$(MAKECMDGOALS)),)
-ifeq ($(filter tag package publish,$(RELEASE_STAGE)),)
-RELEASE_WORKSPACE := $(CURDIR)/.make/release.work
-GO_MK_GENERATE    := postgresql-overlay-source
-release: export GOWORK := $(RELEASE_WORKSPACE)
-go-mk-bin go-mk-workspace postgresql-overlay-source: export GOWORK := off
-endif
+  ifeq ($(filter tag package publish,$(RELEASE_STAGE)),)
+    RELEASE_WORKSPACE := $(CURDIR)/.make/release.work
+    GO_MK_GENERATE    := postgresql-overlay-source
+
+    release: export GOWORK := $(RELEASE_WORKSPACE)
+    go-mk-bin go-mk-workspace postgresql-overlay-source: export GOWORK := off
+  endif
 endif
 
 include bootstrap.mk
 
 ifeq ($(GITHUB_ACTIONS),true)
-GO_TEST_TARGETS := -short -count=1 -timeout 20m $(GO_TEST_TARGETS)
+  GO_TEST_TARGETS := -short -count=1 -timeout 20m $(GO_TEST_TARGETS)
 endif
 
 .PHONY: postgresql-overlay-source
@@ -37,4 +38,7 @@ postgresql-overlay-source:
 	$(MAKE) -C ../postgresql-overlay postgresql-source
 	mkdir -p .make
 	rm -f "$(RELEASE_WORKSPACE)" "$(RELEASE_WORKSPACE).sum"
-	GOWORK="$(RELEASE_WORKSPACE)" go work init "$(CURDIR)" "$(abspath ../postgresql-overlay)" "$(abspath ../postgresql-overlay/src)"
+	GOWORK="$(RELEASE_WORKSPACE)" go work init \
+	    "$(CURDIR)" \
+	    "$(abspath ../postgresql-overlay)" \
+	    "$(abspath ../postgresql-overlay/src)"
