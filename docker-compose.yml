@@ -745,7 +745,7 @@ networks:
     enable_ipv6: true
     enable_ipv4: false
     driver_opts:
-      com.docker.network.bridge.gateway_mode_v6: routed
+      com.docker.network.bridge.gateway_mode_ipv6: routed
     ipam:
       config:
         - subnet: ${TACK_DOCKER_V6_SUBNET:-3d06:bad:b01:0:7ac::/96}
