@@ -1,6 +1,7 @@
 package integration
 
 import (
+	_ "embed"
 	"net"
 	"slices"
 	"testing"
@@ -20,6 +21,9 @@ const (
 	// 3, 3, 3 wait, the 3 and 3 wait, and the green 3, 3, 3 wait.
 	clusterBootstrapWaitRows = 5
 )
+
+//go:embed testdata/ledger_bootstrap_manifest_count.sql
+var clusterManifestCountQuery string
 
 // requireServedByYB1 requires a connection through pool to be served by the
 // node at yb1Address, read with inet_server_addr().
@@ -67,13 +71,17 @@ func requireClusterOutboxRows(t *testing.T, admin *pgxpool.Pool) {
 		)
 	}
 
-	waits := clusterOutboxEvents(t, admin, audit.VerbOpsLedgerBootstrapWait)
-	if len(waits) != clusterBootstrapWaitRows {
-		t.Fatalf("outbox bootstrap-wait rows = %d, want %d", len(waits), clusterBootstrapWaitRows)
+	var manifests int
+	if err := admin.QueryRow(t.Context(), clusterManifestCountQuery).Scan(&manifests); err != nil {
+		t.Fatalf("count the read manifests in the outbox: %v", err)
 	}
 
-	for _, event := range waits {
-		outboxOpID(t, event)
+	if manifests != clusterBootstrapWaitRows {
+		t.Fatalf(
+			"outbox read manifests = %d, want %d bootstrap-wait reads",
+			manifests,
+			clusterBootstrapWaitRows,
+		)
 	}
 }
 
@@ -132,10 +140,22 @@ func requireClusterLedgerRows(t *testing.T, admin *pgxpool.Pool) {
 		t.Fatalf("audit-bootstrap outcomes = %v, want %v", bootstrapOutcomes, wantOutcomes)
 	}
 
+	var waitOutcomes []string
+
 	for _, row := range bootstrapRowsOfVerb(observed, audit.VerbOpsLedgerBootstrapWait) {
 		requireBootstrapOpID(t, audit.VerbOpsLedgerBootstrapWait, row)
-		if row.Outcome != string(audit.OutcomeOK) {
-			t.Fatalf("bootstrap-wait row outcome = %s, want %s", row.Outcome, audit.OutcomeOK)
-		}
+		waitOutcomes = append(waitOutcomes, row.Outcome)
+	}
+
+	slices.Sort(waitOutcomes)
+	wantWaitOutcomes := []string{
+		string(audit.OutcomeCompleted),
+		string(audit.OutcomeCompleted),
+		string(audit.OutcomeCompleted),
+		string(audit.OutcomeFailed),
+		string(audit.OutcomeFailed),
+	}
+	if !slices.Equal(waitOutcomes, wantWaitOutcomes) {
+		t.Fatalf("bootstrap-wait outcomes = %v, want %v", waitOutcomes, wantWaitOutcomes)
 	}
 }

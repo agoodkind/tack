@@ -130,7 +130,6 @@ func runManifestParts(
 	args ...string,
 ) manifestCommandRun {
 	t.Helper()
-
 	return runOpsTreeCommand(
 		t,
 		ledger,
@@ -159,6 +158,7 @@ func runOpsTreeCommand(
 	factory.SetAuditReads(audit.NewPoolReadLifecycle(options.lifecycle))
 	root := nodeAuditCommandRoot(factory)
 	root.SetContext(t.Context())
+	root.SetOut(stdout)
 	root.SetArgs(
 		slices.Concat(
 			[]string{
@@ -236,8 +236,7 @@ func requireManifestRead(
 		t.Fatalf("stdout contains a payload field:\n%s", run.stdout)
 	}
 
-	if report.Command != "ops.audit.manifest_parts" || report.OrgID != orgID ||
-		report.EventID != eventID ||
+	if report.Command != "ops.audit.manifest_parts" || report.OrgID != orgID || report.EventID != eventID ||
 		report.PartCount != len(want) ||
 		report.Parts == nil ||
 		!slices.Equal(report.Parts, want) {
@@ -250,12 +249,7 @@ func requireManifestRead(
 		)
 	}
 
-	var compact bytes.Buffer
-	if err := json.Compact(&compact, envelope.Result); err != nil {
-		t.Fatalf("compact the command result: %v\n%s", err, run.stdout)
-	}
-
-	digest := sha256.Sum256(compact.Bytes())
+	digest := sha256.Sum256([]byte(run.stdout))
 
 	return manifestReadRun{
 		orgInput:        orgID.String(),

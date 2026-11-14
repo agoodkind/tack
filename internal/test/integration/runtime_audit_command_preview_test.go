@@ -81,8 +81,7 @@ func TestRuntimeAuditGeneratedPreviewRecordsRead(t *testing.T) {
 		t.Fatalf("the dry run read event is not valid: %v", err)
 	}
 
-	if eventContext.OperationClass != audit.OperationRead ||
-		event.Outcome != audit.OutcomeCompleted ||
+	if eventContext.OperationClass != audit.OperationRead || event.Outcome != audit.OutcomeCompleted ||
 		eventContext.Target == nil ||
 		eventContext.Target.URI != previewCommandTarget {
 		t.Fatalf(
@@ -114,15 +113,16 @@ func printedPayload(t *testing.T, printed []byte) []byte {
 		t.Fatalf("the dry run did not print a JSON document:\n%s", printed)
 	}
 
+	return bytes.Clone(printed[start:])
+}
+
+// printedResult returns the result member of the printed JSON document.
+func printedResult(t *testing.T, printed []byte) json.RawMessage {
+	t.Helper()
 	var document response.JSONDocument
-	if err := json.Unmarshal(printed[start:], &document); err != nil {
-		t.Fatalf("decoding the dry run document %q failed: %v", printed, err)
+	if err := json.Unmarshal(printed, &document); err != nil {
+		t.Fatalf("decoding the printed document %q failed: %v", printed, err)
 	}
 
-	var compact bytes.Buffer
-	if err := json.Compact(&compact, document.Result); err != nil {
-		t.Fatalf("compacting the dry run result %s failed: %v", document.Result, err)
-	}
-
-	return compact.Bytes()
+	return document.Result
 }

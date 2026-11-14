@@ -83,7 +83,7 @@ func runBackupBucketsInitRecorded(
 		return commandOutcome(audit.OutcomeFailed, commandFailedCode, err), err
 	}
 
-	step := audit.ExternalStep(externalTarget("s3/"+bucket), plannedJSON)
+	step := audit.ExternalStep(audit.ExternalTarget("s3/"+bucket), plannedJSON)
 
 	return recordedStep(
 		ctx,

@@ -56,7 +56,7 @@ func runBackupFDBContinuousInitRecorded(
 	}
 
 	step := audit.ExternalStep(
-		externalTarget("fdb/continuous-backup/"+cfg.BackupS3BucketMain),
+		audit.ExternalTarget("fdb/continuous-backup/"+cfg.BackupS3BucketMain),
 		evidence,
 	)
 
@@ -92,7 +92,7 @@ func runBackupYBPITRInitRecorded(
 		return commandOutcome(audit.OutcomeFailed, commandFailedCode, err), err
 	}
 
-	step := audit.ExternalStep(externalTarget("yugabyte/snapshot-schedule/"+filter), evidence)
+	step := audit.ExternalStep(audit.ExternalTarget("yugabyte/snapshot-schedule/"+filter), evidence)
 
 	return recordedStep(
 		ctx,

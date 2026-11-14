@@ -56,7 +56,7 @@ func runBackupStalenessCheckRecorded(
 	var metrics []backupStalenessMetric
 	var writeErr error
 	step := audit.ExternalStep(
-		externalTarget("s3/"+planned.Bucket+"/"+backupStatusPrefix),
+		audit.ExternalTarget("s3/"+planned.Bucket+"/"+backupStatusPrefix),
 		plannedJSON,
 	)
 	details, err := recordedStep(

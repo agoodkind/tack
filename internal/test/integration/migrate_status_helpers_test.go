@@ -122,7 +122,7 @@ func (command migrateCommand) run(t *testing.T, args ...string) (string, error) 
 	return stdout.String(), nil
 }
 
-// status returns the decoded status and its compact JSON payload.
+// status returns the decoded status and the exact printed bytes.
 func (command migrateCommand) status(t *testing.T) (schemastatus.Status, []byte) {
 	t.Helper()
 	output, err := command.run(t)
@@ -137,17 +137,12 @@ func (command migrateCommand) status(t *testing.T) (schemastatus.Status, []byte)
 		t.Fatalf("decode the dry run output: %v\n%s", err, output)
 	}
 
-	var payload bytes.Buffer
-	if err := json.Compact(&payload, envelope.Result); err != nil {
-		t.Fatalf("compact the migration status: %v", err)
-	}
-
 	var status schemastatus.Status
 	if err := json.Unmarshal(envelope.Result, &status); err != nil {
 		t.Fatalf("decode the migration status: %v", err)
 	}
 
-	return status, payload.Bytes()
+	return status, []byte(output)
 }
 
 func migrationTableExists(t *testing.T, dsn string) bool {

@@ -81,7 +81,10 @@ func runBackupYBArchiveNodeRecorded(
 		return commandOutcome(audit.OutcomeFailed, commandFailedCode, err), err
 	}
 
-	step := audit.ExternalStep(externalTarget("s3/"+planned.Bucket+"/"+target.prefix), plannedJSON)
+	step := audit.ExternalStep(
+		audit.ExternalTarget("s3/"+planned.Bucket+"/"+target.prefix),
+		plannedJSON,
+	)
 	if target.complete {
 		return recordedStep(
 			ctx,
@@ -116,7 +119,6 @@ func runBackupYBArchiveNodeRecorded(
 			"backup.yb_archive.observe_failed",
 			slog.String("err", listErr.Error()),
 		)
-
 		return details, errors.Join(runErr, listErr)
 	}
 

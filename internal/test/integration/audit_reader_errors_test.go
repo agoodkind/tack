@@ -162,7 +162,7 @@ func TestAuditReaderErrorsOmitConnectionStrings(t *testing.T) {
 	}
 
 	commands := []readerErrorCommand{
-		{args: []string{"ops", "audit", "consumer-offsets"}, rows: 1, storesFail: false},
+		{args: []string{"ops", "audit", "consumer-offsets"}, rows: 1, storesFail: true},
 		{args: []string{"ops", "audit", "dlq", "inspect"}, rows: 1, storesFail: true},
 		{
 			args:       []string{"ops", "audit", "dlq", "replay", "--limit", "1"},

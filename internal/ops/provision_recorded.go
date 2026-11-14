@@ -195,7 +195,7 @@ func provisionStateStep(
 	return recordedStep(
 		ctx,
 		steps,
-		audit.ExternalStep(externalTarget(reference), plannedJSON),
+		audit.ExternalStep(audit.ExternalTarget(reference), plannedJSON),
 		func(ctx context.Context) error {
 			observed, effectErr := effect(ctx)
 			state = observed

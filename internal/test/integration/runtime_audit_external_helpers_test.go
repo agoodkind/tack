@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"testing"
 	"time"
 
@@ -12,6 +13,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/spf13/cobra"
 
@@ -21,6 +23,11 @@ import (
 	"goodkind.io/tack/internal/config"
 	"goodkind.io/tack/internal/ops"
 	"goodkind.io/tack/internal/testenv"
+)
+
+const (
+	outboxReadAttempts         = 3
+	outboxSerializationFailure = "40001"
 )
 
 func operatorActor() audit.Actor {
@@ -82,14 +89,27 @@ func outboxEventsByQuery(
 		values = append(values, argument)
 	}
 
-	rows, err := pool.Query(t.Context(), readTestSQL(t, query), values...)
-	if err != nil {
-		t.Fatalf("the test could not read the outbox with %s: %v", query, err)
+	var encoded [][]byte
+
+	var err error
+
+	for range outboxReadAttempts {
+		var rows pgx.Rows
+
+		rows, err = pool.Query(t.Context(), readTestSQL(t, query), values...)
+		if err == nil {
+			encoded, err = pgx.CollectRows(rows, pgx.RowTo[[]byte])
+		}
+
+		var postgresError *pgconn.PgError
+		if err == nil || !errors.As(err, &postgresError) ||
+			postgresError.Code != outboxSerializationFailure {
+			break
+		}
 	}
 
-	encoded, err := pgx.CollectRows(rows, pgx.RowTo[[]byte])
 	if err != nil {
-		t.Fatalf("the test could not scan the outbox rows from %s: %v", query, err)
+		t.Fatalf("the test could not read the outbox rows from %s: %v", query, err)
 	}
 
 	events := make([]audit.Event, 0, len(encoded))

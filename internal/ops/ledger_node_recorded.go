@@ -60,10 +60,11 @@ func runLedgerNodePrepareRecorded(
 	}
 
 	applied := planned
+
 	details, err := recordedStep(
 		ctx,
 		steps,
-		audit.ExternalStep(externalTarget(ledgerNodeConfigTarget), plannedJSON),
+		audit.ExternalStep(audit.ExternalTarget(ledgerNodeConfigTarget), plannedJSON),
 		func(ctx context.Context) error {
 			result, applyErr := applyLedgerNodePrepare(ctx, docker, plan)
 			applied = result
@@ -112,7 +113,6 @@ func previewLedgerNodePrepare(ctx context.Context, f *cli.Factory, sink clispec.
 					"ops.ledger.node_prepare.encode_failed",
 					slog.String("err", err.Error()),
 				)
-
 				return audit.OperatorReadOutput{}, fmt.Errorf(
 					"%s: encode the result: %w",
 					ledgerNodePrepareLabel,
@@ -123,7 +123,7 @@ func previewLedgerNodePrepare(ctx context.Context, f *cli.Factory, sink clispec.
 			return audit.OperatorReadOutput{
 				Payload: encoded,
 				Format:  ledgerNodeJSONFormat,
-				Targets: []audit.Target{externalTarget(ledgerNodeConfigTarget)},
+				Targets: []audit.Target{audit.ExternalTarget(ledgerNodeConfigTarget)},
 			}, nil
 		},
 	)
@@ -133,7 +133,6 @@ func previewLedgerNodePrepare(ctx context.Context, f *cli.Factory, sink clispec.
 			"ops.ledger.node_prepare.preview_failed",
 			slog.String("err", err.Error()),
 		)
-
 		return fmt.Errorf("%s: %w", ledgerNodePrepareLabel, err)
 	}
 
@@ -143,7 +142,6 @@ func previewLedgerNodePrepare(ctx context.Context, f *cli.Factory, sink clispec.
 			"ops.ledger.node_prepare.write_result_failed",
 			slog.String("err", err.Error()),
 		)
-
 		return fmt.Errorf("%s: write result: %w", ledgerNodePrepareLabel, err)
 	}
 
@@ -176,6 +174,7 @@ func runLedgerNodeWaitRecorded(
 	}
 
 	defer func() { _ = docker.Close() }()
+
 	planned := ledgerNodeWaitEvidence{
 		Container:     yugabyteBackupContainer,
 		Stall:         stall.String(),
@@ -197,10 +196,11 @@ func runLedgerNodeWaitRecorded(
 		},
 	}
 	var took time.Duration
+
 	details, err := recordedStep(
 		ctx,
 		steps,
-		audit.ExternalStep(externalTarget(ledgerNodeTarget+"/health"), plannedJSON),
+		audit.ExternalStep(audit.ExternalTarget(ledgerNodeTarget+"/health"), plannedJSON),
 		func(ctx context.Context) error {
 			waited, waitErr := awaitLedgerNode(ctx, watch, stall, poll)
 			if waitErr != nil {
@@ -209,7 +209,6 @@ func runLedgerNodeWaitRecorded(
 					"ops.ledger.node_wait.failed",
 					slog.String("err", waitErr.Error()),
 				)
-
 				return fmt.Errorf("%s: %w", command, waitErr)
 			}
 
@@ -236,7 +235,6 @@ func runLedgerNodeWaitRecorded(
 			"ops.ledger.node_wait.write_result_failed",
 			slog.String("err", err.Error()),
 		)
-
 		return details, fmt.Errorf("%s: write result: %w", command, err)
 	}
 

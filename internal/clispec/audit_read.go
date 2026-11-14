@@ -76,6 +76,16 @@ func RunAuditedRead(
 		return payload, nil
 	}
 
+	if audit.IsReadVerdict(err) {
+		slog.WarnContext(
+			ctx,
+			"cli.audit_read_verdict",
+			slog.String("operation", spec.Verb),
+			slog.String("err", err.Error()),
+		)
+		return payload, fmt.Errorf("%w", err)
+	}
+
 	if !errors.Is(err, audit.ErrReadNotAdmitted) || !spec.CreatesAuditInfrastructure {
 		return nil, loggedAuditError(ctx, "record read access", err)
 	}

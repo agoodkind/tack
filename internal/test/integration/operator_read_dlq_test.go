@@ -67,7 +67,7 @@ func TestOperatorReadDLQSummary(t *testing.T) {
 			Newest string `json:"newest"`
 		} `json:"by_error"`
 	}
-	if err := json.Unmarshal(payload, &report); err != nil {
+	if err := json.Unmarshal(printedResult(t, payload), &report); err != nil {
 		t.Fatalf("decode the summary result: %v", err)
 	}
 

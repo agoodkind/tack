@@ -197,7 +197,7 @@ func searchStep[Evidence stepEvidence](
 	return recordedStep(
 		ctx,
 		steps,
-		audit.ExternalStep(externalTarget(reference), plannedJSON),
+		audit.ExternalStep(audit.ExternalTarget(reference), plannedJSON),
 		effect,
 		observe,
 	)

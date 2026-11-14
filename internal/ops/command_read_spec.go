@@ -11,7 +11,7 @@ import (
 // external target reference. SafeInput returns the command input unchanged.
 // Callers must include only flag values that do not contain credentials.
 func readSpec(verb audit.Verb, reference string) audit.Spec {
-	target := externalTarget(reference)
+	target := audit.ExternalTarget(reference)
 
 	return audit.Spec{
 		Verb:  string(verb),

@@ -1,0 +1,1 @@
+SELECT last_value FROM public.tack_test_catalog_retry_sequence;

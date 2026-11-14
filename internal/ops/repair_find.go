@@ -26,7 +26,7 @@ func init() {
 	Register(Operation{
 		Name:        "repair.find",
 		Lifetime:    clispec.Permanent,
-		Audit:       audit.Spec{Verb: string(audit.VerbOpsInspectFind), Reads: true},
+		Audit:       singletonReadSpec(audit.VerbOpsInspectFind, "repair/find"),
 		Description: "Find nodes by address or indexed property from TACK_REPAIR_FIND_* env vars and print deterministic inspection summaries.",
 		Run:         runRepairFind,
 	})

@@ -88,6 +88,10 @@ func RecordOperatorRead(
 		)
 	}
 
+	if IsReadVerdict(readErr) {
+		return output.Payload, readErr
+	}
+
 	if readErr != nil {
 		return nil, readErr
 	}
@@ -109,7 +113,8 @@ func operatorReadCompletion(
 
 	final.OccurredAt = template.OccurredAt
 	targets := output.Targets
-	if readErr != nil {
+	isVerdict := IsReadVerdict(readErr)
+	if readErr != nil && !isVerdict {
 		final.Outcome = OutcomeFailed
 		final.Error = &EventError{Code: readFailedCode, Message: readErr.Error()}
 		final.Context.Read = nil
@@ -120,8 +125,14 @@ func operatorReadCompletion(
 			return ReadCompletion{}, err
 		}
 
-		final.Outcome = OutcomeCompleted
-		final.Error = nil
+		if isVerdict {
+			final.Outcome = OutcomeFailed
+			final.Error = &EventError{Code: readVerdictCode, Message: readErr.Error()}
+		} else {
+			final.Outcome = OutcomeCompleted
+			final.Error = nil
+		}
+
 		final.Context.Read = &evidence
 	}
 

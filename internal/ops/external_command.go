@@ -7,8 +7,6 @@ import (
 	"fmt"
 	"log/slog"
 
-	"github.com/google/uuid"
-
 	"goodkind.io/tack/internal/audit"
 )
 
@@ -18,20 +16,6 @@ const (
 	commandConfigCode = "configuration_incomplete"
 	commandFailedCode = "step_failed"
 )
-
-func externalTarget(reference string) audit.Target {
-	return audit.Target{
-		Kind:         audit.TargetKindExternal,
-		NodeType:     "",
-		Reference:    reference,
-		Name:         "",
-		URI:          "",
-		RelationType: "",
-		ID:           uuid.Nil,
-		SourceID:     uuid.Nil,
-		TargetID:     uuid.Nil,
-	}
-}
 
 // commandOutcome returns outcome with code and the text of cause.
 // If cause is nil, commandOutcome leaves the failure code and message empty.
@@ -60,7 +44,6 @@ func recordedStep(
 ) (audit.OutcomeDetails, error) {
 	if err := steps.BeginStep(ctx, step); err != nil {
 		slog.ErrorContext(ctx, "ops.step_record_failed", slog.String("err", err.Error()))
-
 		return commandOutcome(audit.OutcomeFailed, commandFailedCode, err), fmt.Errorf(
 			"record the step: %w",
 			err,

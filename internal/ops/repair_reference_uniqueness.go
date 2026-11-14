@@ -18,9 +18,12 @@ const (
 
 func init() {
 	Register(Operation{
-		Name:        "repair.reference_uniqueness",
-		Lifetime:    clispec.Permanent,
-		Audit:       audit.Spec{Verb: string(audit.VerbOpsRepairReferenceUniqueness), Reads: true},
+		Name:     "repair.reference_uniqueness",
+		Lifetime: clispec.Permanent,
+		Audit: singletonReadSpec(
+			audit.VerbOpsRepairReferenceUniqueness,
+			"repair/reference-uniqueness",
+		),
 		Description: "Report planned reference repairs without writing.",
 		Run:         runRepairReferenceUniqueness,
 	})

@@ -53,7 +53,7 @@ func searchSettingsOp(f *cli.Factory) clispec.Operation[searchSettingsInput] {
 
 // AuditReadTargets identifies the settings resource that the result reports.
 func (searchSettingsOutput) AuditReadTargets() ([]audit.Target, error) {
-	return []audit.Target{externalTarget("opensearch/settings")}, nil
+	return []audit.Target{audit.ExternalTarget("opensearch/settings")}, nil
 }
 
 // runSearchSettings reads the settings with the maintenance identity.

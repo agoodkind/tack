@@ -138,8 +138,8 @@ func requireSearchSettings(t *testing.T, cfg *config.Config, want searchSettings
 	}
 	defer pool.Close()
 	operatorID := uuid.Must(uuid.NewV7())
-	raw := runSearchSettingsCommand(t, cfg, pool, operatorID)
-	requireSearchSettingsAudit(t, pool, operatorID, raw)
+	raw, printed := runSearchSettingsCommand(t, cfg, pool, operatorID)
+	requireSearchSettingsAudit(t, pool, operatorID, printed)
 	var fields map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &fields); err != nil {
 		t.Fatalf("decode ops search settings fields %s: %v", raw, err)
@@ -203,14 +203,9 @@ func requireSearchSettingsAudit(
 		t.Fatalf("ops search settings did not finalize a completed read: %+v", event)
 	}
 
-	var compact bytes.Buffer
-	if err := json.Compact(&compact, payload); err != nil {
-		t.Fatalf("compact settings payload: %v", err)
-	}
-
 	if evidence := event.Context.Read; evidence == nil || evidence.Count != 1 ||
 		evidence.PayloadSHA256 != payloadDigest(
-			compact.Bytes(),
+			payload,
 		) || evidence.PayloadFormat != "application/json" {
 		t.Fatalf(
 			"ops search settings read evidence = %+v, want the exact settings digest and one resource",
@@ -245,7 +240,7 @@ func runSearchSettingsCommand(
 	cfg *config.Config,
 	pool *pgxpool.Pool,
 	operatorID uuid.UUID,
-) json.RawMessage {
+) (json.RawMessage, []byte) {
 	t.Helper()
 	factory := cli.System(cfg)
 	var output bytes.Buffer
@@ -278,5 +273,5 @@ func runSearchSettingsCommand(
 		t.Fatalf("decode ops search settings output %q: %v", output.String(), err)
 	}
 
-	return document.Result
+	return document.Result, bytes.Clone(output.Bytes())
 }

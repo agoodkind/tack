@@ -132,14 +132,12 @@ func topLevelCases() map[string]topLevelCase {
 			audit.OutcomeOK,
 			exportArgs("audit-export"),
 		),
-		"command tack audit verify": topLevelCommand(
+		"command tack audit verify": topLevelRead(
 			audit.VerbAuditVerify,
-			audit.OutcomeOK,
 			verifyArgs("audit", "verify"),
 		),
-		"command tack audit-verify": topLevelCommand(
+		"command tack audit-verify": topLevelRead(
 			audit.VerbAuditVerify,
-			audit.OutcomeOK,
 			verifyArgs("audit-verify"),
 		),
 		"command tack audit gen-key": topLevelCommand(
@@ -152,9 +150,8 @@ func topLevelCases() map[string]topLevelCase {
 			audit.OutcomeOK,
 			keyArgs("gen-audit-key"),
 		),
-		"command tack audit signers": topLevelCommand(
+		"command tack audit signers": topLevelRead(
 			audit.VerbAuditSignersVerified,
-			audit.OutcomeOK,
 			signersArgs,
 		),
 		"command tack audit query":       topLevelRead(audit.VerbAuditRead, queryArgs),

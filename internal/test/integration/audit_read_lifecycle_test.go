@@ -1,9 +1,6 @@
 package integration_test
 
 import (
-	"bytes"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"strings"
 	"testing"
@@ -21,7 +18,8 @@ const (
 )
 
 type readLifecycleOutput struct {
-	Result json.RawMessage `json:"result"`
+	Result  json.RawMessage `json:"result"`
+	Printed printedOutput   `json:"-"`
 }
 
 type readLifecycleQueryResult struct {
@@ -77,7 +75,7 @@ func TestAuditQueryAndGetRecordReadLifecycle(t *testing.T) {
 		t,
 		awaitReadLifecycleRow(t, ledger, getOperator, audit.VerbAuditRead),
 		uriTarget(audit.EventURIPrefix+storedEvent.String()),
-		getOutput.Result,
+		getOutput.Printed,
 		[]string{audit.EventURIPrefix + storedEvent.String()},
 	)
 
@@ -117,7 +115,7 @@ func TestAuditQueryAndGetRecordReadLifecycle(t *testing.T) {
 		t,
 		awaitReadLifecycleRow(t, ledger, queryOperator, audit.VerbAuditRead),
 		uriTarget(audit.AuditOrgURIPrefix+orgID.String()),
-		queryOutput.Result,
+		queryOutput.Printed,
 		returned,
 	)
 
@@ -183,6 +181,8 @@ func decodeReadLifecycleOutput(t *testing.T, run builtAuditRun) readLifecycleOut
 		t.Fatalf("decode the command output: %v\n%s", err, run.output())
 	}
 
+	output.Printed = printedOutput(run.stdout)
+
 	return output
 }
 
@@ -245,10 +245,8 @@ func referenceTarget(reference string) readRowTarget {
 func requireReadRowShape(t *testing.T, row audit.Row, outcome audit.Outcome, want readRowTarget) {
 	t.Helper()
 	target := row.Context.Target
-	if row.Outcome != outcome || row.Context.OperationClass != audit.OperationRead ||
-		row.Context.Phase != audit.PhaseRead ||
-		target == nil ||
-		target.URI != want.uri ||
+	if row.Outcome != outcome || row.Context.OperationClass != audit.OperationRead || row.Context.Phase != audit.PhaseRead ||
+		target == nil || target.URI != want.uri ||
 		target.Reference != want.reference {
 		t.Fatalf(
 			"row %s = outcome %q class %q phase %q target %+v, want %q read read %+v",
@@ -267,34 +265,12 @@ func requireCompletedReadRow(
 	t *testing.T,
 	row audit.Row,
 	want readRowTarget,
-	result json.RawMessage,
+	printed printedOutput,
 	itemURIs []string,
 ) {
 	t.Helper()
 	requireReadRowShape(t, row, audit.OutcomeCompleted, want)
-	var compact bytes.Buffer
-	if err := json.Compact(&compact, result); err != nil {
-		t.Fatalf("compact the command result: %v", err)
-	}
-
-	fingerprint := sha256.Sum256(compact.Bytes())
-	manifestDigest, manifestParts := expectedManifestEvidence(t, itemURIs)
-	read := row.Context.Read
-	if read == nil || read.PayloadSHA256 != hex.EncodeToString(
-		fingerprint[:],
-	) || read.PayloadFormat != readLifecycleJSONFormat ||
-		read.Count != uint64(len(itemURIs)) || read.ManifestSHA256 != manifestDigest ||
-		read.ManifestParts != manifestParts {
-		t.Fatalf(
-			"row %s read evidence = %+v, want fingerprint %x, %d items, manifest %q with %d parts",
-			row.EventID,
-			read,
-			fingerprint,
-			len(itemURIs),
-			manifestDigest,
-			manifestParts,
-		)
-	}
+	requireReadEvidence(t, row, printed, itemURIs)
 }
 
 func requireFailedReadRun(t *testing.T, run builtAuditRun) {

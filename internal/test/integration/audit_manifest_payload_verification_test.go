@@ -1,7 +1,6 @@
 package integration_test
 
 import (
-	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -49,8 +48,7 @@ func TestAuditManifestPayloadVerification(t *testing.T) {
 	}
 
 	verification := report.Verification
-	if !verification.PayloadVerified || verification.DeclaredCount != readTargetCount ||
-		verification.IdentityCount != readTargetCount ||
+	if !verification.PayloadVerified || verification.DeclaredCount != readTargetCount || verification.IdentityCount != readTargetCount ||
 		verification.PartCount != uint32(len(parts)) ||
 		verification.DeclaredParts != uint32(len(parts)) ||
 		verification.DeclaredDigest == "" ||
@@ -64,12 +62,7 @@ func TestAuditManifestPayloadVerification(t *testing.T) {
 		}
 	}
 
-	var compact bytes.Buffer
-	if err := json.Compact(&compact, envelope.Result); err != nil {
-		t.Fatalf("compact command result: %v", err)
-	}
-
-	digest := sha256.Sum256(compact.Bytes())
+	digest := sha256.Sum256([]byte(run.stdout))
 	requireStoredAuditReads(
 		t,
 		ledger,

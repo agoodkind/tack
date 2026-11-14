@@ -12,6 +12,10 @@ import (
 	"goodkind.io/tack/internal/clock"
 )
 
+var errReadRequiresLifecycle = errors.New(
+	"reads state and must use the read lifecycle with the read class",
+)
+
 // RunAudited records an operator command before running it. A command that
 // creates the audit infrastructure records after it establishes a missing outbox.
 func RunAudited(
@@ -79,14 +83,6 @@ func runAudited(
 		return loggedAuditError(ctx, "record audit event", errors.New("audit outbox is nil"))
 	}
 
-	if spec.Reads {
-		if err := outbox.WriteOutbox(ctx, event); err != nil {
-			return loggedAuditError(ctx, "record read access", err)
-		}
-
-		return run(runContext)
-	}
-
 	intent := event
 	intent.Outcome = audit.OutcomePending
 	if err := outbox.WriteOutbox(ctx, intent); err != nil {
@@ -147,6 +143,10 @@ func validateAuditSpec(spec audit.Spec) error {
 
 	if spec.CreatesAuditInfrastructure && spec.Reads {
 		return fmt.Errorf("audit spec %q cannot create audit infrastructure for a read", spec.Verb)
+	}
+
+	if spec.Reads {
+		return fmt.Errorf("audit spec %q %w", spec.Verb, errReadRequiresLifecycle)
 	}
 
 	return nil

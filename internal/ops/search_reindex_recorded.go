@@ -108,7 +108,7 @@ func runSearchReindexRecorded(
 
 	var begun searchdomain.Rebuild
 	step := audit.ExternalStep(
-		externalTarget("opensearch/index/"+plan.serving+"/replacement"),
+		audit.ExternalTarget("opensearch/index/"+plan.serving+"/replacement"),
 		plannedJSON,
 	)
 	details, err := recordedStep(

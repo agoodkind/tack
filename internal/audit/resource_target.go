@@ -44,6 +44,29 @@ func ResourceTarget(uri string) Target {
 	}
 }
 
+// ExternalTarget returns the external target for reference.
+//
+// The target uses TargetKindExternal and records the reference without
+// a node ID.
+//
+// Example:
+//
+//	target := ExternalTarget("audit/verify-bundle")
+//	target.Reference == "audit/verify-bundle"
+func ExternalTarget(reference string) Target {
+	return Target{
+		Kind:         TargetKindExternal,
+		NodeType:     "",
+		Reference:    reference,
+		Name:         "",
+		URI:          "",
+		RelationType: "",
+		ID:           uuid.Nil,
+		SourceID:     uuid.Nil,
+		TargetID:     uuid.Nil,
+	}
+}
+
 // NodeTarget returns a resource audit target for nodeID.
 //
 // The target URI appends the string form of nodeID to NodeURIPrefix.

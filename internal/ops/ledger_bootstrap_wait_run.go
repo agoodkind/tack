@@ -14,6 +14,7 @@ import (
 
 	"github.com/moby/moby/client"
 
+	"goodkind.io/tack/internal/audit"
 	"goodkind.io/tack/internal/clispec"
 	"goodkind.io/tack/internal/config"
 )
@@ -82,7 +83,6 @@ func runLedgerBootstrapWait(
 			"ops.ledger.bootstrap_wait.write_result_failed",
 			slog.String("err", err.Error()),
 		)
-
 		return fmt.Errorf("%s: write result: %w", ledgerBootstrapCommandLabel, err)
 	}
 
@@ -122,7 +122,7 @@ func awaitLedgerBootstrap(
 				slog.String("err", expired.Error()),
 			)
 
-			return reading, elapsed, expired
+			return reading, elapsed, &audit.ReadVerdictError{Err: expired}
 		}
 
 		if !opsWait(ctx, min(poll, remaining)) {

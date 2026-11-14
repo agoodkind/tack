@@ -91,7 +91,7 @@ func searchRolloutSpec() audit.Spec {
 			}
 
 			return []audit.Target{
-				externalTarget(searchdomain.AccessRolloutTargetReference(decoded.Authority)),
+				audit.ExternalTarget(searchdomain.AccessRolloutTargetReference(decoded.Authority)),
 			}, nil
 		},
 		SafeInput: func(input json.RawMessage) (json.RawMessage, error) { return input, nil },

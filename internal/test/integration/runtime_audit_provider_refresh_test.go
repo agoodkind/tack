@@ -56,12 +56,7 @@ func TestRuntimeAuditProviderRefresh(t *testing.T) {
 		cli.ServiceActorID(service),
 		started,
 	)
-	var payload bytes.Buffer
-	if err := json.Compact(&payload, envelope.Result); err != nil {
-		t.Fatalf("compacting the printed result failed: %v", err)
-	}
-
-	payloadDigest := sha256.Sum256(payload.Bytes())
+	payloadDigest := sha256.Sum256(stdout)
 	manifestDigest, manifestParts, err := audit.ReadManifestDigest(
 		schemastatus.MigrationTargets(available),
 	)

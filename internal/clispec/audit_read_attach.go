@@ -23,6 +23,76 @@ func AttachRead(
 	input func() (json.RawMessage, error),
 	read OperatorRead,
 ) {
+	rendered := func(ctx context.Context) (audit.OperatorReadOutput, error) {
+		output, readErr := read(ctx)
+		if readErr != nil && !audit.IsReadVerdict(readErr) {
+			return output, readErr
+		}
+
+		captured := &captureSink{writes: nil}
+		if err := captured.WriteText(ctx, string(output.Payload)); err != nil {
+			return audit.OperatorReadOutput{}, err
+		}
+
+		textOutput, renderErr := captured.rendered(ctx, f, output.Targets)
+		if renderErr != nil {
+			return audit.OperatorReadOutput{}, renderErr
+		}
+
+		return textOutput, readErr
+	}
+	attachRead(
+		cmd,
+		f,
+		spec,
+		input,
+		rendered,
+		func(ctx context.Context, payload []byte) error {
+			return writeRendered(ctx, f, payload)
+		},
+	)
+}
+
+// AttachRawRead works like AttachRead. After the final read event commits, it
+// writes the returned payload bytes unchanged to the command output without the
+// trace header or JSON envelope.
+//
+// Commands that supply their own output format use this method to preserve it.
+//
+// Example:
+//
+//	AttachRawRead(cmd, f, spec, input, read)
+func AttachRawRead(
+	cmd *cobra.Command,
+	f *cli.Factory,
+	spec audit.Spec,
+	input func() (json.RawMessage, error),
+	read OperatorRead,
+) {
+	attachRead(
+		cmd,
+		f,
+		spec,
+		input,
+		read,
+		func(ctx context.Context, payload []byte) error {
+			if _, err := cmd.OutOrStdout().Write(payload); err != nil {
+				return loggedAuditError(ctx, "write command output", err)
+			}
+
+			return nil
+		},
+	)
+}
+
+func attachRead(
+	cmd *cobra.Command,
+	f *cli.Factory,
+	spec audit.Spec,
+	input func() (json.RawMessage, error),
+	read OperatorRead,
+	write func(context.Context, []byte) error,
+) {
 	if cmd.Annotations == nil {
 		cmd.Annotations = make(map[string]string)
 	}
@@ -46,11 +116,15 @@ func AttachRead(
 		}
 
 		payload, err := RunAuditedRead(ctx, f, spec, encoded, read)
-		if err != nil {
+		if err != nil && !audit.IsReadVerdict(err) {
 			return err
 		}
 
-		return NewCLISink(f).WriteText(ctx, string(payload))
+		if writeErr := write(ctx, payload); writeErr != nil {
+			return writeErr
+		}
+
+		return err
 	}
 }
 

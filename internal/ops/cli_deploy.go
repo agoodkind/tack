@@ -50,7 +50,7 @@ func deployVerifySpec() audit.Spec {
 		Reads: true,
 		Class: audit.OperationRead,
 		Targets: func(context.Context, json.RawMessage) ([]audit.Target, error) {
-			return []audit.Target{externalTarget(deployReference)}, nil
+			return []audit.Target{audit.ExternalTarget(deployReference)}, nil
 		},
 		SafeInput: func(input json.RawMessage) (json.RawMessage, error) { return input, nil },
 	}
@@ -130,7 +130,9 @@ func replicaTargets(replicas []serviceReplica) []audit.Target {
 	for _, replica := range replicas {
 		targets = append(
 			targets,
-			externalTarget(deployContainerReference+strings.TrimPrefix(replica.Container, "/")),
+			audit.ExternalTarget(
+				deployContainerReference+strings.TrimPrefix(replica.Container, "/"),
+			),
 		)
 	}
 

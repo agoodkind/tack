@@ -14,7 +14,7 @@ import (
 // command input unchanged. Callers must include only flag values that do not
 // contain credentials.
 func externalSpec(verb audit.Verb, reference string) audit.Spec {
-	target := externalTarget(reference)
+	target := audit.ExternalTarget(reference)
 
 	return audit.Spec{
 		Verb:    string(verb),

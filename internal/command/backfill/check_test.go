@@ -1,4 +1,4 @@
-package main
+package backfill_test
 
 import (
 	"bytes"
@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"goodkind.io/tack/internal/command/backfill"
 )
 
 const backfillCheckToday = "2026-09-19"
@@ -49,7 +51,7 @@ var lifetime = clispec.Lifetime{Ticket: "TACK-461", RemoveBy: time.Date(2026, ti
 	)
 	var out bytes.Buffer
 
-	code := run(backfillCheckDay(t), &out)
+	code := backfill.Check(backfillCheckDay(t), &out)
 
 	if code != 1 {
 		t.Fatalf("exit = %d, want 1:\n%s", code, out.String())
@@ -77,7 +79,7 @@ var lifetime = clispec.Lifetime{Ticket: "TACK-461", RemoveBy: time.Date(2026, ti
 	)
 	var out bytes.Buffer
 
-	if code := run(backfillCheckDay(t), &out); code != 0 {
+	if code := backfill.Check(backfillCheckDay(t), &out); code != 0 {
 		t.Fatalf("exit = %d, want 0:\n%s", code, out.String())
 	}
 }
@@ -101,7 +103,7 @@ var lifetime = clispec.Lifetime{Ticket: "TACK-461", RemoveBy: removeBy}
 	)
 	var out bytes.Buffer
 
-	if code := run(backfillCheckDay(t), &out); code != 1 {
+	if code := backfill.Check(backfillCheckDay(t), &out); code != 1 {
 		t.Fatalf("exit = %d, want 1:\n%s", code, out.String())
 	}
 
@@ -127,7 +129,7 @@ var lifetime = clispec.Lifetime{Ticket: "TACK-461", RemoveBy: time.Date(2020, ti
 	)
 	var out bytes.Buffer
 
-	if code := run(backfillCheckDay(t), &out); code != 0 {
+	if code := backfill.Check(backfillCheckDay(t), &out); code != 0 {
 		t.Fatalf("exit = %d, want 0:\n%s", code, out.String())
 	}
 }

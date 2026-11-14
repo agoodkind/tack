@@ -82,7 +82,10 @@ func runBackupYBSnapshotExportRecorded(
 		return commandOutcome(audit.OutcomeFailed, commandFailedCode, err), err
 	}
 
-	step := audit.ExternalStep(externalTarget("s3/"+bucket+"/"+ybSnapshotRootPrefix), plannedJSON)
+	step := audit.ExternalStep(
+		audit.ExternalTarget("s3/"+bucket+"/"+ybSnapshotRootPrefix),
+		plannedJSON,
+	)
 	details, runErr := recordedStep(
 		ctx,
 		steps,
@@ -103,7 +106,6 @@ func runBackupYBSnapshotExportRecorded(
 			"backup.yb_snapshot.observe_failed",
 			slog.String("err", listErr.Error()),
 		)
-
 		return details, errors.Join(runErr, listErr)
 	}
 
@@ -211,7 +213,7 @@ func runBackupRestoreDrillRecorded(
 	}
 
 	step := audit.ExternalStep(
-		externalTarget("backup/restore-drill/"+cfg.BackupS3BucketMain),
+		audit.ExternalTarget("backup/restore-drill/"+cfg.BackupS3BucketMain),
 		evidence,
 	)
 	details, runErr := recordedStep(

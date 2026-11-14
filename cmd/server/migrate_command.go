@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -150,19 +151,43 @@ func printMigrationStatus(ctx context.Context, f *cli.Factory, input json.RawMes
 		return fmt.Errorf("migrate: read the migration state: %w", err)
 	}
 
-	sink := clispec.NewCLISink(f)
-	if jsonOutput {
-		err = sink.WriteJSON(ctx, payload)
-	} else {
-		err = sink.WriteText(ctx, string(payload))
-	}
-
+	_, err = f.Out.Write(payload)
 	if err != nil {
 		slog.ErrorContext(ctx, "migrate.status_output_failed", slog.String("err", err.Error()))
 		return fmt.Errorf("migrate: write the migration state: %w", err)
 	}
 
 	return nil
+}
+
+// renderMigrationStatus returns the bytes that CLISink renders for the
+// migration status in the requested output format.
+func renderMigrationStatus(
+	ctx context.Context,
+	f *cli.Factory,
+	body []byte,
+	jsonOutput bool,
+) ([]byte, error) {
+	var buffer bytes.Buffer
+
+	view := *f
+	view.Out = &buffer
+	sink := clispec.NewCLISink(&view)
+
+	var err error
+
+	if jsonOutput {
+		err = sink.WriteJSON(ctx, body)
+	} else {
+		err = sink.WriteText(ctx, string(body))
+	}
+
+	if err != nil {
+		slog.ErrorContext(ctx, "migrate.status_render_failed", slog.String("err", err.Error()))
+		return nil, fmt.Errorf("render the migration state: %w", err)
+	}
+
+	return buffer.Bytes(), nil
 }
 
 // readMigrationStatus reads the migration state and returns the exact bytes
@@ -180,8 +205,13 @@ func readMigrationStatus(
 
 	targets := schemastatus.MigrationTargets(status.Available)
 	if !jsonOutput {
+		rendered, err := renderMigrationStatus(ctx, f, []byte(status.Summary()), false)
+		if err != nil {
+			return audit.OperatorReadOutput{}, err
+		}
+
 		return audit.OperatorReadOutput{
-			Payload: []byte(status.Summary()),
+			Payload: rendered,
 			Format:  textPayloadFormat,
 			Targets: targets,
 		}, nil
@@ -190,7 +220,6 @@ func readMigrationStatus(
 	body, err := json.Marshal(status)
 	if err != nil {
 		slog.ErrorContext(ctx, "migrate.status_encode_failed", slog.String("err", err.Error()))
-
 		return audit.OperatorReadOutput{}, fmt.Errorf(
 			"encode the migration state at version %d: %w",
 			status.AppliedVersion,
@@ -198,5 +227,14 @@ func readMigrationStatus(
 		)
 	}
 
-	return audit.OperatorReadOutput{Payload: body, Format: jsonPayloadFormat, Targets: targets}, nil
+	rendered, err := renderMigrationStatus(ctx, f, body, true)
+	if err != nil {
+		return audit.OperatorReadOutput{}, err
+	}
+
+	return audit.OperatorReadOutput{
+		Payload: rendered,
+		Format:  jsonPayloadFormat,
+		Targets: targets,
+	}, nil
 }

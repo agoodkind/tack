@@ -115,22 +115,27 @@ func addBackupCommandCases(cases map[string]coverageCase) {
 		restoreDrillInput,
 	)
 	cases["command ops backup restore-drill"+caseVariantSeparator+"fdb-leg-skipped"] = skippedLegDrillCase()
-	cases["command ops backup restore-version"] = commandCase(
+	cases["command ops backup restore-version"] = withReadCheck(
+		commandCase(
+			audit.VerbOpsBackupFDBRestoreVersion,
+			audit.OutcomeCompleted,
+			func(t *testing.T, env *coverageEnv) commandInput {
+				env.writeVersionLog(t)
+				return backupCommand(
+					"ops",
+					"backup",
+					"restore-version",
+					"--at",
+					time.Now().UTC().Format(time.RFC3339),
+				)(
+					t,
+					env,
+				)
+			},
+		),
 		audit.VerbOpsBackupFDBRestoreVersion,
-		audit.OutcomeOK,
-		func(t *testing.T, env *coverageEnv) commandInput {
-			env.writeVersionLog(t)
-			return backupCommand(
-				"ops",
-				"backup",
-				"restore-version",
-				"--at",
-				time.Now().UTC().Format(time.RFC3339),
-			)(
-				t,
-				env,
-			)
-		},
+		audit.OutcomeCompleted,
+		fixedReadExpectation("backup/restore-version"),
 	)
 	cases["command ops backup yb-archive-node"] = commandCase(
 		audit.VerbOpsBackupYBArchiveNode,
@@ -223,9 +228,62 @@ func addLedgerCommandCases(cases map[string]coverageCase) {
 		audit.OutcomeCompleted,
 		backupCommand("ops", "ledger", "node-wait", "--stall", "3m", "--poll", "2s"),
 	)
-	cases["command ops ledger bootstrap-wait"] = commandCase(
+	cases["command ops ledger bootstrap-wait"] = withReadCheck(
+		commandCase(
+			audit.VerbOpsLedgerBootstrapWait,
+			audit.OutcomeCompleted,
+			backupCommand(
+				"ops",
+				"ledger",
+				"bootstrap-wait",
+				"--masters",
+				"1",
+				"--tablet-servers",
+				"1",
+			),
+		),
 		audit.VerbOpsLedgerBootstrapWait,
-		audit.OutcomeOK,
-		backupCommand("ops", "ledger", "bootstrap-wait", "--masters", "1", "--tablet-servers", "1"),
+		audit.OutcomeCompleted,
+		bootstrapWaitExpectation(
+			`{"Masters":1,"TabletServers":1,"Replicas":0,"Deadline":"","Poll":"2s"}`,
+		),
 	)
+	cases["command ops ledger bootstrap-wait"+caseVariantSeparator+"deadline"] = withReadCheck(
+		failingCommandCase(
+			audit.VerbOpsLedgerBootstrapWait,
+			audit.OutcomeFailed,
+			backupCommand(
+				"ops",
+				"ledger",
+				"bootstrap-wait",
+				"--masters",
+				"1",
+				"--tablet-servers",
+				"9",
+				"--deadline",
+				"6s",
+				"--poll",
+				"2s",
+			),
+		),
+		audit.VerbOpsLedgerBootstrapWait,
+		audit.OutcomeFailed,
+		bootstrapWaitExpectation(
+			`{"Masters":1,"TabletServers":9,"Replicas":0,"Deadline":"6s","Poll":"2s"}`,
+		),
+	)
+}
+
+func bootstrapWaitExpectation(input string) func(*testing.T, *coverageEnv) readExpectation {
+	return func(*testing.T, *coverageEnv) readExpectation {
+		return readExpectation{
+			target:     referenceTarget("ledger/bootstrap-wait"),
+			input:      input,
+			items:      nil,
+			contains:   false,
+			itemPrefix: "",
+			absent:     nil,
+			skipItems:  false,
+		}
+	}
 }

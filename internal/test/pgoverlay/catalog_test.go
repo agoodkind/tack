@@ -22,11 +22,17 @@ const (
 )
 
 // withAdmin runs fn with an administrator connection to the engine.
-func (target databaseTarget) withAdmin(t *testing.T, fn func(ctx context.Context, connection *pgx.Conn)) {
+func (target databaseTarget) withAdmin(
+	t *testing.T,
+	fn func(ctx context.Context, connection *pgx.Conn),
+) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(t.Context(), databaseTimeout)
 	defer cancel()
-	connection, err := pgx.Connect(ctx, target.connectionString(target.adminUser, target.adminPassword))
+	connection, err := pgx.Connect(
+		ctx,
+		target.connectionString(target.adminUser, target.adminPassword),
+	)
 	if err != nil {
 		t.Fatalf("connect as the administrator: %v", err)
 	}
@@ -127,16 +133,27 @@ func (target databaseTarget) createRole(t *testing.T, role, password string) {
 // grantMembership makes member a member of parent.
 func (target databaseTarget) grantMembership(t *testing.T, parent, member string) {
 	t.Helper()
-	target.execute(t, "GRANT "+pgx.Identifier{parent}.Sanitize()+" TO "+pgx.Identifier{member}.Sanitize())
+	target.execute(
+		t,
+		"GRANT "+pgx.Identifier{parent}.Sanitize()+" TO "+pgx.Identifier{member}.Sanitize(),
+	)
 }
 
 // waitForRoleName polls until the role with this OID has the wanted name and
 // fails the test when it does not within the timeout.
-func (target databaseTarget) waitForRoleName(t *testing.T, oid int64, want string, timeout time.Duration) {
+func (target databaseTarget) waitForRoleName(
+	t *testing.T,
+	oid int64,
+	want string,
+	timeout time.Duration,
+) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(t.Context(), timeout)
 	defer cancel()
-	connection, err := pgx.Connect(ctx, target.connectionString(target.adminUser, target.adminPassword))
+	connection, err := pgx.Connect(
+		ctx,
+		target.connectionString(target.adminUser, target.adminPassword),
+	)
 	if err != nil {
 		t.Fatalf("connect to watch role OID %d: %v", oid, err)
 	}
@@ -148,7 +165,8 @@ func (target databaseTarget) waitForRoleName(t *testing.T, oid int64, want strin
 		if err == nil && name == want {
 			return
 		}
-		if err != nil && !errors.Is(err, pgx.ErrNoRows) && !isCatalogRetry(err) && ctx.Err() == nil {
+		if err != nil && !errors.Is(err, pgx.ErrNoRows) && !isCatalogRetry(err) &&
+			ctx.Err() == nil {
 			t.Fatalf("watch role OID %d: %v", oid, err)
 		}
 		time.Sleep(renamePollInterval)
