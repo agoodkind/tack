@@ -1,7 +1,7 @@
-# Update CI requirements
+# Update PR CI requirements
 
-CI uses separate checks for server and provider quality, database and search
-regressions, audit coverage, database patches, and published QA images.
+PR CI runs static checks, unit tests, binary builds, database patch checks, and
+native candidate image builds. Unit tests use `-short` to skip service fixtures.
 
 ## Migrate required check names
 
@@ -12,24 +12,24 @@ pull-request rules, signature protection, and ruleset enforcement.
 
 | Existing requirement | Replacement |
 | --- | --- |
-| `go / Checks` | `Checks / Server` |
-| `go / Build` | `Build / Server` |
+| `go / Checks` | `Checks / Server` and `Checks / Tack provider` |
+| `go / Build` | `Build / Server` and `Build / Tack provider` |
 | `go / Release (dry run)` | Remove this empty requirement. |
-| `integration tests (FDB)` | `Tests / Database` |
+| `integration tests (FDB)` | Remove this integration requirement. |
 | `overlay-drift` | `Checks / Database patches` |
 | `build (tack-server, Dockerfile, FDB_VERSION=7.4.6)` | `Images / Publish Server` |
 | `build (tack-audit-consumer, Dockerfile.audit-consumer)` | `Images / Publish Audit consumer` |
-| `search integration tests (OpenSearch features)` | `Tests / Search` |
-| `runtime audit coverage` | `Tests / Audit` |
+| `search integration tests (OpenSearch features)` | Remove this integration requirement. |
+| `runtime audit coverage` | Remove this integration requirement. |
 
 Keep `GitGuardian Security Checks` and `CodeRabbit` under their existing names.
 The GitHub Apps provide those contexts independently of the Actions workflows.
 Require all replacement contexts to report success for the pull request's current
-head before merging. The database and search summaries fail when any child job fails.
+head before merging.
 
-## Validate before production
+## Track QA integration
 
-Run the [search acceptance procedure](search.md#validate-a-candidate-in-github-actions)
-for the candidate ref. The manual workflow includes the large pagination case that
-ordinary PR regression jobs exclude. Configs must also verify the QA deployment of
-the same candidate before production release.
+PR CI does not run database, runtime audit, search, or PostgreSQL provider
+integration suites. Their test code and manual Make targets remain available.
+QA deployment and acceptance integration remain separate work under
+[TACK-602](https://tack.home.goodkind.io/browse/TACK-602).

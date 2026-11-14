@@ -4,28 +4,6 @@ Run search acceptance against disposable FoundationDB, YugabyteDB, and OpenSearc
 services. The tests use authenticated public MCP requests and real audit writes.
 Local results do not establish deployed QA acceptance or production capacity.
 
-## Validate a candidate in GitHub Actions
-
-The Acceptance workflow runs the CI search regression groups and the large
-pagination acceptance case against disposable fixtures at the selected commit.
-
-1. Ensure the default branch contains the Acceptance workflow. Push the
-   candidate branch or tag with that workflow, then dispatch acceptance for
-   that ref.
-
-   ```sh
-   export CANDIDATE_REF="<candidate-branch-or-tag>"
-   gh workflow run acceptance.yml --repo agoodkind/tack --ref "$CANDIDATE_REF"
-   ```
-
-2. Open the Acceptance run in GitHub Actions. Require every job to pass and
-   record the run URL and tested commit SHA. The workflow checks out the commit
-   selected by the dispatch ref.
-3. Require both a successful acceptance run and passing Configs QA deployment
-   verification for the same candidate commit before production release.
-   Run QA deployment and verification through the Configs
-   [deployment playbook](https://github.com/agoodkind/configs/blob/main/ansible/playbooks/deploy-tack.yml).
-
 ## Prepare the native runner
 
 1. Use a Docker daemon with an `arm64` or `amd64` architecture. The test runner

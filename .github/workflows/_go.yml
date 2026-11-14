@@ -23,9 +23,11 @@ jobs:
           - component: Server
             directory: .
             foundationdb: 'true'
+            test_packages: $(GO_TEST_PACKAGES)
           - component: Tack provider
             directory: provider
             foundationdb: 'false'
+            test_packages: ./...
     defaults:
       run:
         working-directory: ${{ matrix.directory }}
@@ -71,11 +73,13 @@ jobs:
         if: inputs.task == 'checks'
         continue-on-error: true
         run: make build-check
-      - name: Run module tests
+      - name: Run unit tests
         id: tests
         if: inputs.task == 'checks' && !cancelled()
         continue-on-error: true
-        run: make test
+        env:
+          DOCKER_HOST: unix://${{ runner.temp }}/tack-pr-ci-no-docker.sock
+        run: make test GO_TEST_TARGETS='-short -count=1 -timeout 20m ${{ matrix.test_packages }}'
       - name: Require both check steps to pass
         if: always() && inputs.task == 'checks'
         env:
