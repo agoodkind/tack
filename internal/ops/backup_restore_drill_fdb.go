@@ -13,17 +13,14 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// restoreDrillFDB restores the FoundationDB continuous backup from the object
-// store into a throwaway standalone cluster and asserts the keyspace is
-// non-empty. The scratch cluster uses its own data and a loopback-free
-// container-mode coordinator; it never joins the live cluster. The backup name
-// is discovered from the bucket, not a local pointer.
+// restoreDrillFDB discovers a FoundationDB backup in the bucket, restores it
+// into a standalone scratch cluster, and checks for a nonempty keyspace.
+// The scratch cluster uses separate data and a container-mode coordinator
+// without loopback addresses. It never joins the live cluster.
 //
-// r.FDBTargetTime selects the moment to restore to. No target restores the
-// latest restorable point of the newest backup. A target selects the newest
-// backup whose restorable window covers it, checked before any restore starts,
-// so a moment no backup can reach stops the drill instead of quietly restoring
-// the latest.
+// Without r.FDBTargetTime, the drill restores the newest backup's latest point.
+// With a target, it selects the newest backup that can restore that moment.
+// The drill refuses targets outside every backup's window before restoring.
 func restoreDrillFDB(ctx context.Context, r *restoreDrillCtx) error {
 	logger := telemetry.L(ctx)
 	logger.InfoContext(ctx, "backup.restore_drill.fdb.start")
@@ -35,11 +32,9 @@ func restoreDrillFDB(ctx context.Context, r *restoreDrillCtx) error {
 	}
 
 	s3Client := newBackupS3Client(r.Cfg)
-	// The FoundationDB blobstore registers each backup as a marker object at
-	// backups/<name>, so the markers are listed (not the engine's internal
-	// backups/ subfolder) to discover backups. fdbrestore re-adds the backups/
-	// folder from the backup name, so the selection strips the prefix to
-	// recover the bare name fdbrestore addresses.
+	// FoundationDB registers backup markers at backups/<name>. Discovery lists
+	// these markers, not the engine's internal backups/ subfolder. Selection
+	// strips the prefix because fdbrestore adds it to the backup name.
 	markers, err := listImmediateObjects(
 		ctx,
 		s3Client,
@@ -92,11 +87,9 @@ func restoreDrillFDB(ctx context.Context, r *restoreDrillCtx) error {
 		return err
 	}
 
-	// The restore is watched for progress, not timed. A restore that keeps
-	// moving runs as long as its dataset needs; only one that stops moving
-	// fails the drill, and it fails naming what it had done when it stopped.
-	// Each probe is bounded on its own, so a hung exec cannot keep the watch
-	// from deciding.
+	// Monitoring permits continued work without an overall deadline and fails
+	// on inactivity with the last recorded progress. Each probe has its own
+	// deadline to prevent a hung exec from blocking stall detection.
 	progress, exitCode, err := awaitFDBRestore(
 		ctx,
 		fdbRestoreWatch{
@@ -174,12 +167,11 @@ func restoreDrillFDB(ctx context.Context, r *restoreDrillCtx) error {
 	return nil
 }
 
-// bootScratchFDB boots a standalone container-mode FoundationDB with the IPv6
-// overlay, configures a new single-ssd database, and starts a backup_agent so
-// fdbrestore can drain the blobstore snapshot. The scratch cluster has its own
-// data and never joins the live cluster. Its data and log directories are
-// fresh per-run directories under the backup root; the rest of /var/fdb stays
-// the image's own, so the image's scripts are not hidden.
+// bootScratchFDB starts a standalone container-mode cluster with the IPv6
+// overlay, configures a single-ssd database, and starts backup_agent for restore.
+// The cluster never joins the live cluster. Each run uses fresh data and log
+// directories under the backup root. Other paths under /var/fdb retain the
+// image's contents, including its scripts.
 func bootScratchFDB(
 	ctx context.Context,
 	r *restoreDrillCtx,
@@ -207,9 +199,8 @@ func bootScratchFDB(
 		r.Cfg.BackupFDBOverlayPath + ":/var/fdb/scripts/fdb.bash:ro",
 	}
 	if r.FDBTargetTime != nil {
-		// fdbrestore resolves a wall-clock target against the source cluster,
-		// so the live cluster's file has to be readable in here. Read-only,
-		// and only for a run that asked for a point in time.
+		// Only point-in-time restores read the live cluster file. fdbrestore
+		// resolves the timestamp against that cluster through a read-only bind.
 		binds = append(binds, fdbOrigClusterMount)
 	}
 

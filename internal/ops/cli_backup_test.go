@@ -28,10 +28,9 @@ func (backupTestSource) Resolve(context.Context) (audit.OperatorPrincipal, error
 	}, nil
 }
 
-// TestRestoreDrillRefusesUnparseableTargetTime drives the real command and
-// proves --fdb-target-time is validated before the drill does anything. The
-// factory has no Docker daemon and no object store, so reaching the drill body
-// would fail with a different error than the one asserted here.
+// TestRestoreDrillRefusesUnparseableTargetTime checks that the command validates
+// --fdb-target-time before running the drill. The factory does not provide a
+// Docker daemon or object store. Drill execution would return a different error.
 func TestRestoreDrillRefusesUnparseableTargetTime(t *testing.T) {
 	factory := &cli.Factory{}
 	factory.SetOperatorIdentitySource(backupTestSource{})

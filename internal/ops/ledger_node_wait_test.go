@@ -8,18 +8,16 @@ import (
 	"time"
 )
 
-// The window is deliberately not the deployed one, so the wait is exercised
-// against a window it does not hardcode. The fake clock moves one minute per
-// read, so a run of a few hundred polls covers hours without sleeping.
+// A non-default stall window checks that the wait uses its argument. The test
+// clock advances one minute per read to simulate hours without sleeping.
 const (
 	ledgerTestStall     = 7 * time.Minute
 	ledgerTestClockStep = time.Minute
 	ledgerTestPoll      = 10 * time.Second
 )
 
-// scriptedLedgerNode drives one awaitLedgerNode run: the node stays starting
-// for healthyAfter polls, and the cluster counts are handed out in order with
-// the last one repeating.
+// scriptedLedgerNode reports starting until healthyAfter polls. It returns
+// counts in order and repeats the last count after exhausting the list.
 type scriptedLedgerNode struct {
 	healthyAfter int
 	counts       []ledgerClusterCounts
@@ -49,8 +47,7 @@ func (s *scriptedLedgerNode) watch() ledgerNodeWatch {
 	}
 }
 
-// recordLedgerWaits swaps the package pause for one that only counts, so the
-// scripted runs take no real time.
+// recordLedgerWaits counts requested pauses without sleeping.
 func recordLedgerWaits(t *testing.T) *int {
 	t.Helper()
 	pauses := 0
@@ -63,8 +60,8 @@ func recordLedgerWaits(t *testing.T) *int {
 	return &pauses
 }
 
-// fallingCounts renders a node bringing its tablets back one at a time from
-// total down to zero, one count per poll.
+// fallingCounts decreases under-replicated tablets from total to zero,
+// one tablet per poll.
 func fallingCounts(total int) []ledgerClusterCounts {
 	counts := make([]ledgerClusterCounts, 0, total+1)
 	for remaining := total; remaining >= 0; remaining-- {
@@ -74,11 +71,9 @@ func fallingCounts(total int) []ledgerClusterCounts {
 	return counts
 }
 
-// TestAwaitLedgerNodeLetsASlowReplayRunPastAnyFixedBudget is the defect this
-// file exists for. The node below takes four hours of wall clock to come
-// healthy and the wait lets it, because every poll shows one more tablet
-// back. Under the fixed budget the deploy used to carry, it would have been
-// declared failed while it was working (TACK-488).
+// TestAwaitLedgerNodeLetsASlowReplayRunPastAnyFixedBudget checks that recovery
+// can continue for four simulated hours while each poll indicates progress
+// (TACK-488). A fixed startup deadline would reject that recovery.
 func TestAwaitLedgerNodeLetsASlowReplayRunPastAnyFixedBudget(t *testing.T) {
 	const polls = 240
 	advanceClockPerRead(t, ledgerTestClockStep)
@@ -92,11 +87,11 @@ func TestAwaitLedgerNodeLetsASlowReplayRunPastAnyFixedBudget(t *testing.T) {
 		ledgerTestPoll,
 	)
 	if err != nil {
-		t.Fatalf("a node that keeps bringing tablets back must be waited for: %v", err)
+		t.Fatalf("the wait must continue while tablets recover: %v", err)
 	}
 
 	if took < 3*time.Hour {
-		t.Fatalf("took = %s, want a wait that outlived any fixed budget", took)
+		t.Fatalf("took = %s, want a wait longer than three hours", took)
 	}
 
 	if *pauses != polls {
@@ -104,9 +99,8 @@ func TestAwaitLedgerNodeLetsASlowReplayRunPastAnyFixedBudget(t *testing.T) {
 	}
 }
 
-// TestAwaitLedgerNodeFailsANodeThatStoppedMoving proves the other half: a
-// node whose counts froze is reported as stalled after the window, with the
-// last marks in the message, and the wait does not run on.
+// TestAwaitLedgerNodeFailsANodeThatStoppedMoving checks that unchanged counts
+// trigger a stall error with the last recorded minima after the stall window.
 func TestAwaitLedgerNodeFailsANodeThatStoppedMoving(t *testing.T) {
 	advanceClockPerRead(t, ledgerTestClockStep)
 	recordLedgerWaits(t)
@@ -118,7 +112,7 @@ func TestAwaitLedgerNodeFailsANodeThatStoppedMoving(t *testing.T) {
 
 	_, err := awaitLedgerNode(context.Background(), node.watch(), ledgerTestStall, ledgerTestPoll)
 	if err == nil {
-		t.Fatal("a node whose counts stopped falling must be reported as stalled")
+		t.Fatal("the wait must report a stall when counts stop decreasing")
 	}
 
 	message := err.Error()
@@ -135,14 +129,13 @@ func TestAwaitLedgerNodeFailsANodeThatStoppedMoving(t *testing.T) {
 	}
 
 	if node.polls > 12 {
-		t.Fatalf("polls = %d, want the wait to stop soon after the window, not run on", node.polls)
+		t.Fatalf("polls = %d, want the wait to stop soon after the stall window", node.polls)
 	}
 }
 
-// TestAwaitLedgerNodeNamesMastersItCouldNotReach keeps a wedged node apart
-// from masters the wait never reached: the stall message carries the last
-// read failure, and the marks say no reading ever arrived.
-func TestAwaitLedgerNodeNamesMastersItCouldNotReach(t *testing.T) {
+// TestLedgerNodeWaitReportsMasterReadFailures checks that a stall error
+// includes the last master read failure and the absence of readable counts.
+func TestLedgerNodeWaitReportsMasterReadFailures(t *testing.T) {
 	advanceClockPerRead(t, ledgerTestClockStep)
 	recordLedgerWaits(t)
 	node := &scriptedLedgerNode{
@@ -154,20 +147,20 @@ func TestAwaitLedgerNodeNamesMastersItCouldNotReach(t *testing.T) {
 
 	_, err := awaitLedgerNode(context.Background(), node.watch(), ledgerTestStall, ledgerTestPoll)
 	if err == nil {
-		t.Fatal("a node with unreachable masters must not wait forever")
+		t.Fatal("a node with unavailable masters must not wait forever")
 	}
 
 	if !strings.Contains(err.Error(), "the last cluster read failed: get http://[::1]:7000") {
-		t.Fatalf("stall error %q must name the last read failure", err)
+		t.Fatalf("stall error %q must include the last read failure", err)
 	}
 
 	if !strings.Contains(err.Error(), "no cluster reading was ever readable") {
-		t.Fatalf("stall error %q must say no reading arrived", err)
+		t.Fatalf("stall error %q must report the absence of a readable cluster result", err)
 	}
 }
 
-// TestAwaitLedgerNodeEndsWhenTheContainerExits proves a container that died
-// ends the wait at once rather than after the stall window.
+// TestAwaitLedgerNodeEndsWhenTheContainerExits checks that a stopped container
+// ends the wait before the stall window.
 func TestAwaitLedgerNodeEndsWhenTheContainerExits(t *testing.T) {
 	advanceClockPerRead(t, ledgerTestClockStep)
 	recordLedgerWaits(t)
@@ -175,7 +168,7 @@ func TestAwaitLedgerNodeEndsWhenTheContainerExits(t *testing.T) {
 
 	_, err := awaitLedgerNode(context.Background(), node.watch(), ledgerTestStall, ledgerTestPoll)
 	if err == nil || !strings.Contains(err.Error(), "is not running") {
-		t.Fatalf("err = %v, want the exited container named", err)
+		t.Fatalf("err = %v, want the stopped container identified", err)
 	}
 
 	if node.polls != 0 {

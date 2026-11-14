@@ -1,13 +1,8 @@
-// backup_staleness_cause.go names why a backup mechanism's age is unknown. An
-// unknown age is always stale, but it covers situations that support
-// different claims: a mechanism that never recorded a success has produced
-// nothing, while one whose record could not be read may be working, and a
-// record the object store never answered for says the store is the fault. The
-// alarm words key on this value rather than on the detail text.
-//
-// A cause also survives on a reading whose age is known but was taken from
-// this guest's memory rather than from a fresh look, so the words still say
-// what the run could and could not establish.
+// Backup staleness causes distinguish absent success records, unreadable
+// records, object-store transport failures, and failed ledger probes. Unknown
+// ages count as stale, but each cause supports a different alarm message.
+// A known-age reading can retain a cause when it uses a previous observation
+// instead of a fresh probe.
 
 package ops
 
@@ -17,38 +12,31 @@ import (
 	smithyhttp "github.com/aws/smithy-go/transport/http"
 )
 
-// backupStalenessUnknownCause is the kind of unknown an age-unknown metric
-// carries.
+// backupStalenessUnknownCause classifies an unavailable or historical reading.
 type backupStalenessUnknownCause int
 
 const (
-	// backupStalenessAgeKnown is the zero value: the age is known and no
-	// cause applies.
+	// backupStalenessAgeKnown indicates a known age without a failure cause.
 	backupStalenessAgeKnown backupStalenessUnknownCause = iota
-	// backupStalenessNeverRecorded means the store holds no success at all:
-	// no marker, no complete export run, no restorable point.
+	// backupStalenessNeverRecorded indicates that the store does not contain
+	// a success marker, complete export run, or restorable point.
 	backupStalenessNeverRecorded
-	// backupStalenessUnreadable means a reading could not be taken or
-	// trusted: the store, marker, or status could not be read, or the
-	// timestamp it carried could not be dated.
+	// backupStalenessUnreadable indicates that a read failed or its record,
+	// status, or timestamp could not establish a trustworthy age.
 	backupStalenessUnreadable
-	// backupStalenessStoreUnreachable means the object store holding the
-	// record sent no answer at all: the request never reached it or no
-	// response came back.
+	// backupStalenessStoreUnreachable indicates an object-store transport
+	// failure without a response.
 	backupStalenessStoreUnreachable
-	// backupStalenessClusterUnseen means this guest reached no ledger master,
-	// so it established nothing about the cluster. The reading may still be
-	// dated from the last time this guest did see the cluster healthy, and
-	// the alarm then says only that this guest cannot see the cluster, never
-	// that the cluster is unhealthy (TACK-529).
+	// backupStalenessClusterUnseen indicates that every ledger master probe
+	// failed. A historical reading may date the last healthy observation, but
+	// the alarm cannot establish that the cluster is unhealthy (TACK-529).
 	backupStalenessClusterUnseen
 )
 
-// backupStoreReadCause classifies a failed object-store read. The S3 client
-// wraps every transport failure (a refused or unroutable connection, a reset,
-// a timeout) in a [smithyhttp.RequestSendError] and returns an answer the
-// store sent as an API error, so the wrapper alone tells an unreachable store
-// from one that answered with a refusal.
+// backupStoreReadCause distinguishes transport failures from API refusals.
+// The S3 client wraps connection refusals, routing failures, resets, and
+// timeouts in smithyhttp.RequestSendError. An API error instead indicates
+// that the object store answered the request.
 func backupStoreReadCause(err error) backupStalenessUnknownCause {
 	var sendErr *smithyhttp.RequestSendError
 	if errors.As(err, &sendErr) {

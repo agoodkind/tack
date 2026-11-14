@@ -26,12 +26,10 @@ type AuthTokenIssue struct {
 	Raw    string
 }
 
-// authTokenHolder finds the user a token belongs to, by the email exactly as
-// the users table holds it: the column is case-sensitive and the seed stores
-// the address as given, so no case folding happens here. Issuing needs an
-// active user; listing reaches a deactivated one too, because that user's
-// tokens still authenticate and are the ones to find and revoke. Creating
-// users is the seed's job.
+// authTokenHolder finds a user by email with the case-sensitive comparison
+// the users table uses. Token issuance requires an active user. Listing also
+// includes inactive users to permit revoking tokens that still authenticate.
+// The seed command creates users.
 func authTokenHolder(
 	ctx context.Context,
 	pool *pgxpool.Pool,
@@ -40,7 +38,7 @@ func authTokenHolder(
 ) (*user.User, error) {
 	trimmed := strings.TrimSpace(email)
 	if trimmed == "" {
-		return nil, errors.New("an email is required to name the token's user")
+		return nil, errors.New("an email is required to identify the token's user")
 	}
 
 	users := postgres.NewUserRepo(pool)
@@ -69,7 +67,7 @@ func authTokenHolder(
 		}
 
 		return nil, fmt.Errorf(
-			"no active user %q exists; tokens are issued only to existing users",
+			"no active user %q exists; token issuance requires an existing user",
 			trimmed,
 		)
 	}
@@ -91,7 +89,7 @@ func IssueAuthToken(
 	trimmedLabel := strings.TrimSpace(label)
 	if trimmedLabel == "" {
 		return AuthTokenIssue{}, errors.New(
-			"a label is required so the token names the client that holds it",
+			"a label is required to identify the client that uses the token",
 		)
 	}
 

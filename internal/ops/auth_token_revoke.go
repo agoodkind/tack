@@ -90,7 +90,7 @@ func lookupAuthToken(
 			slog.String("err", err.Error()),
 		)
 
-		return AuthTokenRevocation{}, fmt.Errorf("find the user holding token %s: %w", tokenID, err)
+		return AuthTokenRevocation{}, fmt.Errorf("find the user assigned token %s: %w", tokenID, err)
 	}
 
 	orgID, err := authTokenOrg(ctx, postgres.NewOrgMemberRepo(pool), holder.ID)

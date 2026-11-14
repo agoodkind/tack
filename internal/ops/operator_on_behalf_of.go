@@ -10,9 +10,8 @@ import (
 	"goodkind.io/tack/internal/audit"
 )
 
-// requireAccountableOperator refuses a service principal with no accountable
-// operator. A write recorded as a product user records the person accountable
-// for it, and a service alone is not a person.
+// requireAccountableOperator refuses a service principal without an accountable
+// operator. Writes as a product user must record the accountable person.
 func requireAccountableOperator(ctx context.Context, principal audit.OperatorPrincipal) error {
 	if principal.ActorType() != audit.ActorService || principal.OnBehalfOf != nil {
 		return nil

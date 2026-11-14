@@ -7,14 +7,11 @@ import (
 	"goodkind.io/tack/internal/config"
 )
 
-// TestYBDumpDialUsesTheNodeNameOnlyWhenTheClusterEncrypts pins how a dump
-// one-shot addresses a ledger node. In the clear it dials the address the
-// master list carries and needs nothing else. Under encryption it dials the
-// node's permanent name, mapped to that same address in its own hosts file,
-// because the dumper's client library verifies a certificate by name only and
-// refused the address on the QA proof. An address with no known name still
-// dials as an address, so a half-rendered map fails on the certificate rather
-// than on a name that resolves nowhere.
+// TestYBDumpDialUsesTheNodeNameOnlyWhenTheClusterEncrypts checks direct address
+// connections without TLS and hostname connections with TLS. The hosts mapping
+// preserves the original address for hostname-only certificate verification.
+// Missing names retain direct address verification rather than inventing an
+// unresolvable hostname.
 func TestYBDumpDialUsesTheNodeNameOnlyWhenTheClusterEncrypts(t *testing.T) {
 	const hosts = "yb1=3d06:bad:b01:210::220, yb2=3d06:bad:b01:210::221,yb3=3d06:bad:b01:210::222"
 
@@ -72,9 +69,8 @@ func TestYBDumpDialUsesTheNodeNameOnlyWhenTheClusterEncrypts(t *testing.T) {
 	}
 }
 
-// TestLedgerNodeNamesSkipsMalformedEntries pins that a blank entry or one
-// without a separator adds no node, so a stray comma in the rendered value
-// cannot become a name the dump dials.
+// TestLedgerNodeNamesSkipsMalformedEntries checks that empty entries and
+// entries without separators cannot create connection hostnames.
 func TestLedgerNodeNamesSkipsMalformedEntries(t *testing.T) {
 	cfg := &config.Config{LedgerNodeHosts: "yb1=::220,,yb2,=::222, yb3 = ::223 "}
 	names := ledgerNodeNames(cfg)

@@ -17,9 +17,9 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// authTokenPool opens the auth database. Token commands are SQL only, so they
-// run wherever DATABASE_URL resolves, including the host-networked ops
-// container that cannot reach FoundationDB.
+// authTokenPool opens the auth database using DATABASE_URL. Token commands
+// require only SQL access, including in the host-networked ops container,
+// which cannot connect to FoundationDB.
 func authTokenPool(ctx context.Context, factory *cli.Factory) (*pgxpool.Pool, error) {
 	pool, err := postgres.NewPool(ctx, factory.Cfg.DatabaseURL, &telemetry.QueryTracer{})
 	if err != nil {
@@ -68,10 +68,9 @@ func runAuthTokenCreate(
 		Token:        "",
 	}
 	if !execute {
-		// The dry run refuses what the execute would refuse, so its report
-		// never promises an issue that would fail.
+		// Dry runs apply the same input validation as execution.
 		if result.Label == "" {
-			return errors.New("a label is required so the token names the client that holds it")
+			return errors.New("a label is required to identify the client that uses the token")
 		}
 
 		holder, err := authTokenHolder(ctx, pool, input.Email, false)
@@ -100,9 +99,8 @@ func runAuthTokenCreate(
 	)
 	result.Label, result.Token = issue.Token.Label, issue.Raw
 	if writeErr := writeAuthTokenResult(ctx, sink, result); writeErr != nil {
-		// The raw value is shown once and never stored, so a report that
-		// failed to reach the operator leaves a live credential nobody
-		// holds. Withdraw it through a recorded revocation and say so.
+		// The command prints the raw value once and does not store it.
+		// Revoke the credential with an audit record if reporting fails.
 		return withdrawUnconfirmedToken(
 			ctx,
 			pool,
@@ -182,9 +180,8 @@ func runAuthTokenRevoke(
 	sink clispec.ResultSink,
 	execute bool,
 ) error {
-	// The value is not echoed anywhere: an operator who pastes the raw bearer
-	// where the id belongs would otherwise put it in a log line and, through
-	// the choke-point's error row, in the ledger.
+	// Do not echo input.TokenID. An operator may paste a raw bearer instead
+	// of an ID. Logging it would expose the bearer in logs and audit errors.
 	tokenID, err := uuid.Parse(input.TokenID)
 	if err != nil {
 		slog.ErrorContext(

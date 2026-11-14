@@ -19,18 +19,14 @@ import (
 	"goodkind.io/tack/internal/testenv"
 )
 
-// permissionDeniedSQLState is what the engine answers a role that holds no
-// grant on the object it named.
+// permissionDeniedSQLState reports a missing object privilege.
 const permissionDeniedSQLState = "42501"
 
-// TestAppRoleReachesTheAuthTablesAndNothingElse is TACK-180's acceptance
-// against the engine. A login holding only app_auth, the base role the
-// application's tack_app inherits, does the application's own work through
-// the real repositories: it creates a user, a membership, and a token, reads
-// them back, and deletes them. The same login is refused on the ledger, on
-// the operator outbox, and on the migration ledger, so an injection through
-// the application pool cannot read or touch the compliance record.
-func TestAppRoleReachesTheAuthTablesAndNothingElse(t *testing.T) {
+// TestAppRoleAllowsAuthOperationsAndRejectsProtectedTables uses an app_auth
+// login to create, read, and delete authentication records through repositories.
+// It requires the engine to reject reads and writes on protected audit and
+// migration tables (TACK-180).
+func TestAppRoleAllowsAuthOperationsAndRejectsProtectedTables(t *testing.T) {
 	dsn := testenv.Ledger(t)
 	ctx := context.Background()
 	admin, err := pgxpool.New(ctx, dsn)
@@ -90,11 +86,9 @@ func TestAppRoleReachesTheAuthTablesAndNothingElse(t *testing.T) {
 		t.Fatalf("remove a membership as the app login: %v", err)
 	}
 
-	// Every verb on every protected table, not only reads: an accidental
-	// INSERT, UPDATE, or DELETE grant would let application SQL change the
-	// compliance record while the read check still passed. Each statement
-	// runs in its own transaction that is always rolled back, so a grant
-	// that slipped through fails the test without leaving a row behind.
+	// Check every verb on every protected table. Read checks alone cannot
+	// detect accidental write grants. Each statement uses a separate
+	// transaction that rolls back even if a grant incorrectly permits it.
 	for _, table := range []string{
 		"audit.events",
 		"audit.notarizations",
@@ -104,9 +98,8 @@ func TestAppRoleReachesTheAuthTablesAndNothingElse(t *testing.T) {
 		for _, refused := range []string{
 			"SELECT count(*) FROM " + table,
 			"INSERT INTO " + table + " DEFAULT VALUES",
-			// DEFAULT rather than a column read: an UPDATE that reads a column
-			// also needs SELECT, and SELECT is already denied, so a stray
-			// UPDATE grant would still fail for the wrong reason and pass.
+			// DEFAULT avoids requiring SELECT. A column read would mask an
+			// accidental UPDATE grant behind the existing SELECT refusal.
 			"UPDATE " + table + " SET " + firstColumn(
 				ctx,
 				t,
@@ -119,13 +112,12 @@ func TestAppRoleReachesTheAuthTablesAndNothingElse(t *testing.T) {
 		}
 	}
 
-	// The public schema's default CREATE grant to PUBLIC would let the app
-	// login create arbitrary objects beside the auth tables.
+	// PUBLIC's default CREATE grant would permit arbitrary schema objects.
 	assertPermissionDenied(ctx, t, app, "CREATE TABLE public.tack180_probe (id int)")
 }
 
-// assertPermissionDenied runs statement as the app login inside a transaction
-// it always rolls back and requires the engine to refuse it with 42501.
+// assertPermissionDenied requires the app login's statement to fail with the
+// permission-denied code 42501. Its transaction always rolls back.
 func assertPermissionDenied(
 	ctx context.Context,
 	t *testing.T,
@@ -146,8 +138,8 @@ func assertPermissionDenied(
 	}
 }
 
-// firstColumn names a column of table so an UPDATE can be phrased against it
-// without knowing the schema; the permission check fires before any row.
+// firstColumn reads a column name for constructing UPDATE statements without
+// schema-specific knowledge. Permission checks precede row access.
 func firstColumn(ctx context.Context, t *testing.T, admin *pgxpool.Pool, table string) string {
 	t.Helper()
 	schema, name, _ := strings.Cut(table, ".")
@@ -166,8 +158,8 @@ func firstColumn(ctx context.Context, t *testing.T, admin *pgxpool.Pool, table s
 	return column
 }
 
-// appAuthLoginDSN creates a throwaway login that inherits app_auth and nothing
-// else and returns the DSN rewritten to connect as it.
+// appAuthLoginDSN creates a temporary login with only app_auth membership and
+// returns a DSN for that login.
 func appAuthLoginDSN(
 	ctx context.Context,
 	t *testing.T,

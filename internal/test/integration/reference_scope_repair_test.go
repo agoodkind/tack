@@ -73,12 +73,8 @@ func TestScopeRepairReportsRefusedWrites(t *testing.T) {
 	}
 }
 
-// TestScopeRepairMovesTheReferenceWithTheNode drives the scope repair, which
-// rewrites a node's owning scope. The reference the node renders changes with
-// that scope, so the repair must claim the new value and release the old one. A
-// repair that moved the node without touching its claim would leave the old
-// value owned by a node no longer in that scope and the new value owned by
-// nobody, which is the collision this work exists to prevent.
+// TestScopeRepairMovesTheReferenceWithTheNode checks that changing the owning
+// scope releases the old reference and assigns the new reference to the node.
 func TestScopeRepairMovesTheReferenceWithTheNode(t *testing.T) {
 	env := SetupTestEnv(t)
 	registerOpsOrg(t, env)
@@ -87,8 +83,8 @@ func TestScopeRepairMovesTheReferenceWithTheNode(t *testing.T) {
 	origin := mustCreateScope(t, env, "project", "Fan", workspace.ID, workspace.ID, actor)
 	destination := mustCreateScope(t, env, "project", "Qat", workspace.ID, workspace.ID, actor)
 
-	// The node sits under the second project but still names the first as its
-	// scope, which is the stale pointer this repair corrects.
+	// The parent identifies the second project, but scope_id still identifies
+	// the first project. The repair must correct this stale scope pointer.
 	stale := writeNodeWithSplitScope(t, env, "issue", "Stale", destination.ID, origin.ID, 1)
 	if err := env.Stores.Nodes.SetReferenceKeys(
 		env.Ctx,
@@ -127,12 +123,10 @@ func TestScopeRepairMovesTheReferenceWithTheNode(t *testing.T) {
 	}
 }
 
-// TestScopeRepairKeepsClaimsWhenTypeHasNoTemplate covers the org that declares
-// no reference shape for a type. Such a type carries no constraint, so the
-// repair must move the node without touching whatever claims it already holds.
-// Handing the storage layer an empty list would instead read as an explicit
-// release and strip them.
-func TestScopeRepairKeepsClaimsWhenTypeHasNoTemplate(t *testing.T) {
+// TestScopeRepairPreservesClaimsWithoutTypeTemplates checks that a scope repair
+// preserves existing reference claims when the type does not declare templates.
+// An empty reference list would explicitly release those claims.
+func TestScopeRepairPreservesClaimsWithoutTypeTemplates(t *testing.T) {
 	env := SetupTestEnv(t)
 	registerOpsOrg(t, env)
 	clearReferenceTemplates(t, env, "issue")
@@ -171,8 +165,8 @@ func TestScopeRepairKeepsClaimsWhenTypeHasNoTemplate(t *testing.T) {
 	}
 }
 
-// clearReferenceTemplates removes the reference shape from the named types,
-// producing the unconstrained state an org reaches by declaring none.
+// clearReferenceTemplates removes templates from the specified types to test
+// org-defined types without reference constraints.
 func clearReferenceTemplates(t *testing.T, env *TestEnv, typeKeys ...string) {
 	t.Helper()
 	types, err := env.Stores.NodeTypes.List(env.Ctx, env.OrgID)
@@ -197,8 +191,8 @@ func clearReferenceTemplates(t *testing.T, env *TestEnv, typeKeys ...string) {
 	}
 }
 
-// writeNodeWithSplitScope writes a node whose parent and scope pointers name
-// different nodes, the shape the scope repair exists to correct.
+// writeNodeWithSplitScope writes different node IDs for parent_id and scope_id
+// to create the inconsistency that scope repair corrects.
 func writeNodeWithSplitScope(
 	t *testing.T,
 	env *TestEnv,

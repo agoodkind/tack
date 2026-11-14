@@ -9,9 +9,8 @@ import (
 	"testing"
 )
 
-// runInventoryCheck runs the generated comparison for one node the way the
-// drill does and returns its output and exit error, so a test can assert on a
-// check that must fail rather than have the fixture fail it first.
+// runInventoryCheck runs the production comparison script and returns its
+// output and failure for assertions without failing during fixture setup.
 func runInventoryCheck(t *testing.T, fixture *placementFixture, node string) (string, error) {
 	t.Helper()
 	script := ybInventoryCheckScript(
@@ -24,14 +23,9 @@ func runInventoryCheck(t *testing.T, fixture *placementFixture, node string) (st
 	return string(out), err
 }
 
-// TestYBInventoryCheckFailsWhenTheInventoryCannotBeRead is the silent success
-// this file exists for. The inventory is what the extraction is judged against,
-// and the check read it through a pipeline, whose exit status is the sort's:
-// an inventory that could not be read sorted to nothing, the check wanted no
-// files, found none missing, and passed a tablet it had verified against
-// nothing. The extraction below is short of a file its archive carried, and
-// its inventory is gone; the check must fail on the read, not report zero
-// missing.
+// TestYBInventoryCheckFailsWhenTheInventoryCannotBeRead checks that missing
+// inventory fails comparison instead of allowing sort's success to indicate
+// that an incomplete extraction satisfies an empty expected file list.
 func TestYBInventoryCheckFailsWhenTheInventoryCannotBeRead(t *testing.T) {
 	eachPlacementShell(
 		t,
@@ -50,23 +44,23 @@ func TestYBInventoryCheckFailsWhenTheInventoryCannotBeRead(t *testing.T) {
 					"000123.sst",
 				),
 			); err != nil {
-				t.Fatalf("take one archived file out of the extraction: %v", err)
+				t.Fatalf("remove one archived file from the extraction: %v", err)
 			}
 
 			if err := os.Remove(
 				filepath.Join(fixture.artifactDir, ybDrillInventoryName("yb1")),
 			); err != nil {
-				t.Fatalf("take the staged inventory away: %v", err)
+				t.Fatalf("remove the staged inventory: %v", err)
 			}
 
 			out, err := runInventoryCheck(t, fixture, "yb1")
 			if err == nil {
-				t.Fatalf("a check whose inventory could not be read passed, reporting: %q", out)
+				t.Fatalf("comparison passed without readable inventory, reporting: %q", out)
 			}
 
 			if strings.Contains(out, "missing 0") {
 				t.Fatalf(
-					"a check whose inventory could not be read reported nothing missing: %q",
+					"comparison reported zero missing files without readable inventory: %q",
 					out,
 				)
 			}
@@ -74,9 +68,8 @@ func TestYBInventoryCheckFailsWhenTheInventoryCannotBeRead(t *testing.T) {
 	)
 }
 
-// TestYBInventoryCheckStillReportsTheMissingFile proves the restructured
-// check gives the same answer as before when every step works: the one file
-// taken out of the extraction is named, with the size the archive recorded.
+// TestYBInventoryCheckStillReportsTheMissingFile checks that a readable
+// inventory identifies the removed file and its archived size.
 func TestYBInventoryCheckStillReportsTheMissingFile(t *testing.T) {
 	eachPlacementShell(
 		t,
@@ -94,7 +87,7 @@ func TestYBInventoryCheckStillReportsTheMissingFile(t *testing.T) {
 				"000123.sst",
 			)
 			if err := os.Remove(gone); err != nil {
-				t.Fatalf("take one archived file out of the extraction: %v", err)
+				t.Fatalf("remove one archived file from the extraction: %v", err)
 			}
 
 			missing := fixture.check(t, inventory)
@@ -108,11 +101,8 @@ func TestYBInventoryCheckStillReportsTheMissingFile(t *testing.T) {
 	)
 }
 
-// TestParseYBInventoryCheckRefusesWhatItCannotAttribute proves the extraction
-// check never reports a subset. Each missing file is attributed to the tablet
-// it belongs to, so a count the report cannot cover, or one that disagrees with
-// the lines, has to fail rather than leave tablets it could not account for
-// looking whole.
+// TestParseYBInventoryCheckRefusesWhatItCannotAttribute checks that invalid,
+// excessive, or inconsistent counts fail instead of reporting a partial list.
 func TestParseYBInventoryCheckRefusesWhatItCannotAttribute(t *testing.T) {
 	for _, tc := range []struct {
 		name string
@@ -135,12 +125,12 @@ func TestParseYBInventoryCheckRefusesWhatItCannotAttribute(t *testing.T) {
 	}
 }
 
-// TestParseYBInventoryCheckReadsAWholeRun proves the two answers the check
-// gives: nothing missing, and the files that are, padding from wc included.
+// TestParseYBInventoryCheckReadsAWholeRun checks empty and nonempty missing
+// file lists, including whitespace padding from wc.
 func TestParseYBInventoryCheckReadsAWholeRun(t *testing.T) {
 	missing, err := parseYBInventoryCheck("yb1", "missing       0\n")
 	if err != nil || len(missing) != 0 {
-		t.Fatalf("whole extraction = %v, %v; want none missing", missing, err)
+		t.Fatalf("whole extraction = %v, %v; want zero missing files", missing, err)
 	}
 
 	missing, err = parseYBInventoryCheck(

@@ -1,8 +1,7 @@
-// act_as.go makes one product write as a named user and leaves two traces:
-// a grant row recorded as the operator before the write, and the write's own
-// ledger row, which keeps the user as its actor and carries the operator and
-// the grant id under the row hash. The grant is recorded first, so a write
-// whose grant cannot be recorded does not happen (TACK-424).
+// act_as.go records an operator grant before writing product data as a user
+// (TACK-424). The product ledger row records the user as actor and includes
+// the operator and grant ID under the row hash. Grant recording must succeed
+// before the product write.
 
 package ops
 
@@ -26,11 +25,9 @@ import (
 )
 
 const (
-	// actAsTool is what the user's row records as its tool, so the row says
-	// the write came through the act-as command rather than an MCP call.
+	// actAsTool distinguishes operator act-as writes from MCP calls in user rows.
 	actAsTool = "ops_act_as_create"
-	// actAsRecordTimeout bounds the grant write, detached from the command's
-	// own cancellation the way the other operator detail rows are.
+	// actAsRecordTimeout limits grant recording independently of command cancellation.
 	actAsRecordTimeout = 30 * time.Second
 )
 
@@ -50,8 +47,7 @@ type actAsNodeResolver interface {
 	Resolve(ctx context.Context, nodeID uuid.UUID) (*node.NodeResolve, error)
 }
 
-// actAsDeps is what the command needs, split from the factory so a test can
-// wire each dependency directly.
+// actAsDeps provides dependencies independently of the CLI factory.
 type actAsDeps struct {
 	outbox   audit.OutboxWriter
 	identity audit.OperatorIdentitySource
@@ -61,10 +57,9 @@ type actAsDeps struct {
 	nodes    actAsNodeCreator
 }
 
-// actAsGrantExtra is what the grant row carries beyond the operator: whom the
-// operator acted as, where, and why. The user's row stores the same grant id.
-// SessionID and OnBehalfOf record the agent session and the accountable
-// operator when a service principal records the grant.
+// actAsGrantExtra records the target user, organization, parent, and reason.
+// The product row records the same grant ID. Service principals also record
+// the agent session and accountable operator in SessionID and OnBehalfOf.
 type actAsGrantExtra struct {
 	GrantID      uuid.UUID            `json:"grant_id"`
 	TargetUserID uuid.UUID            `json:"target_user_id"`
@@ -92,7 +87,7 @@ type actAsCreateResult struct {
 	RowCommitted bool   `json:"row_committed"`
 }
 
-// actAsTarget is the resolved user and org the write is made for.
+// actAsTarget records the resolved user, organization, and parent for a write.
 type actAsTarget struct {
 	user     *user.User
 	orgID    uuid.UUID
@@ -108,7 +103,7 @@ func runActAsCreate(
 ) error {
 	reason := strings.TrimSpace(input.Reason)
 	if reason == "" {
-		return errors.New("a reason is required; it is recorded on the grant and on the user's row")
+		return errors.New("a reason is required for the grant record and the user's ledger row")
 	}
 
 	if strings.TrimSpace(input.Name) == "" || strings.TrimSpace(input.NodeType) == "" {
@@ -186,8 +181,8 @@ func runActAsCreate(
 	return writeActAsResult(ctx, sink, result)
 }
 
-// resolveActAsTarget names the user and the org the write is for, and refuses
-// an unknown user, an unknown parent, or a user outside the parent's org.
+// resolveActAsTarget resolves the user and parent organization. It refuses
+// unknown users, unknown parents, and users outside the parent's organization.
 func resolveActAsTarget(
 	ctx context.Context,
 	deps actAsDeps,
@@ -262,7 +257,7 @@ func resolveActAsTarget(
 		)
 
 		return none, fmt.Errorf(
-			"user %q is not a member of org %s, which holds parent %s",
+			"user %q is not a member of org %s containing parent %s",
 			email,
 			resolve.OrgID,
 			parentID,

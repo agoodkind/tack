@@ -5,10 +5,8 @@ import (
 	"testing"
 )
 
-// TestParseYBPlacementAuditRejectsOutputItCannotRead proves an audit reading
-// the drill cannot make sense of fails rather than reading as nothing missing.
-// The audit is the only thing between a restore missing tablet files and a
-// passing drill, so every unreadable shape has to be an error.
+// TestParseYBPlacementAuditRejectsOutputItCannotRead checks that malformed
+// audit output fails instead of indicating a complete tablet restoration.
 func TestParseYBPlacementAuditRejectsOutputItCannotRead(t *testing.T) {
 	for _, tc := range []struct {
 		name string
@@ -27,15 +25,15 @@ func TestParseYBPlacementAuditRejectsOutputItCannotRead(t *testing.T) {
 			tc.name,
 			func(t *testing.T) {
 				if _, err := parseYBPlacementAudit(tc.out); err == nil {
-					t.Fatalf("parsing %q must fail rather than report nothing missing", tc.out)
+					t.Fatalf("parsing %q must fail rather than report complete placement", tc.out)
 				}
 			},
 		)
 	}
 }
 
-// TestParseYBPlacementAuditReadsAWholeRun proves the counts and the names come
-// back as the shell reported them, padding from wc included.
+// TestParseYBPlacementAuditReadsAWholeRun checks counts and identities,
+// including whitespace padding from wc.
 func TestParseYBPlacementAuditReadsAWholeRun(t *testing.T) {
 	audit, err := parseYBPlacementAudit(
 		"expected      5\nplaced      3\nmissing\ntableA:newA\ntableB:newB\n",
@@ -53,11 +51,9 @@ func TestParseYBPlacementAuditReadsAWholeRun(t *testing.T) {
 	}
 }
 
-// TestYBPlacementVerdictCatchesTabletsThatWereNeverTried proves a placement
-// that skipped tablets outright fails, which is what catches a chunk that
-// never ran. Counting only what was found would read that as a smaller corpus
-// that placed everything.
-func TestYBPlacementVerdictCatchesTabletsThatWereNeverTried(t *testing.T) {
+// TestYBPlacementVerdictRejectsUnattemptedTablets checks that omitted
+// script chunks cannot reduce the expected tablet count and pass the audit.
+func TestYBPlacementVerdictRejectsUnattemptedTablets(t *testing.T) {
 	audit := ybPlacementAudit{Expected: 40, Placed: 40, Missing: nil}
 
 	err := ybPlacementVerdict(audit, 130)
@@ -66,14 +62,13 @@ func TestYBPlacementVerdictCatchesTabletsThatWereNeverTried(t *testing.T) {
 	}
 
 	if !strings.Contains(err.Error(), "attempted 40 of the 130 tablets") {
-		t.Fatalf("the failure must name both counts, got: %v", err)
+		t.Fatalf("the failure must report both counts, got: %v", err)
 	}
 }
 
-// TestYBPlacementVerdictNamesHowManyItLeftOut proves a corpus-sized failure
-// still reports an exact count and says how many names it did not list, so
-// nothing is dropped without saying so.
-func TestYBPlacementVerdictNamesHowManyItLeftOut(t *testing.T) {
+// TestYBPlacementVerdictReportsOmittedIdentityCount checks exact missing counts and
+// the omitted identity count when the error sample limit applies.
+func TestYBPlacementVerdictReportsOmittedIdentityCount(t *testing.T) {
 	missing := make([]string, 0, 500)
 
 	for i := range 500 {
@@ -87,17 +82,16 @@ func TestYBPlacementVerdictNamesHowManyItLeftOut(t *testing.T) {
 		t.Fatal("500 missing tablets must fail the drill")
 	}
 
-	if !strings.Contains(err.Error(), "500 of the 600 tablets it attempted recorded no copy") {
-		t.Fatalf("the failure must name the exact number missing, got: %v", err)
+	if !strings.Contains(err.Error(), "500 of the 600 attempted tablets did not record a copy") {
+		t.Fatalf("the failure must report the exact number missing, got: %v", err)
 	}
 
 	if !strings.Contains(err.Error(), "and 480 more") {
-		t.Fatalf("the failure must say how many names it left out, got: %v", err)
+		t.Fatalf("the failure must report the omitted identity count, got: %v", err)
 	}
 }
 
-// TestYBPlacementVerdictPassesACompleteRun locks that a whole restore is not
-// failed by the accounting.
+// TestYBPlacementVerdictPassesACompleteRun checks successful accounting.
 func TestYBPlacementVerdictPassesACompleteRun(t *testing.T) {
 	audit := ybPlacementAudit{Expected: 130, Placed: 130, Missing: nil}
 	if err := ybPlacementVerdict(audit, 130); err != nil {
@@ -105,9 +99,8 @@ func TestYBPlacementVerdictPassesACompleteRun(t *testing.T) {
 	}
 }
 
-// TestCountDistinctTabletsCountsTabletsNotRows proves the number the audit is
-// compared against counts each tablet of each table once, which is the same
-// identity the ledgers record.
+// TestCountDistinctTabletsCountsTabletsNotRows checks deduplication using the
+// placement records' table-and-tablet identity.
 func TestCountDistinctTabletsCountsTabletsNotRows(t *testing.T) {
 	remaps := []ybTabletRemap{
 		{table: "t1", old: "o1", new: "n1"},

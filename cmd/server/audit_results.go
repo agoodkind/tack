@@ -9,9 +9,8 @@ import (
 	"goodkind.io/tack/internal/clispec"
 )
 
-// auditQueryResult is the `audit query` output: one page of matching ledger
-// rows, most recent first. A full page carries next_cursor; pass it back as
-// --cursor for the next page.
+// auditQueryResult reports one page of matching ledger rows, most recent
+// first. A full page includes next_cursor for the next request's --cursor.
 type auditQueryResult struct {
 	clispec.ResultMarker `exhaustruct:"optional"`
 	Command              string      `json:"command"`

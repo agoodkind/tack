@@ -1,8 +1,6 @@
-// backup_staleness_follower.go recognizes a follower master's answer to the
-// health check. A follower answers 200 with a page that names the leader's URL
-// instead of the health payload, so a probe that asks every master hears it
-// from each follower before the leader answers. That page is not an unreadable
-// payload: it means "ask the leader", and the probe moves on quietly.
+// A follower master answers health checks with HTTP 200 and the leader's URL
+// instead of a health payload. The probe recognizes this response and checks
+// the next master without reporting an unreadable payload.
 
 package ops
 

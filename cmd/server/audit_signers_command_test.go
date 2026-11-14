@@ -19,12 +19,10 @@ import (
 	"goodkind.io/tack/internal/testenv"
 )
 
-// TestAuditSignersCommandWiresTheFlagsThroughTheReader runs the real command
-// against a migrated ledger: the deployed configuration shape (set and key
-// from Cfg, reader DSN from the environment), a row signed by the local key,
-// and a row signed by a key the set may or may not name. It pins that the
-// --allow-unverified and --since flags reach the verification and change the
-// exit code, which the refusal tests above never get far enough to show.
+// TestAuditSignersCommandWiresTheFlagsThroughTheReader runs the command against
+// a migrated ledger with a local signer and another signer. It checks that
+// --allow-unverified and --since change verification results and exit status.
+// The config supplies the signer set, local key, and reader DSN.
 func TestAuditSignersCommandWiresTheFlagsThroughTheReader(t *testing.T) {
 	dsn := testenv.Ledger(t)
 	ctx := context.Background()
@@ -93,8 +91,8 @@ func TestAuditSignersCommandWiresTheFlagsThroughTheReader(t *testing.T) {
 		t.Fatalf("err = %v, want the acknowledged run to pass", err)
 	}
 
-	// A --since after both rows scans nothing under this org, so the other
-	// key's row cannot be rejected: the bound reaches the query.
+	// A --since after both rows excludes them from this org's query results.
+	// The command must not reject the other key's excluded row.
 	if err := run(localID, false, since.Add(time.Minute).Format(time.RFC3339)); err != nil &&
 		strings.Contains(err.Error(), otherID) {
 		t.Fatalf("err = %v, want --since to exclude the older rows", err)

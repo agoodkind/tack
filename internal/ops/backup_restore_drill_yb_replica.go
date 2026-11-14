@@ -1,10 +1,6 @@
-// backup_restore_drill_yb_replica.go picks which node's extracted copy of a
-// tablet the placement copies, and refuses the restore when no node has a whole
-// one. A tablet exists on several nodes and any one node's copy is a consistent
-// set, so the choice is made against the inventories: a copy counts only when
-// every file that node's archive recorded for that tablet is in the extraction
-// at its recorded size. Deciding here rather than in the placement shell is
-// what lets the refusal name the tablet and how many of its files are gone.
+// Tablet placement selects one complete extracted replica per imported tablet.
+// A replica must contain every inventoried file at its archived size; files
+// from different nodes cannot establish a consistent single-node copy.
 
 package ops
 
@@ -13,19 +9,16 @@ import (
 	"strings"
 )
 
-// ybTabletDirComponents is how many path components a tablet's directory has
-// inside an archive: "table-<id>/tablet-<id>.snapshots/<snapshot>".
+// ybTabletDirComponents counts "table-<id>/tablet-<id>.snapshots/<snapshot>".
 const ybTabletDirComponents = 3
 
-// ybTabletSourceDir is the archive-relative directory one tablet's exported
-// files live under, named by the tablet id the export knew it as.
+// ybTabletSourceDir returns the archive-relative directory for the old tablet ID.
 func ybTabletSourceDir(remap ybTabletRemap, exportSnap string) string {
 	return fmt.Sprintf("table-%s/tablet-%s.snapshots/%s", remap.table, remap.old, exportSnap)
 }
 
-// ybTabletDirOf reports which tablet directory an archive-relative file path
-// belongs to, or "" for a path too shallow to be a tablet's file. Files nested
-// deeper still belong to the tablet directory above them.
+// ybTabletDirOf returns the first three path components for a tablet file,
+// including nested files, or an empty string for shallower paths.
 func ybTabletDirOf(path string) string {
 	parts := strings.Split(path, "/")
 	if len(parts) <= ybTabletDirComponents {
@@ -35,19 +28,17 @@ func ybTabletDirOf(path string) string {
 	return strings.Join(parts[:ybTabletDirComponents], "/")
 }
 
-// ybNodeExtraction is one node's extracted archive weighed against its
-// inventory, counted per tablet directory.
+// ybNodeExtraction counts inventoried files and extraction defects per tablet.
 type ybNodeExtraction struct {
-	// node is the tablet-server name whose archive this is.
+	// node identifies the archive's tablet server.
 	node string
-	// carried counts the files the inventory records for each tablet.
+	// carried counts inventoried files per tablet.
 	carried map[string]int
-	// missing counts those the extraction does not hold at their recorded size.
+	// missing counts absent files and files with incorrect sizes.
 	missing map[string]int
 }
 
-// newYBNodeExtraction folds one node's inventory and the files its extraction
-// is short of into per-tablet counts.
+// newYBNodeExtraction groups inventory and extraction defects by tablet.
 func newYBNodeExtraction(inventory ybArchiveInventory, missing []ybArchivedFile) ybNodeExtraction {
 	extraction := ybNodeExtraction{
 		node:    inventory.Node,
@@ -69,30 +60,24 @@ func newYBNodeExtraction(inventory ybArchiveInventory, missing []ybArchivedFile)
 	return extraction
 }
 
-// ybTabletPlacement pairs one tablet with the extracted copy the drill verified
-// against the inventory of the node that carried it.
+// ybTabletPlacement pairs an imported tablet with a verified extracted replica.
 type ybTabletPlacement struct {
 	remap  ybTabletRemap
 	source string
 }
 
-// ybTabletDefect is one tablet the export cannot supply: either no node's
-// archive carried it, or every node that did is short of files.
+// ybTabletDefect records an absent or incomplete tablet replica.
 type ybTabletDefect struct {
-	// identity names the tablet the way the placement ledgers do.
+	// identity uses the placement records' tablet identity.
 	identity string
-	// carried is whether any node's archive recorded files for it at all.
+	// carried indicates whether any archive includes files for the tablet.
 	carried bool
-	// missing is the fewest files any carrying node's extraction is short of.
+	// missing records the fewest defective files in any inventoried replica.
 	missing int
 }
 
-// chooseYBTabletReplicas takes, for each tablet the import created, the first
-// node whose extraction holds every file that node archived for it. Nodes are
-// walked in manifest order, so the choice is the same on every run over the
-// same export. A tablet named twice by the mapping is decided once, under the
-// identity the ledgers record, so neither the copies nor the refusals count it
-// twice.
+// chooseYBTabletReplicas selects the first complete node extraction in manifest
+// order. Duplicate imported identities count once for placement and refusal.
 func chooseYBTabletReplicas(
 	remaps []ybTabletRemap,
 	exportRoot string,
@@ -120,8 +105,8 @@ func chooseYBTabletReplicas(
 	return placements, defects
 }
 
-// chooseYBTabletReplica returns the whole copy of one tablet, or the defect
-// describing the best any node could offer.
+// chooseYBTabletReplica returns a complete replica or the smallest defect count
+// among nodes that archived the tablet.
 func chooseYBTabletReplica(
 	remap ybTabletRemap,
 	dir string,
@@ -148,8 +133,7 @@ func chooseYBTabletReplica(
 	return "", defect
 }
 
-// ybTabletDefectError refuses a restore the export cannot supply, naming what
-// is wrong with each tablet it cannot place.
+// ybTabletDefectError reports the count and sampled reasons for unplaceable tablets.
 func ybTabletDefectError(defects []ybTabletDefect, wanted int) error {
 	reasons := make([]string, 0, len(defects))
 	for _, defect := range defects {
@@ -164,14 +148,14 @@ func ybTabletDefectError(defects []ybTabletDefect, wanted int) error {
 	)
 }
 
-// reason says why one tablet cannot be placed.
+// reason reports why the export cannot provide a complete tablet replica.
 func (d ybTabletDefect) reason() string {
 	if !d.carried {
-		return d.identity + " (no node's archive carried it)"
+		return d.identity + " (every node's archive omits it)"
 	}
 
 	return fmt.Sprintf(
-		"%s (%d archived files are missing from every node that carried it)",
+		"%s (%d archived files are missing from every node that archived it)",
 		d.identity,
 		d.missing,
 	)

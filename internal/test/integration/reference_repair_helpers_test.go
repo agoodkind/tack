@@ -57,9 +57,8 @@ func mustCreateLegacyRepairReference(
 	return view
 }
 
-// writeNodeWithRawGeneratedValue writes a node whose generated property holds
-// the given JSON verbatim, so a test can present a value the seeding phase
-// cannot read as a number.
+// writeNodeWithRawGeneratedValue writes the given JSON verbatim to the
+// generated property, including values that counter seeding cannot parse.
 func writeNodeWithRawGeneratedValue(
 	t *testing.T,
 	env *TestEnv,

@@ -55,7 +55,7 @@ func seedToken(
 		cfg.SeedEmail,
 		seededUser.ID,
 	)
-	_, _ = fmt.Fprintln(os.Stdout, "Add to your MCP config:")
+	_, _ = fmt.Fprintln(os.Stdout, "Add to MCP config:")
 	_, _ = fmt.Fprintln(os.Stdout, "  \"Authorization\": \"Bearer <token-above>\"")
 
 	return nil

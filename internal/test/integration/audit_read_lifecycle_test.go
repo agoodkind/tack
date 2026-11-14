@@ -135,7 +135,7 @@ func TestAuditQueryAndGetRecordReadLifecycle(t *testing.T) {
 		t,
 		awaitReadLifecycleRow(t, ledger, missingOperator, audit.VerbAuditRead),
 		uriTarget(audit.EventURIPrefix+missingEvent.String()),
-		"no event with id",
+		"does not exist",
 	)
 
 	badOrgArgs := append([]string{"audit", "query", "--org", readLifecycleBadOrgFlag}, window...)

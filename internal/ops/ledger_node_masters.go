@@ -1,13 +1,7 @@
-// ledger_node_masters.go is the pure half of `ops ledger node-prepare`: what
-// the environment says this node's masters are, what the node's saved
-// launcher config says they are, and the rewrite that aligns the two.
-//
-// The launcher (yugabyted) saves the master list it last knew under
-// current_masters and hands that list to the tablet server on every start.
-// Its own background refresh does not repair a stale list, so a node that
-// slept through a master change comes back dialing a master that no longer
-// exists and never rejoins (TACK-489). Aligning the saved list before the
-// start is what makes the start honest.
+// ledger_node_masters.go updates the saved master list before node startup.
+// yugabyted saves current_masters and supplies it to the tablet server at each
+// start. Its background refresh does not repair a stale list. A stale entry can
+// prevent a restarted node from rejoining after a master change (TACK-489).
 
 package ops
 
@@ -24,25 +18,20 @@ import (
 )
 
 const (
-	// ledgerLauncherConfigDir is where yugabyted keeps its saved config inside
-	// the ledger container, under the persisted data volume.
+	// ledgerLauncherConfigDir stores yugabyted's config on the persisted volume.
 	ledgerLauncherConfigDir = "/home/yugabyte/var/conf"
 	// ledgerLauncherConfigName is the saved config's file name.
 	ledgerLauncherConfigName = "yugabyted.conf"
-	// ledgerLauncherMastersKey is the JSON key holding the comma-separated
-	// master list the launcher passes to the tablet server as
-	// --tserver_master_addrs.
+	// ledgerLauncherMastersKey stores the comma-separated master list that
+	// the launcher supplies as --tserver_master_addrs.
 	ledgerLauncherMastersKey = "current_masters"
 	// ledgerMasterRPCPort is the master peer port every node listens on.
 	ledgerMasterRPCPort = "7100"
 )
 
-// deployedLedgerNodeNames reads the node names out of TACK_LEDGER_NODE_HOSTS,
-// the name=address list the deploy renders for every ledger guest. The names
-// are the identities the masters carry, which is what the saved list must
-// hold; an address there would be the wedge class the node names exist to
-// prevent. An empty map is an error: with nothing to align to, the command
-// must not guess.
+// deployedLedgerNodeNames reads names from the deployed name=address entries
+// in TACK_LEDGER_NODE_HOSTS. Saved master lists require these stable node names
+// rather than addresses. The command refuses an empty list instead of guessing.
 func deployedLedgerNodeNames(cfg *config.Config) ([]string, error) {
 	var names []string
 
@@ -52,7 +41,7 @@ func deployedLedgerNodeNames(cfg *config.Config) ([]string, error) {
 
 	if len(names) == 0 {
 		return nil, errors.New(
-			"TACK_LEDGER_NODE_HOSTS names no ledger node, so there is no master list to align to",
+			"TACK_LEDGER_NODE_HOSTS does not specify any ledger nodes for the master list",
 		)
 	}
 
@@ -61,8 +50,7 @@ func deployedLedgerNodeNames(cfg *config.Config) ([]string, error) {
 	return slices.Compact(names), nil
 }
 
-// ledgerMasterList renders node names as the name:port entries the launcher
-// stores, in a fixed order so two lists compare by content.
+// ledgerMasterList renders sorted name:port entries for content comparisons.
 func ledgerMasterList(names []string) []string {
 	masters := make([]string, 0, len(names))
 	for _, name := range names {
@@ -74,10 +62,8 @@ func ledgerMasterList(names []string) []string {
 	return masters
 }
 
-// savedLedgerMasters reads the master list out of a saved launcher config. A
-// config without the key is an error rather than an empty list: the launcher
-// writes the key on first start, so its absence means the file is not the one
-// this command understands.
+// savedLedgerMasters reads a saved launcher's master list. The launcher writes
+// the required key at first start. Its absence indicates an unsupported config.
 func savedLedgerMasters(ctx context.Context, conf []byte) ([]string, error) {
 	fields, err := decodeLauncherConfig(ctx, conf)
 	if err != nil {
@@ -86,7 +72,7 @@ func savedLedgerMasters(ctx context.Context, conf []byte) ([]string, error) {
 
 	raw, present := fields[ledgerLauncherMastersKey]
 	if !present {
-		return nil, fmt.Errorf("saved launcher config has no %s key", ledgerLauncherMastersKey)
+		return nil, fmt.Errorf("saved launcher config does not include the %s key", ledgerLauncherMastersKey)
 	}
 
 	var joined string
@@ -118,9 +104,8 @@ func savedLedgerMasters(ctx context.Context, conf []byte) ([]string, error) {
 	return slices.Compact(masters), nil
 }
 
-// rewriteLedgerMasters returns the saved config with its master list replaced
-// and every other key carried through untouched, so the launcher reads back
-// exactly the identities and ports it wrote.
+// rewriteLedgerMasters replaces the master list and preserves every other
+// config value, including node identities and ports.
 func rewriteLedgerMasters(ctx context.Context, conf []byte, masters []string) ([]byte, error) {
 	fields, err := decodeLauncherConfig(ctx, conf)
 	if err != nil {
@@ -153,8 +138,7 @@ func rewriteLedgerMasters(ctx context.Context, conf []byte, masters []string) ([
 	return append(rewritten, '\n'), nil
 }
 
-// decodeLauncherConfig parses the saved config as a flat JSON object, keeping
-// each value as the bytes the launcher wrote.
+// decodeLauncherConfig parses a flat JSON object and preserves each raw value.
 func decodeLauncherConfig(ctx context.Context, conf []byte) (map[string]json.RawMessage, error) {
 	fields := map[string]json.RawMessage{}
 	if err := json.Unmarshal(conf, &fields); err != nil {

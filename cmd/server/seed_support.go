@@ -18,16 +18,13 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// userIDNamespace gives the seed user a deterministic UUID derived from email.
-// The dev-mode auth path uses the raw user UUID as a Bearer token, so a stable
-// UUID across Yugabyte wipes means a stable MCP config that doesn't rebreak
-// every time we re-seed. The namespace is distinct from the node-side
-// namespaces (workspaceNamespace, systemPropNS) on purpose so a slug and an
-// email can never collide on the same UUID.
+// userIDNamespace derives stable user UUIDs from email for development bearer
+// authentication across database resets. Separate node namespaces prevent an
+// email and a node slug from deriving the same UUID.
 var userIDNamespace = uuid.MustParse("0a6f7572-cafe-dead-beef-000000000003")
 
-// userIDForEmail derives a deterministic UUID for a seed user from their email.
-// Lowercased so case differences in re-seed inputs do not produce drift.
+// userIDForEmail derives a deterministic UUID from a lowercased email.
+// Email case differences do not change the seed user's identity.
 func userIDForEmail(email string) uuid.UUID {
 	return uuid.NewSHA1(userIDNamespace, []byte(strings.ToLower(email)))
 }
@@ -101,11 +98,9 @@ func findSeedNode(
 	return uuid.Nil, nil
 }
 
-// seedNodeID returns the ID of a new seed node. Org nodes get a fresh random
-// UUIDv7 (TACK-230). Two calls with the same slug produce different IDs, which
-// is correct: org identity is row-level, not derivable from a slug. A
-// workspace under an org derives its ID from (orgID, slug) and stays
-// deterministic across wipe-and-reseed; anything deeper uses V7.
+// seedNodeID assigns random UUIDv7 identities to orgs and deeper nodes
+// (TACK-230). Repeating an org slug does not repeat its identity. Workspaces
+// derive stable identities from (orgID, slug) across database resets.
 func seedNodeID(typeKey, slug string, parentID uuid.UUID) uuid.UUID {
 	switch {
 	case parentID == uuid.Nil:
@@ -162,8 +157,8 @@ func createSeedNode(
 		props["parent_id"] = parentRaw
 	}
 
-	// A root node (no parent) is its own org: OrgID == ID. Every other node
-	// inherits its org from the parent. Rooted by presence, not by type name.
+	// A root node uses its own ID as OrgID. Other nodes use the parent ID
+	// supplied for this seed hierarchy, independently of the node type name.
 	orgID := parentID
 	if parentID == uuid.Nil {
 		orgID = id
@@ -207,8 +202,7 @@ func createSeedNode(
 		)
 	}
 
-	// Mark slug as indexed so ListByProperty works for it. The node_by_property
-	// index written here replaces the former address_index write.
+	// Index slug for ListByProperty lookups through node_by_property.
 	if err := s.Nodes.CreateAtomic(ctx, n, view, rels, []string{"slug"}, nil, nil); err != nil {
 		slog.ErrorContext(
 			ctx,
@@ -225,8 +219,7 @@ func createSeedNode(
 	return nil
 }
 
-// generateToken returns a fresh random bearer token in the one shape every
-// issuer produces.
+// generateToken returns a fresh random bearer token in the format every issuer uses.
 func generateToken() (string, error) {
 	raw, err := auth.NewBearerToken()
 	if err != nil {
@@ -237,12 +230,9 @@ func generateToken() (string, error) {
 	return raw, nil
 }
 
-// orgsExist opens a read-only Postgres connection and returns true if
-// org_members contains at least one row, which implies at least one org has
-// been seeded. It uses org_members rather than an entity table because SQL
-// holds the only authoritative org registry (FDB holds product data, not
-// auth). If the table does not yet exist (pre-migration), it returns false so
-// seed can proceed to run migrations first.
+// orgsExist checks org_members for seed-created membership records. SQL stores
+// authentication and membership data; FDB stores product nodes. A missing
+// pre-migration table returns false to permit seed initialization.
 func orgsExist(ctx context.Context, cfg *config.Config) (bool, error) {
 	pool, err := postgres.NewPool(ctx, cfg.DatabaseURL, nil)
 	if err != nil {
@@ -254,7 +244,7 @@ func orgsExist(ctx context.Context, cfg *config.Config) (bool, error) {
 	var exists bool
 	err = pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM org_members LIMIT 1)`).Scan(&exists)
 	if err != nil {
-		// Table does not exist yet (pre-migration); treat as empty.
+		// Treat an absent pre-migration table as empty.
 		if strings.Contains(err.Error(), "does not exist") {
 			return false, nil
 		}

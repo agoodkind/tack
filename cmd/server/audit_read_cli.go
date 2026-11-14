@@ -42,8 +42,8 @@ func auditQueryOp(f *cli.Factory) clispec.Operation[auditQueryInput] {
 		Aliases:  nil,
 		Hidden:   false,
 		Short:    "Print one page of audit.events rows for an org over a bounded RFC3339 window as JSON",
-		Long: "Rows return most recent first, at most --limit (capped at 1000) per page. " +
-			"A full page carries next_cursor; pass it back as --cursor for the next page.",
+		Long: "The command returns the most recent rows first, up to --limit (capped at 1000) per page. " +
+			"A full page includes next_cursor. Pass it as --cursor for the next page.",
 		Examples: nil,
 		Args:     nil,
 		Params: []clispec.Param[auditQueryInput]{
@@ -252,7 +252,7 @@ func auditGetOp(f *cli.Factory) clispec.Operation[auditGetInput] {
 			defer reader.Close()
 			row, err := reader.GetByID(ctx, eventID)
 			if errors.Is(err, pgx.ErrNoRows) {
-				return fmt.Errorf("audit get: no event with id %s", eventID)
+				return fmt.Errorf("audit get: event %s does not exist", eventID)
 			}
 
 			if err != nil {

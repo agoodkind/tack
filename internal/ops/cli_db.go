@@ -8,11 +8,9 @@ import (
 	"goodkind.io/tack/internal/clispec"
 )
 
-// dbOpsGroup holds the break-glass path to the production database. Direct
-// access from the host (root SSH into the database container) leaves no
-// ledger row, which is how the 2026-06-08 incident happened; this group is
-// the recorded replacement, and closing the raw path is what makes it the
-// only one (TACK-327).
+// dbOpsGroup defines recorded emergency database access. Direct host access
+// through root SSH into the database container does not create ledger rows.
+// Restrict that access to require this recorded command (TACK-327).
 var dbOpsGroup = &clispec.Group{
 	Use:    "db",
 	Short:  "Recorded break-glass access to the database",
@@ -34,14 +32,14 @@ func dbSQLOp(f *cli.Factory) clispec.Operation[dbSQLInput] {
 		Group:    dbOpsGroup,
 		Aliases:  nil,
 		Hidden:   false,
-		Short:    "Run one read-only SQL statement against the database, recorded and mailed",
-		Long: "Runs one statement in a read-only session. The server refuses a " +
-			"statement that changes data or schema; a database write needs a " +
-			"migration or a reviewed ops command. The " +
-			"operator, the reason, and the statement are recorded in the ledger, " +
-			"and the alarm address is mailed before the statement runs; a mail " +
-			"that cannot be delivered refuses the statement. Nothing runs " +
-			"without --execute; without it the command reports what it would run.",
+		Short:    "Run one read-only SQL statement and record and email the attempt",
+		Long: "Run one statement in a read-only session. The server refuses a " +
+			"statement that changes data or schema. Database writes require a " +
+			"migration or a reviewed ops command. Before execution, the command " +
+			"emails the alarm address and records the operator, reason, and " +
+			"statement in the ledger. The command refuses execution if email " +
+			"delivery fails. The command requires --execute to run the statement. " +
+			"Without it, the command reports what it would run.",
 		Examples: nil,
 		Args:     nil,
 		Params: []clispec.Param[dbSQLInput]{
@@ -54,7 +52,7 @@ func dbSQLOp(f *cli.Factory) clispec.Operation[dbSQLInput] {
 			),
 			clispec.StringParam(
 				"reason",
-				"why the database is being reached outside the product; recorded and mailed",
+				"reason for database access outside the product, for the ledger and alarm email",
 				"",
 				true,
 				func(input *dbSQLInput, value string) { input.Reason = value },

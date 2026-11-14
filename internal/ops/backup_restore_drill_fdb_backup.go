@@ -1,10 +1,6 @@
-// backup_restore_drill_fdb_backup.go picks which FoundationDB backup session
-// the drill restores from. Every `fdb-continuous-init` that starts a session
-// registers a new backup name in the store, and each session's restorable
-// window begins when it started, so a moment retained only by an older
-// session is one the newest session cannot reach. The drill therefore reads
-// the window of each session, newest first, and restores from the first one
-// that covers the target; without a target it restores the newest, as before.
+// FoundationDB backup sessions retain different time windows. Targeted
+// restores inspect sessions newest first and select the first window that
+// includes the target. Untargeted restores use the newest session.
 
 package ops
 
@@ -19,17 +15,13 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// fdbBackupMarkerPrefix is the folder the FoundationDB blobstore registers
-// each backup under as a marker object, backups/<name>.
+// fdbBackupMarkerPrefix specifies the marker object folder, backups/<name>.
 const fdbBackupMarkerPrefix = "backups/"
 
-// selectFDBBackup returns the name of the backup the drill restores. With no
-// target it is the newest marker, read without describing anything, so the
-// default drill neither reads a window nor touches the source cluster. With a
-// target it is the newest backup whose restorable window covers the target,
-// checked before any restore starts, so a moment no backup can reach stops the
-// drill instead of quietly restoring some other moment. markers are the
-// backups/ marker keys sorted ascending.
+// selectFDBBackup selects a backup from ascending marker keys. Without a
+// target it uses the newest marker without reading windows or the source
+// cluster. With a target it verifies a covering window before restoring and
+// refuses the target if every backup excludes it.
 func selectFDBBackup(
 	ctx context.Context,
 	r *restoreDrillCtx,
@@ -75,8 +67,7 @@ func selectFDBBackup(
 	return name, nil
 }
 
-// fdbBackupNames turns the backups/ marker keys, in the order the store listed
-// them, into the bare names fdbrestore addresses, keeping that order.
+// fdbBackupNames removes marker prefixes without changing listing order.
 func fdbBackupNames(markers []string) []string {
 	names := make([]string, 0, len(markers))
 	for _, marker := range markers {
@@ -86,16 +77,10 @@ func fdbBackupNames(markers []string) []string {
 	return names
 }
 
-// chooseFDBBackupForTarget walks the backup names newest first and returns
-// the first whose window covers the target, with that window. The search stops
-// there: when more than one backup covers the target, the newest is used and
-// the older ones are never described, because any covering backup restores
-// the same moment and the newest is the one the drill restores without a
-// target. A backup whose window cannot be read is passed over with its reason
-// handed to skip rather than ending the search, since an older backup may
-// still cover the target. When none does, the error names every backup with
-// its window or the reason it could not be read, so the operator can pick a
-// moment that works.
+// chooseFDBBackupForTarget selects the newest covering window and stops
+// inspecting older backups after success. Unreadable windows invoke skip and
+// permit checking older sessions. Failure reports every session's window or
+// read error to support selecting another target.
 func chooseFDBBackupForTarget(
 	target time.Time,
 	names []string,

@@ -13,11 +13,10 @@ import (
 	"goodkind.io/tack/internal/clispec"
 )
 
-// The dead-letter table holds every audit event the consumer could not commit
-// to the ledger. These commands let an operator see what accumulated and send
-// it back through the audit topic once the cause is gone; the consumer, as
-// the ledger's one writer, lands each event and clears its row (TACK-336,
-// TACK-240).
+// The dead-letter table stores audit events the consumer could not commit.
+// These commands inspect failures and republish events to the audit topic.
+// Only the consumer writes ledger events and deletes their dead-letter rows
+// (TACK-336, TACK-240).
 
 var auditDLQGroup = &clispec.Group{
 	Use:    "dlq",
@@ -26,8 +25,8 @@ var auditDLQGroup = &clispec.Group{
 	Parent: auditOpsGroup,
 }
 
-// defaultDLQReplayLimit bounds one replay run so an operator reads the
-// consumer's answer before sending the rest.
+// defaultDLQReplayLimit limits one run to permit reviewing consumer results
+// before replaying further rows.
 const defaultDLQReplayLimit = 500
 
 type auditDLQInspectInput struct {
@@ -71,8 +70,8 @@ func auditDLQInspectOp(f *cli.Factory) clispec.Operation[auditDLQInspectInput] {
 		Aliases:  nil,
 		Hidden:   false,
 		Short:    "Count the dead-letter rows by failure",
-		Long: "Reads the dead-letter table through the ledger reader and groups its " +
-			"rows by the failure text the consumer recorded, oldest and newest first seen.",
+		Long: "Read the dead-letter table using the ledger reader. Group rows by " +
+			"the consumer's recorded failure text and report the oldest and newest occurrence.",
 		Examples: nil,
 		Args:     nil,
 		Params:   nil,
@@ -95,13 +94,14 @@ func auditDLQReplayOp(f *cli.Factory) clispec.Operation[auditDLQReplayInput] {
 		Group:    auditDLQGroup,
 		Aliases:  nil,
 		Hidden:   false,
-		Short:    "Send dead-letter rows back through the audit topic",
-		Long: "Re-publishes dead-letter rows to the audit topic, byte for byte, so " +
-			"the consumer projects each one again: rows with the fewest attempts " +
-			"first, oldest first among equals, so a row that never lands does not " +
-			"hold the rest back. A row that lands is deleted by the consumer; one " +
-			"that fails again keeps its row with the attempt counted. Nothing is " +
-			"sent without --execute.",
+		Short:    "Republish dead-letter rows to the audit topic",
+		Long: "Republish dead-letter rows to the audit topic, byte for byte, " +
+			"for the consumer to retry. Select rows with the fewest attempts first " +
+			"and the oldest rows first among equal attempt counts. This order " +
+			"prevents repeated failures from delaying other rows. The consumer " +
+			"deletes each row after a successful commit. After another failure, " +
+			"it retains the row and increments its attempt count. " +
+			"The command requires --execute to publish rows.",
 		Examples: nil,
 		Args:     nil,
 		Params: []clispec.Param[auditDLQReplayInput]{
@@ -180,15 +180,15 @@ func runAuditDLQInspect(ctx context.Context, f *cli.Factory, sink clispec.Result
 	}
 
 	if result.Rows > 0 {
-		// A non-empty table means audit writes failed and nobody has replayed
-		// them; the line is at error level so the log alarm sees it.
+		// Failed audit writes remain in the table until replay succeeds.
+		// Error-level logging triggers the log alarm.
 		slog.ErrorContext(
 			ctx,
 			"audit.dlq.non_empty",
 			slog.Int("rows", result.Rows),
 			slog.String(
 				"err",
-				fmt.Sprintf("%d audit events are dead-lettered and not yet replayed", result.Rows),
+				fmt.Sprintf("%d audit events await replay after failed ledger writes", result.Rows),
 			),
 		)
 	}

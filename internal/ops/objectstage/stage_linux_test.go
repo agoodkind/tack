@@ -136,8 +136,8 @@ func TestGetObjectToFileBoundsUnwrittenStagingData(t *testing.T) {
 	)
 	if peaks.cachedBytes == 0 {
 		t.Fatal(
-			"cachestat saw none of the staged file cached, so it cannot measure this filesystem " +
-				"(overlayfs reports nothing); run with TMPDIR on a disk filesystem such as a Docker volume",
+			"cachestat did not report cached pages for the staged file and cannot measure this filesystem " +
+				"(overlayfs does not report cache usage); run with TMPDIR on a disk filesystem such as a Docker volume",
 		)
 	}
 

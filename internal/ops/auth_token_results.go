@@ -2,9 +2,8 @@ package ops
 
 import "goodkind.io/tack/internal/clispec"
 
-// authTokenCreateResult is what token-create reports. In a dry run it names
-// the holder and org the token would be issued to; after an execute it also
-// carries the token's id and its raw value.
+// authTokenCreateResult reports the user and org for token-create. After
+// execution, it also reports the token's id and raw value.
 type authTokenCreateResult struct {
 	clispec.ResultMarker
 	Command   string `json:"command"`
@@ -20,8 +19,8 @@ type authTokenCreateResult struct {
 	Token string `json:"token,omitempty"`
 }
 
-// authTokenListEntry is one token as token-list reports it. Raw values are
-// never stored, so none is here.
+// authTokenListEntry reports token metadata without the raw bearer value.
+// The database does not store raw values.
 type authTokenListEntry struct {
 	TokenID   string `json:"token_id"`
 	Label     string `json:"label"`

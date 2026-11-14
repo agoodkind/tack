@@ -93,10 +93,8 @@ func runAuditVerify(
 		}
 
 		if !signers.Configured() {
-			// Refused rather than run without the signer verdict: a bundle
-			// that verified on signature alone would read as a pass under a
-			// key the environment may have revoked. On a deployed host the set
-			// is rendered, so its absence is a misconfiguration.
+			// Require the deployed signer set. Signature verification alone
+			// could accept a key that the environment has revoked.
 			slog.ErrorContext(
 				ctx,
 				"audit.verify_no_signer_set",
@@ -140,9 +138,8 @@ func runAuditVerify(
 			return fmt.Errorf("audit verify: render report: %w", writeErr)
 		}
 
-		// The report prints either way, so the human path is unchanged.
-		// The exit code has to carry the same verdict, because a script or
-		// a release gate reads only that.
+		// Print the report before returning a failed verdict. Scripts and
+		// release checks also require a failing exit status.
 		if verdictErr := report.Err(); verdictErr != nil {
 			slog.ErrorContext(
 				ctx,

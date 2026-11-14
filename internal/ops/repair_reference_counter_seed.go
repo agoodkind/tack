@@ -8,12 +8,10 @@ import (
 	"github.com/google/uuid"
 )
 
-// seedReferenceCounters returns the counters it raised, so the caller can
-// record one ledger event per seed that happened. A counter already at or
-// above its scope's highest number is left alone and left out, because a seed
-// that changes nothing is not a mutation and must not read as one in the
-// ledger. A dry run reads the same counters and returns the ones an execute
-// would raise, without writing anything.
+// seedReferenceCounters returns the counters it raised for the caller to
+// record one ledger event per change. It neither changes nor returns counters
+// already at or above their scope's highest number. A dry run reads the same
+// counters and returns those execution would raise without writing them.
 func seedReferenceCounters(
 	ctx context.Context,
 	env *Env,

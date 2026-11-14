@@ -55,11 +55,9 @@ func registerAudit(reg *clispec.Registry, f *cli.Factory) {
 	clispec.Register(reg, genKeyAlias)
 }
 
-// auditExportAllRows is the --limit that exports the whole range. It is the
-// default because a compliance export is evidence, and a default that stopped
-// at a row count would hand an auditor a bundle that reads as complete while
-// leaving the older rows out. The export streams, so the whole range costs the
-// same memory as one row.
+// auditExportAllRows selects the complete range by default. A row limit would
+// omit older evidence from an apparently complete bundle. Streaming bounds
+// memory usage independently of the total row count.
 const auditExportAllRows = 0
 
 type auditExportInput struct {

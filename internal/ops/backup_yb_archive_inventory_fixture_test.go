@@ -17,9 +17,9 @@ type testArchiveEntry struct {
 	body     string
 }
 
-// writeTestArchive builds a gzip tar of the given members and returns its path.
-// The members are written by hand rather than by tarring a tree, so a test can
-// put shapes in an archive that no local filesystem would produce.
+// writeTestArchive writes members directly to a gzip tar and returns its path.
+// Direct writes permit testing archive entries that a local filesystem cannot
+// produce.
 func writeTestArchive(t *testing.T, entries []testArchiveEntry) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), ybNodeArchiveObject)

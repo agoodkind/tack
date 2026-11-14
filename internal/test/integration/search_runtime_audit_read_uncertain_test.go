@@ -68,7 +68,7 @@ func TestSearchRuntimeAuditCommitUncertainReadOutcome(t *testing.T) {
 		requireAbsent bool
 	}{
 		{
-			name:          "no commit",
+			name:          "rejects_search_before_session_commit",
 			pause:         snapshotStepRecorded,
 			resume:        retireStorageFailed,
 			code:          searchUnavailableCode,

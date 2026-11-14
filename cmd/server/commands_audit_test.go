@@ -28,7 +28,7 @@ func assertCommandAuditVerb(t *testing.T, command *cobra.Command) {
 		command.RunE != nil {
 		verb := command.Annotations[clispec.AuditVerbAnnotation]
 		if verb == "" {
-			t.Errorf("command %q has no audit verb", command.CommandPath())
+			t.Errorf("command %q does not declare an audit verb", command.CommandPath())
 		}
 	}
 

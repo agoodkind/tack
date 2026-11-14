@@ -11,12 +11,9 @@ import (
 	"goodkind.io/tack/internal/service"
 )
 
-// TestServiceUpdateRefusesMoveOntoHeldReference drives the user-facing update
-// path, not the storage layer directly. Moving a node into a project whose
-// numbering already issued that node's number renders a reference another node
-// holds, and the update must be refused. An update that ignored reference
-// ownership would leave the moved node claiming its old value and nothing
-// claiming the new one, which is the silent collision this work closes.
+// TestServiceUpdateRefusesMoveOntoHeldReference checks the service update path
+// when the destination scope already owns the rendered reference. The update
+// must reject the conflict and preserve the node's scope and existing ownership.
 func TestServiceUpdateRefusesMoveOntoHeldReference(t *testing.T) {
 	env := SetupTestEnv(t)
 	actor := uuid.New()
@@ -83,9 +80,8 @@ func TestServiceUpdateRefusesMoveOntoHeldReference(t *testing.T) {
 	}
 }
 
-// TestServiceUpdateReclaimsReferenceOnCleanMove proves the same path succeeds
-// when nothing contests the rendered value, and that the node ends up holding
-// the reference its new scope produces rather than its old one.
+// TestServiceUpdateReclaimsReferenceOnCleanMove checks that an update releases
+// the old scope's reference and claims the unoccupied destination reference.
 func TestServiceUpdateReclaimsReferenceOnCleanMove(t *testing.T) {
 	env := SetupTestEnv(t)
 	actor := uuid.New()
@@ -139,10 +135,9 @@ func TestServiceUpdateReclaimsReferenceOnCleanMove(t *testing.T) {
 	}
 }
 
-// setScopedSequenceTemplate declares, for the named types, the reference shape
-// this deployment uses: the enclosing scope's reference, a hyphen, then a
-// generated sequence. Templates are org data, so a test that needs one declares
-// it rather than relying on any shape built into the engine.
+// setScopedSequenceTemplate declares a reference template for the specified
+// types. It joins the scope reference, a hyphen, and a generated sequence.
+// Tests supply templates explicitly because templates are org data.
 func setScopedSequenceTemplate(t *testing.T, env *TestEnv, typeKeys ...string) {
 	t.Helper()
 	types, err := env.Stores.NodeTypes.List(env.Ctx, env.OrgID)

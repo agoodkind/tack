@@ -1,8 +1,7 @@
-// backup_yb_snapshot.go exports a YugabyteDB distributed snapshot off-host to
-// the object store, the last-resort backup tier for the SQL store. Disaster
-// recovery for YugabyteDB is quorum replication plus a standby cluster; the
-// in-cluster snapshot schedule is the corruption layer and does not survive
-// loss of the host's storage. This export does. See
+// YugabyteDB snapshot export stores SQL backups outside the data hosts.
+// Quorum replication and standby clusters protect against host failure;
+// in-cluster snapshots protect against corruption but cannot survive loss of
+// their storage. Object-store exports preserve an independent recovery copy.
 // https://docs.yugabyte.com/stable/manage/backup-restore/snapshot-ysql/
 
 package ops
@@ -25,15 +24,13 @@ import (
 )
 
 const (
-	// ybSnapshotCompleteTimeout bounds the wait for create_database_snapshot to
-	// reach COMPLETE. A single-node database snapshot completes in seconds; the
-	// budget is generous to tolerate a busy node.
+	// ybSnapshotCompleteTimeout limits snapshot creation, including busy nodes.
 	ybSnapshotCompleteTimeout = 5 * time.Minute
-	// ybSnapshotPollInterval is the gap between list_snapshots polls.
+	// ybSnapshotPollInterval sets the delay between list_snapshots polls.
 	ybSnapshotPollInterval = 3 * time.Second
 )
 
-// ybSnapshotStatus is the lifecycle state yb-admin reports for a snapshot.
+// ybSnapshotStatus records the lifecycle state from yb-admin.
 type ybSnapshotStatus string
 
 const (
@@ -43,15 +40,12 @@ const (
 	ybSnapStatusFailed   ybSnapshotStatus = "FAILED"
 )
 
-// RunBackupYBSnapshotExport orchestrates a YugabyteDB distributed-snapshot
-// export: it creates the cluster snapshot, waits COMPLETE, and uploads the
-// snapshot metadata, a schema-only ysql_dump, and a completeness manifest under
-// one run key. Every helper runs in a one-shot container against the master
-// quorum names; no local yugabyte container is required on the guest that runs
-// this command. The tablet snapshot files stay on the data guests: each guest's
-// `ops backup yb-archive-node` timer uploads its own node's tar under the
-// prefix the manifest assigns it, and the restore drill refuses the run until
-// every listed prefix is filled.
+// RunBackupYBSnapshotExport creates a snapshot, waits for COMPLETE, and uploads
+// metadata, schema, roles, and a completeness manifest under one run key.
+// Helpers use containers against the configured masters without requiring a
+// local yugabyte container. Each data guest's `ops backup yb-archive-node`
+// timer uploads its tablet archive to the assigned node prefix. Restore
+// requires every listed node's complete artifacts.
 func RunBackupYBSnapshotExport(ctx context.Context, cfg *config.Config) error {
 	logger := telemetry.L(ctx)
 	if cfg.BackupS3Endpoint == "" || cfg.BackupS3AccessKey == "" || cfg.BackupS3SecretKey == "" {
@@ -89,9 +83,8 @@ func RunBackupYBSnapshotExport(ctx context.Context, cfg *config.Config) error {
 		return wrapped
 	}
 
-	// export_snapshot runs in a one-shot and writes the metadata file into this
-	// dir via a bind mount, so it must be writable by the container user. The
-	// dir is transient and removed after the upload succeeds.
+	// The export container user needs write access to the staging bind mount.
+	// Successful uploads permit removing this temporary directory.
 	if err := os.Chmod(stageDir, 0o777); err != nil {
 		wrapped := fmt.Errorf("chmod yb snapshot stage %s: %w", stageDir, err)
 		logger.ErrorContext(ctx, "backup.yb_snapshot.failed", slog.String("err", wrapped.Error()))
@@ -113,10 +106,8 @@ func RunBackupYBSnapshotExport(ctx context.Context, cfg *config.Config) error {
 		slog.String("masters", cfg.BackupYBMasterAddresses),
 	)
 
-	// A prior run's in-cluster snapshot is only deletable once every node has
-	// archived its tablet files, so cleanup happens here rather than at the end
-	// of the run that created it. Best effort: a failed cleanup must not block
-	// a new export.
+	// Prior snapshots remain necessary until every node archives its files.
+	// Cleanup failures must not prevent a new export.
 	cleanupYBPriorExportSnapshots(ctx, cli, cfg)
 
 	createRes, err := ybAdminOneShot(ctx, cli, cfg, nil, "create_database_snapshot", filter)
@@ -152,9 +143,8 @@ func RunBackupYBSnapshotExport(ctx context.Context, cfg *config.Config) error {
 		return err
 	}
 
-	// The in-cluster snapshot must survive this command: the per-node archive
-	// timers still read its tablet files from each data guest. The next export
-	// run deletes it once the manifest is satisfied.
+	// Data-guest timers still need the snapshot's files after this command.
+	// A later export deletes the snapshot after archive completeness checks.
 
 	if rmErr := os.RemoveAll(stageDir); rmErr != nil {
 		logger.WarnContext(
@@ -177,12 +167,9 @@ func RunBackupYBSnapshotExport(ctx context.Context, cfg *config.Config) error {
 	return nil
 }
 
-// exportYBSnapshotToObjectStore runs the post-creation pipeline for a snapshot
-// already known COMPLETE: export the metadata file, dump the schema and the
-// cluster's roles, write the completeness manifest from the live tablet-server
-// list, and upload everything under the run's key prefix. The tablet archives
-// themselves are each data guest's job (`ops backup yb-archive-node`); this
-// pipeline only declares the node prefixes those archives must fill.
+// exportYBSnapshotToObjectStore exports a COMPLETE snapshot's metadata, schema,
+// roles, and manifest. The live tablet-server list defines required node
+// prefixes; each data guest uploads its own tablet archive separately.
 func exportYBSnapshotToObjectStore(
 	ctx context.Context,
 	cli *client.Client,
@@ -231,15 +218,13 @@ func exportYBSnapshotToObjectStore(
 		return err
 	}
 
-	// The manifest uploads last: archivers and the restore drill treat a
-	// manifest-less run prefix as not yet published, so a failure part-way
-	// through the uploads can never leave a manifest gating absent objects.
+	// Uploading the manifest last prevents readers from accepting a run
+	// before its required root artifacts exist.
 	return uploadYBSnapshotArtifacts(ctx, cfg, ybSnapshotKeyPrefix(runID), artifacts)
 }
 
-// listYBTabletServerNodes derives the tablet-server node names live from
-// yb-admin so the manifest tracks the cluster rather than a config value. An
-// empty list is an error: a manifest that lists no nodes would gate nothing.
+// listYBTabletServerNodes reads live node names for the manifest rather than
+// trusting a configuration list. An empty list cannot establish completeness.
 func listYBTabletServerNodes(
 	ctx context.Context,
 	cli *client.Client,
@@ -254,7 +239,7 @@ func listYBTabletServerNodes(
 	nodes := parseYBTabletServers(res.Stdout)
 	if len(nodes) == 0 {
 		wrapped := fmt.Errorf(
-			"yb-snapshot-export: list_all_tablet_servers reported no tablet servers: %q",
+			"yb-snapshot-export: list_all_tablet_servers did not report tablet servers: %q",
 			strings.TrimSpace(res.Stdout),
 		)
 		logger.ErrorContext(ctx, "backup.yb_snapshot.failed", slog.String("err", wrapped.Error()))
@@ -267,26 +252,17 @@ func listYBTabletServerNodes(
 	return nodes, nil
 }
 
-// ybSnapshotCleanupMaxRuns bounds how many of the newest export run prefixes
-// the pre-export cleanup examines. The archivers only ever fill the newest
-// manifest, so a run still incomplete after this many newer exports will never
-// complete; its snapshot then falls to the orphan reconcile instead of being
-// tracked forever.
+// ybSnapshotCleanupMaxRuns limits recent export prefixes examined per cleanup.
+// Archivers select only the newest manifest. Older incomplete runs eventually
+// require orphan reconciliation instead of indefinite tracking.
 const ybSnapshotCleanupMaxRuns = 30
 
-// cleanupYBPriorExportSnapshots reconciles the cluster's snapshots against the
-// export run prefixes before a new export starts. Every walked prior run whose
-// manifest is fully archived loses its in-cluster snapshot; runs still waiting
-// on node archives keep theirs, because the lagging nodes' archive timers
-// still need the tablet files on disk. Snapshots no walked manifest references
-// (runs that failed before their manifest upload, which lands last) are
-// deleted as orphans, except snapshots owned by the PITR snapshot schedule.
-// The orphan pass only runs when the reference set is trustworthy: it is
-// skipped when there are no run prefixes to walk or when any walked run's
-// manifest failed to resolve (a missing manifest counts as resolved), because
-// an incomplete reference set would misclassify a live run's snapshot as an
-// orphan and delete it. Best effort throughout: any failure is logged and the
-// new export proceeds, and every kept snapshot is logged with the reason.
+// cleanupYBPriorExportSnapshots deletes prior snapshots only after their node
+// archives complete, retaining snapshots that lagging archive timers need.
+// Orphan reconciliation excludes schedule-owned snapshots and requires a
+// trustworthy manifest reference set. Empty run lists and unresolved manifests
+// disable orphan deletion; absent manifests count as resolved. Cleanup logs
+// failures and retained-snapshot reasons without blocking the new export.
 func cleanupYBPriorExportSnapshots(ctx context.Context, cli *client.Client, cfg *config.Config) {
 	logger := telemetry.L(ctx)
 	s3Client := newBackupS3Client(cfg)
@@ -338,13 +314,9 @@ func cleanupYBPriorExportSnapshots(ctx context.Context, cli *client.Client, cfg 
 	cleanupYBOrphanSnapshots(ctx, cli, cfg, states, referenced)
 }
 
-// cleanupYBExportRuns walks the (already clamped) run prefixes, handling each
-// through cleanupYBExportRun, and decides whether the orphan pass may run.
-// orphanPassOK is false, with the reason logged, when there are no run
-// prefixes to walk or when any walked run's manifest failed to resolve,
-// because either way referenced cannot vouch for which cluster snapshots are
-// orphans. The fetch, exists, and deleteSnapshot closures keep the walk
-// testable without an object store or a cluster.
+// cleanupYBExportRuns checks bounded prior runs and builds snapshot references.
+// Missing prefixes or unresolved manifest reads prevent trustworthy orphan
+// identification and return orphanPassOK=false with the reason in the log.
 func cleanupYBExportRuns(
 	ctx context.Context,
 	runIDs []string,
@@ -359,7 +331,7 @@ func cleanupYBExportRuns(
 		logger.InfoContext(
 			ctx,
 			"backup.yb_snapshot.cleanup_orphans_skipped",
-			slog.String("reason", "no export run prefixes to build the reference set from"),
+			slog.String("reason", "export run prefixes are absent; a reference set cannot be built"),
 		)
 
 		return referenced, false
@@ -380,7 +352,7 @@ func cleanupYBExportRuns(
 			slog.String(
 				"reason",
 				"manifests for runs "+strings.Join(unresolved, ", ")+
-					" did not resolve, so the reference set is incomplete",
+					" did not resolve; the reference set is incomplete",
 			),
 		)
 
@@ -390,13 +362,10 @@ func cleanupYBExportRuns(
 	return referenced, true
 }
 
-// cleanupYBExportRun handles one prior export run: it records the run's
-// snapshot id in referenced so the orphan reconcile leaves it alone, deletes
-// the in-cluster snapshot when every node prefix the manifest lists is filled,
-// and logs why a kept snapshot survives. It reports whether the run's manifest
-// resolved cleanly: a NotFound manifest (never uploaded) is clean, while any
-// other fetch or parse failure is not, because that run's snapshot id then
-// never reaches referenced and the orphan pass must not run.
+// cleanupYBExportRun records the manifest's snapshot reference and deletes its
+// in-cluster snapshot only after every node artifact exists. It logs retention
+// reasons. NotFound counts as a resolved absent manifest; other fetch or parse
+// failures omit a required reference and must disable orphan reconciliation.
 func cleanupYBExportRun(
 	ctx context.Context,
 	runID string,
@@ -437,7 +406,7 @@ func cleanupYBExportRun(
 	referenced[manifest.SnapshotID] = true
 	state, inCluster := states[manifest.SnapshotID]
 	if !inCluster {
-		// Already deleted by an earlier cleanup; nothing to do for this run.
+		// An earlier cleanup already deleted this snapshot.
 		return true
 	}
 
@@ -447,7 +416,7 @@ func cleanupYBExportRun(
 			"backup.yb_snapshot.snapshot_kept",
 			slog.String("run_id", runID),
 			slog.String("snapshot_id", manifest.SnapshotID),
-			slog.String("reason", "manifest lists no nodes"),
+			slog.String("reason", "manifest does not list nodes"),
 		)
 
 		return true
@@ -510,13 +479,10 @@ func cleanupYBExportRun(
 	return true
 }
 
-// cleanupYBOrphanSnapshots deletes in-cluster snapshots that no walked export
-// run manifest references, the leftovers of exports that failed after
-// create_database_snapshot but before their manifest upload. Snapshots owned
-// by the PITR snapshot schedule are never touched: the schedule retains them,
-// not an export run. When the schedule listing fails the orphan pass is
-// skipped entirely, because export orphans cannot be told apart from schedule
-// snapshots without it.
+// cleanupYBOrphanSnapshots deletes snapshots without references from examined
+// export manifests. Snapshot schedules retain ownership of their snapshots.
+// Failed schedule listing disables deletion because it cannot distinguish
+// schedule snapshots from export orphans.
 func cleanupYBOrphanSnapshots(
 	ctx context.Context,
 	cli *client.Client,
@@ -592,19 +558,17 @@ func cleanupYBOrphanSnapshots(
 	}
 }
 
-// ybOrphanSnapshotDisposition is the reconcile verdict for one in-cluster
-// snapshot that no walked export run manifest references.
+// ybOrphanSnapshotDisposition records deletion eligibility for an unreferenced
+// cluster snapshot.
 type ybOrphanSnapshotDisposition struct {
 	id     string
 	delete bool
 	reason string
 }
 
-// reconcileYBOrphanSnapshots classifies every cluster snapshot no walked run
-// manifest references: schedule-owned snapshots and snapshots in a
-// non-deletable state are kept with a reason, and the rest are orphans from
-// exports that failed before their manifest upload. Sorted by id so the log
-// order is deterministic.
+// reconcileYBOrphanSnapshots retains scheduled snapshots and non-deletable
+// states, and selects other unreferenced snapshots for deletion. ID sorting
+// makes the diagnostic order deterministic.
 func reconcileYBOrphanSnapshots(
 	states map[string]ybSnapshotStatus,
 	referenced map[string]bool,
@@ -655,15 +619,13 @@ func reconcileYBOrphanSnapshots(
 	return dispositions
 }
 
-// ybSnapshotDeletable reports whether delete_snapshot can act on a snapshot in
-// this state. CREATING snapshots are left for a later cleanup, and snapshots
-// already DELETING or DELETED are going away on their own.
+// ybSnapshotDeletable permits COMPLETE and FAILED snapshots. CREATING waits
+// for later cleanup; DELETING and DELETED already have a deletion in progress.
 func ybSnapshotDeletable(state ybSnapshotStatus) bool {
 	return state == ybSnapStatusComplete || state == ybSnapStatusFailed
 }
 
-// listYBClusterSnapshots returns every snapshot the cluster reports, id to
-// state, via a list_snapshots one-shot.
+// listYBClusterSnapshots returns snapshot IDs and states from list_snapshots.
 func listYBClusterSnapshots(
 	ctx context.Context,
 	cli *client.Client,
@@ -677,10 +639,8 @@ func listYBClusterSnapshots(
 	return parseYBClusterSnapshots(res.Stdout), nil
 }
 
-// parseYBClusterSnapshots parses list_snapshots output into id to state. Data
-// rows start with the snapshot UUID and carry the state second; the
-// restoration section that can follow the snapshot rows is ignored, because
-// restoration ids are also UUIDs and must not be mistaken for snapshots.
+// parseYBClusterSnapshots reads snapshot UUIDs and states. It excludes the
+// subsequent restoration section, which also uses UUIDs but not snapshot IDs.
 func parseYBClusterSnapshots(stdout string) map[string]ybSnapshotStatus {
 	states := map[string]ybSnapshotStatus{}
 
@@ -704,8 +664,7 @@ func parseYBClusterSnapshots(stdout string) map[string]ybSnapshotStatus {
 	return states
 }
 
-// listYBScheduleSnapshotIDs returns the ids of every snapshot owned by a
-// snapshot schedule (the PITR layer), via a list_snapshot_schedules one-shot.
+// listYBScheduleSnapshotIDs reads PITR-owned IDs from list_snapshot_schedules.
 func listYBScheduleSnapshotIDs(
 	ctx context.Context,
 	cli *client.Client,
@@ -719,9 +678,8 @@ func listYBScheduleSnapshotIDs(
 	return unmarshalYBScheduleSnapshotIDs(ctx, res.Stdout)
 }
 
-// unmarshalYBScheduleSnapshotIDs decodes list_snapshot_schedules JSON output
-// ({"schedules":[{"id":...,"snapshots":[{"id":...}]}]}) into the set of
-// schedule-owned snapshot ids.
+// unmarshalYBScheduleSnapshotIDs decodes scheduled snapshot IDs from
+// {"schedules":[{"id":...,"snapshots":[{"id":...}]}]}.
 func unmarshalYBScheduleSnapshotIDs(ctx context.Context, stdout string) (map[string]bool, error) {
 	var parsed struct {
 		Schedules []struct {
@@ -752,18 +710,10 @@ func unmarshalYBScheduleSnapshotIDs(ctx context.Context, stdout string) (map[str
 	return owned, nil
 }
 
-// ybAdminClusterAccess returns the flags and mounts a one-shot needs to reach
-// this environment's cluster: the master addresses always, and on a cluster
-// that encrypts its traffic (TACK-460) the certificate directory as well. The
-// administration tool speaks the cluster's own protocol rather than SQL, so it
-// carries its certificates as a flag instead of a connection string, and it
-// reads them from the same directory the engine reads its own from. Mounting
-// read-only at the host's own path keeps one path in the logs and in the
-// flag.
-//
-// An encrypted environment that has not rendered the directory gets the flags
-// it can: the command then fails to connect and says so, which is the honest
-// outcome for a half-configured host.
+// ybAdminClusterAccess supplies master addresses and TLS certificate flags
+// with read-only directory binds (TACK-460). yb-admin uses the cluster protocol,
+// not SQL connection settings. TLS without a certificate directory returns
+// only available flags; the command must report its connection failure.
 func ybAdminClusterAccess(cfg *config.Config) (args []string, binds []string) {
 	args = []string{"--master_addresses", cfg.BackupYBMasterAddresses}
 	certsDir := ledgerCertsDir(cfg)
@@ -776,18 +726,14 @@ func ybAdminClusterAccess(cfg *config.Config) (args []string, binds []string) {
 	return args, []string{certsDir + ":" + certsDir + ":ro"}
 }
 
-// ledgerCertsDir is the certificate directory this host declares, with
-// surrounding whitespace removed. The value is rendered into an environment
-// file, where a stray space is invisible, and every caller treats a blank
-// value as no directory at all rather than as a path made of spaces.
+// ledgerCertsDir trims whitespace and treats blank values as absent paths.
 func ledgerCertsDir(cfg *config.Config) string {
 	return strings.TrimSpace(cfg.LedgerCertsDir)
 }
 
-// ybAdminOneShot runs one yb-admin subcommand in a one-shot container on the
-// tack compose network, prepending the cluster-access flags. binds is optional
-// (export_snapshot needs the staging dir bound to write its metadata file). It
-// returns an error on a non-zero exit so callers do not inspect codes.
+// ybAdminOneShot runs yb-admin on the Compose network with cluster-access
+// flags and optional binds. Staging binds permit export_snapshot output.
+// Nonzero exit codes return errors for callers.
 func ybAdminOneShot(
 	ctx context.Context,
 	cli *client.Client,
@@ -856,9 +802,8 @@ func ybAdminOneShot(
 	return res, nil
 }
 
-// parseSnapshotID extracts the snapshot UUID from create_database_snapshot
-// output, which prints "Started snapshot creation: <uuid>". An empty return
-// means the marker was absent, which the caller treats as a failure.
+// parseSnapshotID extracts the UUID from "Started snapshot creation: <uuid>".
+// Missing markers or fields return an empty ID for the caller to reject.
 func parseSnapshotID(stdout string) string {
 	_, after, found := strings.Cut(stdout, "creation:")
 	if !found {
@@ -873,9 +818,8 @@ func parseSnapshotID(stdout string) string {
 	return fields[0]
 }
 
-// waitYBSnapshotComplete polls list_snapshots until the snapshot reaches
-// COMPLETE, errors on FAILED, and times out via context so the poll loop never
-// consults the wall clock directly.
+// waitYBSnapshotComplete polls until COMPLETE or FAILED. A context deadline
+// bounds the wait without direct wall-clock checks in the loop.
 func waitYBSnapshotComplete(
 	ctx context.Context,
 	cli *client.Client,
@@ -904,14 +848,14 @@ func waitYBSnapshotComplete(
 
 				return wrapped
 			case ybSnapStatusUnknown, ybSnapStatusCreating:
-				// Not ready yet; fall through to the wait below.
+				// The snapshot still requires another poll.
 			}
 		}
 
 		select {
 		case <-pollCtx.Done():
 			wrapped := fmt.Errorf(
-				"yb-snapshot-export: snapshot %s did not reach COMPLETE within %s: %w",
+				"yb-snapshot-export: snapshot %s did not report COMPLETE within %s: %w",
 				snapshotID,
 				ybSnapshotCompleteTimeout,
 				pollCtx.Err(),
@@ -928,8 +872,8 @@ func waitYBSnapshotComplete(
 	}
 }
 
-// ybSnapshotState returns the status on the list_snapshots line that names
-// snapshotID, or ybSnapStatusUnknown if the snapshot is not listed yet.
+// ybSnapshotState reads a matching snapshot's state or returns unknown when
+// list_snapshots does not include its ID yet.
 func ybSnapshotState(listOutput, snapshotID string) ybSnapshotStatus {
 	for line := range strings.SplitSeq(listOutput, "\n") {
 		if !strings.Contains(line, snapshotID) {

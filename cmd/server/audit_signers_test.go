@@ -72,9 +72,8 @@ func TestAuditVerifyCommandRefusesWithoutASet(t *testing.T) {
 	}
 }
 
-// TestAuditVerifyCommandRejectsASignerOutsideTheSet runs the real verify
-// command against a bundle whose manifest names a signer the given set does
-// not, and asserts the verdict names that.
+// TestAuditVerifyCommandRejectsASignerOutsideTheSet checks that verify rejects
+// a bundle when its manifest signer does not belong to the supplied set.
 func TestAuditVerifyCommandRejectsASignerOutsideTheSet(t *testing.T) {
 	dir := t.TempDir()
 	keyPath := writeVerifyTestKey(t, dir)

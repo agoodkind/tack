@@ -1,11 +1,7 @@
-// db_break_glass.go runs one operator SQL statement against the database and
-// leaves the traces the raw path never did: a mail to the alarm address sent
-// before the statement runs, a ledger row recording the intent before the
-// statement runs, and an outcome row after. The order is the control: a
-// statement whose mail cannot be delivered or whose intent cannot be recorded
-// does not run, so nobody reaches the database unobserved even when the
-// ledger is the thing being examined, and a crash mid-statement leaves a
-// pending row naming exactly what was attempted.
+// db_break_glass.go emails the alarm address and records intent before running
+// one operator SQL statement. It refuses execution if email delivery or intent
+// recording fails, including queries against the ledger. It records the outcome
+// afterward. A crash during execution leaves a pending record of the attempt.
 
 package ops
 
@@ -28,27 +24,25 @@ import (
 )
 
 const (
-	// dbBreakGlassCaller names the command in the mail it sends.
+	// dbBreakGlassCaller identifies the command in the alarm email.
 	dbBreakGlassCaller = "tack ops db sql"
-	// dbBreakGlassRecordTimeout bounds each ledger write, detached from the
-	// command's own cancellation the way the token commands are.
+	// dbBreakGlassRecordTimeout limits each ledger write independently of
+	// command cancellation, as the token commands do.
 	dbBreakGlassRecordTimeout = 30 * time.Second
-	// dbBreakGlassRowLimit caps what one statement returns to the operator.
-	// A break-glass read is a look, not an export; the export commands stream.
+	// dbBreakGlassRowLimit caps rows returned by a statement. Export commands
+	// support streaming larger result sets.
 	dbBreakGlassRowLimit = 1000
 )
 
-// dbSQLDeps is what the command needs, split from the factory so a test can
-// hand it a captured outbox and a fixed operator.
+// dbSQLDeps provides the command's config, audit writer, and operator identity.
 type dbSQLDeps struct {
 	cfg      *config.Config
 	outbox   audit.OutboxWriter
 	identity audit.OperatorIdentitySource
 }
 
-// dbSQLResult reports the statement's outcome. Cells are positional under
-// Columns, so a query with two columns of one name keeps both, and a SQL null
-// is a JSON null rather than a string that could also be a value.
+// dbSQLResult reports the statement's outcome. Positional cells preserve
+// duplicate column names. SQL null values use JSON null rather than strings.
 type dbSQLResult struct {
 	clispec.ResultMarker
 	Command      string      `json:"command"`
@@ -78,13 +72,13 @@ func runDBSQL(
 
 	if reason == "" {
 		return errors.New(
-			"a reason is required; it is recorded in the ledger and mailed to the alarm address",
+			"a reason is required for the ledger record and the alarm email",
 		)
 	}
 
 	if deps.cfg.BackupAlarmEmail == "" {
 		return errors.New(
-			"TACK_BACKUP_ALARM_EMAIL is empty; a break-glass statement must be mailed before it runs",
+			"TACK_BACKUP_ALARM_EMAIL is empty; the command must email the statement before execution",
 		)
 	}
 
@@ -160,9 +154,8 @@ func runDBSQL(
 	return writeDBSQLResult(ctx, sink, result)
 }
 
-// mailDBBreakGlass tells the alarm address who is about to reach the database
-// and why. It runs before the statement, and its failure is the statement's
-// failure: the mail is what makes the access observed.
+// mailDBBreakGlass emails the operator identity, statement, and reason to the
+// alarm address before execution. Email failure prevents statement execution.
 func mailDBBreakGlass(
 	ctx context.Context,
 	cfg *config.Config,
@@ -193,7 +186,7 @@ func mailDBBreakGlass(
 		)
 
 		return fmt.Errorf(
-			"the break-glass mail to %s was not delivered, so the statement did not run: %w",
+			"email delivery to %s failed; the break-glass statement did not run: %w",
 			cfg.BackupAlarmEmail,
 			err,
 		)
@@ -208,10 +201,9 @@ func mailDBBreakGlass(
 	return nil
 }
 
-// dbBreakGlassMailIdentity returns the first body line of the alarm mail and
-// the email address at the end of the subject. A service principal with an
-// accountable operator reports the agent, its session, and the operator
-// email. Every other principal reports the operator line and its own email.
+// dbBreakGlassMailIdentity returns the first body line and subject email.
+// A service principal with an accountable operator reports its agent, session,
+// and operator email. Other principals report their own operator line and email.
 func dbBreakGlassMailIdentity(principal audit.OperatorPrincipal) (string, string) {
 	if principal.ActorType() == audit.ActorService && principal.OnBehalfOf != nil {
 		accountable := principal.OnBehalfOf.OperatorEmail

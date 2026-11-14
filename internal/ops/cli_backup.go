@@ -14,9 +14,8 @@ import (
 	"goodkind.io/tack/internal/config"
 )
 
-// backupCommand builds the `ops backup` subtree. The subcommands initialize
-// object-store bucket and recovery schedules, export snapshots, and drill
-// restores into throwaway containers.
+// backupCommand builds commands for bucket and schedule initialization,
+// snapshot export, and restore drills in disposable containers.
 func backupCommand(f *cli.Factory) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "backup",
@@ -30,7 +29,7 @@ func backupCommand(f *cli.Factory) *cobra.Command {
 		emptyCommandInput,
 		func(context.Context) (audit.OperatorReadOutput, error) {
 			return audit.OperatorReadOutput{}, fmt.Errorf(
-				"ops backup requires a subcommand (%s); the bare command deliberately runs nothing",
+				"ops backup requires a subcommand (%s); the bare command does not run operations",
 				strings.Join(backupSubcommandNames(cmd), ", "),
 			)
 		},
@@ -97,12 +96,10 @@ func backupLeaf(
 	return cmd
 }
 
-// backupYBArchiveNodeCommand builds the per-node half of the yb snapshot
-// export. It is the one backup leaf with a flag: --run-key targets a specific
-// export run, and without it the command discovers the newest manifest whose
-// prefix for this node is not yet filled. The snapshot id always comes from
-// the run's manifest so the archived files and the manifest can never name
-// different snapshots.
+// backupYBArchiveNodeCommand archives this node's files for a snapshot export.
+// --run-key selects an export run. Without it, the command selects the newest
+// manifest with an incomplete prefix for this node. The manifest supplies the
+// snapshot ID to prevent archiving files for a different snapshot.
 func backupYBArchiveNodeCommand(f *cli.Factory) *cobra.Command {
 	var runKey string
 	cmd := &cobra.Command{
@@ -133,20 +130,13 @@ func backupYBArchiveNodeCommand(f *cli.Factory) *cobra.Command {
 	return cmd
 }
 
-// backupRestoreDrillCommand builds the restore-drill leaf. Each flag pins one
-// leg to something narrower than its default.
+// backupRestoreDrillCommand configures restore targets. --yb-run-key selects
+// an export run and refuses incomplete runs. Without it, the drill selects the
+// newest complete run; the latest export may still await node archives.
 //
-// --yb-run-key pins the yugabyte leg to a specific export run, which is refused
-// if incomplete; without it the drill walks back to the newest complete run,
-// because the newest run being mid-archive is the normal window between the
-// orchestrator and the node timers.
-//
-// --fdb-target-time restores FoundationDB to one moment instead of the latest
-// restorable point, and is refused when that moment falls outside the backup's
-// restorable window or names a fraction of a second fdbrestore cannot express.
-// Whether the flag was given is what selects a moment, so any moment the
-// operator names is an explicit target. Without the flag the FoundationDB leg
-// restores the latest, which is what the drill has always done.
+// --fdb-target-time selects an explicit moment. The drill refuses moments
+// outside the backup window or with fractions fdbrestore cannot represent.
+// Without the flag, the FoundationDB restore uses the latest restorable point.
 func backupRestoreDrillCommand(f *cli.Factory) *cobra.Command {
 	var ybRunKey string
 	var fdbTargetTime string
@@ -198,8 +188,8 @@ func backupRestoreDrillCommand(f *cli.Factory) *cobra.Command {
 	return cmd
 }
 
-// backupStalenessCheckCommand builds a command that returns the stale verdict
-// error after the external command gate records the check outcome.
+// backupStalenessCheckCommand records the external check outcome before
+// returning a stale verdict error.
 func backupStalenessCheckCommand(f *cli.Factory) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "staleness-check",
@@ -227,10 +217,9 @@ func backupStalenessCheckCommand(f *cli.Factory) *cobra.Command {
 	return cmd
 }
 
-// backupFDBRestoreVersionCommand builds the restore-version leaf: it converts
-// a wall-clock moment into the FoundationDB version a restore names, reading
-// only the object store, because the cluster that would otherwise convert the
-// moment is what a total loss destroyed (TACK-468).
+// backupFDBRestoreVersionCommand converts a time to an FDB restore version
+// using only object storage. It does not require the source cluster, which may
+// be unavailable after a total loss (TACK-468).
 func backupFDBRestoreVersionCommand(f *cli.Factory) *cobra.Command {
 	var at string
 	cmd := &cobra.Command{
@@ -288,8 +277,7 @@ func backupHelpCommand() *cobra.Command {
 	}
 }
 
-// backupSubcommandNames lists the registered subcommands so the refusal
-// error always matches reality.
+// backupSubcommandNames lists registered subcommands for the refusal error.
 func backupSubcommandNames(cmd *cobra.Command) []string {
 	names := make([]string, 0, len(cmd.Commands()))
 	for _, sub := range cmd.Commands() {

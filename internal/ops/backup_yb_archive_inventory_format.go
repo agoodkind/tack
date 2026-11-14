@@ -1,9 +1,6 @@
-// backup_yb_archive_inventory_format.go is the inventory's wire form: how the
-// export writes what an archive carries, and how the restore reads it back. It
-// is a header line and one line per file rather than JSON, because the scratch
-// container compares its extraction against the same bytes with sort and comm,
-// and a shell that had to parse JSON first would be the weaker half of the
-// check.
+// Tablet inventories use a header and one path-and-size line per file.
+// Restore containers compare this format directly with sort and comm without
+// requiring a JSON parser.
 
 package ops
 
@@ -14,19 +11,16 @@ import (
 )
 
 const (
-	// ybInventoryMarker opens the inventory's header line, so a file that is
-	// not an inventory is refused rather than read as one carrying no files.
+	// ybInventoryMarker identifies an inventory header and prevents accepting
+	// unrelated files as empty inventories.
 	ybInventoryMarker = "tack-yb-tablet-inventory"
-	// ybInventoryHeaderFields is the header's field count: the marker, the run,
-	// the node, and how many file lines follow.
+	// ybInventoryHeaderFields counts the marker, run, node, and file count.
 	ybInventoryHeaderFields = 4
 )
 
-// render writes the inventory as its header line followed by one
-// "path<TAB>size" line per file, sorted, which is the form the restore's
-// comparison consumes directly. The header carries the file count so an
-// inventory that arrives short is refused rather than read as a smaller
-// archive, which would be a weaker check that still passed.
+// render writes the header and sorted "path<TAB>size" lines for restore
+// comparison. The header's file count detects truncated inventories rather
+// than accepting an incomplete list as the full archive.
 func (inv ybArchiveInventory) render() []byte {
 	var out strings.Builder
 	out.WriteString(
@@ -41,17 +35,15 @@ func (inv ybArchiveInventory) render() []byte {
 	return []byte(out.String())
 }
 
-// parseYBArchiveInventory reads an inventory that must have been recorded for
-// runID and node. It is strict throughout: an inventory expects exactly the
-// files it lists, so one that arrives short, or that belongs to another run or
-// node, expects the wrong set, and a restore checked against the wrong set
-// passes on the wrong set.
+// parseYBArchiveInventory verifies the expected run, node, file count, and file
+// records. A truncated inventory or one from another source cannot establish
+// that the extraction contains the expected files.
 func parseYBArchiveInventory(runID, node string, body []byte) (ybArchiveInventory, error) {
 	empty := ybArchiveInventory{RunID: "", Node: "", Files: nil}
 	header, rest, found := strings.Cut(string(body), "\n")
 	if !found {
 		return empty, fmt.Errorf(
-			"read %q as the tablet inventory for node %s: it has no header line",
+			"read %q as the tablet inventory for node %s: it does not include a header line",
 			header,
 			node,
 		)
@@ -79,7 +71,7 @@ func parseYBArchiveInventory(runID, node string, body []byte) (ybArchiveInventor
 
 	if len(files) != declared {
 		return empty, fmt.Errorf(
-			"the tablet inventory for node %s declares %d files and carries %d",
+			"the tablet inventory for node %s declares %d files and contains %d",
 			node,
 			declared,
 			len(files),
@@ -89,8 +81,7 @@ func parseYBArchiveInventory(runID, node string, body []byte) (ybArchiveInventor
 	return ybArchiveInventory{RunID: runID, Node: node, Files: files}, nil
 }
 
-// parseYBInventoryHeader reads the header line and returns the file count it
-// declares, refusing an inventory recorded for another run or node.
+// parseYBInventoryHeader verifies the run and node and returns the file count.
 func parseYBInventoryHeader(header, runID, node string) (int, error) {
 	fields := strings.Fields(header)
 	if len(fields) != ybInventoryHeaderFields || fields[0] != ybInventoryMarker {
@@ -99,7 +90,7 @@ func parseYBInventoryHeader(header, runID, node string) (int, error) {
 
 	if fields[1] != runID || fields[2] != node {
 		return 0, fmt.Errorf(
-			"the tablet inventory read for run %s node %s was recorded for run %s node %s",
+			"the tablet inventory read for run %s node %s belongs to run %s node %s",
 			runID,
 			node,
 			fields[1],

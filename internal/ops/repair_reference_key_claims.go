@@ -13,10 +13,9 @@ type referenceKeyReader interface {
 	LookupReference(context.Context, uuid.UUID, string, string) (uuid.UUID, error)
 }
 
-// unheldReferenceKeys returns the keys whose node does not hold them yet, read
-// before any write so the answer describes the state the write changes. The
-// repair records one ledger event per key it claims, and a claim the node
-// already held is not a change.
+// unheldReferenceKeys reads existing claims before writing and returns keys
+// that the node does not already own. The repair records one ledger event per
+// new claim. Reasserting an existing claim does not count as a change.
 func unheldReferenceKeys(
 	ctx context.Context,
 	reader referenceKeyReader,

@@ -211,8 +211,8 @@ func backfillOrgDefaultChildren(
 	return failures
 }
 
-// hasNamed returns true when any candidate has the given Name. Names are
-// compared verbatim; the seed declares names exactly as we want them stored.
+// hasNamed checks for a candidate with exactly the given Name. The seed
+// supplies the name with the required case and spacing.
 func hasNamed(candidates []*node.Node, name string) bool {
 	for _, n := range candidates {
 		if n.Name == name {
