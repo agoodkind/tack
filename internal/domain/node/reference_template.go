@@ -6,7 +6,7 @@ import (
 	"strings"
 )
 
-// ReferencePartKind names one component of a reference key template.
+// ReferencePartKind identifies one component of a reference key template.
 type ReferencePartKind string
 
 const (
@@ -15,7 +15,7 @@ const (
 	ReferencePartScopeRef ReferencePartKind = "scope_ref"
 	// ReferencePartProperty renders the node property named in ReferencePart.Value.
 	ReferencePartProperty ReferencePartKind = "property"
-	// ReferencePartNodeType renders the node's own TypeKey. Value is unused.
+	// ReferencePartNodeType renders the node's own TypeKey. It does not use Value.
 	ReferencePartNodeType ReferencePartKind = "node_type"
 	// ReferencePartLiteral renders ReferencePart.Value verbatim.
 	ReferencePartLiteral ReferencePartKind = "literal"
@@ -24,8 +24,8 @@ const (
 // ReferencePart is one component of a reference key template.
 type ReferencePart struct {
 	Kind ReferencePartKind `json:"kind"`
-	// Value carries the feature name, property name, or literal text the Kind
-	// requires. ReferencePartNodeType ignores it.
+	// Value specifies the feature name, property name, or literal text that
+	// Kind requires. ReferencePartNodeType ignores it.
 	Value string `json:"value,omitempty"`
 }
 
@@ -42,12 +42,12 @@ type ReferenceTemplate struct {
 	// IsPrimary marks the template that renders the human-readable reference.
 	// At most one template per NodeType sets it.
 	IsPrimary bool `json:"is_primary,omitempty"`
-	// Generated names the property a value generator fills at create time.
-	// Empty means the caller supplies every part.
+	// Generated specifies the property a value generator fills at create time.
+	// An empty value requires the caller to supply every part.
 	Generated string `json:"generated,omitempty"`
 }
 
-// ReferenceRenderInput carries everything a template needs to render.
+// ReferenceRenderInput supplies the values a template needs to render.
 type ReferenceRenderInput struct {
 	// NodeTypeKey is the current node's type key.
 	NodeTypeKey string
@@ -57,10 +57,9 @@ type ReferenceRenderInput struct {
 	ScopeRefs map[string]string
 }
 
-// Render produces the template's string. It fails when a part has no value,
-// because a partially rendered reference would silently collide with another.
-// Errors carry the template and part context as text and are logged once at
-// the service boundary, which holds the request context.
+// Render produces the template's string. It rejects missing part values to
+// prevent collisions from partially rendered references. Errors include
+// template and part context. The service logs each error with the request context.
 func (t ReferenceTemplate) Render(in ReferenceRenderInput) (string, error) {
 	var output strings.Builder
 
@@ -128,9 +127,8 @@ func renderReferencePart(part ReferencePart, in ReferenceRenderInput) (string, e
 	}
 }
 
-// referencePropertyString renders a JSON property value as reference text. A
-// number keeps its exact JSON digits, so an int64 sequence never loses
-// precision through a float round-trip.
+// referencePropertyString renders a JSON property value as reference text.
+// Numbers retain their exact JSON digits without conversion to floating point.
 func referencePropertyString(raw json.RawMessage) (string, error) {
 	if len(raw) == 0 {
 		return "", fmt.Errorf("property has no value")

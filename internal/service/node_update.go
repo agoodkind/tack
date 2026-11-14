@@ -17,7 +17,7 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// UpdateInput holds optional fields to update.
+// UpdateInput specifies optional fields to update.
 type UpdateInput struct {
 	NodeID              uuid.UUID
 	Name                *string

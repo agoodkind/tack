@@ -13,8 +13,8 @@ import (
 )
 
 const (
-	// sharedParent is the directory under the repository root that holds the
-	// directories SharedDir hands out. The leading dot keeps go tooling out.
+	// sharedParent specifies the directory under the repository root where
+	// SharedDir creates directories. Go tooling skips this dot-prefixed path.
 	sharedParent = ".testenv"
 	// sharedSentinel is the file the daemon probe looks for.
 	sharedSentinel = "sentinel"

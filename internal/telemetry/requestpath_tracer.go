@@ -6,9 +6,9 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// CountingQueryTracer is the [pgx.QueryTracer] the app's ledger pool carries.
-// It counts every query on the request attached to the query's context, then
-// hands the query to Next, the tracer that logs it. Next may be nil.
+// CountingQueryTracer implements [pgx.QueryTracer] for the app's ledger pool.
+// It counts each query for the request in the query's context, then calls
+// Next to log the query. Next may be nil.
 type CountingQueryTracer struct {
 	Next pgx.QueryTracer
 }

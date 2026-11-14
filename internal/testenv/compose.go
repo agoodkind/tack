@@ -14,9 +14,9 @@ import (
 	"go.yaml.in/yaml/v3"
 )
 
-// composeFileName is the stack file whose services pin the live stores'
-// images. The test engines read their images from it rather than repeating
-// the tags, so a test always runs the version production runs (TACK-478).
+// composeFileName specifies the stack file that defines production store
+// images. Test engines read these image references instead of repeating tags
+// (TACK-478).
 const composeFileName = "docker-compose.yml"
 
 // composeFile is the part of the stack file the test engines read.

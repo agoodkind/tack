@@ -8,18 +8,16 @@ import (
 	"sync/atomic"
 )
 
-// RequestPath counts the round trips one HTTP request makes before it
-// answers: ledger queries split into reads and writes, and audit events
-// produced synchronously to the broker. The counts are the evidence for the
-// request-path criterion of the backup rearchitecture (TACK-507): a request
-// that answers from the product store alone shows zeros here.
+// RequestPath counts ledger reads, ledger writes, and synchronous audit
+// produces during one HTTP request. These counts measure the request-path
+// criterion in TACK-507. Requests using only the product store record zeros.
 type RequestPath struct {
 	ledgerReads  atomic.Int64
 	ledgerWrites atomic.Int64
 	syncProduces atomic.Int64
 }
 
-// RequestPathCounts is one request's totals, read after the request answered.
+// RequestPathCounts contains one request's totals after the handler returns.
 type RequestPathCounts struct {
 	LedgerReads  int64
 	LedgerWrites int64
@@ -28,15 +26,15 @@ type RequestPathCounts struct {
 
 type requestPathKey struct{}
 
-// WithRequestPath attaches a fresh counter set to ctx and returns it, so the
-// caller that installs it can read the totals after the request answered.
+// WithRequestPath attaches fresh counters to ctx and returns them.
+// Callers can read the totals after the request handler returns.
 func WithRequestPath(ctx context.Context) (context.Context, *RequestPath) {
 	counts := new(RequestPath)
 	return context.WithValue(ctx, requestPathKey{}, counts), counts
 }
 
-// RequestPathFrom returns the counter set attached to ctx. The second result
-// is false outside an HTTP request, where nothing counts.
+// RequestPathFrom returns the counters attached to ctx. The second result
+// reports whether the context includes counters.
 func RequestPathFrom(ctx context.Context) (*RequestPath, bool) {
 	counts, ok := ctx.Value(requestPathKey{}).(*RequestPath)
 	return counts, ok
@@ -51,8 +49,8 @@ func (p *RequestPath) Counts() RequestPathCounts {
 	}
 }
 
-// CountLedgerQuery records one ledger query on the request attached to ctx,
-// classified by its statement. A ctx with no request attached counts nothing.
+// CountLedgerQuery counts one ledger query for the request in ctx and
+// classifies the statement. It does not count queries without request counters.
 func CountLedgerQuery(ctx context.Context, sql string) {
 	counts, ok := RequestPathFrom(ctx)
 	if !ok {
@@ -67,8 +65,8 @@ func CountLedgerQuery(ctx context.Context, sql string) {
 	counts.ledgerWrites.Add(1)
 }
 
-// CountSyncProduce records one synchronous broker produce on the request
-// attached to ctx. A ctx with no request attached counts nothing.
+// CountSyncProduce counts one synchronous broker produce for the request
+// in ctx. It does not count produces without request counters.
 func CountSyncProduce(ctx context.Context) {
 	counts, ok := RequestPathFrom(ctx)
 	if !ok {
@@ -78,9 +76,9 @@ func CountSyncProduce(ctx context.Context) {
 	counts.syncProduces.Add(1)
 }
 
-// ledgerQueryReads reports whether a statement only reads. A SELECT reads. A
-// statement that opens with WITH reads unless one of its clauses modifies
-// rows. Everything else writes.
+// ledgerQueryReads classifies SELECT statements as reads. It also classifies
+// WITH statements as reads unless a clause inserts, updates, or deletes rows.
+// It classifies other statements as writes.
 func ledgerQueryReads(sql string) bool {
 	upper := strings.ToUpper(strings.TrimSpace(sql))
 	switch {
@@ -95,9 +93,8 @@ func ledgerQueryReads(sql string) bool {
 	}
 }
 
-// RequestPathCounter is HTTP middleware that attaches a counter set to every
-// request and logs the totals once the request answered. It sits inside the
-// request logger so the line carries the request id.
+// RequestPathCounter attaches counters to each HTTP request and logs the totals
+// after the handler returns. The outer request logger supplies the request ID.
 func RequestPathCounter(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		ctx, counts := WithRequestPath(r.Context())

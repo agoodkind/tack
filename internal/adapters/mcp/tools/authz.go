@@ -11,10 +11,9 @@ import (
 	"goodkind.io/tack/internal/domain"
 )
 
-// authorization is the per-call record that a membership check passed. The
-// tool wrapper installs one before the handler runs and refuses any successful
-// result whose handler never set it, so a handler that skips every membership
-// check cannot return data.
+// authorization records whether a membership check passed during this call.
+// The tool wrapper installs it before invoking the handler and rejects
+// successful results unless the handler records authorization.
 type authorization struct {
 	granted bool
 }
@@ -25,8 +24,7 @@ func withAuthorization(ctx context.Context) context.Context {
 	return context.WithValue(ctx, authorizationKey{}, &authorization{granted: false})
 }
 
-// markAuthorized records that the caller's membership in the org behind the
-// data this call returns has been checked.
+// markAuthorized records a successful membership check for the returned data's org.
 func markAuthorized(ctx context.Context) {
 	state, ok := ctx.Value(authorizationKey{}).(*authorization)
 	if ok {
@@ -39,9 +37,8 @@ func isAuthorized(ctx context.Context) bool {
 	return ok && state.granted
 }
 
-// callerOrgIDs returns the orgs the caller belongs to: the membership set the
-// request attached, or a fresh lookup when a caller outside the HTTP handler
-// attached none.
+// callerOrgIDs returns the caller's orgs from the request context or queries
+// memberships when the context does not include them.
 func (r *Resolver) callerOrgIDs(ctx context.Context) ([]uuid.UUID, error) {
 	if orgIDs, ok := auth.OrgMembership(ctx); ok {
 		return orgIDs, nil
@@ -67,9 +64,8 @@ func (r *Resolver) callerOrgIDs(ctx context.Context) ([]uuid.UUID, error) {
 	return orgIDs, nil
 }
 
-// requireMembership refuses with not-found unless the caller belongs to orgID,
-// and marks the call authorized when the caller does. Not-found rather than
-// permission denied, so a caller cannot tell a foreign node from a missing one.
+// requireMembership authorizes the call only when the caller belongs to orgID.
+// Refusals use not-found to avoid revealing whether a foreign node exists.
 func (r *Resolver) requireMembership(
 	ctx context.Context,
 	orgID uuid.UUID,

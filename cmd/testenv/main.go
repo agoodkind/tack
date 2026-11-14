@@ -19,10 +19,9 @@
 //	testenv down          remove operator engines and engines of exited tests
 //	testenv run-mac --root ROOT --image ID --evidence-dir DIR -- GO_TEST_FLAGS
 //
-// An engine the tool starts keeps running after it exits, for the operator to
-// use, until `testenv down` removes it. A shared directory stays until the
-// operator deletes it. The tool is not an `./server ops`
-// command: it touches no environment's stores, only throwaway local engines.
+// Engines keep running until `testenv down` removes them. Shared directories
+// remain until the operator deletes them. This tool manages disposable local
+// engines, not deployed stores, and does not run as an `./server ops` command.
 package main
 
 import (
@@ -34,7 +33,7 @@ import (
 	"goodkind.io/tack/internal/testenv"
 )
 
-// subcommand names one of the tool's commands.
+// subcommand identifies one of the tool's commands.
 type subcommand string
 
 const (

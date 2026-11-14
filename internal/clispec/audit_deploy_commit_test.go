@@ -28,7 +28,7 @@ func deployCommitOf(t *testing.T, event audit.Event) (string, bool) {
 	return deployCommit, true
 }
 
-func TestRunAuditedMutationCarriesDeployCommit(t *testing.T) {
+func TestRunAuditedMutationRecordsDeployCommit(t *testing.T) {
 	outbox := &auditTestOutbox{}
 	const deployCommit = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
 	err := runAudited(

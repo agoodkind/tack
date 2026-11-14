@@ -27,10 +27,9 @@ import (
 	"time"
 )
 
-// T is the part of [testing.TB] the helpers use. A [testing.T] satisfies it,
-// and cmd/testenv supplies its own. It carries no Fatalf because a variadic
-// formatting method would put an empty interface in this package's
-// signatures; a failure writes its reason to Output and calls FailNow.
+// T defines the subset of [testing.TB] that the helpers use. [testing.T] and
+// cmd/testenv implement it. Failures write a reason to Output and call FailNow
+// instead of using a variadic formatting method with empty interface arguments.
 type T interface {
 	Helper()
 	Context() context.Context
@@ -42,8 +41,8 @@ type T interface {
 // provisionTimeout bounds one engine's start, readiness, and preparation.
 const provisionTimeout = 20 * time.Minute
 
-// provisioned holds the outcome of one process-wide provisioning step, so
-// every caller in the process shares the first caller's result or its error.
+// provisioned stores one provisioning result or error for the process.
+// Every caller receives the first caller's result.
 type provisioned struct {
 	once   sync.Once
 	result string
@@ -83,9 +82,9 @@ func skipWhenShort(t T) {
 	}
 }
 
-// Ledger returns the connection string of this process's YugabyteDB ledger,
-// which carries every migration. The login is the engine superuser, so a
-// test may create roles and databases.
+// Ledger returns the connection string for this process's fully migrated
+// YugabyteDB ledger. Tests connect as the engine superuser and can create
+// roles and databases.
 func Ledger(t T) string {
 	t.Helper()
 	skipWhenShort(t)

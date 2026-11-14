@@ -8,8 +8,8 @@ import (
 	"testing"
 )
 
-// Every record the configured logger writes carries the environment it was
-// configured with, not only the startup line (TACK-263).
+// TestSetupStampsEnvOnEveryRecord checks the configured environment on each
+// log record, not only the startup record (TACK-263).
 func TestSetupStampsEnvOnEveryRecord(t *testing.T) {
 	jsonFile := filepath.Join(t.TempDir(), "app.jsonl")
 	previous := slog.Default()

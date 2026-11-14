@@ -5,7 +5,7 @@ import (
 	"strings"
 )
 
-// ReferenceParseResult holds the values recovered from a rendered reference.
+// ReferenceParseResult contains values parsed from a rendered reference.
 type ReferenceParseResult struct {
 	// ScopeRefs maps feature names to their parsed scope references.
 	ScopeRefs map[string]string
@@ -15,9 +15,9 @@ type ReferenceParseResult struct {
 	NodeTypeKey string
 }
 
-// Parse recovers a template's variable parts from input. A parse miss is an
-// expected outcome for user-typed references, so failures carry context as
-// text and are not logged here; callers decide what a miss means.
+// Parse recovers a template's variable parts from input. Invalid user input
+// can fail to match a template. Errors include context for the caller, which
+// decides whether to log or handle the mismatch.
 func (t ReferenceTemplate) Parse(input string) (ReferenceParseResult, error) {
 	result := ReferenceParseResult{
 		ScopeRefs:   map[string]string{},

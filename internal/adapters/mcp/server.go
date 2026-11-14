@@ -136,21 +136,18 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// One context chain carries the JSON-RPC id, the session id, and the
-	// membership set into the MCP server. A create's idempotency key reads
-	// the first two, so a context rebuilt without them lets a retried create
-	// write a second node (TACK-476).
+	// Preserve the JSON-RPC ID and session ID in the request context.
+	// Create idempotency uses both to identify retries (TACK-476).
 	ctx = tools.WithMCPRequestMetadata(ctx, metadata)
 	ctx = tools.WithAuditRecorder(ctx, h.recorder)
 	span.SetAttributes(attribute.String("enduser.id", userID.String()))
 
-	// The membership set is on every request, cache hit or not. The
-	// resolvers refuse any node outside it, and the tool wrapper refuses any
-	// result that never passed a membership check. The auth middleware
-	// attaches the set it read for the auth event, so a request normally
-	// costs one membership read (TACK-503); when the middleware's read
-	// failed and attached nothing, the lookup runs here and a failure fails
-	// the request closed instead of serving with an empty set.
+	// Every request requires membership, including requests using cached
+	// servers. Resolvers reject foreign nodes, and the tool wrapper rejects
+	// results without a successful membership check. Auth middleware usually
+	// supplies memberships from its lookup (TACK-503). If that lookup failed,
+	// this handler retries it and rejects the request if membership remains
+	// unavailable.
 	orgIDs, attached := auth.OrgMembership(ctx)
 	if !attached {
 		orgIDs, err = h.members.ListOrgIDsForUser(ctx, userID)

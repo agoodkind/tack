@@ -12,14 +12,13 @@ import (
 )
 
 const (
-	// defaultAuditBrokerPingTimeout bounds one reachability attempt when no
-	// produce timeout is configured, so a dead broker delays the refusal
-	// rather than hanging the process before it can report one.
+	// defaultAuditBrokerPingTimeout bounds each connection attempt when
+	// configuration omits the produce timeout.
 	defaultAuditBrokerPingTimeout = 15 * time.Second
-	// defaultAuditBrokerReadyTimeout is the whole startup budget when none is
-	// configured.
+	// defaultAuditBrokerReadyTimeout limits startup when configuration
+	// omits the broker readiness timeout.
 	defaultAuditBrokerReadyTimeout = 60 * time.Second
-	// auditBrokerRetryInterval spaces the attempts inside that budget.
+	// auditBrokerRetryInterval spaces connection attempts.
 	auditBrokerRetryInterval = 2 * time.Second
 )
 
@@ -27,12 +26,11 @@ type auditRuntime struct {
 	Recorder audit.Recorder
 }
 
-// buildAuditRuntime selects and wires the audit Recorder of one runtime
-// graph. The auth middleware and MCP handler of the graph record events with
-// this recorder. Graph.Close of one graph does not change the recorder
-// assigned to another graph in the same process (TACK-583). The server does
-// not open a ledger read or redaction connection: every audit read and
-// redaction is an operator command on the host, never an MCP tool.
+// buildAuditRuntime configures the audit Recorder for one runtime graph.
+// The graph's auth middleware and MCP handler use this recorder. Graph.Close
+// does not change another graph's recorder (TACK-583). The server does not
+// open ledger read or redaction connections. Only host operator commands
+// read or redact the ledger.
 func buildAuditRuntime(
 	ctx context.Context,
 	cfg *config.Config,
@@ -43,12 +41,12 @@ func buildAuditRuntime(
 		return auditRuntime{Recorder: nil}, err
 	}
 
-	// The spill sits between the canonical stamp and the backend so what it
-	// stores already carries the event id and time the relay must preserve.
-	// It wraps only the Kafka producer: the synchronous Yugabyte recorder
-	// writes to the same database the relay would deliver into, so an outage
-	// there has no second store to fall back on, and the discarding recorder
-	// records nothing by the operator's own declaration.
+	// CanonicalRecorder assigns the event ID and time before SpillRecorder
+	// stores the event. The relay must preserve both fields.
+	// Only the Kafka producer uses SpillRecorder. The synchronous Yugabyte
+	// recorder and relay write to the same database, which cannot provide
+	// another store during an outage. The operator explicitly permits
+	// NoopRecorder to discard events.
 	var overflow audit.OutboxAppender
 	if spill != nil {
 		if _, isKafka := auditRec.(*audit.KafkaRecorder); isKafka {
@@ -58,10 +56,9 @@ func buildAuditRuntime(
 		}
 	}
 
-	// Read-class events leave the request path here: the queue answers the
-	// request and the flusher delivers batches behind it (TACK-506). The
-	// canonical stamp sits outside, so a queued event already carries the id
-	// and time of the request that made it.
+	// BufferedRecorder queues read-class events and flushes batches
+	// asynchronously (TACK-506). CanonicalRecorder assigns each event's
+	// ID and time before BufferedRecorder queues it.
 	auditRec = audit.NewBufferedRecorder(
 		ctx,
 		auditRec,
@@ -86,18 +83,11 @@ func (r auditRuntime) Close() {
 	}
 }
 
-// buildAuditRecorder selects the audit Recorder by configuration, and returns
-// an error rather than a recorder that discards events. When
-// AUDIT_KAFKA_BROKERS is set it returns the Kafka producer, so Record
-// publishes to Kafka and the audit-consumer becomes the only writer of
-// audit.events. Otherwise, when AUDIT_WRITER_DSN is set, it returns the
-// synchronous Yugabyte recorder.
-//
-// Every failure refuses. A server that cannot record is a server whose
-// actions leave no evidence, and a caller cannot tell the difference from the
-// outside, so the process must not reach the point of serving traffic. The one
-// path that yields a discarding recorder is the operator declaring through
-// AUDIT_ALLOW_UNRECORDED that this deployment records nothing.
+// buildAuditRecorder selects the audit Recorder from configuration.
+// AUDIT_KAFKA_BROKERS selects the Kafka producer; audit-consumer then writes
+// audit.events. Otherwise, AUDIT_WRITER_DSN selects the synchronous Yugabyte
+// recorder. Setup failures prevent the server from accepting requests.
+// Only an explicit AUDIT_ALLOW_UNRECORDED setting permits discarded events.
 func buildAuditRecorder(ctx context.Context, cfg *config.Config) (audit.Recorder, error) {
 	brokers := audit.SplitBrokers(cfg.AuditKafkaBrokers)
 	if len(brokers) > 0 {
@@ -123,10 +113,9 @@ func buildAuditRecorder(ctx context.Context, cfg *config.Config) (audit.Recorder
 	return yb, nil
 }
 
-// buildKafkaRecorder opens the producer and proves the brokers answer. The
-// franz-go client connects lazily, so construction succeeds against a dead
-// broker; without the reachability check, an unreachable Kafka would start a
-// server that fails every ledger write for as long as it runs.
+// buildKafkaRecorder opens the producer and checks broker readiness.
+// The franz-go client connects lazily. Constructing the client alone does
+// not establish whether the broker can accept ledger writes.
 func buildKafkaRecorder(
 	ctx context.Context,
 	cfg *config.Config,
@@ -166,9 +155,8 @@ func buildKafkaRecorder(
 	return kafkaRec, nil
 }
 
-// waitForBrokers retries the reachability check until the configured budget
-// runs out. One attempt is not enough on a cold start, where the broker comes
-// up alongside the app; a budget distinguishes "not ready yet" from "down".
+// waitForBrokers retries readiness checks until the configured timeout.
+// The broker can require more startup time than the app.
 func waitForBrokers(ctx context.Context, cfg *config.Config, recorder *audit.KafkaRecorder) error {
 	budget := cfg.AuditBrokerReadyTimeout
 	if budget <= 0 {
@@ -207,11 +195,9 @@ func waitForBrokers(ctx context.Context, cfg *config.Config, recorder *audit.Kaf
 	}
 }
 
-// unconfiguredAuditRecorder handles a deployment that names no audit backend.
-// That is a configuration the operator has to mean, so it is refused unless
-// AUDIT_ALLOW_UNRECORDED says otherwise, and when allowed it is recorded at
-// error level, which is the one place in this file where a running server is
-// deliberately unaudited.
+// unconfiguredAuditRecorder rejects configuration without an audit backend
+// unless AUDIT_ALLOW_UNRECORDED explicitly permits it. The permitted case
+// logs an error before returning NoopRecorder.
 func unconfiguredAuditRecorder(ctx context.Context, cfg *config.Config) (audit.Recorder, error) {
 	if !cfg.AuditAllowUnrecorded {
 		err := errors.New(

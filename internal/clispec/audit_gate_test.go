@@ -66,7 +66,7 @@ func TestRunAuditedUnresolvableIdentityAbortsInBothModes(t *testing.T) {
 	}
 }
 
-func TestRunAuditedDryRunRunsNothingAndRecordsNothing(t *testing.T) {
+func TestRunAuditedDryRunPrintsPlanWithoutExecutingOrRecording(t *testing.T) {
 	outbox := &auditTestOutbox{}
 	output := &bytes.Buffer{}
 	runCount := 0
@@ -126,10 +126,8 @@ func TestRunAuditedReadWriteFailureNeverRuns(t *testing.T) {
 	}
 }
 
-// TestRunAuditedNilOutboxNeverRuns pins the wiring, not the logic. Nothing in
-// the gate itself populates the outbox; a caller has to hand one in. If that
-// wiring is ever dropped, every audited command aborts at runtime, and the
-// only thing standing between that regression and a release is this test.
+// TestRunAuditedNilOutboxNeverRuns checks that callers must supply an outbox
+// before either read or mutation commands can execute.
 func TestRunAuditedNilOutboxNeverRuns(t *testing.T) {
 	for _, spec := range []audit.Spec{
 		{Verb: "ops.test", Mutates: true},

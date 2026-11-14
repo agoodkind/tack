@@ -12,8 +12,7 @@ import (
 	"goodkind.io/tack/internal/audit"
 )
 
-// countingOrgs answers one membership set and counts how many times the
-// middleware asked, which is the number the request-path criterion bounds.
+// countingOrgs returns a membership set and counts middleware lookups.
 type countingOrgs struct {
 	orgs  []uuid.UUID
 	err   error
@@ -25,9 +24,8 @@ func (c *countingOrgs) ListOrgIDsForUser(context.Context, uuid.UUID) ([]uuid.UUI
 	return c.orgs, c.err
 }
 
-// membershipSeenByNext sends one authenticated request through the
-// middleware and returns the membership set the next handler found on its
-// context, and whether one was attached.
+// membershipSeenByNext sends an authenticated request through middleware and
+// returns the next handler's context memberships and their presence flag.
 func membershipSeenByNext(
 	t *testing.T,
 	middleware func(http.Handler) http.Handler,
@@ -61,9 +59,8 @@ func membershipSeenByNext(
 	return seen, attached
 }
 
-// TestBearerAttachesTheMembershipItReadOnce pins TACK-503: the middleware
-// asks the membership store once and hands the answer to the handler behind
-// it, so the MCP handler does not ask again.
+// TestBearerAttachesTheMembershipItReadOnce checks that middleware queries
+// membership once and stores the result in the handler context (TACK-503).
 func TestBearerAttachesTheMembershipItReadOnce(t *testing.T) {
 	userID := uuid.Must(uuid.NewV7())
 	orgs := []uuid.UUID{uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())}
@@ -83,10 +80,10 @@ func TestBearerAttachesTheMembershipItReadOnce(t *testing.T) {
 	}
 }
 
-// TestBearerAttachesNothingWhenTheReadFails pins the fail-closed handoff: a
-// failed read serves the request with no set attached, so the handler behind
-// the middleware must look membership up itself and refuse on failure.
-func TestBearerAttachesNothingWhenTheReadFails(t *testing.T) {
+// TestBearerOmitsMembershipAfterLookupFailure checks that lookup failures
+// do not install an empty membership set in the handler context. The handler
+// must perform its own membership check before returning protected data.
+func TestBearerOmitsMembershipAfterLookupFailure(t *testing.T) {
 	userID := uuid.Must(uuid.NewV7())
 	lister := &countingOrgs{orgs: nil, err: errors.New("membership store down")}
 
