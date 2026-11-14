@@ -32,7 +32,7 @@ func runRepairSequenceScopeIDs(ctx context.Context, env *Env) error {
 }
 
 // RepairSequenceScopeIDs derives each sequence-bearing node's scope_id from its parent_id
-// chain and reclaims each moved node's rendered reference keys. The function counts writes
+// chain and reclaims each updated node's rendered reference keys. The function counts writes
 // that fail with domain.ErrConflict as refused. When the count exceeds zero, the function
 // returns an error that wraps domain.ErrConflict and states the refused count.
 func RepairSequenceScopeIDs(ctx context.Context, env *Env) (int, int, error) {

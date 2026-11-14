@@ -71,10 +71,10 @@ func fallingCounts(total int) []ledgerClusterCounts {
 	return counts
 }
 
-// TestAwaitLedgerNodeLetsASlowReplayRunPastAnyFixedBudget checks that recovery
+// TestLedgerNodeWaitContinuesDuringLongRecovery checks that recovery
 // can continue for four simulated hours while each poll indicates progress
 // (TACK-488). A fixed startup deadline would reject that recovery.
-func TestAwaitLedgerNodeLetsASlowReplayRunPastAnyFixedBudget(t *testing.T) {
+func TestLedgerNodeWaitContinuesDuringLongRecovery(t *testing.T) {
 	const polls = 240
 	advanceClockPerRead(t, ledgerTestClockStep)
 	pauses := recordLedgerWaits(t)
@@ -99,9 +99,9 @@ func TestAwaitLedgerNodeLetsASlowReplayRunPastAnyFixedBudget(t *testing.T) {
 	}
 }
 
-// TestAwaitLedgerNodeFailsANodeThatStoppedMoving checks that unchanged counts
+// TestLedgerNodeWaitReportsStalledRecovery checks that unchanged counts
 // trigger a stall error with the last recorded minima after the stall window.
-func TestAwaitLedgerNodeFailsANodeThatStoppedMoving(t *testing.T) {
+func TestLedgerNodeWaitReportsStalledRecovery(t *testing.T) {
 	advanceClockPerRead(t, ledgerTestClockStep)
 	recordLedgerWaits(t)
 	frozen := []ledgerClusterCounts{
@@ -118,7 +118,7 @@ func TestAwaitLedgerNodeFailsANodeThatStoppedMoving(t *testing.T) {
 	message := err.Error()
 
 	for _, want := range []string{
-		"no progress for",
+		"did not make progress for",
 		"dead_nodes=0",
 		"under_replicated_tablets=12",
 		"health starting",
@@ -176,7 +176,7 @@ func TestAwaitLedgerNodeEndsWhenTheContainerExits(t *testing.T) {
 	}
 }
 
-func TestLedgerNodeWaitWindowsRefuseZeroAndGarbage(t *testing.T) {
+func TestLedgerNodeWaitWindowsRejectInvalidDurations(t *testing.T) {
 	for _, in := range []ledgerNodeWaitInput{
 		{Stall: "0s", Poll: "10s"},
 		{Stall: "5m", Poll: "-1s"},

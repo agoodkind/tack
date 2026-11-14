@@ -151,10 +151,9 @@ func marshalOutboxEvent(ctx context.Context, event Event) ([]byte, error) {
 	return eventJSON, nil
 }
 
-// ReadBatch reads up to limit events in creation order. The event id breaks
-// ties: now() is stable within a transaction, so two rows can share a
-// creation time, and without the tie-break the drain order would vary between
-// runs over the same data.
+// ReadBatch reads up to limit events by creation time, then event ID. The
+// timestamp from now() stays fixed within a transaction. Event IDs order rows
+// with equal timestamps consistently across reads.
 func (o *PoolOutbox) ReadBatch(ctx context.Context, limit int) ([]OutboxRow, error) {
 	var batch []OutboxRow
 	err := pgx.BeginTxFunc(

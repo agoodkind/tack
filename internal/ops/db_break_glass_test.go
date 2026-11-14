@@ -149,8 +149,8 @@ func TestDBBreakGlassRunsTheStatementAndRecordsIt(t *testing.T) {
 		t.Fatalf("the pending row must record the same statement and reason: %+v", pendingExtra)
 	}
 
-	// The one-statement contract is the server's: a batch is refused, and the
-	// refusal is recorded as the attempt's error outcome.
+	// The server rejects statement batches. The command records that refusal
+	// as the attempt's error outcome.
 	_, err = runBreakGlass(t, deps, "select 1; select 2", reason)
 	if err == nil || !strings.Contains(err.Error(), "multiple commands") {
 		t.Fatalf("err = %v, want the batch refused by the server", err)

@@ -15,10 +15,8 @@ import (
 	"github.com/google/uuid"
 )
 
-// TestVerifyBundleRoundTrip writes a synthetic events.jsonl + manifest.json
-// using the same shapes Export produces and asserts VerifyBundle accepts
-// them. Avoids the database dependency at this layer; full Export is
-// covered by the integration suite once Yugabyte is wired in test compose.
+// TestVerifyBundleRoundTrip checks synthetic event rows and a signed manifest
+// in the export format without a database dependency.
 func TestVerifyBundleRoundTrip(t *testing.T) {
 	dir := t.TempDir()
 	pub, priv, err := ed25519.GenerateKey(rand.Reader)
@@ -195,8 +193,7 @@ func TestVerifyBundleReportsEditedRow(t *testing.T) {
 	}
 }
 
-// hashExportTestRow computes a row's hash the way the writer does: from the
-// event's own typed fields, marshalled by the same encoder the consumer uses.
+// hashExportTestRow hashes typed event fields with the production writer's encoder.
 func hashExportTestRow(t *testing.T, row Row) []byte {
 	t.Helper()
 	contextJSON, err := json.Marshal(row.Context)
@@ -243,9 +240,8 @@ func writeSignedExportTestBundle(t *testing.T, dir string, rows []Row) ed25519.P
 	return writeSignedExportTestBundleDeclaring(t, dir, rows, len(rows))
 }
 
-// writeSignedExportTestBundleDeclaring writes the rows and a manifest that is
-// validly signed over declaredRowCount rather than over the true count, which
-// is the shape a truncating exporter or a lying manifest produces.
+// writeSignedExportTestBundleDeclaring signs a supplied count independently of
+// the actual row count to test truncated or incorrect export declarations.
 func writeSignedExportTestBundleDeclaring(
 	t *testing.T,
 	dir string,
@@ -325,12 +321,9 @@ func writeSignedExportTestBundleDeclaring(
 	return pub
 }
 
-// TestVerifyBundleRecoversLegacyRows pins the TACK-445 story for rows written
-// under hash versions 1 and 2: their hash covered a nanosecond timestamp the
-// database stored only to the microsecond, so the verifier recovers the lost
-// remainder by trying every possible value. The row below reproduces the real
-// condition: its stored hash was computed from a nanosecond timestamp, and
-// the row read back carries the microsecond-truncated one.
+// TestVerifyBundleRecoversLegacyRows hashes a nanosecond version 2 timestamp
+// before replacing it with stored microsecond precision. Verification must
+// recover the original hash through the lost-remainder search (TACK-445).
 func TestVerifyBundleRecoversLegacyRows(t *testing.T) {
 	dir := t.TempDir()
 	orgID := uuid.Must(uuid.NewV7())
@@ -371,11 +364,8 @@ func TestVerifyBundleRecoversLegacyRows(t *testing.T) {
 	}
 }
 
-// TestVerifyBundleRejectsHashVersionDowngrade reproduces the review attack:
-// edit a version 3 row's content and relabel it version 2, leaving both
-// hashes untouched. The relabel buys the forger nothing, because a claimed
-// version 2 row is recomputed at every possible lost-nanosecond candidate and
-// the edited content matches none of them.
+// TestVerifyBundleRejectsHashVersionDowngrade changes row content and claims
+// version 2 without updating hashes. Legacy recovery must not accept the edit.
 func TestVerifyBundleRejectsHashVersionDowngrade(t *testing.T) {
 	dir := t.TempDir()
 	orgID := uuid.Must(uuid.NewV7())
@@ -435,13 +425,10 @@ func TestVerifyBundleRejectsHashVersionDowngrade(t *testing.T) {
 	}
 }
 
-// TestVerifyBundleRejectsRelabelledVersion3Row closes the hole a second review
-// pass found in the legacy candidate search: a forger takes a genuine version 3
-// row, moves its timestamp back one nanosecond, and relabels the row as legacy.
-// The candidate search would add that nanosecond back, rediscover the original
-// instant, and accept the moved row. The ledger stores whole microseconds, so
-// the moved timestamp is itself the evidence.
-func TestVerifyBundleRejectsRelabelledVersion3Row(t *testing.T) {
+// TestVerifyBundleRejectsRelabeledVersion3Timestamp subtracts one nanosecond
+// and claims version 2. Stored timestamps cannot include that remainder;
+// candidate recovery must not reconstruct and accept the original instant.
+func TestVerifyBundleRejectsRelabeledVersion3Timestamp(t *testing.T) {
 	dir := t.TempDir()
 	orgID := uuid.Must(uuid.NewV7())
 	stored := time.Now().UTC().Truncate(time.Microsecond)
@@ -473,11 +460,11 @@ func TestVerifyBundleRejectsRelabelledVersion3Row(t *testing.T) {
 	}
 
 	if report.HashMatches != 0 {
-		t.Fatalf("hash matches = %d, want 0; the relabelled row was accepted", report.HashMatches)
+		t.Fatalf("hash matches = %d, want 0; the relabeled row was accepted", report.HashMatches)
 	}
 
 	if report.Err() == nil {
-		t.Fatal("relabelled row accepted, want a rejection")
+		t.Fatal("relabeled row accepted, want a rejection")
 	}
 
 	if len(report.ChainBreaks) == 0 || !strings.Contains(report.ChainBreaks[0], "sub-microsecond") {
@@ -485,13 +472,9 @@ func TestVerifyBundleRejectsRelabelledVersion3Row(t *testing.T) {
 	}
 }
 
-// TestVerifyBundleRejectsPureVersionRelabel closes the hole a fifth review
-// pass found: versions 2 and 3 cover the same fields, and a version 3 row
-// already carries a whole-microsecond timestamp, so relabelling an untouched
-// version 3 row as version 2 let the legacy candidate search reproduce its
-// hash on the first try. Version 3 therefore hashes its own version number,
-// and a relabelled row matches under no candidate.
-func TestVerifyBundleRejectsPureVersionRelabel(t *testing.T) {
+// TestVerifyBundleRejectsVersionOnlyRelabel changes only the declared hash
+// version. Version 3 must hash its version number to reject this downgrade.
+func TestVerifyBundleRejectsVersionOnlyRelabel(t *testing.T) {
 	dir := t.TempDir()
 	orgID := uuid.Must(uuid.NewV7())
 	row := Row{
@@ -521,17 +504,16 @@ func TestVerifyBundleRejectsPureVersionRelabel(t *testing.T) {
 	}
 
 	if report.HashMatches != 0 {
-		t.Fatalf("hash matches = %d, want 0; the relabelled row was accepted", report.HashMatches)
+		t.Fatalf("hash matches = %d, want 0; the relabeled row was accepted", report.HashMatches)
 	}
 
 	if report.Err() == nil {
-		t.Fatal("relabelled row accepted, want a rejection")
+		t.Fatal("relabeled row accepted, want a rejection")
 	}
 }
 
-// TestVerifyBundleRejectsUnknownHashVersion pins that a row claiming a version
-// the ledger never wrote is reported as a broken row, not accepted as version
-// 1 and not treated as a verifier crash that hides the rest of the bundle.
+// TestVerifyBundleRejectsUnknownHashVersion checks a broken-row report rather
+// than accepting an unwritten version as version 1 or aborting the verifier.
 func TestVerifyBundleRejectsUnknownHashVersion(t *testing.T) {
 	dir := t.TempDir()
 	orgID := uuid.Must(uuid.NewV7())
@@ -572,12 +554,9 @@ func TestVerifyBundleRejectsUnknownHashVersion(t *testing.T) {
 	}
 }
 
-// TestVerifyBundleRejectsPlantedPayloadKey closes the hole the sixth review
-// pass found: the verifier decodes context, delta, and error into their
-// types and re-marshals them for the hash, so a key those types do not
-// declare would be dropped and the planted row would still verify. The
-// decode is strict, so the planted key is a verification error that names
-// the bundle line.
+// TestVerifyBundleRejectsPlantedPayloadKey requires strict typed decoding.
+// An undeclared context key must fail with its key and line in the error
+// instead of disappearing before hash reconstruction.
 func TestVerifyBundleRejectsPlantedPayloadKey(t *testing.T) {
 	dir := t.TempDir()
 	orgID := uuid.Must(uuid.NewV7())
@@ -641,12 +620,9 @@ func TestVerifyBundleRejectsPlantedPayloadKey(t *testing.T) {
 	}
 }
 
-// TestVerifyReportErrTracksTheReport pins that the verdict a caller acts on
-// matches the report a human reads. A clean bundle returns nil; a tampered one
-// returns an error naming what failed. Before this, verification printed its
-// findings and reported success, so a script or a release gate treated a
-// tampered bundle as verified.
-func TestVerifyReportErrTracksTheReport(t *testing.T) {
+// TestVerifyReportErrRejectsTamperedBundle checks nil for a clean bundle and
+// a hash-failure verdict after editing a row, independently of report display.
+func TestVerifyReportErrRejectsTamperedBundle(t *testing.T) {
 	dir := t.TempDir()
 	orgID := uuid.Must(uuid.NewV7())
 	row := Row{
@@ -712,12 +688,9 @@ func TestVerifyReportErrTracksTheReport(t *testing.T) {
 	}
 }
 
-// TestVerifyOneEditedRowDoesNotCondemnTheRest pins that editing a single row
-// is reported as a single failure. Advancing the chain tracking only on a
-// matching row made the next row compare against the wrong predecessor, so
-// one edit cascaded into a break on every row after it, and a reader could
-// not tell how much of the bundle had actually been altered.
-func TestVerifyOneEditedRowDoesNotCondemnTheRest(t *testing.T) {
+// TestVerifyBundleReportsOnlyEditedRowFailure checks one broken row without
+// rejecting valid successors or inventing sequence gaps after the mismatch.
+func TestVerifyBundleReportsOnlyEditedRowFailure(t *testing.T) {
 	dir := t.TempDir()
 	orgID := uuid.Must(uuid.NewV7())
 	rows := make([]Row, 0, 4)
@@ -798,10 +771,7 @@ func TestVerifyOneEditedRowDoesNotCondemnTheRest(t *testing.T) {
 		)
 	}
 
-	// This assertion is what catches the cascade. The rows are contiguous, so
-	// a correct pass reports no gaps. Tracking that advanced only on a match
-	// would leave the sequence stuck at the last good row, and every row after
-	// the edit would be counted as a gap.
+	// Every row's sequence must update tracking even when its hash fails.
 	if report.ChainGapCount != 0 {
 		t.Fatalf("sequence gaps = %d in a contiguous bundle, want 0", report.ChainGapCount)
 	}
@@ -811,8 +781,7 @@ func TestVerifyOneEditedRowDoesNotCondemnTheRest(t *testing.T) {
 	}
 }
 
-// WithNodeHistoryRowLimit returns filter with its row cap lowered to limit,
-// so an external test can produce a truncated read without thousands of rows.
+// WithNodeHistoryRowLimit lowers the row cap for external truncation tests.
 func WithNodeHistoryRowLimit(filter NodeHistoryFilter, limit int) NodeHistoryFilter {
 	filter.rowLimitOverride = limit
 	return filter

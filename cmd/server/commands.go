@@ -19,7 +19,7 @@ import (
 	"goodkind.io/tack/internal/version"
 )
 
-// emptyInput is the input for top-level commands that take no flags or args.
+// emptyInput represents top-level commands without flags or arguments.
 type emptyInput struct {
 	clispec.InputMarker `exhaustruct:"optional"`
 }

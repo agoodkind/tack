@@ -16,21 +16,16 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// YBRecorder is the production audit Recorder. It writes synchronously to
-// audit.events and atomically advances audit.chain_heads inside one
-// Yugabyte transaction. The write path is hash-chained per (org, shard) and
-// uses the audit_writer_app role exclusively, so even an SQL injection in
-// the application layer cannot mutate or delete audit rows.
-//
-// The recorder is dual-track with telemetry: every Record call emits
-// structured slog and bumps an expvar counter alongside the database write.
+// YBRecorder synchronously appends audit.events and advances audit.chain_heads
+// in one YugabyteDB transaction per (org, shard) hash chain. The audit_writer_app
+// role cannot update or delete ledger rows. Each successful Record also emits
+// structured logs and increments telemetry counters.
 type YBRecorder struct {
 	pool *pgxpool.Pool
 }
 
-// NewYBRecorder opens a pool against the audit_writer DSN. The DSN must
-// authenticate as a member of the audit_writer base role; the migration's
-// RLS policies block writes from any other identity.
+// NewYBRecorder opens the audit_writer DSN. The login requires audit_writer
+// membership under the migration's row-level security policies.
 func NewYBRecorder(ctx context.Context, dsn string) (*YBRecorder, error) {
 	if dsn == "" {
 		return nil, errors.New("audit: AUDIT_WRITER_DSN required")
@@ -55,27 +50,18 @@ func NewYBRecorder(ctx context.Context, dsn string) (*YBRecorder, error) {
 	return &YBRecorder{pool: pool}, nil
 }
 
-// Close releases the underlying pool. Idempotent.
+// Close releases the pool and supports repeated calls.
 func (r *YBRecorder) Close() {
 	if r != nil && r.pool != nil {
 		r.pool.Close()
 	}
 }
 
-// Record writes one audit event synchronously inside a Yugabyte transaction.
-// It appends to audit.events and advances audit.chain_heads through the shared
-// compare-and-swap helper, retrying when a concurrent writer (another app
-// replica) advances the same (org, shard) head. Any final failure increments
-// the dropped counter and returns the error to the caller.
-//
-// What the caller does with that error is the caller's decision. Product state
-// changes made through the MCP tools no longer depend on it: their row is
-// written into the FoundationDB outbox inside the transaction that makes the
-// change and relayed to the ledger afterwards (TACK-173), so a change and its
-// record commit together. This recorder stays the direct path for everything
-// else. Before TACK-173 the MCP wrapper recorded after the handler returned
-// and logged a failure at Warn, which is how the 2026-07-06 gap left eight
-// issue creations in the store with no row here (TACK-335).
+// Record appends an event and advances its chain head in one transaction,
+// retrying concurrent head conflicts. Final failures increment the dropped
+// counter and return an error. MCP product changes instead commit their
+// evidence in the FoundationDB outbox with the product transaction before
+// relay publication to the ledger (TACK-173).
 func (r *YBRecorder) Record(ctx context.Context, ev Event) error {
 	ctx, span := telemetry.StartSpan(
 		ctx,
@@ -158,11 +144,9 @@ func (r *YBRecorder) Record(ctx context.Context, ev Event) error {
 	return nil
 }
 
-// recordOnce runs one attempt of the audit write: open a transaction, write the
-// actor PII row, append the event and advance the chain head, then commit. The
-// PII split keeps actor PII in audit.pii under a fresh pii_ref so GDPR erasure
-// never breaks the hash chain, which covers the reference rather than the
-// payload.
+// recordOnce writes PII, appends the event, and advances the head before commit.
+// The chain hashes the pii_ref rather than the payload, allowing later GDPR
+// erasure in audit.pii without invalidating chain hashes.
 func (r *YBRecorder) recordOnce(
 	ctx context.Context,
 	ev Event,
@@ -208,8 +192,7 @@ func (r *YBRecorder) recordOnce(
 	return res, nil
 }
 
-// hasPII reports whether actor carries any field worth splitting into
-// audit.pii. Empty strings imply nothing to redact later.
+// hasPII reports whether an actor includes nonempty personal data for audit.pii.
 func hasPII(a Actor) bool {
 	return a.Email != "" || a.Name != "" || a.IP != "" || a.UserAgent != "" || a.APITokenLabel != ""
 }

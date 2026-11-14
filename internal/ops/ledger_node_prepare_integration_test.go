@@ -16,7 +16,7 @@ import (
 	"goodkind.io/tack/internal/testenv"
 )
 
-func TestLauncherConfigRoundTripsThroughTheContainer(t *testing.T) {
+func TestLauncherConfigRewritePreservesContainerFileMetadata(t *testing.T) {
 	testenv.RequireDocker(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()

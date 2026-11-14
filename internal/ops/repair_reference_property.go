@@ -12,7 +12,7 @@ import (
 	"goodkind.io/tack/internal/domain/node"
 )
 
-// RepairCleanupPolicy controls whether source fields are removed after repair.
+// RepairCleanupPolicy controls whether the repair removes source fields.
 type RepairCleanupPolicy string
 
 // RepairConflictPolicy controls candidate selection when inputs disagree.

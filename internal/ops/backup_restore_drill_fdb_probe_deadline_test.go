@@ -10,29 +10,22 @@ import (
 	"time"
 )
 
-// answerAtDeadline is a probe that answers with its deadline's error the
-// moment its context ends, which is what a context-aware exec does: the exec
-// returns the deadline error as the probe's context expires, so its answer and
-// the context's done channel are ready together and the select may take
-// either. Whichever it takes, the reading must come out the same.
+// answerAtDeadline returns the probe context's deadline error when it expires.
+// The answer and done channel can become ready together; either select branch
+// must produce the same timeout classification.
 func answerAtDeadline(ctx context.Context) (string, error) {
 	<-ctx.Done()
 	return "", fmt.Errorf("read the fdbrestore status: %w", ctx.Err())
 }
 
-// answerDeadlineAtOnce is a probe that returns a deadline error before its own
-// context has expired, the way a nested operation of the probe's own could.
-// That is a probe that answered, with a failure, and not one that did not
-// answer.
+// answerDeadlineAtOnce simulates a nested operation's deadline failure while
+// the probe's own context remains active.
 func answerDeadlineAtOnce(context.Context) (string, error) {
 	return "", fmt.Errorf("read the fdbrestore status: %w", context.DeadlineExceeded)
 }
 
-// TestClassifyFDBRestoreProbeAnswerTakesOnlyTheProbesOwnDeadline pins the
-// classification on the answered side of the select, where the race cannot be
-// scripted: an answer carrying the deadline error counts as a probe that did
-// not answer only when the probe's context expired with that deadline and the
-// drill's context is still live.
+// TestClassifyFDBRestoreProbeAnswerTakesOnlyTheProbesOwnDeadline checks both
+// context states and error identity independently of select scheduling.
 func TestClassifyFDBRestoreProbeAnswerTakesOnlyTheProbesOwnDeadline(t *testing.T) {
 	deadlineErr := fmt.Errorf("read the fdbrestore status: %w", context.DeadlineExceeded)
 	answered := fdbRestoreReading{
@@ -52,7 +45,7 @@ func TestClassifyFDBRestoreProbeAnswerTakesOnlyTheProbesOwnDeadline(t *testing.T
 	got := classifyFDBRestoreProbeAnswer(answered, expired, t.Context(), time.Minute)
 	if !got.timedOut {
 		t.Fatalf(
-			"an answer carrying the deadline after the probe's context expired must be a timeout, got %+v",
+			"the probe's own expired deadline must indicate timeout, got %+v",
 			got,
 		)
 	}
@@ -60,7 +53,7 @@ func TestClassifyFDBRestoreProbeAnswerTakesOnlyTheProbesOwnDeadline(t *testing.T
 	if !errors.Is(got.statusErr, errFDBRestoreProbeTimedOut) ||
 		!errors.Is(got.statusErr, context.DeadlineExceeded) {
 		t.Fatalf(
-			"the timeout must carry both the probe's verdict and the exec's error, got %v",
+			"the timeout must include probe and exec error identities, got %v",
 			got.statusErr,
 		)
 	}
@@ -73,7 +66,7 @@ func TestClassifyFDBRestoreProbeAnswerTakesOnlyTheProbesOwnDeadline(t *testing.T
 	); got.timedOut ||
 		got.statusErr != deadlineErr {
 		t.Fatalf(
-			"a deadline error while the probe's context is live is a probe error, got %+v",
+			"a deadline error under an active probe context must remain a probe error, got %+v",
 			got,
 		)
 	}
@@ -84,17 +77,13 @@ func TestClassifyFDBRestoreProbeAnswerTakesOnlyTheProbesOwnDeadline(t *testing.T
 		cancelled,
 		time.Minute,
 	); got.timedOut {
-		t.Fatalf("a deadline under a cancelled drill is not a probe timeout, got %+v", got)
+		t.Fatalf("drill cancellation must not count as a probe timeout, got %+v", got)
 	}
 }
 
-// TestAwaitFDBRestoreCountsAnAnsweredDeadlineAsATimeout is the race this test
-// exists for. A probe whose exec ended on the probe deadline returned that
-// deadline as its error, and when the select took the answer rather than the
-// done channel, the reading counted as a probe that answered with a failure:
-// tolerated for the whole stall window instead of the three polls a probe that
-// did not answer is given. Here every status probe answers at the deadline,
-// and the wait must end as blind after three polls, not as a stall.
+// TestAwaitFDBRestoreCountsAnAnsweredDeadlineAsATimeout checks consecutive
+// probe-timeout failure even when the exec returns its deadline error through
+// the answer channel rather than the context-done branch.
 func TestAwaitFDBRestoreCountsAnAnsweredDeadlineAsATimeout(t *testing.T) {
 	advanceClockPerRead(t, time.Second)
 	watch := fdbRestoreWatch{
@@ -104,23 +93,19 @@ func TestAwaitFDBRestoreCountsAnAnsweredDeadlineAsATimeout(t *testing.T) {
 
 	_, _, err := awaitOrHang(t, watch)
 	if err == nil {
-		t.Fatal("a restore whose status probe keeps hitting its deadline must not pass")
+		t.Fatal("repeated status-probe deadlines must fail monitoring")
 	}
 
 	if !strings.Contains(err.Error(), "3 consecutive polls had a probe that did not answer") {
 		t.Fatalf(
-			"a probe that returned its deadline must count as one that did not answer, got: %v",
+			"an answer at the probe deadline must count as an unanswered poll, got: %v",
 			err,
 		)
 	}
 }
 
-// TestAwaitFDBRestoreToleratesAnExitProbeThatAnsweredWithItsDeadline proves
-// the same for the exit probe, whose failures are not tolerated at all: an exit
-// probe that returned its deadline ended the wait on the first poll as a probe
-// failure, when a probe that did not answer is ridden out under the tolerance.
-// The first two exit probes below answer at the deadline and the restore then
-// finishes cleanly.
+// TestAwaitFDBRestoreToleratesAnExitProbeThatAnsweredWithItsDeadline checks
+// successful completion after exit-probe deadlines below the failure tolerance.
 func TestAwaitFDBRestoreToleratesAnExitProbeThatAnsweredWithItsDeadline(t *testing.T) {
 	advanceClockPerRead(t, time.Second)
 	var exitReads atomic.Int32
@@ -141,7 +126,7 @@ func TestAwaitFDBRestoreToleratesAnExitProbeThatAnsweredWithItsDeadline(t *testi
 	_, exitCode, err := awaitOrHang(t, watch)
 	if err != nil {
 		t.Fatalf(
-			"exit probes that hit their deadline under the tolerance must not fail the drill: %v",
+			"exit-probe deadlines below tolerance must permit recovery: %v",
 			err,
 		)
 	}
@@ -151,12 +136,10 @@ func TestAwaitFDBRestoreToleratesAnExitProbeThatAnsweredWithItsDeadline(t *testi
 	}
 }
 
-// TestAwaitFDBRestoreKeepsAnInstantDeadlineErrorAProbeError proves the
-// classification is the probe's own deadline and not the error's text. A
-// status probe that returns a deadline error at once, before its context has
-// expired, answered with a failure: the wait carries that failure through the
-// stall window and ends as a stall, never as polls it was blind for.
-func TestAwaitFDBRestoreKeepsAnInstantDeadlineErrorAProbeError(t *testing.T) {
+// TestAwaitFDBRestoreClassifiesNestedDeadlineAsProbeError checks a deadline
+// error returned before the probe's own context expires. The eventual stall
+// includes that failed read instead of claiming unanswered polls.
+func TestAwaitFDBRestoreClassifiesNestedDeadlineAsProbeError(t *testing.T) {
 	advanceClockPerRead(t, testClockStep)
 	watch := fdbRestoreWatch{
 		Finished: func(context.Context) (int, bool, error) { return 0, false, nil },
@@ -165,12 +148,12 @@ func TestAwaitFDBRestoreKeepsAnInstantDeadlineErrorAProbeError(t *testing.T) {
 
 	_, _, err := awaitOrHang(t, watch)
 	if err == nil {
-		t.Fatal("a restore whose status probe keeps failing must not pass")
+		t.Fatal("repeated status-probe failures must not pass monitoring")
 	}
 
 	if strings.Contains(err.Error(), "could not be observed") {
 		t.Fatalf(
-			"a deadline error the probe returned at once must not count as a blind poll, got: %v",
+			"an immediate nested deadline must not count as an unanswered poll, got: %v",
 			err,
 		)
 	}
@@ -180,6 +163,6 @@ func TestAwaitFDBRestoreKeepsAnInstantDeadlineErrorAProbeError(t *testing.T) {
 			err.Error(),
 			"the last status read failed: read the fdbrestore status: context deadline exceeded",
 		) {
-		t.Fatalf("the failure must be the stall with the probe's own error, got: %v", err)
+		t.Fatalf("the stall must include the probe's error, got: %v", err)
 	}
 }

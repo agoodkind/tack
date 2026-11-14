@@ -1,17 +1,8 @@
-// backup_staleness_replication.go is the ledger cluster's freshness reading:
-// how long ago the guest running the check last saw the cluster healthy
-// itself. The reading is dated from this guest's own last observation, held in
-// the last-reading record, and never from the success marker in the object
-// store, because that marker is shared: any guest that observes the cluster
-// healthy refreshes it, so an owner guest blocked from every master reads the
-// deputy's observation as its own and stays silent while it is blind
-// (TACK-529). The owner guest is the one that takes the backups, so its
-// blindness is the one that must be heard.
-//
-// The marker is still written on every healthy observation. It is the record
-// of when the cluster was last seen healthy from anywhere, which is the
-// question a per-guest reading cannot answer, and a blind guest's report says
-// what it holds.
+// Replication freshness uses this guest's own last healthy observation, not a
+// shared marker that another guest can refresh. Otherwise a guest unable to
+// query any master could suppress its own connectivity alarm (TACK-529).
+// Healthy observations still update the shared marker for cross-guest
+// diagnostics, but that record never determines this guest's reading age.
 
 package ops
 
@@ -26,36 +17,24 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// ybClusterObservation is what this guest's own probe established about the
-// ledger cluster. The staleness check keys the alarm's words on it, because a
-// guest that reached no master has established nothing and must not say the
-// cluster is unhealthy.
+// ybClusterObservation separates a usable health answer from failed probes.
+// Only a master's usable answer can establish degraded cluster replication.
 type ybClusterObservation int
 
 const (
-	// ybClusterHealthy means a master answered and vouched for every node
-	// alive and every tablet fully replicated.
+	// ybClusterHealthy indicates an answer reporting all nodes alive and
+	// every tablet fully replicated.
 	ybClusterHealthy ybClusterObservation = iota
-	// ybClusterDegraded means a master answered and the cluster it described
-	// is not fully replicated.
+	// ybClusterDegraded indicates an answer reporting incomplete replication.
 	ybClusterDegraded
-	// ybClusterUnseen means no master gave this guest a usable answer.
+	// ybClusterUnseen indicates that every master failed to provide a usable answer.
 	ybClusterUnseen
 )
 
-// replicationStalenessMetric probes the live cluster and dates the reading from
-// the last time this guest saw the cluster healthy.
-//
-// A healthy answer is that observation: the reading ages from now, and the
-// shared marker records it for whoever reads the store. Any other answer
-// leaves the age counting from the earlier observation, so a guest that keeps
-// failing to see the cluster passes its threshold and alarms, whatever another
-// guest can see.
-//
-// The cause separates the two ways an answer can fail. A master that answered
-// and described a cluster short of its replicas is a degraded cluster, which
-// the mail says outright; a guest that reached no master has established
-// nothing, and its mail says only that this guest cannot see the cluster.
+// replicationStalenessMetric probes current health and dates failures from the
+// previous local healthy observation. A healthy result records a shared success
+// and resets local age. Degraded answers report cluster health; unanswered
+// probes report only this guest's inability to establish health.
 func replicationStalenessMetric(
 	ctx context.Context,
 	cfg *config.Config,
@@ -67,8 +46,8 @@ func replicationStalenessMetric(
 	threshold := backupStalenessThreshold(cfg.BackupStalenessReplicationMaxSeconds)
 	observation, detail := probeYBClusterHealth(ctx, cfg)
 	if observation == ybClusterHealthy {
-		// A failed write is logged by the marker writer and left alone: the
-		// observation is this guest's own and dates the reading either way.
+		// A failed shared write does not invalidate this guest's observation.
+		// The writer logs its own failure.
 		_ = writeBackupStatusMarker(
 			ctx,
 			func(key string, body []byte) error {
@@ -110,10 +89,9 @@ func replicationStalenessMetric(
 	return knownBackupStalenessMetric(ctx, name, now, seenAt, threshold, detail)
 }
 
-// unseenClusterStalenessMetric is the reading of a guest that reached no
-// master. The cause marks it as unseen whether or not an earlier observation
-// dates it, so the mail claims only this guest's blindness, and the report
-// carries what the shared marker says beside it.
+// unseenClusterStalenessMetric retains the unseen cause even when a historical
+// local observation supplies age. Shared marker detail adds diagnostic context
+// without establishing current cluster health.
 func unseenClusterStalenessMetric(
 	ctx context.Context,
 	cfg *config.Config,
@@ -138,10 +116,9 @@ func unseenClusterStalenessMetric(
 	return metric
 }
 
-// withSharedClusterRecord adds what the shared marker holds to a blind guest's
-// reading, so the journal separates a cluster nobody can see from one only
-// this guest cannot see. The marker never dates the reading, and a marker that
-// is absent or unreadable simply adds nothing.
+// withSharedClusterRecord adds a readable shared observation to report detail
+// without dating this guest's metric. Missing or unreadable markers leave the
+// original detail unchanged.
 func withSharedClusterRecord(
 	ctx context.Context,
 	cfg *config.Config,

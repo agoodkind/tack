@@ -19,16 +19,10 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// Notarizer periodically reads every per-shard chain head, builds a Merkle
-// tree, signs the root with Ed25519, and inserts a row into
-// audit.notarizations. The result is a tamper-evidence checkpoint: a row in
-// audit.events that pre-dates the notarization is covered by the signed
-// Merkle root, so any retroactive change to that row breaks the proof.
-//
-// The notarizer connects via the audit_writer_app role (which has SELECT +
-// INSERT on chain_heads + notarizations per the migration). Single-process
-// for now; FDB-CAS leader election can layer underneath later without
-// changing the contract.
+// Notarizer periodically signs an Ed25519 Merkle root of the per-shard chain
+// heads and inserts audit.notarizations. This checkpoint verifies earlier
+// chain history against the signed heads. The audit_writer_app role reads
+// chain heads and inserts notarizations under the migration grants.
 type Notarizer struct {
 	pool   *pgxpool.Pool
 	signer ed25519.PrivateKey
@@ -42,16 +36,15 @@ type Notarizer struct {
 	lastAt atomic.Int64 // unix seconds of the last successful run
 }
 
-// NotarizerConfig collects the runtime knobs.
+// NotarizerConfig configures the signing key, host claim, and run interval.
 type NotarizerConfig struct {
-	// SigningKeyPath points at a PEM-encoded Ed25519 private key. Generate
+	// SigningKeyPath selects a PEM-encoded Ed25519 private key. Generate it
 	// with `openssl genpkey -algorithm ed25519 -out audit-signing.pem`.
-	// Empty disables the notarizer entirely.
+	// The caller can disable notarization by omitting this configuration;
+	// NewNotarizer requires a nonempty path.
 	SigningKeyPath string
-	// SigningHost names the host whose key signs, stamped on every row as a
-	// claimed origin (TACK-437). It sits beside the signature, not inside it,
-	// so it labels a row for the signer report rather than proving where the
-	// row came from. Empty is stored as empty.
+	// SigningHost records an unsigned host claim for signer reports, not proof
+	// of origin (TACK-437). An empty value remains empty in storage.
 	SigningHost string
 	// Period is how often the notarizer runs. Defaults to 60s.
 	Period time.Duration
@@ -117,8 +110,7 @@ func (n *Notarizer) loop(ctx context.Context) {
 	defer close(n.stopped)
 	t := time.NewTicker(n.period)
 	defer t.Stop()
-	// Run once at boot so a freshly deployed cluster has a notarization
-	// before the first ticker fires.
+	// Attempt the first notarization before waiting for the ticker.
 	n.runOnce(ctx)
 
 	for {

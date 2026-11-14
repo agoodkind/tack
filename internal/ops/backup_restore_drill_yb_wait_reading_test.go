@@ -8,11 +8,9 @@ import (
 	"time"
 )
 
-// TestAwaitYBScratchEndsOnACrashLoopThatKeepsWritingBytes is the defect the
-// failure check exists for. yugabyted restarts a crashed master inside a
-// container that stays up, and each restart writes more bytes, so the counters
-// alone would read the loop as progress until the unit's timeout killed it.
-func TestAwaitYBScratchEndsOnACrashLoopThatKeepsWritingBytes(t *testing.T) {
+// TestAwaitYBScratchStopsAfterCrashRestart checks that failure detection stops
+// crash loops even when their file writes increase progress counters.
+func TestAwaitYBScratchStopsAfterCrashRestart(t *testing.T) {
 	advanceClockPerRead(t, ybWaitTestClockStep)
 	recordLedgerWaits(t)
 	engine := &scriptedYBScratch{
@@ -32,19 +30,17 @@ func TestAwaitYBScratchEndsOnACrashLoopThatKeepsWritingBytes(t *testing.T) {
 		ybWaitTestProbe,
 	)
 	if err == nil || !strings.Contains(err.Error(), "start: yugabyted restarted a crashed master") {
-		t.Fatalf("err = %v, want the restart named", err)
+		t.Fatalf("err = %v, want the restart diagnostic", err)
 	}
 
 	if engine.polls != 3 {
-		t.Fatalf("polls = %d, want the wait to end at the first failure reading", engine.polls)
+		t.Fatalf("polls = %d, want termination at the first failure reading", engine.polls)
 	}
 }
 
-// TestAwaitYBScratchSurvivesAProbeThatNeverAnswers proves each probe runs
-// under its own deadline: a progress read that blocks until its context ends
-// returns as a failed read, the stall check still runs, and the stall names
-// the read that did not answer.
-func TestAwaitYBScratchSurvivesAProbeThatNeverAnswers(t *testing.T) {
+// TestAwaitYBScratchBoundsUnresponsiveProgressProbe checks a probe deadline
+// and a subsequent stall identifying the unanswered progress read.
+func TestAwaitYBScratchBoundsUnresponsiveProgressProbe(t *testing.T) {
 	advanceClockPerRead(t, ybWaitTestClockStep)
 	recordLedgerWaits(t)
 	watch := ybScratchWatch{
@@ -73,17 +69,16 @@ func TestAwaitYBScratchSurvivesAProbeThatNeverAnswers(t *testing.T) {
 	case err := <-done:
 		if err == nil ||
 			!strings.Contains(err.Error(), "progress read: context deadline exceeded") {
-			t.Fatalf("err = %v, want a stall naming the probe deadline", err)
+			t.Fatalf("err = %v, want a stall reporting the probe deadline", err)
 		}
 	case <-time.After(10 * time.Second):
-		t.Fatal("a probe that never answers must not hold the wait past its deadline")
+		t.Fatal("an unresponsive probe must not block monitoring past its deadline")
 	}
 }
 
-// TestAwaitYBScratchKeepsWaitingThroughAFailedInspect proves an inspect that
-// errors is a failed read, not a dead container: the engine that keeps moving
-// is still waited for until it is ready.
-func TestAwaitYBScratchKeepsWaitingThroughAFailedInspect(t *testing.T) {
+// TestAwaitYBScratchContinuesAfterInspectFailure checks that a failed inspect
+// does not imply container exit when other probes still establish progress.
+func TestAwaitYBScratchContinuesAfterInspectFailure(t *testing.T) {
 	advanceClockPerRead(t, ybWaitTestClockStep)
 	recordLedgerWaits(t)
 	engine := &scriptedYBScratch{readyAfter: 30, counters: risingTablets(30), running: true}
@@ -100,14 +95,12 @@ func TestAwaitYBScratchKeepsWaitingThroughAFailedInspect(t *testing.T) {
 		ybWaitTestPoll,
 		ybWaitTestProbe,
 	); err != nil {
-		t.Fatalf("a failed inspect must not end the wait: %v", err)
+		t.Fatalf("a failed inspect must not end monitoring: %v", err)
 	}
 }
 
-// TestAwaitYBScratchEndsWhenItCannotCheckForFailure proves the failure check
-// is load bearing: while it cannot be read, a crash loop's bytes would keep
-// resetting the stall timer, so a wait that stays blind gives up instead of
-// running to the unit's backstop.
+// TestAwaitYBScratchEndsWhenItCannotCheckForFailure checks bounded failure
+// after consecutive unreadable failure probes despite increasing counters.
 func TestAwaitYBScratchEndsWhenItCannotCheckForFailure(t *testing.T) {
 	advanceClockPerRead(t, ybWaitTestClockStep)
 	recordLedgerWaits(t)
@@ -126,7 +119,7 @@ func TestAwaitYBScratchEndsWhenItCannotCheckForFailure(t *testing.T) {
 		ybWaitTestProbe,
 	)
 	if err == nil {
-		t.Fatal("a wait that cannot check for failure must not run on")
+		t.Fatal("unreadable failure probes must not permit indefinite monitoring")
 	}
 
 	for _, want := range []string{
@@ -140,14 +133,13 @@ func TestAwaitYBScratchEndsWhenItCannotCheckForFailure(t *testing.T) {
 	}
 
 	if engine.polls > 3 {
-		t.Fatalf("polls = %d, want the wait to end at the tolerance", engine.polls)
+		t.Fatalf("polls = %d, want termination at the tolerance", engine.polls)
 	}
 }
 
-// TestAwaitYBScratchForgetsARecoveredReadError proves the stall names only a
-// read that was still failing: a probe that failed once and then answered
-// must not be reported as the reason a later stall happened.
-func TestAwaitYBScratchForgetsARecoveredReadError(t *testing.T) {
+// TestAwaitYBScratchClearsRecoveredReadError checks that a recovered probe
+// failure does not appear as the reason for later inactivity.
+func TestAwaitYBScratchClearsRecoveredReadError(t *testing.T) {
 	advanceClockPerRead(t, ybWaitTestClockStep)
 	recordLedgerWaits(t)
 	engine := &scriptedYBScratch{readyAfter: 1000, counters: risingTablets(1), running: true}
@@ -173,13 +165,13 @@ func TestAwaitYBScratchForgetsARecoveredReadError(t *testing.T) {
 	}
 
 	if strings.Contains(err.Error(), "no such container") {
-		t.Fatalf("stall %q names a read that recovered", err)
+		t.Fatalf("stall %q reports a recovered read error", err)
 	}
 }
 
-// TestAwaitYBScratchCarriesAReadinessErrorIntoTheStall keeps a readiness check
-// that errors apart from one that answered no: the stall message names it.
-func TestAwaitYBScratchCarriesAReadinessErrorIntoTheStall(t *testing.T) {
+// TestAwaitYBScratchIncludesReadinessErrorInStall distinguishes unsuccessful
+// readiness from a readiness probe that failed to return a valid answer.
+func TestAwaitYBScratchIncludesReadinessErrorInStall(t *testing.T) {
 	advanceClockPerRead(t, ybWaitTestClockStep)
 	recordLedgerWaits(t)
 	engine := &scriptedYBScratch{readyAfter: 1000, counters: risingTablets(1), running: true}

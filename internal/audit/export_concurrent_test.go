@@ -1,8 +1,5 @@
-// export_concurrent_test.go covers what two exports writing into one directory
-// do to each other. Both tests here run one export to completion while another
-// is mid-stream, which is the shape in which the two are indistinguishable by
-// name: one pins that each publishes its own rows, the other that the one
-// finishing does not free the rows the other is still writing.
+// export_concurrent_test.go checks deterministic interleavings of exports in
+// one directory without overwriting another export's rows or reclaiming active files.
 
 package audit
 
@@ -17,19 +14,10 @@ import (
 	"github.com/google/uuid"
 )
 
-// TestASecondExportIntoTheSameDirectoryPublishesItsOwnRows pins that two
-// exports sharing a directory do not write each other's files. The rows files
-// used to share one name, so the second export's create truncated the first
-// one's while the first still held the descriptor: the first went on writing
-// into a file the second had already published, and the directory ended up
-// holding one run's rows under the other run's signed manifest. That is a
-// bundle whose manifest vouches for rows it never saw.
-//
-// The interleaving is deterministic rather than concurrent: the second export
-// runs to completion at the point where the first is halfway through its rows,
-// which is one of the orders two concurrent exports produce and the one that
-// does the damage. A race would test the same thing and only sometimes.
-func TestASecondExportIntoTheSameDirectoryPublishesItsOwnRows(t *testing.T) {
+// TestInterleavedExportsPublishDistinctRows completes a second export halfway
+// through the first. The first publishes last and must verify against its own
+// distinct rows file rather than the second export's content.
+func TestInterleavedExportsPublishDistinctRows(t *testing.T) {
 	dir := t.TempDir()
 	orgID := uuid.Must(uuid.NewV7())
 	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
@@ -88,9 +76,7 @@ func TestASecondExportIntoTheSameDirectoryPublishesItsOwnRows(t *testing.T) {
 		t.Fatalf("both exports named the same rows file %q", firstManifest.EventsFile)
 	}
 
-	// The first export published last, so its pair is what the directory holds.
-	// What matters is that the pair is one run's: a manifest signed for rows the
-	// file does not hold is exactly what a shared rows name produced.
+	// Verify the first export's manifest and rows after its later publication.
 	report, err := VerifyBundle(dir, publicKey)
 	if err != nil {
 		t.Fatalf("verify the surviving bundle: %v", err)
@@ -102,7 +88,7 @@ func TestASecondExportIntoTheSameDirectoryPublishesItsOwnRows(t *testing.T) {
 
 	if report.RowsScanned != firstRows {
 		t.Fatalf(
-			"the published bundle holds %d rows, want the %d the last publish wrote",
+			"the published bundle contains %d rows, want the %d the last publish wrote",
 			report.RowsScanned,
 			firstRows,
 		)
@@ -111,17 +97,10 @@ func TestASecondExportIntoTheSameDirectoryPublishesItsOwnRows(t *testing.T) {
 	assertDirectoryHoldsOnlyItsBundle(t, dir)
 }
 
-// TestTheReclaimSparesTheRowsOfAnExportStillWriting is what separates the
-// reclaim rule from a rule that destroys bundles. "No manifest names this file"
-// is true of two different files: the rows of an export that is finished, and
-// the rows of an export that is still streaming into them. A reclaim that
-// cannot tell them apart deletes the second, and the export writing it goes on
-// filling an unlinked file and then publishes a manifest naming rows that are
-// gone, reporting success as it does.
-//
-// The export that finishes here does so while another is mid-stream, which is
-// exactly when the two are indistinguishable by name.
-func TestTheReclaimSparesTheRowsOfAnExportStillWriting(t *testing.T) {
+// TestExportReclamationPreservesActiveRows completes an export while another
+// still writes unreferenced rows. Reclamation must preserve the active files
+// and their eventual verifiable bundle.
+func TestExportReclamationPreservesActiveRows(t *testing.T) {
 	dir := t.TempDir()
 	orgID := uuid.Must(uuid.NewV7())
 	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)

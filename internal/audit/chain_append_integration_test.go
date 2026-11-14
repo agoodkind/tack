@@ -188,29 +188,23 @@ func TestAppendChainRowConcurrent(t *testing.T) {
 	}
 }
 
-// TestAppendChainRowHashRecomputableFromStoredRow is the TACK-445 acceptance:
-// an event written with a nanosecond OccurredAt must verify from what the
-// database actually stored. The event goes through the real writer and the
-// real column, then through Export and VerifyBundle exactly as the operator
-// runs them, so every hash input comes from the read-back row and none from
-// the original event. A hash that covers anything the column truncates, or an
-// export mapping that drops a hashed field, fails here.
+// TestAppendChainRowHashRecomputableFromStoredRow checks database insertion,
+// export, and offline verification using only stored hash inputs. It detects
+// timestamp truncation or omitted hashed fields in export conversion (TACK-445).
 func TestAppendChainRowHashRecomputableFromStoredRow(t *testing.T) {
 	pool, orgID := chainTestPool(t)
 	ctx := context.Background()
 	const shard int16 = 11
 	in := chainTestEvent(t, orgID, shard)
-	// A deterministic remainder, so the round trip always exercises truncation
-	// and the recomputation is reproducible run to run.
+	// Use a fixed nanosecond remainder to exercise truncation reproducibly.
 	in.Event.OccurredAt = in.Event.OccurredAt.Truncate(time.Microsecond).Add(789 * time.Nanosecond)
 
 	if err := appendWithRetry(ctx, pool, in); err != nil {
 		t.Fatalf("append: %v", err)
 	}
 
-	// A second event on the same chain carries a delta, an error, and a
-	// correlation id, so every typed payload the row decodes is exercised
-	// through the real column, not only the nil and empty shapes.
+	// Include nonempty delta, error, and correlation fields on the same chain
+	// to test typed payload decoding from real database columns.
 	failed := chainTestEvent(t, orgID, shard)
 	failed.Event.Verb = string(VerbNodeUpdate)
 	failed.Event.Outcome = OutcomeError
@@ -250,7 +244,7 @@ func TestAppendChainRowHashRecomputableFromStoredRow(t *testing.T) {
 
 	if row.EventTime.Nanosecond()%1000 != 0 {
 		t.Fatalf(
-			"stored event_time %v carries a sub-microsecond remainder; the column contract changed",
+			"stored event_time %v is not a whole microsecond; the column contract changed",
 			row.EventTime,
 		)
 	}
@@ -315,13 +309,9 @@ func TestAppendChainRowHashRecomputableFromStoredRow(t *testing.T) {
 	}
 }
 
-// TestAppendChainRowRejectsRederivedEvent is the identity contract: one event
-// id is one ledger row, whatever time the producer stamps on it. The ledger's
-// own unique index carries event_time because the table is partitioned on it,
-// so it only catches a redelivery repeating the same instant. A producer that
-// re-derives an event keeps the identity and stamps a fresh time, which is
-// what the ledger reconstruction does on every run: before the identity claim
-// it wrote its whole history a second time (TACK-451).
+// TestAppendChainRowRejectsRederivedEvent checks that the identity claim
+// rejects one event ID with a new timestamp. A partitioned unique index also
+// includes event_time and cannot enforce event-ID uniqueness alone (TACK-451).
 func TestAppendChainRowRejectsRederivedEvent(t *testing.T) {
 	pool, orgID := chainTestPool(t)
 	ctx := context.Background()

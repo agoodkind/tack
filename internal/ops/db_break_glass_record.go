@@ -30,10 +30,9 @@ type dbBreakGlassExtra struct {
 	OnBehalfOf   *audit.ActProvenance `json:"on_behalf_of,omitempty"`
 }
 
-// recordDBBreakGlass writes one detail row. The pending row is written before
-// the statement and the ok or error row after, paired by attempt id. A process
-// lost mid-statement leaves a pending row with the attempted statement. Both
-// rows store the statement and the reason.
+// recordDBBreakGlass writes a pending detail row before execution and an ok
+// or error row afterward. The attempt ID pairs them, and both record the
+// statement and reason. A crash during execution leaves the pending record.
 func recordDBBreakGlass(
 	ctx context.Context,
 	outbox audit.OutboxWriter,

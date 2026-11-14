@@ -114,7 +114,7 @@ func readLedgerAuditPresence(ctx context.Context, databaseURL string) (ledgerAud
 
 // runLedgerAuditBootstrap refuses a populated ledger before it changes
 // anything, then migrates and seeds the audit roles. With execute false it
-// reports the decision and writes nothing.
+// reports the decision without changing state.
 func runLedgerAuditBootstrap(
 	ctx context.Context,
 	cfg *config.Config,

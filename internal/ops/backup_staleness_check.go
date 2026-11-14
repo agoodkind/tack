@@ -1,10 +1,6 @@
-// backup_staleness_check.go runs the staleness check: it dates every backup
-// mechanism's last success, prints one line per mechanism, and exits nonzero
-// when any age is past its threshold. The run that first finds a mechanism
-// stale mails a plain-words account of the fault before returning that error,
-// so a backup that quietly stopped producing anything becomes one message
-// rather than a discovery during a restore. The ledger cluster's own leg is in
-// backup_staleness_replication.go.
+// Staleness checks date backup successes, print readings, and return failure
+// when any mechanism exceeds its threshold. Alarm transitions report newly
+// stale mechanisms once and record recovery for later fault detection.
 
 package ops
 
@@ -23,12 +19,9 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// RunBackupStalenessCheck reports how long ago each backup mechanism last
-// succeeded and returns an error when any mechanism is past its threshold. The
-// report goes to out whether or not anything is stale; a mechanism that has
-// just become stale is mailed once, in plain words. The FoundationDB leg is
-// skipped when continuous backup is disabled, the same way the restore drill
-// skips its FoundationDB leg.
+// RunBackupStalenessCheck prints every reading and returns stale-mechanism
+// errors. Newly stale mechanisms trigger one email. Disabled continuous backup
+// skips the FoundationDB metric, matching restore-drill behavior.
 func RunBackupStalenessCheck(ctx context.Context, cfg *config.Config, out io.Writer) error {
 	if err := requireBackupStalenessConfig(ctx, cfg); err != nil {
 		return err
@@ -65,11 +58,9 @@ func measureBackupStaleness(
 	s3Client := newBackupS3Client(cfg)
 	logger.InfoContext(ctx, "backup.staleness.start", slog.String("bucket", cfg.BackupS3BucketMain))
 
-	// Each metric is dated against a clock read when its own probe runs, not
-	// against one reading taken up front. The probes are serial and talk to an
-	// object store, a cluster, and a container runtime, so a slow earlier probe
-	// would otherwise push a later sample past the future-timestamp tolerance
-	// and report a healthy mechanism as corrupt.
+	// Serial probes can take substantial time. Each probe reads its own
+	// comparison clock to avoid falsely rejecting later healthy timestamps
+	// against an outdated start-of-run clock.
 	metrics := []backupStalenessMetric{
 		exportStalenessMetric(ctx, cfg, s3Client, opsNow().UTC()),
 		markerStalenessMetric(
@@ -93,15 +84,12 @@ func measureBackupStaleness(
 		)
 	}
 
-	// A reading that could not be taken is dated from this guest's last one
-	// that was, so a brief outage of the store or a probe stays quiet until
-	// the mechanism could have gone stale unseen (TACK-515).
+	// Historical successes date unreadable metrics until their thresholds
+	// expire, avoiding false alarms during brief outages (TACK-515).
 	metrics = rememberBackupStalenessReadings(ctx, cfg, metrics, opsNow().UTC())
 
-	// A report that cannot be written is noted and carried to the end: the
-	// reading was taken, the log still records it, and the alarm below must
-	// not depend on the output stream. The write failure is what the run
-	// returns only when nothing is stale.
+	// Output failure must not prevent logging or alarm transitions. The final
+	// verdict returns this failure only when every mechanism remains fresh.
 	var writeErr error
 	if _, err := io.WriteString(out, backupStalenessReport(metrics)); err != nil {
 		writeErr = fmt.Errorf("write staleness report: %w", err)
@@ -110,9 +98,8 @@ func measureBackupStaleness(
 
 	logBackupStalenessMetrics(ctx, metrics)
 
-	// The alarm runs on every reading, stale or not, because a mechanism that
-	// has come back is what resets its memory. The mail is an attempt, never
-	// a gate: whatever it does, the stale verdict is what this run returns.
+	// Fresh readings clear recovered alarms. Mail failure does not alter the
+	// staleness verdict.
 	alarmBackupStalenessTransitions(ctx, cfg, s3Client, metrics)
 
 	return metrics, writeErr
@@ -145,8 +132,8 @@ func backupStalenessVerdict(
 	return nil
 }
 
-// logBackupStalenessMetrics records the whole reading in one summary event, so
-// the verdicts survive in the log trail even when nobody reads the mail.
+// logBackupStalenessMetrics records all readings in one event independently
+// of email delivery or readership.
 func logBackupStalenessMetrics(ctx context.Context, metrics []backupStalenessMetric) {
 	readings := make([]string, 0, len(metrics))
 	for _, metric := range metrics {
@@ -165,12 +152,9 @@ func logBackupStalenessMetrics(ctx context.Context, metrics []backupStalenessMet
 	telemetry.L(ctx).InfoContext(ctx, "backup.staleness.metrics", slog.Any("readings", readings))
 }
 
-// exportStalenessMetric dates the off-host ledger export from the newest
-// complete export run's key, so the export needs no marker of its own: a run
-// key is a UTC timestamp and the completeness walk already knows which run is
-// restorable. A store that cannot be listed and a bucket with no complete run
-// both report an unknown age, which is stale unless this guest's last reading
-// still dates the export (backup_staleness_last_reading.go).
+// exportStalenessMetric dates the newest complete export from its UTC run key
+// without a separate marker. Listing failure or absent complete runs produce
+// unknown age unless a prior local success can date the metric.
 func exportStalenessMetric(
 	ctx context.Context,
 	cfg *config.Config,
@@ -244,8 +228,8 @@ func exportStalenessMetric(
 	)
 }
 
-// markerStalenessMetric dates a mechanism from its success marker. An absent
-// marker means the mechanism has never recorded a success, which is stale.
+// markerStalenessMetric dates success from a marker. Absent markers cannot
+// establish a prior success and count as stale.
 func markerStalenessMetric(
 	ctx context.Context,
 	cfg *config.Config,
@@ -282,12 +266,10 @@ func markerStalenessMetric(
 	return knownBackupStalenessMetric(ctx, name, now, marker.At, threshold, marker.Detail)
 }
 
-// fdbStalenessMetric dates the FoundationDB continuous backup from its
-// restorable point, and records that point's version beside its timestamp so a
-// restore after a total loss can convert a moment the dead cluster can no
-// longer convert (TACK-468). It runs only when continuous backup is enabled, so
-// the docker client and the one-shot container are not built for a deployment
-// that has no FoundationDB backup to measure.
+// fdbStalenessMetric dates continuous backup from its restorable point and
+// records the version-time pair for recovery after source-cluster loss
+// (TACK-468). Disabled continuous backup skips Docker client and container
+// creation for this metric.
 func fdbStalenessMetric(
 	ctx context.Context,
 	cfg *config.Config,
@@ -345,9 +327,8 @@ func fdbStalenessMetric(
 		)
 	}
 
-	// A failed record is logged by the writer and left alone: the reading is
-	// real, and refusing the metric over it would turn a lost lookup entry
-	// into a false staleness alarm.
+	// Log-write failure does not invalidate the real observed restorable point.
+	// The writer logs its error; rejecting this metric would falsely alarm.
 	_ = appendFDBRestorablePoint(
 		ctx,
 		fdbVersionLogGetter(ctx, s3Client, cfg.BackupS3BucketMain),

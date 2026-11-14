@@ -11,9 +11,8 @@ import (
 	"goodkind.io/tack/internal/audit"
 )
 
-// TestActAsCreateWritesAsTheUserWithTheOperatorOnTheRow requires the node to
-// be created by the user, and the user's row in the FoundationDB outbox to
-// store the operator and the grant id of the grant row.
+// TestActAsCreateWritesAsTheUserWithTheOperatorOnTheRow checks the user as
+// creator and requires the FDB audit row to record the operator and grant ID.
 func TestActAsCreateWritesAsTheUserWithTheOperatorOnTheRow(t *testing.T) {
 	f := newActAsFixture(t, humanOperatorFlags())
 	sink := &bufferSink{buf: &bytes.Buffer{}}

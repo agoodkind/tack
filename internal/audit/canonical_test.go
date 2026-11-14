@@ -36,10 +36,9 @@ func TestHashRowChainsPreviousHash(t *testing.T) {
 	}
 }
 
-// The shard of a fixed pair is pinned to the value the ledger already holds
-// for it: a change to the hash, the mask, or ShardCount moves rows onto new
-// chains, which is the forward-only procedure in
-// docs/runbooks/audit/shards.md, never an accident.
+// TestShardOfPinnedAndBucketed checks a stored shard assignment and the valid
+// shard range. Changes require the forward-only procedure in
+// docs/runbooks/audit/shards.md.
 func TestShardOfPinnedAndBucketed(t *testing.T) {
 	a := uuid.MustParse("019dd220-440e-729a-a442-281aaf73ca30")
 	e := uuid.MustParse("019dd221-440e-729a-a442-281aaf73ca30")
@@ -68,12 +67,9 @@ func TestShardOfPinnedAndBucketed(t *testing.T) {
 	}
 }
 
-// TestHashRowVersion3HashesStoredPrecision pins the TACK-445 contract: the
-// version 3 hash covers the timestamp at the microsecond precision the
-// database stores, so an event hashed with a nanosecond OccurredAt and the
-// same event re-read at stored precision produce the same digest. Version 2
-// is shown precision-sensitive on the same pair, which is exactly why its
-// rows can only be recomputed by searching the lost nanosecond remainder.
+// TestHashRowVersion3HashesStoredPrecision checks equal version 3 hashes for
+// nanosecond input and its stored microsecond timestamp. Version 2 must differ
+// on that pair and requires lost-remainder recovery (TACK-445).
 func TestHashRowVersion3HashesStoredPrecision(t *testing.T) {
 	base := rowHashInput{
 		Event: Event{

@@ -1,6 +1,5 @@
-// export_publish_test.go covers how an export becomes the bundle in a
-// directory: what a publish that cannot finish leaves behind, and that either
-// order two publishes can land in leaves a bundle that verifies.
+// export_publish_test.go checks failed publication and both publication orders
+// for two exports in one directory.
 
 package audit
 
@@ -18,18 +17,10 @@ import (
 	"github.com/google/uuid"
 )
 
-// TestAFailedPublishLeavesThePublishedBundleIntact pins the one window a
-// publish still has. Publishing used to clear the published manifest before
-// either of its two renames ran, so a rename that failed, or a crash before the
-// second one, destroyed the signed manifest of a bundle that was whole a moment
-// earlier and left nothing that could be verified.
-//
-// The failure is induced where the export writes the manifest it is about to
-// publish: the running export's rows file names its export id, so the test can
-// derive the staged manifest path and block it with a directory, which no write
-// can replace. What that stands in for is any failure of the publish, the crash
-// included.
-func TestAFailedPublishLeavesThePublishedBundleIntact(t *testing.T) {
+// TestExportPreservesPublishedBundleAfterManifestWriteFailure blocks the staged
+// manifest path with a directory. The failure must preserve the published
+// signature, rows, and verification result.
+func TestExportPreservesPublishedBundleAfterManifestWriteFailure(t *testing.T) {
 	dir := t.TempDir()
 	orgID := uuid.Must(uuid.NewV7())
 	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
@@ -104,18 +95,10 @@ func TestAFailedPublishLeavesThePublishedBundleIntact(t *testing.T) {
 	assertDirectoryHoldsOnlyItsBundle(t, dir)
 }
 
-// TestEitherPublicationOrderLeavesAVerifyingBundle is the finding this file's
-// naming exists to remove. Two exports into one directory used to publish two
-// files each, so the renames could interleave and leave one run's rows beside
-// the other run's manifest; the digest check caught that pair, but a check that
-// catches a wrong pair is weaker than a directory in which the wrong pair
-// cannot exist.
-//
-// Both rows files sit in the directory at once, under the names their own
-// manifests carry, and each publication order is applied through the production
-// publish. Whichever manifest lands second is the bundle, and both outcomes
-// verify, because a manifest can only name the rows it was signed for.
-func TestEitherPublicationOrderLeavesAVerifyingBundle(t *testing.T) {
+// TestExportPublicationOrdersPreserveManifestRowsBinding publishes two staged
+// manifests in both orders. Each last publication must select its own signed
+// rows and produce a valid bundle.
+func TestExportPublicationOrdersPreserveManifestRowsBinding(t *testing.T) {
 	orgID := uuid.Must(uuid.NewV7())
 	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {

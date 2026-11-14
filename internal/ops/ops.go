@@ -80,8 +80,7 @@ func NewEnv(ctx context.Context, cfg *config.Config) (*Env, error) {
 
 var registry = map[string]Operation{}
 
-// Register installs op into the registry. Panics on duplicate names so a
-// double-registration is caught at init time, not at first dispatch.
+// Register installs op and panics on duplicate names during initialization.
 func Register(op Operation) {
 	if op.Name == "" {
 		panic("ops.Register: name required")

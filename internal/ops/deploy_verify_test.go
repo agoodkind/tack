@@ -55,7 +55,7 @@ func TestCompareDigestsEqual(t *testing.T) {
 	}
 }
 
-func TestCompareDigestsBareHexEqualsAlgoPrefix(t *testing.T) {
+func TestCompareDigestsAcceptsAlgorithmPrefixAndBareHex(t *testing.T) {
 	hex := "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcd00"
 	err := compareDigests("tack-app-1", "sha256:"+hex, hex)
 	if err != nil {

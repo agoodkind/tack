@@ -16,11 +16,9 @@ import (
 	"goodkind.io/tack/internal/testenv"
 )
 
-// TestAuditHostCommandsReadAndRedactWithinOneOrg drives the real `audit get`,
-// `audit query`, and `audit redact-actor` commands through the cobra root
-// against the test ledger, as LOGIN roles that hold exactly the audit_reader
-// and audit_redactor grants, so a query the migration does not allow fails
-// here the way it fails on a host.
+// TestAuditHostCommandsReadAndRedactWithinOneOrg runs audit get, query, and
+// redact-actor through Cobra against the test ledger. Separate logins inherit
+// only audit_reader or audit_redactor privileges to enforce deployed permissions.
 func TestAuditHostCommandsReadAndRedactWithinOneOrg(t *testing.T) {
 	adminDSN := testenv.Ledger(t)
 	ctx := context.Background()
@@ -83,7 +81,7 @@ func TestAuditHostCommandsReadAndRedactWithinOneOrg(t *testing.T) {
 		)
 	}
 
-	// get without --execute: the choke-point prints the plan and records nothing.
+	// Without --execute, the command prints its plan without recording events.
 	dry := run("audit", "get", "--event-id", eventA1.String())
 	if !strings.Contains(dry, "would run: audit.read") || len(outbox.events) != 0 {
 		t.Fatalf(
@@ -93,7 +91,7 @@ func TestAuditHostCommandsReadAndRedactWithinOneOrg(t *testing.T) {
 		)
 	}
 
-	// query: the org's rows and nothing from the other org.
+	// The query must return only the requested organization's rows.
 	window := []string{
 		"--oldest",
 		time.Now().Add(-time.Hour).UTC().Format(time.RFC3339),
@@ -196,8 +194,8 @@ func TestAuditHostCommandsReadAndRedactWithinOneOrg(t *testing.T) {
 		t.Fatalf("the two pages did not cover both events: %v", seen)
 	}
 
-	// redact-actor without --execute: reports the two org rows, erases nothing,
-	// records nothing.
+	// Without --execute, redact-actor reports the two org rows without
+	// deleting PII or recording mutation events.
 	var planned auditRedactActorResult
 	decodeCommandOutput(
 		t,
@@ -210,7 +208,7 @@ func TestAuditHostCommandsReadAndRedactWithinOneOrg(t *testing.T) {
 	}
 
 	if n := unredactedCount(t, admin, eventA1, eventA2, eventB); n != 3 {
-		t.Fatalf("pii rows still holding a payload after the plan = %d, want 3", n)
+		t.Fatalf("pii rows still containing a payload after the plan = %d, want 3", n)
 	}
 
 	if len(outbox.events) != 0 {
@@ -239,12 +237,12 @@ func TestAuditHostCommandsReadAndRedactWithinOneOrg(t *testing.T) {
 	}
 
 	if n := unredactedCount(t, admin, eventA1, eventA2); n != 0 {
-		t.Fatalf("org rows still holding a payload = %d, want 0", n)
+		t.Fatalf("org rows still containing a payload = %d, want 0", n)
 	}
 
 	if n := unredactedCount(t, admin, eventB); n != 1 {
 		t.Fatalf(
-			"other org's row still holding a payload = %d, want 1: the redaction left the org",
+			"other org's row still containing a payload = %d, want 1: redaction changed an unrelated organization",
 			n,
 		)
 	}
@@ -262,7 +260,7 @@ func TestAuditHostCommandsReadAndRedactWithinOneOrg(t *testing.T) {
 		)
 	}
 
-	// A rerun finds the refs and nothing left to erase.
+	// A rerun must find the references without deleting more PII.
 	var rerun auditRedactActorResult
 	decodeCommandOutput(
 		t,
@@ -278,6 +276,6 @@ func TestAuditHostCommandsReadAndRedactWithinOneOrg(t *testing.T) {
 		&rerun,
 	)
 	if rerun.PIIRefCount != 2 || rerun.Unredacted != 0 || rerun.Redacted != 0 {
-		t.Fatalf("redact rerun = %+v, want 2 refs with nothing left to erase", rerun)
+		t.Fatalf("redact rerun = %+v, want 2 refs without further PII deletion", rerun)
 	}
 }

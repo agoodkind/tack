@@ -11,9 +11,9 @@ import (
 	"goodkind.io/tack/internal/config"
 )
 
-// storedDeputyBackupStalenessConfig is a deputy checker over store whose
-// ledger holds no primary run, so without the shared memory it would mail
-// every new fault the way the data guest did on QA (TACK-484).
+// storedDeputyBackupStalenessConfig configures a deputy with an audit ledger
+// without recent primary activity. Only shared alarm state can suppress its
+// duplicate fault email in these tests (TACK-484).
 func storedDeputyBackupStalenessConfig(t *testing.T, store *backupTestStore) *config.Config {
 	t.Helper()
 	cfg := storedBackupStalenessConfig(t, store)
@@ -26,8 +26,8 @@ func storedDeputyBackupStalenessConfig(t *testing.T, store *backupTestStore) *co
 	return cfg
 }
 
-// sharedAlarmedBackupMetrics reads the alarm memory the checkers share from
-// store. found is false when no memory has been written.
+// sharedAlarmedBackupMetrics reads shared fault acceptance times and reports
+// found=false when the state object does not exist.
 func sharedAlarmedBackupMetrics(
 	t *testing.T,
 	store *backupTestStore,
@@ -46,11 +46,9 @@ func sharedAlarmedBackupMetrics(
 	return state.Alarmed, true
 }
 
-// TestBackupStalenessAlarmSharedMemoryHoldsTheDeputyAfterTheOwnerMails is the
-// one-mail rule across guests through the store: the owner mails a fault and
-// records it under backup-status/alarm-state.json, so a deputy with a fresh
-// backup root that finds the same fault holds it without a mail.
-func TestBackupStalenessAlarmSharedMemoryHoldsTheDeputyAfterTheOwnerMails(t *testing.T) {
+// TestBackupAlarmSharedStateSuppressesDeputyDuplicateEmail checks shared
+// acceptance timestamps and local caching after the owner's first fault email.
+func TestBackupAlarmSharedStateSuppressesDeputyDuplicateEmail(t *testing.T) {
 	now := time.Date(2026, 9, 6, 1, 25, 0, 0, time.UTC)
 	fixBackupStalenessClock(t, now)
 	captured := captureBackupAlarmSends(t, nil)
@@ -60,13 +58,13 @@ func TestBackupStalenessAlarmSharedMemoryHoldsTheDeputyAfterTheOwnerMails(t *tes
 
 	runStaleBackupStalenessCheck(t, owner)
 	if len(captured.messages) != 1 {
-		t.Fatalf("the owner must mail the fault once, sent %d", len(captured.messages))
+		t.Fatalf("the owner must email the fault once, sent %d", len(captured.messages))
 	}
 
 	shared, found := sharedAlarmedBackupMetrics(t, store)
 	if !found || len(shared) != 3 {
 		t.Fatalf(
-			"the accepted mail must be recorded in the store, found = %v state = %v",
+			"shared state must record the accepted email, found = %v state = %v",
 			found,
 			shared,
 		)
@@ -90,30 +88,28 @@ func TestBackupStalenessAlarmSharedMemoryHoldsTheDeputyAfterTheOwnerMails(t *tes
 	logs := runStaleDeputyCheck(t, deputy)
 	if len(captured.messages) != 1 {
 		t.Fatalf(
-			"a deputy that reads the owner's mail from the store must not mail, sent %d in total",
+			"shared owner state must suppress duplicate deputy email, sent %d total",
 			len(captured.messages),
 		)
 	}
 
 	if !strings.Contains(logs, "msg=backup.staleness.alarm_held") {
-		t.Fatalf("the deputy must log the fault as held:\n%s", logs)
+		t.Fatalf("the deputy must log alarm suppression:\n%s", logs)
 	}
 
 	cached, found := readBackupAlarmStateFile(t, deputy)
 	if !found || len(cached.Alarmed) != 3 || cached.Generation != 1 {
 		t.Fatalf(
-			"the deputy must cache the claims it took from the store at the store's generation, found = %v state = %+v",
+			"the deputy must cache shared faults at the shared generation, found = %v state = %+v",
 			found,
 			cached,
 		)
 	}
 }
 
-// TestBackupStalenessAlarmSharedMemoryHoldsTheOwnerAfterTheDeputyMails is the
-// order QA observed: the deputy mails while the owner is down, and the owner
-// then comes back with no memory of its own. The owner reads the deputy's mail
-// from the store and holds the fault instead of mailing it again.
-func TestBackupStalenessAlarmSharedMemoryHoldsTheOwnerAfterTheDeputyMails(t *testing.T) {
+// TestBackupAlarmSharedStateSuppressesOwnerDuplicateEmail checks that owner
+// recovery after a deputy email does not produce a duplicate fault email.
+func TestBackupAlarmSharedStateSuppressesOwnerDuplicateEmail(t *testing.T) {
 	now := time.Date(2026, 9, 6, 1, 25, 48, 0, time.UTC)
 	fixBackupStalenessClock(t, now)
 	captured := captureBackupAlarmSends(t, nil)
@@ -124,18 +120,18 @@ func TestBackupStalenessAlarmSharedMemoryHoldsTheOwnerAfterTheDeputyMails(t *tes
 	logs := runStaleDeputyCheck(t, deputy)
 	if len(captured.messages) != 1 {
 		t.Fatalf(
-			"with no primary run in the window the deputy must mail once, sent %d",
+			"the deputy must email once without a recent primary run, sent %d",
 			len(captured.messages),
 		)
 	}
 
 	if !strings.Contains(logs, "msg=backup.staleness.primary_not_seen") {
-		t.Fatalf("the deputy must have mailed because the primary was not seen:\n%s", logs)
+		t.Fatalf("the deputy must log missing primary activity:\n%s", logs)
 	}
 
 	if shared, found := sharedAlarmedBackupMetrics(t, store); !found || len(shared) != 3 {
 		t.Fatalf(
-			"the deputy's mail must be recorded in the store, found = %v state = %v",
+			"shared state must record the deputy's email, found = %v state = %v",
 			found,
 			shared,
 		)
@@ -145,20 +141,18 @@ func TestBackupStalenessAlarmSharedMemoryHoldsTheOwnerAfterTheDeputyMails(t *tes
 	logs = runStaleDeputyCheck(t, owner)
 	if len(captured.messages) != 1 {
 		t.Fatalf(
-			"an owner that reads the deputy's mail from the store must not mail, sent %d in total",
+			"shared deputy state must suppress duplicate owner email, sent %d total",
 			len(captured.messages),
 		)
 	}
 
 	if !strings.Contains(logs, "msg=backup.staleness.alarm_held") {
-		t.Fatalf("the owner must log the fault as held:\n%s", logs)
+		t.Fatalf("the owner must log alarm suppression:\n%s", logs)
 	}
 }
 
-// TestBackupStalenessAlarmMailsWhenTheSharedMemoryCannotBeRead proves the
-// store is never a gate on the mail: with an alarm-state object the client
-// refuses to read, the run warns, mails once, and records the mail locally;
-// the next run on the same guest holds the fault from that file.
+// TestBackupStalenessAlarmMailsWhenTheSharedMemoryCannotBeRead checks email
+// delivery and local state persistence despite an unreadable shared object.
 func TestBackupStalenessAlarmMailsWhenTheSharedMemoryCannotBeRead(t *testing.T) {
 	fixBackupStalenessClock(t, time.Date(2026, 9, 6, 1, 25, 0, 0, time.UTC))
 	captured := captureBackupAlarmSends(t, nil)
@@ -173,7 +167,7 @@ func TestBackupStalenessAlarmMailsWhenTheSharedMemoryCannotBeRead(t *testing.T) 
 	logs := runStaleDeputyCheck(t, cfg)
 	if len(captured.messages) != 1 {
 		t.Fatalf(
-			"an unreadable shared memory must not keep the fault from mailing, sent %d",
+			"unreadable shared state must not prevent fault email, sent %d",
 			len(captured.messages),
 		)
 	}
@@ -182,14 +176,14 @@ func TestBackupStalenessAlarmMailsWhenTheSharedMemoryCannotBeRead(t *testing.T) 
 		!strings.Contains(logs, "key="+backupAlarmMemoryKey) ||
 		!strings.Contains(logs, "larger than") {
 		t.Fatalf(
-			"the unreadable memory must be logged at warn with the key and the error:\n%s",
+			"the warning must include the unreadable state key and error:\n%s",
 			logs,
 		)
 	}
 
 	if alarmed, found := alarmedBackupMetrics(t, cfg); !found || len(alarmed) != 3 {
 		t.Fatalf(
-			"the accepted mail must be recorded locally, found = %v state = %v",
+			"local state must record the accepted email, found = %v state = %v",
 			found,
 			alarmed,
 		)
@@ -198,17 +192,15 @@ func TestBackupStalenessAlarmMailsWhenTheSharedMemoryCannotBeRead(t *testing.T) 
 	runStaleDeputyCheck(t, cfg)
 	if len(captured.messages) != 1 {
 		t.Fatalf(
-			"the local file must hold the fault on the next run, sent %d in total",
+			"local state must suppress duplicate email on the next run, sent %d total",
 			len(captured.messages),
 		)
 	}
 }
 
-// TestBackupStalenessAlarmSharedMemoryForgetsAClearFromEitherChecker proves a
-// clear observed on one guest reaches the store: the owner mails the fault,
-// the deputy sees the mechanism back and removes it from the shared memory,
-// and the mechanism's next fault mails again.
-func TestBackupStalenessAlarmSharedMemoryForgetsAClearFromEitherChecker(t *testing.T) {
+// TestBackupAlarmSharedStateAllowsEmailAfterRecovery checks shared recovery
+// removal followed by another fault and duplicate suppression across guests.
+func TestBackupAlarmSharedStateAllowsEmailAfterRecovery(t *testing.T) {
 	now := time.Date(2026, 9, 6, 1, 25, 0, 0, time.UTC)
 	fixBackupStalenessClock(t, now)
 	captured := captureBackupAlarmSends(t, nil)
@@ -234,18 +226,18 @@ func TestBackupStalenessAlarmSharedMemoryForgetsAClearFromEitherChecker(t *testi
 	seesHealthyCluster(t, owner, deputy)
 	rehearsalKey := backupStatusKey(backupStalenessRehearsalName)
 
-	// Run 1, owner: the rehearsal has never passed.
+	// The owner observes the first rehearsal fault.
 	runStaleBackupStalenessCheck(t, owner)
 	if len(captured.messages) != 1 {
-		t.Fatalf("the first fault must mail once, sent %d", len(captured.messages))
+		t.Fatalf("the first fault must email once, sent %d", len(captured.messages))
 	}
 
 	if shared, _ := sharedAlarmedBackupMetrics(t, store); len(shared) != 1 ||
 		shared[backupStalenessRehearsalName].IsZero() {
-		t.Fatalf("the store must remember the rehearsal fault, state = %v", shared)
+		t.Fatalf("shared state must record the rehearsal fault, state = %v", shared)
 	}
 
-	// Run 2, deputy: the drill passed, so the deputy clears the fault in the store.
+	// The deputy observes successful rehearsal and removes the shared fault.
 	store.put(
 		rehearsalKey,
 		marshalBackupStatusMarker(t, now.Add(-6*time.Hour), "restore drill passed every leg"),
@@ -253,40 +245,40 @@ func TestBackupStalenessAlarmSharedMemoryForgetsAClearFromEitherChecker(t *testi
 	var out bytes.Buffer
 	if err := RunBackupStalenessCheck(context.Background(), deputy, &out); err != nil {
 		t.Fatalf(
-			"every mechanism is fresh, so the deputy's check must pass: %v\n%s",
+			"the deputy's check must pass with every mechanism fresh: %v\n%s",
 			err,
 			out.String(),
 		)
 	}
 
 	if len(captured.messages) != 1 {
-		t.Fatalf("a clear must mail nothing, sent %d in total", len(captured.messages))
+		t.Fatalf("recovery must not send email, sent %d total", len(captured.messages))
 	}
 
 	shared, found := sharedAlarmedBackupMetrics(t, store)
 	if !found || len(shared) != 0 {
 		t.Fatalf(
-			"a clear on the deputy must remove the mechanism from the store, found = %v state = %v",
+			"deputy recovery must remove the shared fault, found = %v state = %v",
 			found,
 			shared,
 		)
 	}
 
-	// Run 3, deputy: the marker is gone again, a second fault, which mails.
+	// Removing the marker creates a second fault for the deputy.
 	store.remove(rehearsalKey)
 	runStaleDeputyCheck(t, deputy)
 	if len(captured.messages) != 2 {
 		t.Fatalf(
-			"a second fault after a clear must mail again, sent %d in total",
+			"a second fault after recovery must email again, sent %d total",
 			len(captured.messages),
 		)
 	}
 
-	// Run 4, owner: the second fault is already in the store, so it holds.
+	// Shared state suppresses the owner's duplicate second-fault email.
 	runStaleBackupStalenessCheck(t, owner)
 	if len(captured.messages) != 2 {
 		t.Fatalf(
-			"the owner must hold the fault the deputy mailed, sent %d in total",
+			"the owner must not duplicate the deputy's second email, sent %d total",
 			len(captured.messages),
 		)
 	}

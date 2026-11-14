@@ -662,9 +662,9 @@ import (
 	"github.com/google/uuid"
 )
 
-// TestPartitionManagerHealsFutureWeek verifies a future insert after maintenance.
+// TestPartitionManagerRestoresMissingFuturePartition verifies a future insert after maintenance.
 // It reproduces the 2026-07-06 exhaustion incident tracked by TACK-333.
-func TestPartitionManagerHealsFutureWeek(t *testing.T) {
+func TestPartitionManagerRestoresMissingFuturePartition(t *testing.T) {
 	pool := partmanTestPool(t)
 	ctx := context.Background()
 
@@ -726,7 +726,7 @@ func TestPartitionManagerHealsFutureWeek(t *testing.T) {
 
 ```bash
 AUDIT_CHAIN_TEST_DSN="postgres://yugabyte@127.0.0.1:5433/tack?sslmode=disable" \
-  go test -tags integration ./internal/audit/ -run TestPartitionManagerHealsFutureWeek -v
+  go test -tags integration ./internal/audit/ -run TestPartitionManagerRestoresMissingFuturePartition -v
 ```
 
 Temporarily omit `pm.Start` and require failure from continued insert errors.
