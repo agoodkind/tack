@@ -11,16 +11,23 @@ concurrency:
 
 permissions:
   contents: read
+  id-token: write
+  attestations: write
 
 jobs:
-  checks:
-    name: Checks
-    uses: ./.github/workflows/_go.yml
+  server:
+    name: Server
+    uses: agoodkind/go-makefile/.github/workflows/_ci.yml@main
+    secrets: inherit
     with:
-      build: false
+      timeout_minutes: 10
+      pre_make_commands: make ci-fdb-client
 
-  build:
-    name: Build
-    uses: ./.github/workflows/_go.yml
+  provider:
+    name: Tofu Provider
+    uses: agoodkind/go-makefile/.github/workflows/_ci.yml@main
+    secrets: inherit
     with:
-      build: true
+      working_directory: provider
+      go_version_file: provider/go.mod
+      timeout_minutes: 10
