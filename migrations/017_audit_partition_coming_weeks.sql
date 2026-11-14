@@ -55,7 +55,7 @@ BEGIN
       FROM partman.part_config
      WHERE parent_table = 'audit.events';
     IF premake_weeks IS NULL THEN
-        RAISE EXCEPTION 'audit.events has no pg_partman premake setting';
+        RAISE EXCEPTION 'audit.events does not have a pg_partman premake setting';
     END IF;
     SELECT array_agg(current_week + make_interval(weeks => week_offset) ORDER BY week_offset)
       INTO coming_weeks

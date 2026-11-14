@@ -1,9 +1,9 @@
--- The operator outbox role is separate from audit_writer, which owns and
--- relays public.ops_outbox. Operator commands authenticate as a member of
--- this role, so grants prevent them from changing or deleting pending events.
+-- Operator commands authenticate as a member of audit_operator. This role
+-- can insert pending events but cannot change or delete them. audit_writer
+-- owns public.ops_outbox and grants the relay read and delete permissions.
 --
--- Every statement is idempotent. YugabyteDB keeps completed DDL when a
--- transaction rolls back, so a retry must reconcile partial work.
+-- Every statement supports retries. YugabyteDB keeps completed DDL when a
+-- transaction rolls back. A retry must reconcile partial work.
 
 -- +goose Up
 -- +goose StatementBegin

@@ -1,7 +1,6 @@
-# Tack ledger tserver flags, one per line. Bind-mounted read-only into the
-# yugabyte service and handed to the tserver by yugabyted through
-# --tserver_flags=flagfile=... in docker-compose.yml. This file is the one
-# home for these values.
+# yugabyted reads one tserver flag per line from this read-only bind mount
+# in the yugabyte service. docker-compose.yml selects the file with
+# --tserver_flags=flagfile=.... Keep these values only in this file.
 
 # Cap YSQL connections; every backend costs memory inside the hard limit
 # below.
@@ -17,9 +16,8 @@
 # Fixed block cache: 2 GiB.
 --db_block_cache_size_bytes=2147483648
 
-# One tablet per new table and index. The default gave every table three
-# tablets, one per node, and each node carried a copy of all of them: 383
-# tablets per node at 1.6 GB of data, and about 0.4 core of raft heartbeats
-# per node at idle (TACK-493). Automatic tablet splitting stays on, so a
-# table that grows still splits; a small table no longer starts split.
+# Create one tablet per new table and index. The three-tablet default
+# replicated 383 tablets per node for 1.6 GB of data. Raft heartbeats used
+# about 0.4 CPU core per node at idle (TACK-493). Automatic tablet splitting
+# remains enabled for growing tables; small tables start with one tablet.
 --ysql_num_tablets=1

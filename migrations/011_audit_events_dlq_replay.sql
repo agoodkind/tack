@@ -1,23 +1,21 @@
--- The dead-letter table becomes the durable landing zone for every audit
--- event the consumer could not commit to audit.events, not only for payloads
--- it could not decode (TACK-336). A replay re-publishes a row's payload to the
--- audit topic and the consumer, still the only writer of the ledger, deletes
--- the row when the event lands or counts the attempt when it fails again.
+-- The dead-letter table durably stores every audit event the consumer could
+-- not commit to audit.events, including payloads it could not decode
+-- (TACK-336). A replay re-publishes a row's payload to the audit topic. The
+-- consumer, the ledger's only writer, deletes the row in the event's write
+-- transaction or counts the attempt if it fails again.
 --
--- The table has no time-based expiry and gains none here; a row leaves only
--- through a successful replay.
+-- The table does not expire rows; only a successful replay removes them.
 --
 -- Every statement is idempotent. YugabyteDB keeps completed DDL when a
--- migration transaction rolls back, so a retry must reconcile partial work.
+-- migration transaction rolls back. A retry must reconcile partial work.
 
 -- +goose Up
 ALTER TABLE audit.events_dlq ADD COLUMN IF NOT EXISTS attempt_count   INT         NOT NULL DEFAULT 0;
 ALTER TABLE audit.events_dlq ADD COLUMN IF NOT EXISTS last_attempt_at TIMESTAMPTZ;
 
--- The writer already holds a FOR ALL policy on the table; the grant was the
--- narrower of the two and never allowed the delete a replay ends with. The
--- update is scoped to the replay bookkeeping so the queued payload, the
--- bytes a replay must reproduce, stays beyond the writer's reach.
+-- The writer already has a FOR ALL policy on the table, but its grant did
+-- not permit the delete that completes a replay. Grant updates only to replay
+-- bookkeeping columns; the writer must not change queued payload bytes.
 GRANT UPDATE (attempt_count, last_attempt_at, error), DELETE ON audit.events_dlq TO audit_writer;
 
 -- +goose Down
