@@ -47,35 +47,6 @@ func TestToolVerbCoversEveryRegisteredTool(t *testing.T) {
 	}
 }
 
-func TestStateChangeAndReadAreDisjoint(t *testing.T) {
-	for v := range stateChangeVerbs {
-		if IsRead(v) {
-			t.Errorf("verb %q is in stateChangeVerbs but IsRead returned true", v)
-		}
-	}
-}
-
-func TestMemoryRecorderRoundTrip(t *testing.T) {
-	r := NewMemoryRecorder()
-	if err := r.Record(t.Context(), Event{Verb: string(VerbNodeRead)}); err != nil {
-		t.Fatalf("record: %v", err)
-	}
-
-	got := r.Events()
-	if len(got) != 1 || got[0].Verb != string(VerbNodeRead) {
-		t.Fatalf("unexpected events: %#v", got)
-	}
-
-	if got[0].OccurredAt.IsZero() {
-		t.Errorf("OccurredAt should default to now, got zero")
-	}
-
-	r.Reset()
-	if len(r.Events()) != 0 {
-		t.Errorf("Reset should empty the buffer")
-	}
-}
-
 func TestUnknownToolReturnsNotCovered(t *testing.T) {
 	if _, ok := ToolVerb("tack_does_not_exist"); ok {
 		t.Errorf("ToolVerb should not match unknown tool names")

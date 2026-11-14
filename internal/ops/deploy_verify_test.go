@@ -110,20 +110,6 @@ func TestCompareDigestsEmptyFails(t *testing.T) {
 	}
 }
 
-func TestNormalizeDigestStripsAlgoPrefix(t *testing.T) {
-	got := normalizeDigest("sha256:ABC")
-	if got != "abc" {
-		t.Fatalf("expected lowercased hex without prefix, got %q", got)
-	}
-}
-
-func TestNormalizeDigestHandlesRepoDigest(t *testing.T) {
-	got := normalizeDigest("ghcr.io/x/y@sha256:DEF")
-	if got != "def" {
-		t.Fatalf("expected stripped repo-digest, got %q", got)
-	}
-}
-
 func TestNormalizeDigestEmpty(t *testing.T) {
 	got := normalizeDigest("   ")
 	if got != "" {

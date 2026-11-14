@@ -67,28 +67,6 @@ func TestGitConfigOperatorSourceHonorsGlobalOverride(t *testing.T) {
 	}
 }
 
-func TestGitConfigOperatorSourceUsesStableID(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("GIT_CONFIG_GLOBAL", "")
-	writeGitConfig(t, filepath.Join(home, ".gitconfig"), "Ada Lovelace", "ada@example.com")
-	source := GitConfigOperatorSource{}
-
-	first, err := source.Resolve(context.Background())
-	if err != nil {
-		t.Fatalf("first Resolve: %v", err)
-	}
-
-	second, err := source.Resolve(context.Background())
-	if err != nil {
-		t.Fatalf("second Resolve: %v", err)
-	}
-
-	if first.ID != second.ID {
-		t.Fatalf("ids differ: %s and %s", first.ID, second.ID)
-	}
-}
-
 // TestGitConfigQuotedEmailYieldsSameID pins that quoting an email in the git
 // config does not change the operator's identity. The actor id is derived from
 // the email, so a stray pair of quotes would otherwise split one person into

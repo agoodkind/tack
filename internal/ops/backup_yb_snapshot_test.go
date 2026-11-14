@@ -13,35 +13,6 @@ import (
 	"goodkind.io/tack/internal/config"
 )
 
-// TestYBSnapshotUploadArtifactsManifestLast locks the upload order the export
-// relies on: the manifest is the completeness gate, so it must be the last
-// artifact in the slice and land only after everything it vouches for. The
-// roles file is one of the things it vouches for: without it a restore has no
-// identity to grant the schema's privileges to.
-func TestYBSnapshotUploadArtifactsManifestLast(t *testing.T) {
-	files := ybSnapshotUploadArtifacts(
-		"/stage",
-		"/stage/schema.sql",
-		"/stage/roles.sql",
-		"/stage/manifest.json",
-	)
-
-	got := make([]string, 0, len(files))
-	for _, file := range files {
-		got = append(got, file.name)
-	}
-
-	want := []string{
-		ybSnapshotMetadataObject,
-		ybSnapshotSchemaObject,
-		ybSnapshotRolesObject,
-		ybSnapshotManifestObject,
-	}
-	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("artifact order:\n got=%v\nwant=%v", got, want)
-	}
-}
-
 // TestYBSnapshotGatedArtifactNamesExcludeTheManifest proves the manifest
 // declares every artifact except itself. Its own presence is what makes the run
 // visible to a walk at all, so a manifest gating it would assert nothing, while

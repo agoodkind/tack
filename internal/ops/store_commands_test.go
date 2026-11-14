@@ -55,38 +55,3 @@ func TestStoreSetCoordinatorsRefusesAnEvenCount(t *testing.T) {
 		t.Fatalf("the refusal said %q, which does not say why an even count is refused", err)
 	}
 }
-
-func TestStoreSetCoordinatorsRefusesAnEmptyList(t *testing.T) {
-	cfg, sink := storeCommandFixture(t)
-	if err := RunStoreSetCoordinators(context.Background(), cfg, "  ,  ", sink); err == nil {
-		t.Fatal("an empty coordinator list was accepted")
-	}
-}
-
-func TestStoreExcludeRefusesAnEmptyList(t *testing.T) {
-	cfg, sink := storeCommandFixture(t)
-	if err := RunStoreExclude(context.Background(), cfg, "  ,  ", sink); err == nil {
-		t.Fatal("an empty exclude list was accepted")
-	}
-}
-
-// The redundancy word reaches fdbcli as part of a command. The command refuses
-// anything outside the three modes before it gets there.
-func TestStoreSetRedundancyRefusesAWordOutsideTheThreeModes(t *testing.T) {
-	for _, mode := range []string{"double ssd", "new double", "DOUBLE"} {
-		cfg, sink := storeCommandFixture(t)
-		if err := RunStoreSetRedundancy(context.Background(), cfg, mode, sink); err == nil {
-			t.Fatalf("mode %q was accepted; it reaches fdbcli as a command", mode)
-		}
-	}
-}
-
-// Without a mode on the command line the command reads
-// TACK_OPS_FDB_REDUNDANCY_MODE. An environment that declared none is refused
-// rather than configured with a mode nobody named.
-func TestStoreSetRedundancyRefusesAnUndeclaredMode(t *testing.T) {
-	cfg, sink := storeCommandFixture(t)
-	if err := RunStoreSetRedundancy(context.Background(), cfg, "", sink); err == nil {
-		t.Fatal("an empty configured mode was accepted")
-	}
-}

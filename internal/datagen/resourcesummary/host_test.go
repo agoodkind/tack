@@ -7,7 +7,10 @@ import (
 	"goodkind.io/tack/internal/datagen/resourcesummary"
 )
 
-const samplerFixture = "testdata/sampler.jsonl"
+const (
+	samplerFixture = "testdata/sampler.jsonl"
+	searchGuestID    = "227"
+)
 
 // TestSummarizeHostFixture checks every host and guest figure on hand-written sampler lines.
 // The fixture has one line before and one line after the window, with readings of 99 that a

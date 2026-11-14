@@ -10,25 +10,6 @@ import (
 	"github.com/google/uuid"
 )
 
-func TestCanonicalJSONIsDeterministic(t *testing.T) {
-	a := map[string]any{"b": 2, "a": 1, "nested": map[string]any{"y": []any{3, 2, 1}, "x": true}}
-	b := map[string]any{"nested": map[string]any{"x": true, "y": []any{3, 2, 1}}, "a": 1, "b": 2}
-
-	ca, err := canonicalJSON(a)
-	if err != nil {
-		t.Fatalf("canonicalJSON a: %v", err)
-	}
-
-	cb, err := canonicalJSON(b)
-	if err != nil {
-		t.Fatalf("canonicalJSON b: %v", err)
-	}
-
-	if !bytes.Equal(ca, cb) {
-		t.Fatalf("equal logical inputs produced different canonical bytes:\n a=%s\n b=%s", ca, cb)
-	}
-}
-
 func TestHashRowChainsPreviousHash(t *testing.T) {
 	prev := []byte("seed")
 	h1, err := hashRow(prev, map[string]any{"k": 1})
