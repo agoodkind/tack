@@ -24,7 +24,7 @@ jobs:
       pre_make_commands: make ci-fdb-client
 
   provider:
-    name: Tack provider
+    name: Tofu Provider
     uses: agoodkind/go-makefile/.github/workflows/_ci.yml@main
     secrets: inherit
     with:
