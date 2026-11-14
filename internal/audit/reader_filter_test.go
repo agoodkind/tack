@@ -23,18 +23,17 @@ func wholeRangeFilter(orgID uuid.UUID) QueryFilter {
 	}
 }
 
-// TestQueryFilterRefusesAForgottenOrg checks that omitting an org still fails
-// validation rather than selecting the whole ledger.
-func TestQueryFilterRefusesAForgottenOrg(t *testing.T) {
+// TestQueryFilterRejectsMissingOrg checks that omitting an org fails validation
+// rather than selecting the whole ledger.
+func TestQueryFilterRejectsMissingOrg(t *testing.T) {
 	err := wholeRangeFilter(uuid.Nil).Validate()
 	if err == nil || !strings.Contains(err.Error(), "org_id required") {
 		t.Fatalf("error = %v, want the missing org refused", err)
 	}
 }
 
-// TestQueryFilterServesTheNilOrgWhenNamed checks explicit access to ledger
-// rows under the nil org.
-func TestQueryFilterServesTheNilOrgWhenNamed(t *testing.T) {
+// TestQueryFilterAcceptsExplicitNilOrg checks validation with explicit NilOrg access.
+func TestQueryFilterAcceptsExplicitNilOrg(t *testing.T) {
 	filter := wholeRangeFilter(uuid.Nil)
 	filter.NilOrg = true
 	if err := filter.Validate(); err != nil {
@@ -42,9 +41,9 @@ func TestQueryFilterServesTheNilOrgWhenNamed(t *testing.T) {
 	}
 }
 
-// TestQueryFilterRefusesTheNilOrgFlagBesideARealOrg checks that NilOrg cannot
-// bypass org validation when the filter also specifies a non-nil org.
-func TestQueryFilterRefusesTheNilOrgFlagBesideARealOrg(t *testing.T) {
+// TestQueryFilterRejectsNilOrgFlagWithNonNilOrg checks that NilOrg cannot
+// bypass validation with a contradictory non-nil org.
+func TestQueryFilterRejectsNilOrgFlagWithNonNilOrg(t *testing.T) {
 	filter := wholeRangeFilter(uuid.Must(uuid.NewV7()))
 	filter.NilOrg = true
 	err := filter.Validate()
@@ -53,9 +52,9 @@ func TestQueryFilterRefusesTheNilOrgFlagBesideARealOrg(t *testing.T) {
 	}
 }
 
-// TestQueryFilterStillRequiresBothTimeBounds checks that NilOrg does not
-// permit an unbounded scan.
-func TestQueryFilterStillRequiresBothTimeBounds(t *testing.T) {
+// TestQueryFilterRequiresTimeBoundsForNilOrg checks that explicit NilOrg
+// access does not permit an unbounded scan.
+func TestQueryFilterRequiresTimeBoundsForNilOrg(t *testing.T) {
 	filter := wholeRangeFilter(uuid.Nil)
 	filter.NilOrg = true
 	filter.Latest = time.Time{}

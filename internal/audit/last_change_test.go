@@ -85,7 +85,7 @@ func TestLastChangeOrdersFoundationDBRowsByCommitVersion(t *testing.T) {
 
 // TestLastChangeReportsAmbiguousOrderAcrossDomains mixes a row with a commit
 // version and a row without one. The entry must list both candidates and
-// report no change.
+// must not select a change.
 func TestLastChangeReportsAmbiguousOrderAcrossDomains(t *testing.T) {
 	nodeID, now := uuid.Must(uuid.NewV7()), time.Now().UTC()
 	versioned := changeRow(nodeID, now, "000000000000000000010000", "a", "b")

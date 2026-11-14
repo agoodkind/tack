@@ -49,11 +49,11 @@ func TestBuildAuditQueryFiltersContextCorrelation(t *testing.T) {
 	}
 }
 
-// TestBuildAuditQueryWithoutALimitAsksForEveryRow checks that a streaming export
+// TestBuildAuditQueryOmitsLimitAndOrderingForExport checks that a streaming export
 // selects every matching row without LIMIT or ORDER BY. An org-only filter
 // cannot use an index for event_time order. Sorting would require the database
 // to read every matching row before returning the first.
-func TestBuildAuditQueryWithoutALimitAsksForEveryRow(t *testing.T) {
+func TestBuildAuditQueryOmitsLimitAndOrderingForExport(t *testing.T) {
 	filter := QueryFilter{
 		OrgID:     uuid.Must(uuid.NewV7()),
 		Oldest:    time.Unix(10, 0).UTC(),

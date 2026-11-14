@@ -163,7 +163,7 @@ func TestSpillAppendsAfterRequestCancellation(t *testing.T) {
 
 	if outbox.lastAppendCtxErr != nil {
 		t.Fatalf(
-			"the outbox was handed a context already done (%v); the spill must run on its own deadline",
+			"Append received a canceled context (%v); the spill must use its own deadline",
 			outbox.lastAppendCtxErr,
 		)
 	}

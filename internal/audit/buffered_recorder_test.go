@@ -52,9 +52,9 @@ func newBufferedForTest(
 	return buffered
 }
 
-// TestBufferedRecordAnswersReadsBeforeTheBroker checks that read events do
+// TestBufferedRecordDefersReadsAndSynchronizesChanges checks that read events do
 // not synchronously produce on the request while state changes produce once.
-func TestBufferedRecordAnswersReadsBeforeTheBroker(t *testing.T) {
+func TestBufferedRecordDefersReadsAndSynchronizesChanges(t *testing.T) {
 	cluster := newFakeCluster(t)
 	outbox := &memoryOutbox{}
 	buffered := newBufferedForTest(

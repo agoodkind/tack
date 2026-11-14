@@ -17,7 +17,7 @@ const exportPageSpanRows = 2500
 
 // TestExportWritesEveryRowPastEveryPageSize checks complete zero-limit exports
 // using a source that honors requested limits. Memory accumulation requires
-// the separate TestExportPeakMemoryIsFlatInRowCount measurements.
+// the separate TestExportHeapMeetsBudgetAcrossRowCounts measurements.
 func TestExportWritesEveryRowPastEveryPageSize(t *testing.T) {
 	dir := t.TempDir()
 	orgID := uuid.Must(uuid.NewV7())

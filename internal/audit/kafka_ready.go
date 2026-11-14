@@ -94,7 +94,7 @@ func (k *KafkaRecorder) checkPartitions(
 	minInSync int,
 ) error {
 	if len(respTopic.Partitions) == 0 {
-		err := fmt.Errorf("audit kafka topic %s: reports no partitions", k.topic)
+		err := fmt.Errorf("audit kafka topic %s: does not report any partitions", k.topic)
 		slog.ErrorContext(
 			ctx,
 			"audit.kafka.topic_partitionless",

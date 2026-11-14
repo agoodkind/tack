@@ -44,7 +44,7 @@ func TestReadyRefusesAPartitionlessTopic(t *testing.T) {
 		t.Fatal("a topic without partitions must refuse readiness")
 	}
 
-	if !strings.Contains(err.Error(), "no partitions") {
+	if !strings.Contains(err.Error(), "does not report any partitions") {
 		t.Fatalf("err = %v, want rejection of the empty partition list", err)
 	}
 }

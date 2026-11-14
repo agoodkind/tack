@@ -1,6 +1,5 @@
-// export_manifest_legacy_test.go covers bundles written before the manifest
-// carried an events file name: their format fixes the name, and they still
-// verify.
+// export_manifest_legacy_test.go checks older bundles without a signed
+// events file name. Their legacy format selects the fixed rows file.
 
 package audit
 
