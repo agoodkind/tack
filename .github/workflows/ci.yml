@@ -5,238 +5,75 @@ on:
   push:
     branches: [main]
 
-# A new commit on a pull request cancels the run for its previous commit. A
-# push to main runs in a group keyed by its commit and cancels no other run.
 concurrency:
   group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
-  attestations: write
 
 jobs:
-  go:
-    uses: agoodkind/go-makefile/.github/workflows/_ci.yml@main
-    permissions:
-      contents: read
-      id-token: write
-      attestations: write
-    secrets: inherit
+  checks:
+    name: Checks
+    uses: ./.github/workflows/_go.yml
     with:
-      golangci_lint_version: v2.15.0
-      pre_make_commands: |
-        fdb_version=7.4.6
-        curl -fsSL \
-          "https://github.com/apple/foundationdb/releases/download/${fdb_version}/foundationdb-clients_${fdb_version}-1_amd64.deb" \
-          -o /tmp/fdb-clients.deb
-        sudo dpkg -i /tmp/fdb-clients.deb
-        rm /tmp/fdb-clients.deb
-      # The Test job takes 13 to 15 minutes. Its go test limit is 20 minutes
-      # for each package (GO_TEST_TARGETS in the Makefile). The last package
-      # starts about 5 minutes into the job, and a hung test prints its
-      # timeout report before this limit ends the job.
-      timeout_minutes: 30
+      task: checks
 
-  # The provider job runs shared go-makefile _ci.yml with working_directory:
-  # provider. Go excludes this nested module from ./... in the root go job.
-  provider:
-    uses: agoodkind/go-makefile/.github/workflows/_ci.yml@main
-    permissions:
-      contents: read
-      id-token: write
-      attestations: write
-    secrets: inherit
+  build:
+    name: Build
+    uses: ./.github/workflows/_go.yml
     with:
-      golangci_lint_version: v2.15.0
-      working_directory: provider
-      go_version_file: provider/go.mod
+      task: build
 
-  # The overlay job builds an image that fetches the pinned PostgreSQL provider
-  # source, applies the patch, builds the provider through go-makefile, and
-  # installs the pinned OpenTofu after a SHA-256 check. The tests run OpenTofu
-  # in containers from that image against local PostgreSQL and YugabyteDB
-  # engines that internal/testenv starts.
-  postgresql-overlay:
-    name: postgresql provider overlay
-    runs-on: ubuntu-latest
-    timeout-minutes: 45
-    steps:
-      - uses: actions/checkout@v7
+  database:
+    name: Tests
+    uses: ./.github/workflows/_database.yml
 
-      - name: build the provider and run the overlay tests
-        run: make test-postgresql-overlay
-
-  # The store-backed tests run in three shards on separate hosts. Each shard
-  # runs one test-store-host-shard selection in the Makefile.
-  integration-shard:
-    name: ${{ matrix.description }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - shard: integration-a-through-l
-            description: integration tests (FoundationDB, names A through L)
-          - shard: remaining-integration-tests
-            description: integration tests (FoundationDB, remaining names)
-          - shard: other-store-packages
-            description: integration tests (FoundationDB, other store packages)
-    steps:
-      - uses: actions/checkout@v7
-
-      - uses: actions/setup-go@v7
-        with:
-          go-version-file: go.mod
-
-      - name: install the FoundationDB client library
-        run: |
-          fdb_version=7.4.6
-          curl -fsSL \
-            "https://github.com/apple/foundationdb/releases/download/${fdb_version}/foundationdb-clients_${fdb_version}-1_amd64.deb" \
-            -o /tmp/fdb-clients.deb
-          sudo dpkg -i /tmp/fdb-clients.deb
-          rm /tmp/fdb-clients.deb
-
-      # The tests start FoundationDB and the ledger themselves through
-      # internal/testenv and reach them at their bridge addresses from the
-      # host.
-      - name: run the store-backed tests
-        run: make test-store-host-shard SHARD=${{ matrix.shard }}
-
-  # The ruleset requires the check name integration tests (FDB). This job
-  # passes only when every store-backed shard passes.
-  integration:
-    name: integration tests (FDB)
-    needs: integration-shard
+  database-required:
+    name: Tests / Database
+    needs: database
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: require every store-backed shard to pass
-        run: test "${{ needs.integration-shard.result }}" = success
+      - name: Require every database partition to pass
+        env:
+          DATABASE_RESULT: ${{ needs.database.result }}
+        run: test "${DATABASE_RESULT}" = success
 
-  # The long runtime audit suites run separately from the shared Test and
-  # store-backed jobs. The job limit allows 40 minutes for go test and
-  # 10 minutes for setup.
-  runtime-audit:
-    name: runtime audit coverage
+  audit:
+    name: Tests / Audit
     runs-on: ubuntu-latest
     timeout-minutes: 50
     steps:
       - uses: actions/checkout@v7
-
-      - uses: actions/setup-go@v7
+      - uses: ./.github/actions/setup-go
         with:
-          go-version-file: go.mod
-
-      - name: install the FoundationDB client library
-        run: |
-          fdb_version=7.4.6
-          curl -fsSL \
-            "https://github.com/apple/foundationdb/releases/download/${fdb_version}/foundationdb-clients_${fdb_version}-1_amd64.deb" \
-            -o /tmp/fdb-clients.deb
-          sudo dpkg -i /tmp/fdb-clients.deb
-          rm /tmp/fdb-clients.deb
-
-      - name: run the runtime audit coverage tests
+          foundationdb: 'true'
+      - name: Run runtime audit coverage
         run: make test-runtime-audit-host
 
-  # Each job limit allows the go test limit of its search group in the Makefile
-  # plus 15 minutes for setup. Continuation allows 60 minutes of go test;
-  # rebuild, split, and restore allow 45. Throughput and cluster failure tests
-  # run only on the Mac runner.
   search:
-    name: ${{ matrix.description }}
-    runs-on: ubuntu-latest
-    timeout-minutes: ${{ matrix.timeout_minutes }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - group: continuation-with-duplicate-pages
-            description: Search continuation with duplicate pages
-            timeout_minutes: 75
-          - group: rebuild-split-and-restore
-            description: Search rebuild, split, and restore
-            timeout_minutes: 60
-    steps:
-      - uses: actions/checkout@v7
+    name: Tests
+    uses: ./.github/workflows/_search.yml
 
-      - uses: actions/setup-go@v7
-        with:
-          go-version-file: go.mod
-
-      - name: install the FoundationDB client library
-        run: |
-          fdb_version=7.4.6
-          curl -fsSL \
-            "https://github.com/apple/foundationdb/releases/download/${fdb_version}/foundationdb-clients_${fdb_version}-1_amd64.deb" \
-            -o /tmp/fdb-clients.deb
-          sudo dpkg -i /tmp/fdb-clients.deb
-          rm /tmp/fdb-clients.deb
-
-      # The tests start OpenSearch, FoundationDB, and the ledger through
-      # internal/testenv and dial them at their bridge addresses from the host.
-      - name: run the OpenSearch-backed tests
-        run: make test-search-host-group GROUP=${{ matrix.group }}
-
-  search-features:
-    name: ${{ matrix.description }}
-    runs-on: ubuntu-latest
-    timeout-minutes: ${{ matrix.timeout_minutes }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - group: features-a-through-m
-            description: Search permissions, pagination, and concurrent updates
-            timeout_minutes: 110
-          - group: remaining-features
-            description: Search queries, indexing, relationships, and session cleanup
-            timeout_minutes: 90
-          - group: runtime-and-session-audit
-            description: Search runtime and session audit recording
-            timeout_minutes: 90
-    steps:
-      - uses: actions/checkout@v7
-
-      - uses: actions/setup-go@v7
-        with:
-          go-version-file: go.mod
-
-      - name: install the FoundationDB client library
-        run: |
-          fdb_version=7.4.6
-          curl -fsSL \
-            "https://github.com/apple/foundationdb/releases/download/${fdb_version}/foundationdb-clients_${fdb_version}-1_amd64.deb" \
-            -o /tmp/fdb-clients.deb
-          sudo dpkg -i /tmp/fdb-clients.deb
-          rm /tmp/fdb-clients.deb
-
-      # The tests start OpenSearch, FoundationDB, and the ledger through
-      # internal/testenv and dial them at their bridge addresses from the host.
-      - name: verify the OpenSearch SDK public adapter contract
-        if: matrix.group == 'features-a-through-m'
-        env:
-          GOMAXPROCS: '2'
-          GOFLAGS: -p=2
-          TACK_SEARCH_CLUSTER: '1'
-        run: >-
-          make test-search-host
-          TEST_SEARCH_ARGS='-race -p=2 -count=1 -timeout 20m -v -run ^TestSearchSDKCompatibility$$ ./internal/test/integration/...'
-
-      - name: run the OpenSearch-backed tests
-        run: make test-search-host-group GROUP=${{ matrix.group }}
-
-  # This aggregate passes only when every search feature partition passes.
-  search-features-required:
-    name: search integration tests (OpenSearch features)
-    needs: search-features
+  search-required:
+    name: Tests / Search
+    needs: search
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: require every search feature partition to pass
-        run: test "${{ needs.search-features.result }}" = success
+      - name: Require every search regression partition to pass
+        env:
+          SEARCH_RESULT: ${{ needs.search.result }}
+        run: test "${SEARCH_RESULT}" = success
+
+  postgresql-provider:
+    name: Tests / PostgreSQL provider
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+      - name: Build the patched provider and run OpenTofu tests
+        run: make test-postgresql-overlay

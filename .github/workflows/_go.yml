@@ -1,0 +1,87 @@
+name: Go module checks and builds
+
+on:
+  workflow_call:
+    inputs:
+      task:
+        description: Run checks or build the module binary.
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  module:
+    name: ${{ matrix.component }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - component: Server
+            directory: .
+            foundationdb: 'true'
+          - component: Tack provider
+            directory: provider
+            foundationdb: 'false'
+    defaults:
+      run:
+        working-directory: ${{ matrix.directory }}
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GOLANGCI_LINT_INSTALL: github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.15.0
+    steps:
+      - uses: actions/checkout@v7
+      - name: Validate the requested task
+        env:
+          CI_TASK: ${{ inputs.task }}
+        run: |
+          case "${CI_TASK}" in
+            checks|build) ;;
+            *) printf 'Unsupported CI task: %s\n' "${CI_TASK}" >&2; exit 1 ;;
+          esac
+      - uses: ./.github/actions/setup-go
+        with:
+          foundationdb: ${{ matrix.foundationdb }}
+          go-version-file: ${{ matrix.directory }}/go.mod
+          cache-dependency-path: ${{ matrix.directory }}/go.sum
+      - name: Install golangci-lint
+        uses: golangci/golangci-lint-action@v9
+        with:
+          version: v2.15.0
+          install-only: true
+          skip-cache: true
+      - name: Resolve the lint cache
+        id: cache
+        run: make go-mk-cache-manifest
+      - name: Select the weekly cache generation
+        id: generation
+        run: printf 'week=%s\n' "$(date -u +%G-%V)" >> "${GITHUB_OUTPUT}"
+      - name: Cache lint analysis
+        uses: actions/cache@v6
+        with:
+          path: ${{ steps.cache.outputs.lint_cache_paths }}
+          key: go-mk-golangci-${{ runner.os }}-${{ runner.arch }}-${{ matrix.directory }}-golangci-v2.15.0-${{ hashFiles(format('{0}/go.mod', matrix.directory), format('{0}/go.sum', matrix.directory), format('{0}/go.work', matrix.directory), format('{0}/go.work.sum', matrix.directory)) }}-${{ steps.generation.outputs.week }}
+          restore-keys: |
+            go-mk-golangci-${{ runner.os }}-${{ runner.arch }}-${{ matrix.directory }}-golangci-v2.15.0-${{ hashFiles(format('{0}/go.mod', matrix.directory), format('{0}/go.sum', matrix.directory), format('{0}/go.work', matrix.directory), format('{0}/go.work.sum', matrix.directory)) }}-
+      - name: Run static checks
+        id: static
+        if: inputs.task == 'checks'
+        continue-on-error: true
+        run: make build-check
+      - name: Run module tests
+        id: tests
+        if: inputs.task == 'checks' && !cancelled()
+        continue-on-error: true
+        run: make test
+      - name: Require both check steps to pass
+        if: always() && inputs.task == 'checks'
+        env:
+          STATIC_RESULT: ${{ steps.static.outcome }}
+          TEST_RESULT: ${{ steps.tests.outcome }}
+        run: test "${STATIC_RESULT}:${TEST_RESULT}" = success:success
+      - name: Build the module binary
+        if: inputs.task == 'build'
+        run: make build

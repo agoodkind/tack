@@ -1,0 +1,32 @@
+name: Set up Go
+description: Install Go and the FoundationDB client when a job needs it.
+inputs:
+  foundationdb:
+    description: Install the pinned FoundationDB client library.
+    required: false
+    default: 'false'
+  go-version-file:
+    description: Read the Go version from this module file.
+    required: false
+    default: go.mod
+  cache-dependency-path:
+    description: Cache dependencies for this module sum file.
+    required: false
+    default: go.sum
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-go@v7
+      with:
+        go-version-file: ${{ inputs.go-version-file }}
+        cache-dependency-path: ${{ inputs.cache-dependency-path }}
+    - name: Install the FoundationDB client library
+      if: inputs.foundationdb == 'true'
+      shell: bash
+      env:
+        FDB_VERSION: 7.4.6
+      run: |
+        curl -fsSL \
+          "https://github.com/apple/foundationdb/releases/download/${FDB_VERSION}/foundationdb-clients_${FDB_VERSION}-1_amd64.deb" \
+          -o "${RUNNER_TEMP}/fdb-clients.deb"
+        sudo dpkg -i "${RUNNER_TEMP}/fdb-clients.deb"

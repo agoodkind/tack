@@ -331,7 +331,7 @@ permanent ledger. Apply it to custom node types and relationships.
    authorization refusals and recording failures; declarations and log messages
    alone do not prove coverage.
 6. Include the audit evidence and test results in the PR. Require the existing
-   `runtime audit coverage` check and applicable integration checks to pass before
+   `Tests / Audit` check and applicable integration checks to pass before
    merge. Verify the accepted behavior on QA before production release.
 
 Do not add recording opt-outs, exclude new operations from coverage, weaken audit
