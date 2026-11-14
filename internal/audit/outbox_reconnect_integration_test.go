@@ -9,10 +9,10 @@ import (
 	"goodkind.io/tack/internal/testenv"
 )
 
-// TestWriteOutboxSurvivesALostConnection terminates the connection between
+// TestWriteOutboxRetriesAfterConnectionTermination terminates the connection between
 // writes to reproduce ops ledger node-prepare stopping its connected node.
 // The second write must succeed through connection recovery (TACK-497).
-func TestWriteOutboxSurvivesALostConnection(t *testing.T) {
+func TestWriteOutboxRetriesAfterConnectionTermination(t *testing.T) {
 	dsn := testenv.Ledger(t)
 	ctx := context.Background()
 

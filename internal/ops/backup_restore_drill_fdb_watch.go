@@ -1,8 +1,5 @@
-// backup_restore_drill_fdb_watch.go reads what the backgrounded FoundationDB
-// restore is doing: whether it has exited and with what, one status reading,
-// and the tail of its log for an error. The launch that puts the restore in
-// the background with its output and exit status captured to files lives
-// beside it.
+// FoundationDB restore monitoring reads exit status, progress, and bounded
+// diagnostic output from the background process's files.
 
 package ops
 
@@ -18,20 +15,17 @@ import (
 )
 
 const (
-	// fdbRestoreLogPath captures the restore's own output, including the
-	// progress updates --waitfordone prints.
+	// fdbRestoreLogPath records restore output and --waitfordone updates.
 	fdbRestoreLogPath = "/var/fdb/restore.log"
-	// fdbRestoreExitPath holds the restore's exit status once it has one. It
-	// is moved into place from the partial name below, so a reader sees either
-	// nothing or the whole status, never a half-written one.
+	// fdbRestoreExitPath records the complete status after an atomic rename
+	// from the partial file, preventing incomplete reads.
 	fdbRestoreExitPath = "/var/fdb/restore.rc"
 	fdbRestoreExitTemp = "/var/fdb/restore.rc.partial"
-	// fdbRestoreLogTailBytes bounds how much of the restore's output an error
-	// message carries.
+	// fdbRestoreLogTailBytes limits restore output included in errors.
 	fdbRestoreLogTailBytes = 4096
 )
 
-// fdbRestoreExitCode reports the restore's exit status once it has one.
+// fdbRestoreExitCode reports the completed restore's exit status.
 func fdbRestoreExitCode(
 	ctx context.Context,
 	r *restoreDrillCtx,
@@ -62,11 +56,8 @@ func fdbRestoreExitCode(
 	return parseFDBRestoreExit(res.Stdout)
 }
 
-// parseFDBRestoreExit reads the exit-status probe's answer: either the restore
-// is still running, or it exited with the status the probe printed. Output
-// that says neither is an error, because this probe is what tells the wait a
-// restore finished and an answer nobody could read must never pass for one
-// that is still running.
+// parseFDBRestoreExit accepts running or an exited integer status. Malformed
+// output must fail instead of incorrectly indicating an active restore.
 func parseFDBRestoreExit(out string) (int, bool, error) {
 	trimmed := strings.TrimSpace(out)
 	if trimmed == "running" {
@@ -81,7 +72,7 @@ func parseFDBRestoreExit(out string) (int, bool, error) {
 	code, err := strconv.Atoi(strings.TrimSpace(status))
 	if err != nil {
 		return 0, false, fmt.Errorf(
-			"read %q as the fdbrestore exit status: it names no exit code",
+			"read %q as the fdbrestore exit status: it does not include an integer exit code",
 			trimmed,
 		)
 	}
@@ -89,15 +80,10 @@ func parseFDBRestoreExit(out string) (int, bool, error) {
 	return code, true, nil
 }
 
-// fdbRestoreStatusText returns one `fdbrestore status` reading from the
-// scratch cluster, redacted. Every reading names the blobstore URL, access key
-// and secret included, because foundationdb 7.4.6's restore status appends
-// "URL: <source container>" to each tag's line (RestoreConfig::getFullStatus_impl
-// in fdbclient/FileBackupAgent.actor.cpp) and the source container is the URL
-// the restore was started with. Redacting here, on the success path as well as
-// the error path, is what keeps the reading safe to carry into any log or
-// error downstream; the watch reads only the counters out of it, and they
-// survive the redaction untouched.
+// fdbRestoreStatusText reads redacted scratch status. FoundationDB 7.4.6's
+// RestoreConfig::getFullStatus_impl appends the original source URL, including
+// credentials, to every tag line. Both success and failure paths require
+// redaction before logging; progress counters remain available.
 func fdbRestoreStatusText(
 	ctx context.Context,
 	r *restoreDrillCtx,
@@ -111,9 +97,8 @@ func fdbRestoreStatusText(
 	)
 	if err != nil {
 		wrapped := fmt.Errorf("read the fdbrestore status: %w", err)
-		// A status read that fails is tolerated for the stall window rather
-		// than failing the drill outright, so it is warned rather than
-		// errored; the stall report carries the last one.
+		// A failed read permits retries during the inactivity window.
+		// The eventual stall error includes the final failed read.
 		telemetry.L(ctx).WarnContext(
 			ctx,
 			"backup.restore_drill.fdb.status_unreadable",
@@ -126,8 +111,8 @@ func fdbRestoreStatusText(
 	return fdbRestoreStatusReading(r.Cfg, res)
 }
 
-// fdbRestoreStatusReading turns the status exec's result into the reading the
-// watch gets, with the credentials removed from whichever stream carries them.
+// fdbRestoreStatusReading redacts credentials from successful output and
+// failed-command stderr before returning either result.
 func fdbRestoreStatusReading(cfg *config.Config, res execResult) (string, error) {
 	if res.ExitCode != 0 {
 		return "", fmt.Errorf(
@@ -140,9 +125,8 @@ func fdbRestoreStatusReading(cfg *config.Config, res execResult) (string, error)
 	return redactSecret(cfg, res.Stdout), nil
 }
 
-// fdbRestoreLogTail returns the end of the restore's own output, redacted, for
-// an error message. A tail it could not read says so rather than reading as an
-// empty restore log.
+// fdbRestoreLogTail returns bounded, redacted output for errors and
+// distinguishes failed reads from an empty log.
 func fdbRestoreLogTail(ctx context.Context, r *restoreDrillCtx, container string) string {
 	res, err := containerExec(
 		ctx,
@@ -151,7 +135,7 @@ func fdbRestoreLogTail(ctx context.Context, r *restoreDrillCtx, container string
 		[]string{"tail", "-c", strconv.Itoa(fdbRestoreLogTailBytes), fdbRestoreLogPath},
 	)
 	if err != nil || res.ExitCode != 0 {
-		return "the restore log could not be read"
+		return "the drill could not read the restore log"
 	}
 
 	tail := strings.TrimSpace(res.Stdout)

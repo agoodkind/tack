@@ -61,7 +61,7 @@ var (
 	}
 )
 
-// noInput is the input for commands that take no flags or positional args.
+// noInput represents commands without flags or positional arguments.
 type noInput struct {
 	clispec.InputMarker
 }

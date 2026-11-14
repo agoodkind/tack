@@ -51,17 +51,16 @@ func TestParseSignerSetRefusesAMalformedEntry(t *testing.T) {
 	empty, err := ParseSignerSet("")
 	if err != nil || empty.Configured() {
 		t.Fatalf(
-			"empty = (%v, configured %v), want an unconfigured set and no error",
+			"empty = (%v, configured %v), want an unconfigured set without an error",
 			err,
 			empty.Configured(),
 		)
 	}
 }
 
-// TestKeyIdentifierIsTheOneTheNotarizerStamps pins that the identifier a
-// loaded signing key carries is the same derivation the set lists and the
-// export manifest names, so a key measured on a host matches the ledger.
-func TestKeyIdentifierIsTheOneTheNotarizerStamps(t *testing.T) {
+// TestLoadedKeyIdentifierMatchesPublicKey checks the loaded key's identifier
+// against the public-key derivation and accepted identifier format.
+func TestLoadedKeyIdentifierMatchesPublicKey(t *testing.T) {
 	t.Parallel()
 	keyPath := writeTempSigningKey(t)
 	priv, id, err := loadEd25519Key(keyPath)
@@ -83,10 +82,8 @@ func TestKeyIdentifierIsTheOneTheNotarizerStamps(t *testing.T) {
 	}
 }
 
-// TestVerifyBundleRejectsASignerOutsideTheSet exports a real bundle, verifies
-// it against a set that names its signer, then against one that does not:
-// the signature is valid both times and only the second run fails, naming
-// the signer.
+// TestVerifyBundleRejectsASignerOutsideTheSet checks valid signatures against
+// accepting and rejecting sets, then rejects a false signer claim independently.
 func TestVerifyBundleRejectsASignerOutsideTheSet(t *testing.T) {
 	t.Parallel()
 	pub, priv, err := ed25519.GenerateKey(rand.Reader)
@@ -165,16 +162,14 @@ func TestVerifyBundleRejectsASignerOutsideTheSet(t *testing.T) {
 
 	if unconfigured.SignerSetConfigured || unconfigured.Err() != nil {
 		t.Fatalf(
-			"with no set the bundle must be reported, not judged: configured %v err %v",
+			"an unconfigured set must not reject the bundle: configured %v err %v",
 			unconfigured.SignerSetConfigured,
 			unconfigured.Err(),
 		)
 	}
 
-	// The set is judged on the key that verified, never on the manifest's
-	// own claim: a manifest naming an allowed signer while signed by the
-	// verifying key is caught as a mismatch, and one signed by a leaked key
-	// that names an allowed signer never reaches "allowed" at all.
+	// Authorize the verification key, not the manifest's claimed identifier.
+	// A false claim still fails even when the verified key belongs to the set.
 	claimDir := t.TempDir()
 	if _, err := Export(
 		context.Background(),

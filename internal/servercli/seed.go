@@ -36,7 +36,7 @@ type seedInput struct {
 }
 
 // seedOp seeds the initial user, org, workspace, and API token. It refuses to
-// run against a non-empty database unless --allow-reseed is passed.
+// run against a non-empty database unless the caller supplies --allow-reseed.
 func seedOp(factory *cli.Factory) clispec.Operation[seedInput] {
 	return clispec.Operation[seedInput]{
 		Group:    nil,

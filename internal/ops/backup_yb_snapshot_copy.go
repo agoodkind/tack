@@ -15,18 +15,14 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// yugabyteBackupContainer is the named live Yugabyte container the compose
-// stack ships on each data guest. The per-node archive command runs against
-// this container to tar the node's own tablet snapshot files.
+// yugabyteBackupContainer identifies the live data-guest container used to
+// archive that node's local tablet snapshots.
 const yugabyteBackupContainer = "tack-yugabyte-1"
 
-// tarYBTabletSnapshots streams a gzip tar of every tablet's snapshot directory
-// for snapshotID, running find and tar inside the data guest's live yugabyte
-// container. Only this node's tablets live under its data dir, so the tar is
-// one node's slice of the cluster snapshot. The script exits 3 when no
-// snapshot directories match, so an empty tar (a few non-zero bytes, which
-// would otherwise pass) cannot report a false success. -print0 with --null
-// avoids path-splitting and ARG_MAX limits.
+// tarYBTabletSnapshots archives this node's matching snapshot directories using
+// find and tar inside the live container. Exit 3 rejects absent directories
+// instead of accepting a nonempty gzip header as a valid archive. Null-delimited
+// paths prevent word splitting and command-line size limits.
 func tarYBTabletSnapshots(
 	ctx context.Context,
 	cli *client.Client,
@@ -121,20 +117,13 @@ func tarYBTabletSnapshots(
 	return nil
 }
 
-// writeYBSnapshotManifest validates and serializes the completeness manifest
-// so the restore path can find the snapshot the metadata belongs to and verify
-// every node archive is present before restoring. Validating on write keeps
-// the orchestrator honest against the decode-side allowlist: an export whose
-// derived run id or node names would be refused by every reader fails loudly
-// here instead of publishing an unusable manifest.
+// writeYBSnapshotManifest validates structure and required artifact declarations
+// before publishing a manifest. Invalid derived identifiers fail at export time
+// rather than creating an export that every reader must reject.
 //
-// The required-artifact declaration is enforced here too, at the moment the
-// export is still running and can still be fixed, rather than only when a
-// recovery reaches for the run. It is deliberately not folded into validate():
-// that method is the untrusted-input boundary every reader of every run shares,
-// including the archive command and the pre-export snapshot cleanup, and runs
-// exported before the roles file existed still have to decode there so those
-// walks can pass over them by name instead of aborting on the first one.
+// Required artifacts remain separate from decode validation. Archive and cleanup
+// discovery must still decode older runs without roles artifacts to skip them
+// individually instead of aborting an entire search.
 func writeYBSnapshotManifest(ctx context.Context, path string, manifest ybSnapshotManifest) error {
 	logger := telemetry.L(ctx)
 	if err := manifest.validate(); err != nil {
@@ -188,28 +177,23 @@ func writeYBSnapshotManifest(ctx context.Context, path string, manifest ybSnapsh
 	return nil
 }
 
-// ybSnapshotKeyPrefix is the object-store key prefix for one snapshot-export
-// run. The orchestrator's artifacts and every node's archive prefix live
-// under it.
+// ybSnapshotKeyPrefix returns the root for orchestrator and node artifacts.
 func ybSnapshotKeyPrefix(runID string) string {
 	return ybSnapshotRootPrefix + runID + "/"
 }
 
-// putYBSnapshotObject uploads one staged export artifact. It is a package var
-// so tests can swap it to record upload order without an object store.
+// putYBSnapshotObject uploads a staged file. Tests substitute an upload-order
+// recorder without requiring an object store.
 var putYBSnapshotObject = putObjectFromFile
 
-// ybSnapshotArtifact names one staged export file and the object base name it
-// uploads to under the run's key prefix.
+// ybSnapshotArtifact pairs a staged path with its uploaded object basename.
 type ybSnapshotArtifact struct {
 	name string
 	path string
 }
 
-// ybSnapshotUploadArtifacts returns an export run's staged artifacts in upload
-// order, the manifest strictly last. The manifest is the completeness gate the
-// archivers and the restore drill trust, so it must land only after every
-// object it vouches for.
+// ybSnapshotUploadArtifacts orders root artifacts before the manifest. Readers
+// require that manifest only after every declared artifact exists.
 func ybSnapshotUploadArtifacts(
 	stageDir string,
 	schemaPath string,
@@ -224,11 +208,8 @@ func ybSnapshotUploadArtifacts(
 	}
 }
 
-// ybSnapshotGatedArtifactNames returns the object names the manifest declares
-// as the run's artifacts: every uploaded artifact except the manifest, which
-// cannot gate its own presence because its presence is what makes the run
-// visible at all. Deriving the declaration from the upload set is what lets a
-// new artifact join the completeness gate without the gate naming it.
+// ybSnapshotGatedArtifactNames derives required artifacts from uploads, except
+// the manifest itself. Discovery already requires its presence.
 func ybSnapshotGatedArtifactNames(files []ybSnapshotArtifact) []string {
 	names := make([]string, 0, len(files))
 	for _, file := range files {
@@ -242,9 +223,8 @@ func ybSnapshotGatedArtifactNames(files []ybSnapshotArtifact) []string {
 	return names
 }
 
-// ybNodeUploadArtifacts returns one node's staged artifacts in upload order,
-// each staged under the object name it uploads to so the two can never drift.
-// The order is the declaration's, which puts the gated archive last.
+// ybNodeUploadArtifacts uses declared node upload order and matching staged
+// basenames. The archive uploads after its required inventory.
 func ybNodeUploadArtifacts(stageDir string) []ybSnapshotArtifact {
 	objects := ybNodeArtifactObjects()
 
@@ -259,11 +239,9 @@ func ybNodeUploadArtifacts(stageDir string) []ybSnapshotArtifact {
 	return files
 }
 
-// uploadYBSnapshotArtifacts uploads the staged files to the main backup bucket
-// under prefix, strictly in slice order and stopping at the first failure.
-// Order is load-bearing: the caller places the object others gate on last, so a
-// partial upload can never publish a manifest whose gated artifacts are absent,
-// nor an archive whose inventory is.
+// uploadYBSnapshotArtifacts preserves slice order and stops at the first
+// failure. Uploading the completeness object last prevents a partial upload
+// from publishing a manifest without artifacts or an archive without inventory.
 func uploadYBSnapshotArtifacts(
 	ctx context.Context,
 	cfg *config.Config,

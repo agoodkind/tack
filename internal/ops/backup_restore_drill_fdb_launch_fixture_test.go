@@ -9,10 +9,8 @@ import (
 	"time"
 )
 
-// launchFixture is a throwaway directory laid out the way the scratch
-// container's is, so the launch program can be run for real. Asserting its text
-// would prove nothing about the case these tests exist for: a destination that
-// closes the quote it was interpolated into and runs as shell syntax.
+// launchFixture reproduces scratch restore files in a temporary directory for
+// actual shell execution, including destination quoting and exit publication.
 type launchFixture struct {
 	dir   string
 	files fdbRestoreFiles
@@ -32,9 +30,8 @@ func newLaunchFixture(t *testing.T) launchFixture {
 	}
 }
 
-// launch runs the argv the drill hands the container and waits for the
-// backgrounded group to publish its exit status, returning the log and that
-// status.
+// launch executes production launch arguments, waits for background status
+// publication, and returns the captured output and status.
 func (f launchFixture) launch(t *testing.T, restore []string) (logText, exitStatus string) {
 	t.Helper()
 	argv := fdbRestoreLaunchArgv(f.files, restore)
@@ -60,7 +57,7 @@ func (f launchFixture) launch(t *testing.T, restore []string) (logText, exitStat
 		}
 
 		if time.Now().After(deadline) {
-			t.Fatalf("the launched group never published an exit status: %v", err)
+			t.Fatalf("the launched group did not publish an exit status: %v", err)
 		}
 
 		time.Sleep(5 * time.Millisecond)

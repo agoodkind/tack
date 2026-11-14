@@ -8,11 +8,8 @@ import (
 	"time"
 )
 
-// testStallWindow, testClockStep, and testPollInterval keep a scripted run fast
-// in real time while the fake clock moves half an hour per read. The window is
-// deliberately not the deployed one, so the wait is exercised against a window
-// it does not hardcode. testProbeTimeout is real time, because a probe's
-// deadline is what ends a probe that never answers on its own.
+// Test timings differ from deployment constants to detect hardcoded limits.
+// Simulated time advances half an hour per read; probe deadlines use real time.
 const (
 	testStallWindow  = 90 * time.Minute
 	testClockStep    = 30 * time.Minute
@@ -20,9 +17,7 @@ const (
 	testProbeTimeout = 5 * time.Millisecond
 )
 
-// fdbStatusLine renders one `fdbrestore status` reading in the exact shape
-// FoundationDB 7.4.6 prints, so the parser is exercised against the real
-// format rather than a convenient one.
+// fdbStatusLine reproduces FoundationDB 7.4.6 progress status formatting.
 func fdbStatusLine(blocksDone, blocksTotal, blocksInProgress, bytesWritten, applyLag int64) string {
 	return fmt.Sprintf(
 		"Tag: default  UID: 3a4b  State: running  Blocks: %d/%d  BlocksInProgress: %d  "+
@@ -35,9 +30,8 @@ func fdbStatusLine(blocksDone, blocksTotal, blocksInProgress, bytesWritten, appl
 	)
 }
 
-// scriptedRestore drives one awaitFDBRestore run: statuses are handed out in
-// order and the last one repeats, and the restore reports itself finished
-// after finishAfter polls.
+// scriptedRestore supplies ordered status readings, repeats the last, and
+// reports completion after finishAfter polls.
 type scriptedRestore struct {
 	statuses    []string
 	finishAfter int
@@ -63,8 +57,7 @@ func (s *scriptedRestore) watch() fdbRestoreWatch {
 	}
 }
 
-// advanceClockPerRead makes every opsNow call jump by step, so a scripted run
-// of a few hundred polls covers days of wall time without sleeping.
+// advanceClockPerRead advances each opsNow result by step without sleeping.
 func advanceClockPerRead(t *testing.T, step time.Duration) {
 	t.Helper()
 	current := time.Unix(0, 0).UTC()
@@ -76,13 +69,9 @@ func advanceClockPerRead(t *testing.T, step time.Duration) {
 	t.Cleanup(func() { nowFunc = original })
 }
 
-// TestAwaitFDBRestoreLetsALargeRestoreRunPastAnyFixedBudget is the defect this
-// file exists for. The restore below runs for days of wall-clock time and
-// finishes cleanly because it never stops writing bytes. Under the fixed
-// `timeout 1800` the drill used to wrap fdbrestore in, it would have been
-// killed for being large, failing the drill and pinning the rehearsal
-// staleness alarm on with nothing wrong.
-func TestAwaitFDBRestoreLetsALargeRestoreRunPastAnyFixedBudget(t *testing.T) {
+// TestAwaitFDBRestoreContinuesWhileCountersIncrease checks completion after
+// days of simulated restore work without an overall execution deadline.
+func TestAwaitFDBRestoreContinuesWhileCountersIncrease(t *testing.T) {
 	const polls = 200
 	advanceClockPerRead(t, testClockStep)
 
@@ -101,7 +90,7 @@ func TestAwaitFDBRestoreLetsALargeRestoreRunPastAnyFixedBudget(t *testing.T) {
 		testProbeTimeout,
 	)
 	if err != nil {
-		t.Fatalf("a restore that keeps making progress must not be failed for its size: %v", err)
+		t.Fatalf("increasing counters must permit continued restore work: %v", err)
 	}
 
 	if exitCode != 0 {
@@ -109,13 +98,12 @@ func TestAwaitFDBRestoreLetsALargeRestoreRunPastAnyFixedBudget(t *testing.T) {
 	}
 
 	if !strings.Contains(progress.summary(), "byteswritten=815104") {
-		t.Fatalf("progress must carry what the restore wrote, got %q", progress.summary())
+		t.Fatalf("progress must report completed writes, got %q", progress.summary())
 	}
 }
 
-// TestAwaitFDBRestoreCountsTheGrowingBlockTotalAsProgress proves the quiet
-// phase before the first block lands is not read as a stall. While the backup
-// agent enumerates the backup's files, only the block total moves.
+// TestAwaitFDBRestoreCountsTheGrowingBlockTotalAsProgress checks file
+// enumeration progress before any block completes.
 func TestAwaitFDBRestoreCountsTheGrowingBlockTotalAsProgress(t *testing.T) {
 	const polls = 40
 	advanceClockPerRead(t, testClockStep)
@@ -135,12 +123,12 @@ func TestAwaitFDBRestoreCountsTheGrowingBlockTotalAsProgress(t *testing.T) {
 		testProbeTimeout,
 	)
 	if err != nil {
-		t.Fatalf("a restore still enumerating its files must not read as stalled: %v", err)
+		t.Fatalf("file enumeration must not count as inactivity: %v", err)
 	}
 }
 
-// TestAwaitFDBRestoreReturnsTheRestoresExitCode proves a restore that fails on
-// its own terms is reported as such rather than as a stall.
+// TestAwaitFDBRestoreReturnsTheRestoresExitCode checks a failed restore's
+// own exit status rather than reporting an unrelated stall.
 func TestAwaitFDBRestoreReturnsTheRestoresExitCode(t *testing.T) {
 	advanceClockPerRead(t, time.Second)
 	restore := &scriptedRestore{

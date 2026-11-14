@@ -10,10 +10,10 @@ import (
 	"testing"
 )
 
-// TestABundleWrittenBeforeTheNameExistedStillVerifies checks older bundles
+// TestVerifyBundleAcceptsLegacyRowsFileLayout checks older bundles
 // without EventsFile. Verification resolves the file from the legacy format
 // rather than an unsigned file name.
-func TestABundleWrittenBeforeTheNameExistedStillVerifies(t *testing.T) {
+func TestVerifyBundleAcceptsLegacyRowsFileLayout(t *testing.T) {
 	dir := t.TempDir()
 	rows := chainedExportTestRows(t, 4)
 	pub := writeSignedExportTestBundle(t, dir, rows)

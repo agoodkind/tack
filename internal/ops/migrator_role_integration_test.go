@@ -40,10 +40,10 @@ const eventPartitionCountQuery = `
 	  JOIN pg_namespace n ON n.oid = p.relnamespace
 	 WHERE n.nspname = 'audit' AND p.relname = 'events'`
 
-// TestMigratorLoginDoesTheSuperuserWork runs seed-roles once as the engine
+// TestMigratorLoginManagesSchemaWithoutSuperuserPrivileges runs seed-roles once as the engine
 // superuser, as a first boot does, and every later step as tack_migrator
 // (TACK-554).
-func TestMigratorLoginDoesTheSuperuserWork(t *testing.T) {
+func TestMigratorLoginManagesSchemaWithoutSuperuserPrivileges(t *testing.T) {
 	adminDSN := testenv.Ledger(t)
 	ctx := t.Context()
 	admin := testenv.LedgerPool(t, adminDSN)

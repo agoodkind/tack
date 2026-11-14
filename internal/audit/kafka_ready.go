@@ -10,20 +10,13 @@ import (
 	"github.com/twmb/franz-go/pkg/kmsg"
 )
 
-// minInSyncReplicasConfig is the topic config that decides how many in-sync
-// replicas an acks=all produce needs before the broker acknowledges it.
+// minInSyncReplicasConfig sets the minimum synchronized replica count required
+// before acknowledging an acks=all produce.
 const minInSyncReplicasConfig = "min.insync.replicas"
 
-// Ready reports whether this producer can publish its ledger. The client
-// connects lazily, so construction alone proves nothing; startup calls this so
-// a server that cannot record refuses to serve instead of running unrecorded
-// until someone reads a log.
-//
-// A broker answering is not enough. The topic has to exist, be visible to this
-// client, and carry enough in-sync replicas on every partition to satisfy the
-// acks this producer demands, because a reachable broker whose topic is
-// missing or under-replicated rejects every Record while looking healthy at
-// the connection level.
+// Ready checks broker connectivity and topic writability before serving.
+// A successful connection alone cannot prove that every partition can accept
+// the producer's acks=all writes.
 func (k *KafkaRecorder) Ready(ctx context.Context) error {
 	if err := k.client.Ping(ctx); err != nil {
 		slog.ErrorContext(ctx, "audit.kafka.ping_failed", slog.String("err", err.Error()))
@@ -33,11 +26,9 @@ func (k *KafkaRecorder) Ready(ctx context.Context) error {
 	return k.checkTopicWritable(ctx)
 }
 
-// checkTopicWritable asks the cluster about the configured topic and demands a
-// leader and a sufficient in-sync set on every partition. Auto-creation is
-// disabled on the request: a topic conjured by the readiness check would
-// report success while the partition count the design fixes had never been
-// applied.
+// checkTopicWritable requires a leader and enough in-sync replicas on every
+// partition. It disables topic creation to avoid accepting an implicitly
+// created topic without the required partition count.
 func (k *KafkaRecorder) checkTopicWritable(ctx context.Context) error {
 	req := kmsg.NewPtrMetadataRequest()
 	reqTopic := kmsg.NewMetadataRequestTopic()
@@ -58,7 +49,7 @@ func (k *KafkaRecorder) checkTopicWritable(ctx context.Context) error {
 	}
 
 	if len(resp.Topics) == 0 {
-		err := fmt.Errorf("audit kafka topic %s: cluster returned no metadata for it", k.topic)
+		err := fmt.Errorf("audit kafka topic %s: cluster did not return topic metadata", k.topic)
 		slog.ErrorContext(
 			ctx,
 			"audit.kafka.topic_absent",
@@ -95,11 +86,8 @@ func (k *KafkaRecorder) checkTopicWritable(ctx context.Context) error {
 	return nil
 }
 
-// checkPartitions demands a usable leader and a sufficient in-sync set on
-// every partition, not merely one. The producer key hashes an (org, shard)
-// pair across the whole partition space, so a single unusable partition fails
-// every event that lands on it while the rest of the topic looks healthy. A
-// topic with no partitions at all can accept nothing.
+// checkPartitions requires every partition to accept writes. Hash partitioning
+// can assign an event to any partition; one healthy partition is insufficient.
 func (k *KafkaRecorder) checkPartitions(
 	ctx context.Context,
 	respTopic kmsg.MetadataResponseTopic,
@@ -153,10 +141,8 @@ func (k *KafkaRecorder) checkPartitions(
 			return err
 		}
 
-		// This producer requires acks from every in-sync replica, so a
-		// partition whose in-sync set is below the topic minimum has each
-		// produce rejected with NOT_ENOUGH_REPLICAS even though it reports a
-		// leader.
+		// A leader cannot acknowledge acks=all writes when its in-sync set
+		// is smaller than the topic minimum (NOT_ENOUGH_REPLICAS).
 		if len(partition.ISR) < minInSync {
 			err := fmt.Errorf(
 				"audit kafka topic %s partition %d: %d in-sync replicas, below the topic minimum of %d",
@@ -182,10 +168,8 @@ func (k *KafkaRecorder) checkPartitions(
 	return nil
 }
 
-// minInSyncReplicas reads the topic's effective min.insync.replicas. A value
-// this check cannot read is a refusal rather than an assumed default: guessing
-// it would let a server start against a topic whose acks requirement it never
-// verified, which is the silence this whole path exists to remove.
+// minInSyncReplicas reads the effective topic minimum. Missing or unreadable
+// configuration refuses readiness rather than assuming a value.
 func (k *KafkaRecorder) minInSyncReplicas(ctx context.Context) (int, error) {
 	req := kmsg.NewPtrDescribeConfigsRequest()
 	resource := kmsg.NewDescribeConfigsRequestResource()
@@ -248,7 +232,7 @@ func (k *KafkaRecorder) minInSyncReplicas(ctx context.Context) (int, error) {
 	}
 
 	err = fmt.Errorf(
-		"audit kafka topic %s: cluster reported no %s",
+		"audit kafka topic %s: cluster did not report %s",
 		k.topic,
 		minInSyncReplicasConfig,
 	)

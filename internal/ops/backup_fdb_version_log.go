@@ -1,13 +1,7 @@
-// backup_fdb_version_log.go keeps the record that turns a wall-clock moment
-// into a FoundationDB version after the source cluster is gone.
-//
-// Restoring to a moment normally asks the surviving cluster to convert the
-// time, so the failure the feature is most wanted for, a total loss, is the one
-// where it does not work; a restore then has to name a version number read out
-// of the backup itself, with nothing relating those numbers to when anything
-// happened (TACK-468). The staleness check already reads the restorable point
-// every few minutes, so each reading's version and timestamp are appended here,
-// in the object store, which survives the cluster.
+// FoundationDB version logs preserve observed version-time pairs in the
+// object store for recovery after total source-cluster loss (TACK-468).
+// Normal timestamp conversion requires a surviving cluster; recorded restorable
+// points support choosing a version when that metadata no longer exists.
 
 package ops
 
@@ -24,44 +18,36 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// fdbVersionLogKey is the object holding the version-to-time record.
+// fdbVersionLogKey identifies stored version-time observations.
 const fdbVersionLogKey = backupStatusPrefix + "fdb-versions.json"
 
-// fdbVersionLogMaxEntries bounds the record. The staleness check reads every
-// ten minutes, so this holds about six weeks, well past any restorable window
-// the continuous backup keeps, and the whole record stays a few hundred
-// kilobytes.
+// fdbVersionLogMaxEntries bounds stored observations and encoded record size.
 const fdbVersionLogMaxEntries = 6000
 
 const (
-	// fdbVersionLogMaxEntryBytes is the widest one entry encodes to, its
-	// separating comma included: a 20-character version (the most negative
-	// int64) and a 30-character UTC timestamp with nanoseconds, in
-	// {"version":V,"at":"T"},
+	// fdbVersionLogMaxEntryBytes accounts for a 20-character int64, a
+	// 30-character nanosecond UTC timestamp, field syntax, and a comma.
 	fdbVersionLogMaxEntryBytes = 71
-	// fdbVersionLogMarginBytes covers the {"points":[]} envelope with room to
-	// spare.
+	// fdbVersionLogMarginBytes permits the JSON envelope and additional space.
 	fdbVersionLogMarginBytes = 1024
-	// fdbVersionLogMaxBytes is the in-memory read limit for the record: a full
-	// record of the widest entries fits, while an object far past any record
-	// the writer produces is still refused unread.
+	// fdbVersionLogMaxBytes accepts a full maximum-width record while bounding
+	// in-memory reads of corrupt or hostile oversized objects.
 	fdbVersionLogMaxBytes = fdbVersionLogMaxEntries*fdbVersionLogMaxEntryBytes + fdbVersionLogMarginBytes
 )
 
-// fdbRestorablePoint is one reading of the continuous backup's restorable
-// point: the version a restore would name and the moment it corresponds to.
+// fdbRestorablePoint records an observed restorable version and its time.
 type fdbRestorablePoint struct {
 	Version int64     `json:"version"`
 	At      time.Time `json:"at"`
 }
 
-// fdbVersionLog is the stored record, oldest entry first.
+// fdbVersionLog stores observations oldest first.
 type fdbVersionLog struct {
 	Points []fdbRestorablePoint `json:"points"`
 }
 
-// fdbVersionLogGetter reads objects from bucket up to fdbVersionLogMaxBytes,
-// the getter every reader and writer of the record passes.
+// fdbVersionLogGetter supplies the version-log-specific memory limit for both
+// reads and append operations.
 func fdbVersionLogGetter(
 	ctx context.Context,
 	client *s3.Client,
@@ -72,8 +58,7 @@ func fdbVersionLogGetter(
 	}
 }
 
-// readFDBVersionLog fetches the record through get. An absent record is an
-// empty one, because the first reading has to start somewhere.
+// readFDBVersionLog decodes the record and treats absence as empty initial state.
 func readFDBVersionLog(
 	ctx context.Context,
 	get func(key string) ([]byte, error),
@@ -102,10 +87,9 @@ func readFDBVersionLog(
 	return log, nil
 }
 
-// appendFDBRestorablePoint records one reading, keeping the record sorted by
-// version, free of duplicates, and bounded. A reading whose version is already
-// recorded changes nothing, which is the ordinary case between two checks that
-// see the same restorable point.
+// appendFDBRestorablePoint sorts observations by version, ignores duplicate
+// versions without replacing their original timestamps, and bounds retained
+// entries. Repeated status checks must not grow an idle backup's record.
 func appendFDBRestorablePoint(
 	ctx context.Context,
 	get func(key string) ([]byte, error),
@@ -169,12 +153,10 @@ func appendFDBRestorablePoint(
 	return nil
 }
 
-// fdbVersionAt returns the newest recorded point at or before want, which is
-// the version a restore to that moment names. It is not the exact moment: a
-// restore to the returned version reaches every mutation the backup had drained
-// by that reading, so the answer is the last reading that does not overshoot.
-// found is false when the record holds nothing that old, which means the
-// moment predates the record rather than predating the backup.
+// fdbVersionAt selects the newest observation at or before want. This version
+// restores mutations completed by that observation, not the exact requested
+// instant. found=false indicates a time before the retained record, not
+// necessarily before the backup began.
 func fdbVersionAt(log fdbVersionLog, want time.Time) (point fdbRestorablePoint, found bool) {
 	for _, candidate := range slices.Backward(log.Points) {
 		if !candidate.At.After(want) {

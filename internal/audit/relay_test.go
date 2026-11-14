@@ -13,9 +13,9 @@ import (
 	"goodkind.io/tack/internal/clock"
 )
 
-// TestRelayYugabyteProducedEventIsDeleted pins the delivery contract: a row
-// leaves the outbox only after the broker has taken its event.
-func TestRelayYugabyteProducedEventIsDeleted(t *testing.T) {
+// TestRelayDeletesYugabyteRowAfterProduce checks outbox deletion after the
+// recorder accepts the event.
+func TestRelayDeletesYugabyteRowAfterProduce(t *testing.T) {
 	event := relayTestEvent("ops.test.yugabyte")
 	outbox := &relayYugabyteFake{rows: []OutboxRow{{EventID: event.EventID, Event: event}}}
 
@@ -32,11 +32,9 @@ func TestRelayYugabyteProducedEventIsDeleted(t *testing.T) {
 	}
 }
 
-// TestRelayYugabyteProduceFailureLeavesRow pins the safety direction: when the
-// broker refuses an event, the row stays so the next tick retries it. Losing an
-// audit event is unacceptable; delivering it twice is not, because the consumer
-// drops a duplicate event id.
-func TestRelayYugabyteProduceFailureLeavesRow(t *testing.T) {
+// TestRelayPreservesYugabyteRowAfterProduceFailure checks retention for retry.
+// Consumer deduplication permits redelivery but cannot recover a deleted event.
+func TestRelayPreservesYugabyteRowAfterProduceFailure(t *testing.T) {
 	event := relayTestEvent("ops.test.yugabyte.failure")
 	outbox := &relayYugabyteFake{rows: []OutboxRow{{EventID: event.EventID, Event: event}}}
 
@@ -53,9 +51,8 @@ func TestRelayYugabyteProduceFailureLeavesRow(t *testing.T) {
 	}
 }
 
-// TestRelayFoundationDBClearsThroughLastAcceptedMark pins that a mid-batch
-// produce failure clears only up to the last accepted entry, so the refused
-// entry and everything after it survive for the next tick.
+// TestRelayFoundationDBClearsThroughLastAcceptedMark checks that mid-batch
+// produce failure preserves the refused entry and all later entries for retry.
 func TestRelayFoundationDBClearsThroughLastAcceptedMark(t *testing.T) {
 	firstJSON := relayTestEventJSON(t, "ops.test.foundationdb.first")
 	secondJSON := relayTestEventJSON(t, "ops.test.foundationdb.second")
@@ -84,8 +81,8 @@ func TestRelayFoundationDBClearsThroughLastAcceptedMark(t *testing.T) {
 	}
 }
 
-// relayTestRecorder records through an in-memory recorder until call number
-// failAt, then refuses. A negative failAt never refuses.
+// relayTestRecorder refuses calls at or after failAt. Negative failAt permits
+// every call to the in-memory recorder.
 type relayTestRecorder struct {
 	inner  *MemoryRecorder
 	failAt int
@@ -283,9 +280,8 @@ func relayTestEventJSON(t *testing.T, verb string) json.RawMessage {
 	return raw
 }
 
-// TestRelayCloseReturnsWhenADrainIsStuck pins the shutdown bound. A database
-// call already in flight cannot be cancelled from here, so Close must give up
-// waiting rather than hold the audit-consumer open until that call returns.
+// TestRelayCloseReturnsWhenADrainIsStuck checks bounded shutdown while a
+// database call waits independently of the relay's stop signal.
 func TestRelayCloseReturnsWhenADrainIsStuck(t *testing.T) {
 	release := make(chan struct{})
 	t.Cleanup(func() { close(release) })
@@ -322,8 +318,7 @@ func TestRelayCloseReturnsWhenADrainIsStuck(t *testing.T) {
 	}
 }
 
-// relayStuckOutbox blocks in ReadBatch until released, standing in for a
-// database that has stopped answering.
+// relayStuckOutbox blocks ReadBatch until release to simulate an unresponsive database.
 type relayStuckOutbox struct {
 	release chan struct{}
 	mu      sync.Mutex
@@ -362,7 +357,7 @@ func waitForRelay(t *testing.T, condition func() bool) {
 
 		select {
 		case <-deadline.C:
-			t.Fatal("relay condition was not reached")
+			t.Fatal("relay condition did not become true before the deadline")
 		case <-ticker.C:
 		}
 	}

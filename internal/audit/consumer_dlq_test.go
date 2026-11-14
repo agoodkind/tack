@@ -13,14 +13,10 @@ import (
 	"goodkind.io/tack/internal/testenv"
 )
 
-// TestConsumerDeadLettersARefusedInsertAndReplaysIt is TACK-336's consumer
-// half end to end. An event the ledger refuses (dated into a week with no
-// partition) lands in the dead-letter table instead of failing the batch, the
-// batch's other event still commits, and the offset advances past both. Once
-// the partition exists, a replay through the topic lands the event and the
-// consumer deletes the row. A payload the decoder rejects stays after a
-// replay with exactly one attempt counted: the second consumer, in the same
-// group, resumes from the committed offset and never re-reads the original.
+// TestConsumerDeadLettersARefusedInsertAndReplaysIt checks that a refused
+// insert creates a dead letter without blocking accepted records or offsets.
+// After partition repair, replay commits the event and deletes its dead letter.
+// Malformed replay retains its row with exactly one counted attempt (TACK-336).
 func TestConsumerDeadLettersARefusedInsertAndReplaysIt(t *testing.T) {
 	pool, brokers, topic := newConsumerEnv(t)
 	ctx := context.Background()
@@ -93,14 +89,13 @@ func TestConsumerDeadLettersARefusedInsertAndReplaysIt(t *testing.T) {
 		)
 	}
 
-	// The cause clears: the week gains a partition. Replay everything.
-	// DDL takes no bind parameters; the bounds are dates this test computed.
+	// Create the missing partition before replay. DDL cannot bind parameters;
+	// its bounds come from dates computed by this test.
 	partitionDDL := `CREATE TABLE ` + deadLetterTestPartition + ` PARTITION OF audit.events FOR VALUES FROM ('` +
 		weekStart.Format("2006-01-02") + `') TO ('` + weekStart.AddDate(0, 0, 7).Format(
 		"2006-01-02",
 	) + `')`
-	// The schema guard of migration 019 refuses this statement from any role
-	// except tack_migrator.
+	// Migration 019 permits this statement only for tack_migrator.
 	testenv.ExecAsRole(t, pool, migration.MigratorRole, partitionDDL)
 	reader := openTestReader(t, pool)
 	letters, err := reader.ListDeadLetters(ctx, 10)
@@ -149,11 +144,9 @@ func TestConsumerDeadLettersARefusedInsertAndReplaysIt(t *testing.T) {
 	}
 }
 
-// TestConsumerSurvivesHostileRecords pins two records that must not stop a
-// partition: one with no value at all (a tombstone), which is dead-lettered
-// as an empty payload, and one carrying a replay header the consumer cannot
-// read, which is projected as a fresh record. The events after them land.
-func TestConsumerSurvivesHostileRecords(t *testing.T) {
+// TestConsumerHandlesTombstoneAndInvalidReplayHeader checks empty tombstone
+// dead-letter storage and fresh-record processing after an invalid replay header.
+func TestConsumerHandlesTombstoneAndInvalidReplayHeader(t *testing.T) {
 	pool, brokers, topic := newConsumerEnv(t)
 	ctx := context.Background()
 	orgID := uuid.Must(uuid.NewV7())
@@ -213,10 +206,8 @@ func TestConsumerSurvivesHostileRecords(t *testing.T) {
 	}
 }
 
-// TestConsumerRewindsAFailedBatch pins that a batch failing for a deployment
-// fault (here the writer login losing every privilege) commits nothing and
-// re-fetches the same records once the fault clears, so no offset is ever
-// committed past records the ledger never saw.
+// TestConsumerRewindsAFailedBatch checks retry after restoring writer privileges.
+// A failed projection must not commit an offset past unrecorded events.
 func TestConsumerRewindsAFailedBatch(t *testing.T) {
 	pool, brokers, topic := newConsumerEnv(t)
 	ctx := context.Background()
@@ -244,8 +235,7 @@ func TestConsumerRewindsAFailedBatch(t *testing.T) {
 		PollInterval: 100 * time.Millisecond,
 		YugabyteDSN:  dsn,
 	}
-	// Longer than the two waits below together, so the context never ends
-	// the consumer while the test is still allowed to wait on it.
+	// Outlast both waits below without canceling the consumer during assertions.
 	runCtx, cancel := context.WithTimeout(ctx, 70*time.Second)
 	defer cancel()
 	consumer, err := NewConsumer(runCtx, cfg)
@@ -256,9 +246,8 @@ func TestConsumerRewindsAFailedBatch(t *testing.T) {
 	t.Cleanup(func() { _ = consumer.Close() })
 	failedBefore := consumerErrorCount(t)
 	consumer.Start(runCtx)
-	// The privileges come back only after the consumer has fetched the
-	// batch and failed it, so the test proves the re-fetch and not a first
-	// fetch that happened to come late.
+	// Observe a failed fetch before restoring privileges to prove retry rather
+	// than a first fetch delayed until after repair.
 	waitUntil(
 		t,
 		20*time.Second,
@@ -268,7 +257,7 @@ func TestConsumerRewindsAFailedBatch(t *testing.T) {
 		},
 	)
 	if got := countRowsForOrg(t, integrationDSN(t), orgID); got != 0 {
-		t.Fatalf("a batch the login could not write landed %d rows", got)
+		t.Fatalf("the unauthorized batch wrote %d ledger rows", got)
 	}
 
 	if _, err := pool.Exec(ctx, "ALTER ROLE "+login+" INHERIT"); err != nil {
@@ -299,6 +288,6 @@ func TestConsumerRewindsAFailedBatch(t *testing.T) {
 	}
 
 	if committed < 2 {
-		t.Fatalf("committed offset = %d after both records landed, want at least 2", committed)
+		t.Fatalf("committed offset = %d after both records committed, want at least 2", committed)
 	}
 }

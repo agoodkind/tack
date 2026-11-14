@@ -10,10 +10,10 @@ import (
 	"testing"
 )
 
-// TestAManifestCannotNameAFileOutsideTheBundle checks path rejection before
+// TestVerifyBundleRejectsRowsPathsOutsideBundle checks path rejection before
 // the verifier reports a signature verdict. Untrusted manifests must not
 // select arbitrary files for reading.
-func TestAManifestCannotNameAFileOutsideTheBundle(t *testing.T) {
+func TestVerifyBundleRejectsRowsPathsOutsideBundle(t *testing.T) {
 	for _, name := range []string{"../events.jsonl", "sub/events.jsonl", "/etc/passwd", "..", "."} {
 		t.Run(
 			name,

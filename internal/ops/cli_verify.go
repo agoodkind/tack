@@ -12,8 +12,8 @@ import (
 	"goodkind.io/tack/internal/clispec"
 )
 
-// parseRepairClass parses a repair class for a CLI command, returning an error
-// rather than exiting so the work function can surface it.
+// parseRepairClass parses a repair class and returns errors to the command
+// instead of exiting the process.
 func parseRepairClass(raw string) (RepairClass, error) {
 	repairClass, err := ParseRepairClass(raw)
 	if err != nil {

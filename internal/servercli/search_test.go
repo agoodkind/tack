@@ -97,10 +97,9 @@ func TestSeedCommandStoresSearchDecisionOnEverySeededDefinition(t *testing.T) {
 // seedTokenHeaders start the lines the seed prints before each bearer value.
 var seedTokenHeaders = []string{"Production-mode API token", "Dev-mode bearer"}
 
-// executeWithoutPrintedTokens runs execute with the process standard output
-// sent to a temporary file, because the seed prints its bearer values there.
-// It returns the printed text with the line after each token header replaced,
-// so no test output contains a bearer value.
+// executeWithoutPrintedTokens captures seed output in a temporary file and
+// replaces each bearer value after its header before returning the text.
+// Test output must not expose bearer values.
 func executeWithoutPrintedTokens(t *testing.T, execute func() error) (string, error) {
 	t.Helper()
 	capture, err := os.CreateTemp(t.TempDir(), "seed-stdout")

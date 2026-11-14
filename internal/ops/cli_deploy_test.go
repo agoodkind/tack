@@ -2,9 +2,9 @@ package ops_test
 
 import "testing"
 
-// TestDeployVerifyRegistersWithoutImageMutationCommands pins that the digest check
-// still renders under ops deploy after the laptop deploy family was removed,
-// with its one flag and nothing shadowing the global --execute.
+// TestDeployVerifyRegistersWithoutImageMutationCommands checks the verify
+// command, tag default, and global execution flag. The deploy group must not
+// register image build, push, pull, or up commands.
 func TestDeployVerifyRegistersWithoutImageMutationCommands(t *testing.T) {
 	verify := findCommand(t, "ops", "deploy", "verify")
 	if verify.LocalNonPersistentFlags().Lookup("execute") != nil {

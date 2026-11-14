@@ -11,10 +11,8 @@ import (
 	"goodkind.io/tack/internal/clispec"
 )
 
-// TestAuditSignersCommandRefusesWithoutASet pins the fail-closed default: with
-// neither --signers nor AUDIT_VALID_SIGNERS the command stops before it opens
-// anything, because an empty allowlist would accept nothing and a skipped
-// check would accept everything.
+// TestAuditSignersCommandRefusesWithoutASet checks that the command requires
+// --signers or AUDIT_VALID_SIGNERS before opening dependencies.
 func TestAuditSignersCommandRefusesWithoutASet(t *testing.T) {
 	factory := &cli.Factory{Cfg: nil, In: nil, Out: os.Stdout, Err: os.Stderr}
 	operation := auditSignersOp(factory)

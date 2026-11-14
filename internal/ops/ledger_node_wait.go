@@ -169,7 +169,7 @@ func ledgerNodeStallError(
 	lastProbeErr string,
 ) error {
 	message := fmt.Sprintf(
-		"the ledger node made no progress for %s (health %s): %s",
+		"the ledger node did not make progress for %s (health %s): %s",
 		stalled.Round(time.Second),
 		health,
 		progress.summary(),

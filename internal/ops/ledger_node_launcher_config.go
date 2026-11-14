@@ -157,8 +157,8 @@ func writeLauncherConfig(
 	return nil
 }
 
-// launcherConfigArchive packs content as the one-file tar stream the copy
-// takes, carrying the original owner, group, and mode.
+// launcherConfigArchive packs content as a one-file tar stream and preserves
+// the original owner, group, and mode.
 func launcherConfigArchive(
 	ctx context.Context,
 	original tar.Header,

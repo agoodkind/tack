@@ -15,9 +15,9 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// TestPartitionManagerHealsFutureWeek proves boot maintenance restores a
+// TestPartitionManagerRestoresMissingFuturePartition proves boot maintenance restores a
 // missing future partition before the audit ledger needs it.
-func TestPartitionManagerHealsFutureWeek(t *testing.T) {
+func TestPartitionManagerRestoresMissingFuturePartition(t *testing.T) {
 	fixture := newPartmanTestDatabase(t)
 	fixture.migrateTo(t, 4)
 	pool := fixture.pool

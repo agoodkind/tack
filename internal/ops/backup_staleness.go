@@ -1,9 +1,6 @@
-// backup_staleness.go is the freshness verdict for every backup mechanism:
-// how long ago each one last succeeded, whether that age is past the operator's
-// threshold, and the report the check prints. Nothing here reads an object
-// store, a cluster, or the clock, so the classification the alert acts on is
-// exercised from plain values; the probes that supply the timestamps live in
-// backup_staleness_check.go.
+// Backup staleness classification compares success ages against configured
+// thresholds and formats readings. Probes supply timestamps; these functions
+// do not read the object store, cluster, or clock.
 
 package ops
 
@@ -19,34 +16,25 @@ import (
 )
 
 const (
-	// backupStalenessExportName is the off-host ledger export: the YugabyteDB
-	// distributed-snapshot run in the object store.
+	// backupStalenessExportName identifies off-host distributed SQL exports.
 	backupStalenessExportName = "ledger-export"
-	// backupStalenessRehearsalName is the restore drill, the proof the
-	// documented recovery procedure still works against real backups.
+	// backupStalenessRehearsalName identifies restore drill success.
 	backupStalenessRehearsalName = "rehearsal"
-	// backupStalenessReplicationName is the live cluster's replication health.
+	// backupStalenessReplicationName identifies live replication health.
 	backupStalenessReplicationName = "replication"
-	// backupStalenessFDBName is the FoundationDB continuous backup's
-	// restorable point.
+	// backupStalenessFDBName identifies the continuous backup's restorable point.
 	backupStalenessFDBName = "fdb-restorable"
 )
 
-// backupStalenessFutureTolerance is how far ahead of the checking host's clock
-// a success timestamp may sit and still be read as a real success. No
-// mechanism's timestamp is produced by this host at this moment: markers are
-// JSON in the object store, the export run key is a name in the store, and the
-// FoundationDB restorable point comes off the cluster's clock. A lead of
-// seconds to a few minutes is therefore ordinary skew between hosts, and
-// anything past it is a wrong or forged clock.
+// backupStalenessFutureTolerance permits small clock differences between
+// checking hosts, object-store records, and database timestamps. Larger future
+// timestamps cannot establish recent success and may indicate corruption.
 const backupStalenessFutureTolerance = 5 * time.Minute
 
-// backupStalenessMetric is one mechanism's freshness reading: when and how long
-// ago it last succeeded, the age past which the operator must be told, and what
-// the reading came from. At is the last success in UTC and is zero when the age
-// is unknown, and Unknown then says why. A reading that could not be taken but
-// is dated from this guest's last one that was keeps its Unknown cause with a
-// known age, and LastReadAt is when that earlier reading was taken.
+// backupStalenessMetric records freshness and its evidence. At records the
+// last success in UTC or zero for unknown age. Unknown records the failure
+// cause even when a historical reading supplies a known age. LastReadAt dates
+// that historical observation.
 type backupStalenessMetric struct {
 	Name       string
 	At         time.Time
@@ -58,10 +46,8 @@ type backupStalenessMetric struct {
 	LastReadAt time.Time `exhaustruct:"optional"`
 }
 
-// stale reports whether the mechanism has missed its window. An unknown age is
-// stale: it means nothing recorded a success, and a backup mechanism that has
-// never demonstrably succeeded is exactly the silent failure this check exists
-// to catch.
+// stale reports an unknown age or an age above the threshold. Unknown ages
+// cannot demonstrate a recent success.
 func (m backupStalenessMetric) stale() bool {
 	if !m.AgeKnown {
 		return true
@@ -70,7 +56,7 @@ func (m backupStalenessMetric) stale() bool {
 	return m.Age > m.Threshold
 }
 
-// verdict is the word the report prints for this metric.
+// verdict returns the metric's report label.
 func (m backupStalenessMetric) verdict() string {
 	if m.stale() {
 		return "STALE"
@@ -79,14 +65,9 @@ func (m backupStalenessMetric) verdict() string {
 	return "FRESH"
 }
 
-// knownBackupStalenessMetric builds a metric from a success timestamp, unless
-// that timestamp is implausibly far in the future. Every datable mechanism
-// funnels through here, so none can opt out of the plausibility check: a
-// timestamp past the skew tolerance is corruption rather than freshness, and
-// the metric becomes age-unknown, which classifies as stale. Trusting it
-// instead would floor the age at zero and read FRESH against every threshold
-// for as long as that timestamp stands, which is the silent failure this whole
-// check exists to eliminate.
+// knownBackupStalenessMetric validates every datable success timestamp against
+// future skew before calculating age. Timestamps beyond tolerance become
+// unreadable and stale instead of remaining artificially fresh until that time.
 func knownBackupStalenessMetric(
 	ctx context.Context,
 	name string,
@@ -125,9 +106,8 @@ func knownBackupStalenessMetric(
 	}
 }
 
-// implausibleFutureDetail is the report's reason for refusing a success
-// timestamp. It keeps the reading's provenance, because that names the marker
-// or run whose clock is wrong.
+// implausibleFutureDetail reports the rejected timestamp with its marker or
+// run provenance to identify the incorrect clock.
 func implausibleFutureDetail(at time.Time, lead time.Duration, provenance string) string {
 	detail := fmt.Sprintf(
 		"success timestamp %s is %s in the future, past the %s clock-skew tolerance",
@@ -142,9 +122,8 @@ func implausibleFutureDetail(at time.Time, lead time.Duration, provenance string
 	return detail + ": " + provenance
 }
 
-// unknownBackupStalenessMetric builds a metric for a mechanism with no datable
-// success, which classifies as stale. cause says which kind of unknown this is
-// and detail says why, because that reason is what the operator acts on.
+// unknownBackupStalenessMetric records an undatable success with a cause and
+// actionable diagnostic detail.
 func unknownBackupStalenessMetric(
 	name string,
 	threshold time.Duration,
@@ -162,10 +141,8 @@ func unknownBackupStalenessMetric(
 	}
 }
 
-// backupStalenessAge is how old a success timestamp is at now, floored at zero
-// so the ordinary clock skew knownBackupStalenessMetric tolerates reads as
-// brand new rather than as a negative age. A larger lead never reaches here:
-// that funnel refuses it before any age is taken.
+// backupStalenessAge floors accepted clock skew at zero. Timestamp validation
+// rejects larger future leads before calculating age.
 func backupStalenessAge(now, at time.Time) time.Duration {
 	age := now.Sub(at)
 	if age < 0 {
@@ -175,16 +152,13 @@ func backupStalenessAge(now, at time.Time) time.Duration {
 	return age
 }
 
-// backupStalenessThreshold converts a configured threshold in seconds to a
-// duration.
+// backupStalenessThreshold converts configured seconds to a duration.
 func backupStalenessThreshold(seconds int) time.Duration {
 	return time.Duration(seconds) * time.Second
 }
 
-// backupStalenessReport renders one line per metric, naming the mechanism, its
-// age, its threshold, and the verdict, with the reading's provenance last. It
-// is the terminal and journal form of the reading, so it stays plain and
-// greppable; the alarm mail says the same thing in plain words instead.
+// backupStalenessReport prints a searchable line per mechanism with age,
+// threshold, verdict, and provenance for terminal and journal use.
 func backupStalenessReport(metrics []backupStalenessMetric) string {
 	width := 0
 
@@ -216,8 +190,7 @@ func backupStalenessReport(metrics []backupStalenessMetric) string {
 	return report.String()
 }
 
-// backupStalenessAgeField renders a metric's age, or "unknown" when nothing
-// dates the mechanism's last success.
+// backupStalenessAgeField prints the age or the unknown label.
 func backupStalenessAgeField(metric backupStalenessMetric) string {
 	if !metric.AgeKnown {
 		return "unknown"
@@ -226,21 +199,19 @@ func backupStalenessAgeField(metric backupStalenessMetric) string {
 	return backupStalenessSeconds(metric.Age)
 }
 
-// backupStalenessDetailField flattens a metric's provenance onto one line. A
-// detail can carry an error string from a store or a cluster, and one line per
-// mechanism is the shape the report is read in.
+// backupStalenessDetailField flattens provenance and external errors to one
+// line per mechanism.
 func backupStalenessDetailField(metric backupStalenessMetric) string {
 	return strings.Join(strings.Fields(metric.Detail), " ")
 }
 
-// backupStalenessSeconds renders a duration as whole seconds, the unit the
-// thresholds are configured in.
+// backupStalenessSeconds prints whole seconds, matching configured thresholds.
 func backupStalenessSeconds(d time.Duration) string {
 	return strconv.FormatInt(int64(d/time.Second), 10) + "s"
 }
 
-// staleBackupStalenessMetrics names every metric past its threshold, in report
-// order, for the error the command exits with.
+// staleBackupStalenessMetrics lists stale metrics in report order for the
+// command's final error.
 func staleBackupStalenessMetrics(metrics []backupStalenessMetric) []string {
 	var stale []string
 

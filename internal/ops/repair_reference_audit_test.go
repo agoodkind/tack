@@ -206,9 +206,9 @@ func TestReferenceRepairRecordsEveryChangeItApplied(t *testing.T) {
 	}
 }
 
-// TestReferenceRepairRowsAreNotReconstructions checks that live repair events
+// TestLiveReferenceRepairEventsExcludeReconstructionMetadata checks that live repair events
 // do not include reconstruction markers, historical times, or evidence citations.
-func TestReferenceRepairRowsAreNotReconstructions(t *testing.T) {
+func TestLiveReferenceRepairEventsExcludeReconstructionMetadata(t *testing.T) {
 	outbox, orgID := repairAuditOutbox(t)
 	err := recordReferenceRepair(
 		context.Background(),
@@ -297,9 +297,9 @@ func TestReferenceRepairDeduplicatesRepeatedChangeRecords(t *testing.T) {
 	}
 }
 
-// TestReferenceRepairRefusesAnOutboxItCannotDedupe checks refusal of a writer
+// TestReferenceRepairRequiresIdempotentOutbox checks refusal of a writer
 // that would append duplicate events on repeated runs.
-func TestReferenceRepairRefusesAnOutboxItCannotDedupe(t *testing.T) {
+func TestReferenceRepairRequiresIdempotentOutbox(t *testing.T) {
 	err := recordReferenceRepair(
 		context.Background(),
 		appendOnlyRepairOutbox{},

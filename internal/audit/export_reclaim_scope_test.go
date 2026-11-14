@@ -15,10 +15,10 @@ import (
 	"github.com/google/uuid"
 )
 
-// TestAnExportReclaimsTheRowsNoManifestNames checks removal of interrupted
+// TestExportReclaimsUnreferencedFiles checks removal of interrupted
 // export files and superseded rows after publication. Reclamation uses manifest
 // references and exporter ownership rather than file age.
-func TestAnExportReclaimsTheRowsNoManifestNames(t *testing.T) {
+func TestExportReclaimsUnreferencedFiles(t *testing.T) {
 	dir := t.TempDir()
 	orgID := uuid.Must(uuid.NewV7())
 	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
@@ -97,10 +97,10 @@ func TestAnExportReclaimsTheRowsNoManifestNames(t *testing.T) {
 	assertDirectoryHoldsOnlyItsBundle(t, dir)
 }
 
-// TestTheReclaimSparesFilesThisExporterDidNotWrite checks canonical export IDs
+// TestExportReclamationPreservesOperatorFiles checks canonical export IDs
 // rather than prefix and suffix matches alone. Operator files must survive;
 // genuine unreferenced exporter files must disappear to verify reclamation.
-func TestTheReclaimSparesFilesThisExporterDidNotWrite(t *testing.T) {
+func TestExportReclamationPreservesOperatorFiles(t *testing.T) {
 	dir := t.TempDir()
 	orgID := uuid.Must(uuid.NewV7())
 	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)

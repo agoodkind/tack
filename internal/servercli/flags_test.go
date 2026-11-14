@@ -19,11 +19,11 @@ import (
 	"goodkind.io/tack/internal/testenv"
 )
 
-// TestAuditSignersCommandWiresTheFlagsThroughTheReader runs the command against
+// TestAuditSignersCommandAppliesVerificationFlags runs the command against
 // a migrated ledger with a local signer and another signer. It checks that
 // --allow-unverified and --since change verification results and exit status.
 // The config supplies the signer set, local key, and reader DSN.
-func TestAuditSignersCommandWiresTheFlagsThroughTheReader(t *testing.T) {
+func TestAuditSignersCommandAppliesVerificationFlags(t *testing.T) {
 	dsn := testenv.Ledger(t)
 	ctx := context.Background()
 	pool, err := pgxpool.New(ctx, dsn)

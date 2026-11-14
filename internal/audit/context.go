@@ -13,10 +13,8 @@ type scopeKey struct{}
 
 type entityKey struct{}
 
-// Scope is the audit-scope tuple a request resolves to before the audit
-// row is emitted. Stored on the context as a pointer so resolvers running
-// inside the inner handler can mutate the same instance the MCP wrapper
-// will read after the handler returns.
+// Scope records resolved request scope. Resolvers update the context's shared
+// pointer before the MCP wrapper reads it after the handler returns.
 type Scope struct {
 	OrgID       uuid.UUID
 	WorkspaceID uuid.UUID
@@ -24,10 +22,8 @@ type Scope struct {
 	ParentID    uuid.UUID
 }
 
-// WithScopeBuilder attaches a fresh, mutable Scope to ctx. The MCP tool
-// wrapper calls this on every request; resolvers populate the fields via
-// SetScopeFields as they resolve them. The wrapper reads the result after
-// the inner handler returns.
+// WithScopeBuilder stores a fresh mutable Scope in ctx for resolvers to fill
+// with SetScopeFields and the wrapper to read after the handler.
 func WithScopeBuilder(ctx context.Context) context.Context {
 	return context.WithValue(
 		ctx,
@@ -41,9 +37,8 @@ func WithScopeBuilder(ctx context.Context) context.Context {
 	)
 }
 
-// SetScopeFields updates the Scope on ctx in place. Zero-valued fields are
-// left untouched; pass non-zero values for the fields you actually
-// resolved. No-op when ctx has no Scope attached.
+// SetScopeFields applies nonzero fields to the shared Scope. It preserves
+// existing values for zero inputs and does not change ctx without a Scope.
 func SetScopeFields(ctx context.Context, s Scope) {
 	cur, _ := ctx.Value(scopeKey{}).(*Scope)
 	if cur == nil {
@@ -67,8 +62,7 @@ func SetScopeFields(ctx context.Context, s Scope) {
 	}
 }
 
-// ScopeFromContext returns a copy of the Scope attached to ctx, or the
-// zero value when none is attached.
+// ScopeFromContext copies the stored Scope or returns its zero value when absent.
 func ScopeFromContext(ctx context.Context) Scope {
 	cur, _ := ctx.Value(scopeKey{}).(*Scope)
 	if cur == nil {
@@ -83,10 +77,8 @@ func ScopeFromContext(ctx context.Context) Scope {
 	return *cur
 }
 
-// WithEntityBuilder attaches a fresh, mutable Entity to ctx. The MCP tool
-// wrapper calls this before the inner handler runs. The handler fills the
-// entity in place because the wrapper cannot inspect the handler internals
-// after it returns.
+// WithEntityBuilder stores a fresh mutable Entity for the handler to update
+// before the wrapper reads the resolved target.
 func WithEntityBuilder(ctx context.Context) context.Context {
 	return context.WithValue(
 		ctx,
@@ -101,9 +93,8 @@ func WithEntityBuilder(ctx context.Context) context.Context {
 	)
 }
 
-// SetAuditEntity updates the Entity on ctx in place. Zero-valued fields are
-// left untouched; pass the fields the handler resolved. No-op when ctx has no
-// Entity attached.
+// SetAuditEntity applies nonzero fields to the shared Entity. It preserves
+// existing values for zero inputs and does not change ctx without an Entity.
 func SetAuditEntity(ctx context.Context, entity Entity) {
 	current, _ := ctx.Value(entityKey{}).(*Entity)
 	if current == nil {
@@ -131,8 +122,7 @@ func SetAuditEntity(ctx context.Context, entity Entity) {
 	}
 }
 
-// EntityFromContext returns a copy of the Entity attached to ctx, or the zero
-// value when none is attached.
+// EntityFromContext copies the stored Entity or returns its zero value when absent.
 func EntityFromContext(ctx context.Context) Entity {
 	current, _ := ctx.Value(entityKey{}).(*Entity)
 	if current == nil {
@@ -148,11 +138,9 @@ func EntityFromContext(ctx context.Context) Entity {
 	return *current
 }
 
-// CanonicalRecorder wraps a Recorder and assigns the canonical EventID and
-// OccurredAt when they are unset, because the producer owns
-// both. The Kafka producer keys the partition by the shard derived from
-// EventID, and the chain hashes over OccurredAt, so both must be fixed before
-// any backend marshals or shards the event.
+// CanonicalRecorder assigns missing EventID and OccurredAt before a backend
+// serializes or partitions the event. Partitioning depends on EventID and the
+// chain hash includes OccurredAt; both values must remain stable on redelivery.
 type CanonicalRecorder struct{ Inner Recorder }
 
 // Record assigns canonical event fields before recording the event.

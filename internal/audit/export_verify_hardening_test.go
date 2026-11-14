@@ -128,9 +128,9 @@ func TestVerifyBundleRefusesAManifestWithAPlantedField(t *testing.T) {
 	}
 }
 
-// TestVerifyBundleSurvivesAMalformedPublicKey checks that an invalid key length
+// TestVerifyBundleReportsInvalidPublicKeyLength checks that an invalid key length
 // fails signature verification without panicking.
-func TestVerifyBundleSurvivesAMalformedPublicKey(t *testing.T) {
+func TestVerifyBundleReportsInvalidPublicKeyLength(t *testing.T) {
 	dir := t.TempDir()
 	rows := chainedExportTestRows(t, 2)
 	pub := writeSignedExportTestBundle(t, dir, rows)
