@@ -12,7 +12,7 @@ GO_BUILD_TAGS       := fdb
 # from CI, not GoReleaser).
 GO_MK_MODULES := go-build.mk
 
-# CI runs the integration package separately through test-store-host-shard.
+# Exclude integration tests from the shared test target.
 GO_TEST_INTEGRATION_PACKAGE := goodkind.io/tack/internal/test/integration
 ifneq ($(filter test,$(MAKECMDGOALS)),)
   GO_TEST_PACKAGES := $(filter-out \
@@ -35,31 +35,10 @@ ifeq ($(GITHUB_ACTIONS),true)
   GO_TEST_TARGETS := -short -count=1 $(GO_TEST_TARGETS)
 endif
 
-# Reject backfills after their clispec.Lifetime removal day (TACK-512).
-.PHONY: backfill-expiry
-backfill-expiry:
-	go run ./cmd/backfillcheck
-
-build: backfill-expiry
-
-.PHONY: run
-run:
-	go run $(GO_BUILD_FLAGS) $(CMD)
-
-# Run DB migrations against DATABASE_URL.
-.PHONY: migrate
-migrate:
-	go run $(GO_BUILD_FLAGS) $(CMD) migrate --execute
-
-# Seed the database with initial user/org/workspace/token.
-.PHONY: seed
-seed:
-	go run $(GO_BUILD_FLAGS) $(CMD) seed
-
 # Match the source mount to the host path for Docker SDK bind mounts.
 # Tests start stores through internal/testenv. TestMain, signal handlers, and
 # a watcher remove owned engines. After SIGKILL ends the whole runner, the
-# next engine start or test-env-down removes engines of exited processes.
+# next engine start removes engines of exited processes.
 TEST_RUNNER := TACK_TEST_ROOT=$(CURDIR) \
 	docker compose -f docker-compose.test.yml --profile runner
 TEST_COMPOSE_TARGETS := test-unit test-integration test-runtime-audit test-search
@@ -68,7 +47,6 @@ test-unit: TEST_ARGS = -count=1 -timeout 30m \
 	./internal/ops/... ./internal/adapters/postgres/... \
 	./internal/audit/... ./internal/service/...
 
-# Host targets need the FoundationDB client library and a Docker daemon.
 TEST_STORE_OTHER_PACKAGES := ./internal/adapters/foundationdb/... ./internal/audit/... \
 	./internal/ops/... ./internal/datagen/... ./cmd/server/... ./internal/testenv/...
 TEST_STORE_PACKAGES       := ./internal/test/integration/... $(TEST_STORE_OTHER_PACKAGES)
@@ -76,25 +54,12 @@ TEST_STORE_PACKAGES       := ./internal/test/integration/... $(TEST_STORE_OTHER_
 TEST_STORE_FLAGS := -tags integration -count=1 -timeout 30m -v
 TEST_STORE_ARGS  := $(TEST_STORE_FLAGS) $(TEST_STORE_PACKAGES)
 
-test-store-host test-integration: TEST_ARGS = $(TEST_STORE_ARGS)
-
-# CI partitions integration tests by the first character after Test.
-ifeq ($(SHARD),integration-a-through-l)
-  test-store-host-shard: TEST_ARGS = $(TEST_STORE_FLAGS) \
-	-run '^Test[A-L]' ./internal/test/integration/...
-else ifeq ($(SHARD),remaining-integration-tests)
-  test-store-host-shard: TEST_ARGS = $(TEST_STORE_FLAGS) \
-	-run '^Test[^A-L]' ./internal/test/integration/...
-else ifeq ($(SHARD),other-store-packages)
-  test-store-host-shard: TEST_ARGS = $(TEST_STORE_FLAGS) $(TEST_STORE_OTHER_PACKAGES)
-else
-  test-store-host-shard: TEST_ARGS = $(error test-store-host-shard requires SHARD=integration-a-through-l, SHARD=remaining-integration-tests, or SHARD=other-store-packages)
-endif
+test-integration: TEST_ARGS = $(TEST_STORE_ARGS)
 
 TEST_RUNTIME_AUDIT_ARGS := -tags integration,runtimeaudit -count=1 -timeout 40m -v \
 	-run '^TestRuntimeAudit(Coverage|CoverageWaitsForTargetEvent|TopLevelCoverage|Scaling|MixedVersionRollout)$$' ./internal/test/integration/...
 
-test-runtime-audit-host test-runtime-audit: TEST_ARGS = $(TEST_RUNTIME_AUDIT_ARGS)
+test-runtime-audit: TEST_ARGS = $(TEST_RUNTIME_AUDIT_ARGS)
 
 # test-postgresql-overlay runs the patched PostgreSQL provider from
 # postgresql-overlay through OpenTofu against a local PostgreSQL server and the
@@ -164,8 +129,8 @@ test-service-secrets:
 # Search opt-in starts an 8 GiB engine and downloads the 555 MB model.
 TEST_SEARCH_ARGS := -count=1 -timeout 90m -v -run '^TestSearch' ./internal/test/integration/...
 
-test-search-host test-search: TEST_ARGS = $(TEST_SEARCH_ARGS)
-test-search-host test-search test-search-host-group test-search-group: TEST_ENV = \
+test-search: TEST_ARGS = $(TEST_SEARCH_ARGS)
+test-search test-search-group: TEST_ENV = \
 	TACK_TEST_SOURCE_REVISION="$(shell git rev-parse HEAD)" TACK_SEARCH_INTEGRATION=1
 
 # Dedicated groups exclude their tests from the alphabetical partitions.
@@ -191,7 +156,7 @@ SEARCH_repeat-access-cursors-and-workers_ARGS := -count=3 -timeout 50m -run '^($
 SEARCH_GROUP_ARGS = $(or $(SEARCH_$(GROUP)_ARGS),$(error GROUP must be one of continuation-with-duplicate-pages throughput-with-server-processes rebuild-split-and-restore cluster-failures-and-recovery features-a-through-m remaining-features runtime-and-session-audit model-repair-enablement repeat-continuation-with-duplicate-pages repeat-rebuild-split-and-restore repeat-access-cursors-and-workers))
 TEST_SEARCH_RUNNER ?= compose
 
-test-search-host-group test-search-group: TEST_ARGS = -v $(SEARCH_GROUP_ARGS) ./internal/test/integration/...
+test-search-group: TEST_ARGS = -v $(SEARCH_GROUP_ARGS) ./internal/test/integration/...
 
 .PHONY: test-search-group
 ifeq ($(TEST_SEARCH_RUNNER),mac)
@@ -211,21 +176,11 @@ test-search-group:
 	$(error TEST_SEARCH_RUNNER must be compose or mac)
 endif
 
-.PHONY: test-store-host test-store-host-shard test-runtime-audit-host test-search-host test-search-host-group
-test-store-host test-store-host-shard test-runtime-audit-host test-search-host test-search-host-group:
-	$(TEST_ENV) go test $(TEST_ARGS)
-
 .PHONY: $(TEST_COMPOSE_TARGETS)
 $(TEST_COMPOSE_TARGETS):
 	$(TEST_RUNNER) build tests
 	$(TEST_ENV) $(TEST_RUNNER) run --rm tests \
 	    test $(TEST_ARGS)
-
-# Remove cmd/testenv engines and resources of exited test processes.
-# Preserve engines of running processes and engines without owner labels.
-.PHONY: test-env-down
-test-env-down:
-	go run ./cmd/testenv down
 
 # Keep the FoundationDB server image, client library, Go bindings, and
 # fdb.APIVersion compatible. Docker builds inherit FDB_VERSION.
@@ -255,12 +210,6 @@ update-fdb:
 	@sed -i.bak "s/^FDB_VERSION ?= .*/FDB_VERSION ?= $(VERSION)/" Makefile && rm Makefile.bak
 	@echo "Reminder: hand-edit FDB_BINDINGS_VERSION in this Makefile to match"
 	@echo "and update the fdb.APIVersion call in internal/adapters/foundationdb/client.go."
-
-# Create or rotate audit LOGIN roles after migrations or password changes.
-# tack-ops reads the audit passwords and DATABASE_URL from the rendered .env.
-.PHONY: seed-audit-roles
-seed-audit-roles:
-	ssh tack 'cd /root/tack && docker compose run --rm tack-ops /server ops audit seed-roles'
 
 .PHONY: audit-consumer
 audit-consumer:
