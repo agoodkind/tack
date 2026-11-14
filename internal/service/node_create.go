@@ -15,9 +15,8 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// CreateInput holds the arguments for Create. Relationships lets callers attach
-// edges (assigned_to, labeled_with, etc.) in the same FDB transaction as the
-// primary write.
+// CreateInput supplies the arguments for Create. Create writes Relationships
+// (assigned_to, labeled_with, etc.) in the same FDB transaction as the node.
 type CreateInput struct {
 	// ParentID is the direct container the new node lives under. It becomes
 	// Props["parent_id"] and the target of the implicit child_of edge.

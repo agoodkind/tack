@@ -14,11 +14,11 @@ type scopeLeaf struct {
 	Chain []ScopeLevel
 }
 
-// scopeRoute describes how a generated list or create tool reaches its scope
-// node. A type with zero or one declared parent uses Chain, the single ordered
-// path the tool has always required. A type that declares several parents in
-// CanLiveUnder uses Leaves: the caller provides exactly one leaf reference per
-// call, and the handler resolves that parent through the leaf's own chain.
+// scopeRoute defines how a generated list or create tool resolves its scope
+// node. A type with zero or one declared parent uses Chain. A type declaring
+// several parents in CanLiveUnder uses Leaves. The caller provides exactly
+// one leaf reference per call, and the handler resolves that parent through
+// the leaf's own chain.
 type scopeRoute struct {
 	Chain  []ScopeLevel
 	Leaves []scopeLeaf

@@ -30,9 +30,9 @@ func longNameViews(count int, nameBytes int) []*node.NodeView {
 	return views
 }
 
-// TestRenderListPageKeepsCursorWhenRowsExceedBudget renders a full page whose
-// rows total far more than the response cap and checks that the page stops
-// early, stays under the cap, and resumes after the last row it printed.
+// TestRenderListPageKeepsCursorWhenRowsExceedBudget renders rows exceeding the
+// response cap. It checks that the page fits within the cap and the cursor
+// resumes after the last printed row.
 func TestRenderListPageKeepsCursorWhenRowsExceedBudget(t *testing.T) {
 	views := longNameViews(100, 2048)
 	rc := newRenderCtxWithTypes(context.Background(), nil, nil, nil)

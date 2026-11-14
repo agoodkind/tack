@@ -49,7 +49,7 @@ func TestPrepareSoakProjectsUsesOnlyServerProjects(t *testing.T) {
 	}
 }
 
-func TestSoakSkipsProjectWhoseListCallFails(t *testing.T) {
+func TestSoakSkipsProjectAfterStateListFailure(t *testing.T) {
 	var output bytes.Buffer
 	previousLogger := slog.Default()
 	slog.SetDefault(slog.New(slog.NewTextHandler(&output, nil)))
@@ -104,7 +104,7 @@ func TestSoakSkipsProjectWhoseListCallFails(t *testing.T) {
 	}
 }
 
-func TestPrepareSoakProjectsFailsAfterSeedLeavesNoProjects(t *testing.T) {
+func TestPrepareSoakProjectsRejectsEmptyCatalogAfterSeed(t *testing.T) {
 	fake := &serverCatalogMCP{projects: map[string][]collectionItem{"workspace": nil}}
 	session := newServerCatalogSession(
 		t,

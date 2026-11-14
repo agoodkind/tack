@@ -1,8 +1,6 @@
-// Package response renders operator CLI output with the run's trace
-// correlation metadata attached, so a line of output can be tied back to the
-// slog and OTel trail by trace_id. It projects the gklog correlation context
-// already re-exported through internal/telemetry; it adds no new dependency
-// and no separate tracing stack.
+// Package response adds trace correlation metadata to operator CLI output.
+// The trace_id links output to slog records and OTel traces. The package
+// reads the gklog correlation context through internal/telemetry.
 package response
 
 import (
@@ -16,9 +14,8 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// headerMarker prefixes the one-line text header. A body already beginning
-// with it carries a header from an inner producer, so callers skip stamping a
-// second one and the original ids survive end to end.
+// headerMarker prefixes the one-line text header. Callers preserve an
+// existing header and its original IDs instead of adding another header.
 const headerMarker = "#meta"
 
 // Metadata is the caller-visible subset of the trace correlation context.
@@ -28,9 +25,9 @@ type Metadata struct {
 	SpanID    string `json:"span_id,omitempty"`
 }
 
-// FromContext projects the active trace correlation context. TraceID and
+// FromContext reads the active trace correlation context. TraceID and
 // SpanID come from the OTel span context; RequestID comes from the request
-// metadata value. Each is empty when absent.
+// metadata value. Each field is empty when absent.
 func FromContext(ctx context.Context) Metadata {
 	return Metadata{
 		RequestID: strings.TrimSpace(telemetry.RequestID(ctx)),
@@ -39,13 +36,13 @@ func FromContext(ctx context.Context) Metadata {
 	}
 }
 
-// Empty reports whether no correlation field is set.
+// Empty reports whether every correlation field is empty.
 func (m Metadata) Empty() bool {
 	return m.RequestID == "" && m.TraceID == "" && m.SpanID == ""
 }
 
-// HeaderLine renders the single text header line, omitting empty fields. It
-// returns "" when no field is set so callers can skip an empty header.
+// HeaderLine renders the single text header line and omits empty fields.
+// It returns an empty string when every field is empty.
 func (m Metadata) HeaderLine() string {
 	parts := make([]string, 0, 3)
 	if m.TraceID != "" {
@@ -67,8 +64,8 @@ func (m Metadata) HeaderLine() string {
 	return headerMarker + " " + strings.Join(parts, " ")
 }
 
-// Text renders body with the metadata header line prepended. A body that
-// already starts with the header marker is returned unchanged.
+// Text prepends the metadata header line to body unless body already
+// starts with the header marker.
 func (m Metadata) Text(body string) string {
 	if strings.HasPrefix(body, headerMarker) {
 		return body
@@ -86,20 +83,20 @@ func (m Metadata) Text(body string) string {
 	return header + "\n" + body
 }
 
-// Text renders body with the current context's metadata header prepended.
+// Text prepends the current context's metadata header to body.
 func Text(ctx context.Context, body string) string {
 	return FromContext(ctx).Text(body)
 }
 
-// JSONDocument is the operator CLI's top-level JSON contract: correlation
-// metadata under _meta and the command payload under result.
+// JSONDocument defines the operator CLI's top-level JSON contract:
+// correlation metadata under _meta and the command payload under result.
 type JSONDocument struct {
 	Meta   Metadata        `json:"_meta"`
 	Result json.RawMessage `json:"result"`
 }
 
-// Marshal wraps an already-encoded JSON payload in the envelope. It errors on
-// an empty or invalid payload so a malformed body never reaches the operator.
+// Marshal wraps an encoded JSON payload in the envelope. It rejects
+// empty or invalid payloads before rendering operator output.
 func Marshal(ctx context.Context, payload []byte) ([]byte, error) {
 	trimmed := bytes.TrimSpace(payload)
 	if len(trimmed) == 0 {

@@ -11,9 +11,9 @@ import (
 
 const maxWriteConfirmationBytes = 1024
 
-// TestWriteConfirmationPrintsLongCommentBodyOnce checks that a node whose
-// name is its only identity is confirmed by raw id with its name printed
-// once, shortened, instead of three full copies.
+// TestWriteConfirmationPrintsLongCommentBodyOnce checks that a confirmation
+// identifies a node without a reference by raw ID and prints its shortened
+// name once instead of repeating the full name.
 func TestWriteConfirmationPrintsLongCommentBodyOnce(t *testing.T) {
 	body := "unique comment body " + strings.Repeat("y", 5*1024)
 	view := &node.NodeView{ID: uuid.Must(uuid.NewV7()), NodeType: "comment", Name: body}

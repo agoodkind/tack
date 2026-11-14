@@ -1,16 +1,13 @@
-// Package tools defines the typed schema and response shapes Tack uses to
-// build MCP tools. The mark3labs/mcp-go library declares its tool input
-// schema as map[string]any and its tool arguments as map[string]any. Both
-// are external types we cannot change; this file contains the only places
-// where Tack code touches those any-typed shapes. Every other caller in the
-// package works with typed structs.
+// Package tools defines typed schemas and responses for MCP tools. It converts
+// these schemas to mark3labs/mcp-go's map[string]any representation when
+// registering tools. Other callers in the package use typed structs.
 package tools
 
 import (
 	mcpmcp "github.com/mark3labs/mcp-go/v2/mcp"
 )
 
-// schemaType enumerates the JSON-schema field types we use for tool input.
+// schemaType enumerates the JSON-schema field types for tool input.
 type schemaType string
 
 const (

@@ -1,7 +1,6 @@
-// Package cli holds the operator CLI's shared dependency factory and global
-// flags. The factory carries config and the IO streams every command writes
-// through, so commands take a *Factory instead of reaching for package
-// globals or the process streams directly.
+// Package cli defines the operator CLI's shared dependency factory and global
+// flags. Commands use Factory for configuration and IO streams instead of
+// reading package globals or accessing process streams directly.
 package cli
 
 import (

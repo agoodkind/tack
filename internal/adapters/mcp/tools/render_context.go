@@ -10,7 +10,7 @@ import (
 	"goodkind.io/tack/internal/domain/user"
 )
 
-// renderCtx carries per-call dependencies for resolving references in Markdown output.
+// renderCtx supplies per-call dependencies for resolving references in Markdown output.
 type renderCtx struct {
 	ctx       context.Context
 	reader    node.NodeReader

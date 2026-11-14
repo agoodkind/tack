@@ -22,10 +22,9 @@ func (s auditTestSource) Resolve(context.Context) (audit.OperatorPrincipal, erro
 	return s.principal, s.err
 }
 
-// auditTestOutbox stands in for the ops_outbox table, including its primary
-// key on event id. Accepting a duplicate id here would hide the real failure:
-// the table rejects the second row, so a pair of rows sharing an id loses the
-// outcome.
+// auditTestOutbox represents ops_outbox and its unique event ID constraint.
+// Rejecting duplicate IDs detects lost outcome evidence when an outcome reuses
+// the intent's ID.
 type auditTestOutbox struct {
 	events      []audit.Event
 	seen        map[uuid.UUID]bool
@@ -57,7 +56,7 @@ func (o *auditTestOutbox) WriteOutbox(_ context.Context, event audit.Event) erro
 	return nil
 }
 
-// opIDOf reads the correlation id an event carries in Extra.
+// opIDOf reads the correlation ID from the event's Extra field.
 func opIDOf(t *testing.T, event audit.Event) uuid.UUID {
 	t.Helper()
 	var extra operatorEventExtra
@@ -160,11 +159,8 @@ func TestRunAuditedMutationIntentFailureNeverRuns(t *testing.T) {
 	}
 }
 
-// TestRunAuditedAtomicIsRejectedUntilSupported pins that a command declaring
-// Atomic refuses to run rather than silently falling through to the ordinary
-// outbox path. The verification that an atomic command really did record
-// inside its own transaction lands with the first such command; until then,
-// accepting the flag would hand back a guarantee nothing enforces.
+// TestRunAuditedAtomicIsRejectedUntilSupported checks that unsupported Atomic
+// commands cannot run with ordinary outbox recording in place of transactional evidence.
 func TestRunAuditedAtomicIsRejectedUntilSupported(t *testing.T) {
 	runCount := 0
 	err := runAudited(

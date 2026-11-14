@@ -18,7 +18,7 @@ import (
 )
 
 const (
-	// objectStoreReadyBucket holds the object a readiness probe writes.
+	// objectStoreReadyBucket stores the object a readiness probe writes.
 	objectStoreReadyBucket = "tack-testenv-ready"
 	// objectStoreProbeTimeout bounds one readiness probe.
 	objectStoreProbeTimeout = 30 * time.Second
@@ -76,8 +76,7 @@ func newObjectStoreBucket(ctx context.Context, containerName string) (ObjectStor
 }
 
 // createObjectStoreBucket creates bucket unless this identity already owns it.
-// It leaves logging to the caller, because a readiness probe expects it to
-// fail while the engine starts.
+// The caller logs failures, including expected failures during readiness probes.
 func createObjectStoreBucket(ctx context.Context, s3Client *s3.Client, bucket string) error {
 	_, err := s3Client.CreateBucket(ctx, &s3.CreateBucketInput{Bucket: aws.String(bucket)})
 	var owned *s3types.BucketAlreadyOwnedByYou
@@ -88,9 +87,9 @@ func createObjectStoreBucket(ctx context.Context, s3Client *s3.Client, bucket st
 	return errors.New("create bucket " + bucket + ": " + err.Error())
 }
 
-// waitForObjectStore polls until the engine in containerName stores an
-// object, and returns how it is reached. An engine answers HTTP before its
-// volume server has registered, so only a completed write proves it ready.
+// waitForObjectStore polls until the engine accepts a write and returns its
+// connection details. HTTP responses alone do not prove readiness before
+// the volume server registers.
 func waitForObjectStore(
 	ctx context.Context,
 	cli *client.Client,
@@ -117,16 +116,15 @@ func waitForObjectStore(
 			)
 
 			return ObjectStoreBucket{}, fmt.Errorf(
-				"the test object store stored nothing before the deadline: %w",
+				"the test object store did not store an object before the deadline: %w",
 				lastErr,
 			)
 		}
 	}
 }
 
-// probeObjectStore makes one bounded write. A failed probe is expected while
-// the engine starts, so it logs at debug and returns the reason for the final
-// deadline error.
+// probeObjectStore attempts one write within a timeout. Startup failures
+// produce debug logs and return error text for the final deadline error.
 func probeObjectStore(ctx context.Context, s3Client *s3.Client) error {
 	probeCtx, cancel := context.WithTimeout(ctx, objectStoreProbeTimeout)
 	defer cancel()
@@ -151,9 +149,8 @@ func probeObjectStore(ctx context.Context, s3Client *s3.Client) error {
 	return nil
 }
 
-// objectStoreAccess reads a running or stopped engine's address and
-// identities back from its container, so a process that did not start the
-// engine can still reach it.
+// objectStoreAccess reads the address and identities from a running or stopped
+// container. Other processes can use these details without starting the engine.
 func objectStoreAccess(
 	ctx context.Context,
 	cli *client.Client,

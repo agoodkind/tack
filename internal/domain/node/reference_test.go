@@ -14,7 +14,7 @@ func TestReferenceConfigDirectAddressProperty(t *testing.T) {
 	}
 }
 
-func TestReferenceConfigUUIDOnlyHasNoAddressProperty(t *testing.T) {
+func TestReferenceConfigOmitsAddressPropertyForUUIDOnly(t *testing.T) {
 	reference := ReferenceConfig{Strategy: ReferenceUUIDOnly, Property: "identifier"}
 
 	if reference.IsDirectAddress() {

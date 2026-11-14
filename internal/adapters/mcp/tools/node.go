@@ -9,7 +9,7 @@ import (
 	"goodkind.io/tack/internal/service"
 )
 
-// NodeTypeBinding carries the dependencies needed by the per-type CRUD tools.
+// NodeTypeBinding supplies dependencies for the per-type CRUD tools.
 type NodeTypeBinding struct {
 	NodeSvc      *service.NodeService
 	Reader       node.NodeReader

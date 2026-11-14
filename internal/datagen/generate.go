@@ -37,15 +37,15 @@ type Generator struct {
 	productionAuth bool
 	redactAuditPII bool
 	redactActor    ActorRedactor
-	// probeNodeID is the first generated node's raw id, kept for the
+	// probeNodeID stores the first generated node's raw ID for the
 	// cross-org isolation probe.
 	probeNodeID string
 	summary     Summary
 }
 
 // GeneratorOptions controls environment-dependent corpus probes. RedactActor
-// is the host redaction path the opt-in PII step runs through; nil means the
-// environment carries no reader and redactor DSN and the step is skipped.
+// runs host redaction for the optional PII probe. A nil RedactActor skips that
+// probe when reader and redactor DSNs are unavailable.
 type GeneratorOptions struct {
 	DryRun         bool
 	ProductionAuth bool
@@ -95,11 +95,8 @@ func registerIdentityTokens(driver *Driver, identities Identities) {
 
 // Run generates all requested tenants and exercises negative authentication.
 func (g *Generator) Run(ctx context.Context) (Summary, error) {
-	// The orientation resource is read first because that is what its own
-	// description tells clients to do, so a generator that read it later would
-	// not model a real session. It runs ahead of the rejected-token probes
-	// too: those are tool calls, so leaving them first would have made the
-	// ordering claim false while reading as if it held.
+	// Read orientation before tool calls, including rejected-token probes,
+	// to follow the resource's required session order.
 	if err := g.readGettingStartedResource(ctx); err != nil {
 		return Summary{}, err
 	}
@@ -177,19 +174,14 @@ type authProbe struct {
 	token string
 }
 
-// readGettingStartedResource reads the one MCP resource the server exposes, as
-// the first workspace's first actor.
-//
-// This is the generator's only resource traffic, and it exists so a testbed run
-// produces an mcp.resource_read row. A generator that exercises every tool and
-// no resource leaves that verb with no way to appear on a testbed at all, which
-// is how it went unnoticed that nothing emitted it (TACK-340).
+// readGettingStartedResource reads the MCP orientation resource as the first
+// workspace's first actor and exercises mcp.resource_read recording (TACK-340).
 func (g *Generator) readGettingStartedResource(ctx context.Context) error {
 	if len(g.identities.Workspaces) == 0 || len(g.identities.Workspaces[0].Actors) == 0 {
 		slog.InfoContext(
 			ctx,
 			"qa.datagen.resource_read_skipped",
-			slog.String("reason", "the scale generates no actor to read as"),
+			slog.String("reason", "the scale does not generate an actor for the resource read"),
 		)
 		return nil
 	}

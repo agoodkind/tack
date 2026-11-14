@@ -10,8 +10,7 @@ import (
 	"goodkind.io/tack/internal/domain/org"
 )
 
-// countingMembers is a membership store that counts its reads, standing in
-// for the org_members table.
+// countingMembers represents org_members and counts membership reads.
 type countingMembers struct {
 	orgs  map[uuid.UUID][]uuid.UUID
 	reads atomic.Int64
@@ -29,8 +28,8 @@ func (c *countingMembers) ListMembers(context.Context, uuid.UUID) ([]*org.Member
 	return nil, nil
 }
 
-// TestCachedMembersReadsOncePerLifetime pins TACK-505: the second read
-// within the lifetime costs no call to the store, and the set is the same.
+// TestCachedMembersReadsOncePerLifetime checks matching membership results
+// and a single store read within the cache lifetime (TACK-505).
 func TestCachedMembersReadsOncePerLifetime(t *testing.T) {
 	userID := uuid.Must(uuid.NewV7())
 	orgID := uuid.Must(uuid.NewV7())
@@ -54,8 +53,8 @@ func TestCachedMembersReadsOncePerLifetime(t *testing.T) {
 	}
 }
 
-// TestCachedMembersForgetsAfterTheLifetime pins that a change made elsewhere
-// reaches this instance within one lifetime.
+// TestCachedMembersForgetsAfterTheLifetime checks that cache expiry causes
+// another store read and returns updated membership.
 func TestCachedMembersForgetsAfterTheLifetime(t *testing.T) {
 	userID := uuid.Must(uuid.NewV7())
 	orgID := uuid.Must(uuid.NewV7())
@@ -83,9 +82,9 @@ func TestCachedMembersForgetsAfterTheLifetime(t *testing.T) {
 	}
 }
 
-// TestCachedMembersHandsOutCopies pins that a caller mutating its set does
-// not change what the next caller reads.
-func TestCachedMembersHandsOutCopies(t *testing.T) {
+// TestCachedMembersReturnsIndependentMembershipCopies checks that caller changes do not modify
+// cached memberships or another caller's results.
+func TestCachedMembersReturnsIndependentMembershipCopies(t *testing.T) {
 	userID := uuid.Must(uuid.NewV7())
 	orgID := uuid.Must(uuid.NewV7())
 	store := &countingMembers{orgs: map[uuid.UUID][]uuid.UUID{userID: {orgID}}}
@@ -104,6 +103,6 @@ func TestCachedMembersHandsOutCopies(t *testing.T) {
 	}
 
 	if second[0] != orgID {
-		t.Fatalf("a caller's write reached the cache: %v", second)
+		t.Fatalf("a caller modified the cached membership: %v", second)
 	}
 }
