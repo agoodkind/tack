@@ -360,7 +360,7 @@ services:
   # The ML Commons memory breaker rejects predictions when used heap is at or
   # above 85 percent.
   opensearch:
-    image: opensearchproject/opensearch:3.8.0
+    image: opensearchproject/opensearch:3.9.0
     profiles: [search]
     restart: unless-stopped
     # No measurement establishes the stop duration under indexing load.
