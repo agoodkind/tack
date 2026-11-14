@@ -28,6 +28,10 @@ endif
 
 include bootstrap.mk
 
+ifeq ($(GITHUB_ACTIONS),true)
+GO_TEST_TARGETS := -short -count=1 -timeout 20m $(GO_TEST_TARGETS)
+endif
+
 .PHONY: postgresql-overlay-source
 postgresql-overlay-source:
 	$(MAKE) -C ../postgresql-overlay postgresql-source

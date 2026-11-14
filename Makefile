@@ -29,6 +29,10 @@ endif
 
 include bootstrap.mk
 
+ifeq ($(GITHUB_ACTIONS),true)
+GO_TEST_TARGETS := -short -count=1 $(GO_TEST_TARGETS)
+endif
+
 # Reject backfills after their clispec.Lifetime removal day (TACK-512).
 .PHONY: backfill-expiry
 backfill-expiry:
@@ -210,6 +214,13 @@ test-env-down:
 # fdb.APIVersion compatible. Docker builds inherit FDB_VERSION.
 FDB_VERSION ?= 7.4.6
 FDB_BINDINGS_VERSION := v0.0.0-20250923185926-685eda6efef7
+
+.PHONY: ci-fdb-client
+ci-fdb-client:
+	gh release download "$(FDB_VERSION)" --repo apple/foundationdb \
+	    --pattern "foundationdb-clients_$(FDB_VERSION)-1_amd64.deb" \
+	    --output "$(RUNNER_TEMP)/fdb-clients.deb"
+	sudo dpkg -i "$(RUNNER_TEMP)/fdb-clients.deb"
 
 .PHONY: update-deps
 update-deps:
