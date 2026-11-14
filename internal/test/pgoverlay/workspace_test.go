@@ -106,7 +106,11 @@ func newWorkspace(t *testing.T, target databaseTarget) *workspace {
 	t.Helper()
 	host := testenv.StartOpenTofuHost(t)
 	space := &workspace{host: host, target: target}
-	host.WriteFile(t, space.cliConfigPath(), fmt.Appendf(nil, cliConfigFormat, providerSource, providerDirectory))
+	host.WriteFile(
+		t,
+		space.cliConfigPath(),
+		fmt.Appendf(nil, cliConfigFormat, providerSource, providerDirectory),
+	)
 	host.WriteFile(t, host.Directory+"/main.tf", []byte(configurationText))
 	space.requireVersion(t)
 	return space
@@ -138,7 +142,9 @@ func (space *workspace) requireVersion(t *testing.T) {
 	}
 }
 
-func (space *workspace) roleVariables(role, password, version, validUntil string) map[string]string {
+func (space *workspace) roleVariables(
+	role, password, version, validUntil string,
+) map[string]string {
 	variables := map[string]string{
 		"host":                  space.target.host,
 		"port":                  space.target.port,

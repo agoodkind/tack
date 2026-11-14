@@ -17,8 +17,13 @@ func (s *scenario) failingCreate(t *testing.T) {
 	t.Helper()
 	s.space.statementTimeout = outOfRangeStatementTimeout
 	output, code := s.apply(t, "1", infinity)
-	if code == exitSuccess || !strings.Contains(output, "could not set statement_timeout "+outOfRangeStatementTimeout) {
-		t.Fatalf("the create exited %d; the test expects the statement_timeout database error:\n%s", code, output)
+	if code == exitSuccess ||
+		!strings.Contains(output, "could not set statement_timeout "+outOfRangeStatementTimeout) {
+		t.Fatalf(
+			"the create exited %d; the test expects the statement_timeout database error:\n%s",
+			code,
+			output,
+		)
 	}
 	s.space.statementTimeout = ""
 }
@@ -37,7 +42,12 @@ func TestYugabyteExternalCreateThenFailure(t *testing.T) {
 		}
 		got := s.space.stateValues(t)
 		if got.ID != s.role || got.OID != s.target.roleOID(t, s.role) {
-			t.Fatalf("state is %+v; the test expects id %s and the role OID %d", got, s.role, s.target.roleOID(t, s.role))
+			t.Fatalf(
+				"state is %+v; the test expects id %s and the role OID %d",
+				got,
+				s.role,
+				s.target.roleOID(t, s.role),
+			)
 		}
 	} else if count := s.space.stateResourceCount(t); count != 0 {
 		t.Fatalf("the role does not exist and state has %d resources; the test expects 0", count)
@@ -131,13 +141,32 @@ func TestYugabyteExternalDeleteKeepsRestrictedAdminMemberships(t *testing.T) {
 	s.space.target.adminUser = administrator
 	s.space.target.adminPassword = password
 	variables := s.space.roleVariables(s.role, s.password("1"), "1", infinity)
-	output, code := s.space.run(t, variables, "import", "-no-color", "-input=false", "postgresql_role.app", s.role)
+	output, code := s.space.run(
+		t,
+		variables,
+		"import",
+		"-no-color",
+		"-input=false",
+		"postgresql_role.app",
+		s.role,
+	)
 	if code != exitSuccess {
 		t.Fatalf("import as the restricted administrator exited %d:\n%s", code, output)
 	}
-	output, code = s.space.run(t, variables, "destroy", "-auto-approve", "-no-color", "-input=false")
+	output, code = s.space.run(
+		t,
+		variables,
+		"destroy",
+		"-auto-approve",
+		"-no-color",
+		"-input=false",
+	)
 	if code == exitSuccess || !strings.Contains(output, "could not reassign owned") {
-		t.Fatalf("destroy exited %d; the test expects an ownership reassignment error:\n%s", code, output)
+		t.Fatalf(
+			"destroy exited %d; the test expects an ownership reassignment error:\n%s",
+			code,
+			output,
+		)
 	}
 	if !s.target.isMember(t, s.role, administrator) || s.target.isMember(t, administrator, s.role) {
 		t.Fatal("the failed delete changed the administrator memberships")

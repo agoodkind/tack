@@ -92,7 +92,13 @@ func (s *scenario) requirePlan(t *testing.T, version, validUntil string, want in
 	t.Helper()
 	output, code := s.plan(t, version, validUntil)
 	if code != want {
-		t.Fatalf("plan for password version %s exited %d and the test expects %d:\n%s", version, code, want, output)
+		t.Fatalf(
+			"plan for password version %s exited %d and the test expects %d:\n%s",
+			version,
+			code,
+			want,
+			output,
+		)
 	}
 	return output
 }
@@ -106,7 +112,11 @@ func (s *scenario) requireLogin(t *testing.T, version string, works bool) {
 	if !works {
 		var databaseError *pgconn.PgError
 		if !errors.As(err, &databaseError) || databaseError.Code != "28P01" {
-			t.Fatalf("a login with password version %s returned %v; the test expects invalid password SQLSTATE 28P01", version, err)
+			t.Fatalf(
+				"a login with password version %s returned %v; the test expects invalid password SQLSTATE 28P01",
+				version,
+				err,
+			)
 		}
 	}
 }
@@ -119,7 +129,12 @@ func (s *scenario) requireState(t *testing.T, version, validUntil string) {
 			got.Version, got.ValidUntil, version, validUntil)
 	}
 	if got.ID != s.role || got.Name != s.role {
-		t.Fatalf("state has id %q and name %q; the test expects both to equal %q", got.ID, got.Name, s.role)
+		t.Fatalf(
+			"state has id %q and name %q; the test expects both to equal %q",
+			got.ID,
+			got.Name,
+			s.role,
+		)
 	}
 }
 

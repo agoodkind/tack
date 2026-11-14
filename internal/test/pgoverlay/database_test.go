@@ -48,7 +48,10 @@ func (target databaseTarget) roleExists(t *testing.T, role string) bool {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(t.Context(), databaseTimeout)
 	defer cancel()
-	connection, err := pgx.Connect(ctx, target.connectionString(target.adminUser, target.adminPassword))
+	connection, err := pgx.Connect(
+		ctx,
+		target.connectionString(target.adminUser, target.adminPassword),
+	)
 	if err != nil {
 		t.Fatalf("connect to check role %s: %v", role, err)
 	}
@@ -93,13 +96,19 @@ func (target databaseTarget) dropRole(t *testing.T, role string) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(t.Context()), databaseTimeout)
 	defer cancel()
-	connection, err := pgx.Connect(ctx, target.connectionString(target.adminUser, target.adminPassword))
+	connection, err := pgx.Connect(
+		ctx,
+		target.connectionString(target.adminUser, target.adminPassword),
+	)
 	if err != nil {
 		t.Errorf("connect to remove role %s: %v", role, err)
 		return
 	}
 	defer func() { _ = connection.Close(ctx) }()
-	if _, err := connection.Exec(ctx, "DROP ROLE IF EXISTS "+pgx.Identifier{role}.Sanitize()); err != nil {
+	if _, err := connection.Exec(
+		ctx,
+		"DROP ROLE IF EXISTS "+pgx.Identifier{role}.Sanitize(),
+	); err != nil {
 		t.Errorf("remove role %s: %v", role, err)
 	}
 }

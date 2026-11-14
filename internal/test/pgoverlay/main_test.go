@@ -38,12 +38,21 @@ func TestMain(m *testing.M) {
 
 func runTests(m *testing.M) int {
 	ctx := context.Background()
-	if err := testenv.IsolateRun(os.Getenv(networkVariable), os.Getenv(projectVariable)); err != nil {
+	if err := testenv.IsolateRun(
+		os.Getenv(networkVariable),
+		os.Getenv(projectVariable),
+	); err != nil {
 		slog.Error("pgoverlay.isolate_failed", slog.String("err", err.Error()))
 		return 1
 	}
-	if err := testenv.IsolateRun(os.Getenv(networkVariable)+"-replacement", os.Getenv(projectVariable)+"-replacement"); err == nil {
-		slog.Error("pgoverlay.repeated_isolation_accepted", slog.String("err", "second configuration did not return an error"))
+	if err := testenv.IsolateRun(
+		os.Getenv(networkVariable)+"-replacement",
+		os.Getenv(projectVariable)+"-replacement",
+	); err == nil {
+		slog.Error(
+			"pgoverlay.repeated_isolation_accepted",
+			slog.String("err", "second configuration did not return an error"),
+		)
 		return 1
 	}
 	decoy, err := testenv.CreateStoppedRunDecoy(ctx)
@@ -58,7 +67,11 @@ func runTests(m *testing.M) int {
 	} else {
 		code = m.Run()
 	}
-	failures := []error{checkDecoy(ctx, decoy), testenv.RemoveStoppedRunDecoy(ctx, decoy), testenv.Release(ctx)}
+	failures := []error{
+		checkDecoy(ctx, decoy),
+		testenv.RemoveStoppedRunDecoy(ctx, decoy),
+		testenv.Release(ctx),
+	}
 	for _, err := range failures {
 		if err != nil {
 			slog.Error("pgoverlay.cleanup_failed", slog.String("err", err.Error()))
