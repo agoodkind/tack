@@ -6,13 +6,13 @@ import (
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
 )
 
-// TestSchemaInterruptedRecovery starts at TACK_ACC_VERSION with
+// TestSchemaApplyResumesAfterPartialMigration starts at TACK_ACC_VERSION with
 // TACK_ACC_TARGET_VERSION at least two versions higher. A separate OpenTofu state
 // applies one migration while this test's state still records the starting
 // version, as after an interrupted apply. Recovery must refresh applied_version,
 // finish the remaining migrations with --expect-from at that version, and
 // require an empty plan before a final apply.
-func TestSchemaInterruptedRecovery(t *testing.T) {
+func TestSchemaApplyResumesAfterPartialMigration(t *testing.T) {
 	environment := newAcceptanceEnvironment(t)
 	applied := environment.appliedVersion
 	target := requireNumber(t, targetVersionVariable)

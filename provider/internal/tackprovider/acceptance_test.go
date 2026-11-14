@@ -7,11 +7,11 @@ import (
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
 )
 
-// TestSchemaImportPlanAndRefresh imports the schema of a running Tack
+// TestSchemaRefreshPreservesImportedVersion imports the schema of a running Tack
 // environment, plans the applied version without changes, and refreshes
 // state. It does not run apply, and destroy only removes the resource from
 // state.
-func TestSchemaImportPlanAndRefresh(t *testing.T) {
+func TestSchemaRefreshPreservesImportedVersion(t *testing.T) {
 	environment := newAcceptanceEnvironment(t)
 	version := environment.appliedVersion
 	versionText := strconv.FormatInt(version, 10)
