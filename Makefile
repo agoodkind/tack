@@ -29,12 +29,3 @@ include bootstrap.mk
 ifeq ($(GITHUB_ACTIONS),true)
   GO_TEST_TARGETS := -short -count=1 $(GO_TEST_TARGETS)
 endif
-
-FDB_VERSION ?= 7.4.6
-
-.PHONY: ci-fdb-client
-ci-fdb-client:
-	gh release download "$(FDB_VERSION)" --repo apple/foundationdb \
-	    --pattern "foundationdb-clients_$(FDB_VERSION)-1_amd64.deb" \
-	    --output "$(RUNNER_TEMP)/fdb-clients.deb"
-	sudo dpkg -i "$(RUNNER_TEMP)/fdb-clients.deb"

@@ -17,11 +17,16 @@ permissions:
 jobs:
   server:
     name: Server
-    uses: agoodkind/go-makefile/.github/workflows/_ci.yml@main
-    secrets: inherit
-    with:
-      timeout_minutes: 10
-      pre_make_commands: make ci-fdb-client
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: foundationdb-rs/foundationdb-actions-install@main
+        with:
+          version: "7.4.6"
+
+      - uses: agoodkind/go-makefile/.github/actions/ci@main
 
   provider:
     name: Tofu Provider
