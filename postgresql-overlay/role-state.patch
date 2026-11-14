@@ -43,7 +43,7 @@ index 778778bebf73da11c8f5dc7485a55d993b26cc5d..0763c0c76398deba7c7f7066d1d0a00f
 +				Type:         schema.TypeString,
 +				Optional:     true,
 +				Default:      roleLockModeAdvisory,
-+				Description:  "How postgresql_role writes lock the role. advisory takes PostgreSQL advisory locks in update and delete. external takes no database lock in create, update, and delete and requires the caller to serialize writes to the same roles.",
++				Description:  "advisory takes PostgreSQL advisory locks during postgresql_role update and delete. external does not take database locks during create, update, or delete. The caller must serialize writes to the same roles in external mode.",
 +				ValidateFunc: validation.StringInSlice([]string{roleLockModeAdvisory, roleLockModeExternal}, false),
 +			},
  		},
@@ -437,9 +437,9 @@ index 0000000000000000000000000000000000000000..29f7312f85b0f0e49675c38abca32894
 +	return oid, true, nil
 +}
 +
-+// resolveManagedRole finds the role that the resource state identifies. It looks
-+// up the stored role_oid before the name. A renamed role is found under its
-+// current name, and a different role that has the old name is never adopted.
++// resolveManagedRole queries the role by its stored role_oid before its name.
++// It finds renamed roles by OID and rejects a different role that reuses
++// the old name.
 +func resolveManagedRole(db QueryAble, d *schema.ResourceData) (managedRole, error) {
 +	storedOID := int64(d.Get(roleOIDAttr).(int))
 +	if storedOID == 0 {

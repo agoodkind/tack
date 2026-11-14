@@ -1,6 +1,6 @@
 -- tack_migrator takes every object in the audit, partman, and public schemas
 -- that a superuser owns (TACK-554). audit.projected_events and
--- public.ops_outbox keep their owners: an owner change moves the old owner's
+-- public.ops_outbox keep their owners: an owner change assigns the old owner's
 -- table privileges to the new owner.
 --
 -- CREATEROLE is for `ops audit seed-roles`, which also sets LOGIN and the

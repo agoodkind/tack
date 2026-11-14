@@ -3,9 +3,9 @@
 /* Install pg_partman and register audit.events for native weekly partition
    management. pg_partman scans existing coverage during registration, so its
    native events_pYYYY_MM_DD names must replace the hand-written
-   events_YYYY_MM_DD names before create_parent runs. p_start_partition is set
-   to the week after existing coverage. Retention stays off: the audit ledger
-   never auto-drops. */
+   events_YYYY_MM_DD names before create_parent runs. Set p_start_partition
+   to the week after existing coverage. Disable retention; the audit ledger
+   must not drop partitions automatically. */
 CREATE SCHEMA IF NOT EXISTS partman;
 -- +goose StatementEnd
 
@@ -195,7 +195,7 @@ DROP FUNCTION IF EXISTS audit.run_partition_maintenance();
 
 -- +goose StatementBegin
 /* Unregister without dropping ledger partitions. The pinned YugabyteDB build
-   creates no default partition, and create_parent safely reuses its retained
+   does not create a default partition. create_parent reuses its retained
    partman.template_audit_events table on a later Up. */
 DELETE FROM partman.part_config WHERE parent_table = 'audit.events';
 -- +goose StatementEnd

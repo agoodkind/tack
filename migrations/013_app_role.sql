@@ -1,13 +1,10 @@
 -- The application connects as its own non-superuser role (TACK-180).
 --
--- Until now DATABASE_URL was the yugabyte superuser, which owns every table
--- and so bypasses every grant and policy the audit migrations fenced the
--- ledger with. This creates app_auth, the NOLOGIN base role the application's
--- LOGIN role (tack_app, created by `ops audit seed-roles`) inherits, and
--- grants it exactly the three auth tables the application reads and writes:
--- users, api_tokens, org_members. It holds nothing on the audit schema, on
--- the operator outbox, or on the migration ledger. Migrations, seed-roles,
--- and the backup commands keep the superuser through the ops sidecar.
+-- A yugabyte superuser connection bypasses ledger grants and policies.
+-- This migration creates the NOLOGIN base role app_auth. The application's
+-- LOGIN role tack_app inherits app_auth; `ops audit seed-roles` creates it.
+-- app_auth can read and write only users, api_tokens, and org_members.
+-- It cannot access the audit schema, operator outbox, or migration ledger.
 --
 -- Every statement is idempotent. YugabyteDB keeps completed DDL when a
 -- migration transaction rolls back, so a retry must reconcile partial work.
@@ -22,16 +19,15 @@ BEGIN
 END$$;
 -- +goose StatementEnd
 
--- The engine grants CREATE on public to PUBLIC by default, which USAGE alone
--- does not take away; without this the application login could create
--- arbitrary objects beside the auth tables. Migrations run as the superuser
--- and are unaffected.
+-- The engine grants CREATE on public to PUBLIC by default. USAGE does not
+-- revoke CREATE. Without this revocation the application login could create
+-- arbitrary objects beside the auth tables.
 REVOKE CREATE ON SCHEMA public FROM PUBLIC;
 GRANT USAGE ON SCHEMA public TO app_auth;
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.users, public.api_tokens, public.org_members TO app_auth;
 
--- Nothing the application holds reaches the ledger: the schema is closed to
--- everyone the audit migrations did not name, and app_auth is not named.
+-- app_auth cannot access the ledger. Only roles with explicit audit schema
+-- grants can access it.
 REVOKE ALL ON SCHEMA audit FROM PUBLIC;
 REVOKE ALL ON SCHEMA audit FROM app_auth;
 

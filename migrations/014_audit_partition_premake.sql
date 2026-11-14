@@ -1,16 +1,15 @@
--- Fewer weekly audit partitions ahead of time (TACK-493).
+-- Reduce future weekly audit partitions (TACK-493).
 --
--- pg_partman kept twelve future weekly partitions of audit.events, each with
--- its indexes, each object split into three tablets replicated to every
--- ledger node: about a third of the 383 tablets a node carried, all empty.
--- Two weeks ahead is enough: the audit consumer runs partition maintenance
--- on boot and daily, so a missed day still leaves a week of headroom.
+-- Twelve future weekly partitions and their indexes required about a third
+-- of each ledger node's 383 tablets despite containing no rows. Two future
+-- weeks permit a missed daily maintenance run. The audit consumer also runs
+-- partition maintenance at startup.
 --
--- The block below drops only future partitions that hold no rows and start
--- after the kept window. Past and current partitions, and any future one
--- with a row, stay. Retention is untouched: the ledger never auto-drops old
--- data. Every statement is idempotent, because YugabyteDB keeps completed
--- DDL when a migration transaction rolls back.
+-- Drop only empty future partitions that start after the retained window.
+-- Preserve past and current partitions and all partitions with rows.
+-- Keep retention disabled; the ledger must not drop old data automatically.
+-- Every statement supports retries because YugabyteDB keeps completed DDL
+-- when a migration transaction rolls back.
 
 -- +goose Up
 -- +goose StatementBegin

@@ -1,18 +1,11 @@
--- One event id, one ledger row.
---
--- audit.events is range-partitioned on event_time, so its unique index has to
--- carry event_time too, and it therefore only rejects a redelivery that
--- repeats the same instant. A producer that re-derives an event keeps the
--- event id and stamps a fresh time, and the ledger accepted it as a second
--- row: the TACK-429 reconstruction wrote its whole history twice on the
--- testbed on 2026-08-16, 1788 events over 1788 identities.
---
--- This table is not partitioned, so it can hold the identity constraint the
--- ledger cannot. The consumer claims an identity in the same transaction as
--- the append, and a claim that loses reports the event as already projected.
+-- audit.events partitions rows by event_time and includes event_time in its
+-- unique index. That index cannot reject the same event id with a new time.
+-- audit.projected_events enforces uniqueness across all event times without
+-- partitioning. The consumer claims an event id in the append transaction
+-- and reports an existing claim as already projected.
 --
 -- Every statement is idempotent. YugabyteDB keeps completed DDL when a
--- migration transaction rolls back, so a retry must reconcile partial work.
+-- migration transaction rolls back. A retry must reconcile partial work.
 
 -- +goose Up
 -- +goose StatementBegin
@@ -63,9 +56,9 @@ BEGIN
 END$$;
 -- +goose StatementEnd
 
--- Adopt the ledger the deployment already holds. Without this, the first
--- redelivery of any existing event would claim a free identity and fall
--- through to the ledger's own index instead, which is a weaker check.
+-- Register existing ledger event ids before processing redeliveries.
+-- Otherwise an existing event with a new time could claim an unused id
+-- and pass the ledger's time-dependent uniqueness check.
 -- +goose StatementBegin
 INSERT INTO audit.projected_events (event_id)
 SELECT DISTINCT event_id FROM audit.events

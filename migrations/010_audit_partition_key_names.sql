@@ -1,19 +1,13 @@
--- Give every audit.events partition the primary-key name the engine would have
--- given it, so the ledger's own schema dump restores.
+-- Rename audit.events partition primary keys to the engine's default names.
+-- Migration 004 renamed events_YYYY_MM_DD partitions to events_pYYYY_MM_DD
+-- without renaming their events_YYYY_MM_DD_pkey constraints.
+-- ysql_dump 2024.2 writes CREATE TABLE ... PARTITION OF without a constraint
+-- clause. Restoration creates events_pYYYY_MM_DD_pkey, but the dump's later
+-- ALTER INDEX ... ATTACH PARTITION references the old constraint and fails.
+-- pg_partman already uses the default names for new partitions.
 --
--- Migration 004 renamed the hand-written partitions events_YYYY_MM_DD to the
--- pg_partman form events_pYYYY_MM_DD and left their primary-key constraints
--- named events_YYYY_MM_DD_pkey. The engine's own dumper (ysql_dump on the
--- 2024.2 line) writes a partition as "CREATE TABLE ... PARTITION OF" with no
--- constraint clause, so a restore names the key events_pYYYY_MM_DD_pkey, and
--- the dump's later "ALTER INDEX ... ATTACH PARTITION" names the old one and
--- fails. The restore drill on QA stopped at exactly that statement on
--- 2026-09-03. Every partition pg_partman created since carries the default
--- name already, so after this the dump names what the restore creates.
---
--- Renaming a constraint is a catalog change; the key's storage is untouched.
--- Idempotent: a partition whose key already carries the default name is left
--- alone, so a retry after a partial run reconciles rather than fails.
+-- Constraint renaming changes only the catalog, not key storage.
+-- This migration skips keys with default names and supports partial retries.
 
 -- +goose Up
 -- +goose StatementBegin
