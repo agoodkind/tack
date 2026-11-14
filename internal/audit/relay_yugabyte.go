@@ -37,11 +37,10 @@ func (r *Relay) yugabyteLoop(ctx context.Context) {
 	}
 }
 
-// drainYugabyte produces one batch and deletes each row only after the broker
-// accepts it. A produce failure stops the batch and leaves the rest in place,
-// so the next tick retries them; a redelivery is harmless because the consumer
-// drops a duplicate event id, while a deletion before acceptance would lose an
-// audit event outright.
+// drainYugabyte publishes one batch and deletes each row only after broker
+// acceptance. A produce failure stops the batch. The next tick retries the
+// remaining rows, and the consumer rejects duplicate event IDs on redelivery.
+// Deleting before acceptance would lose the audit event.
 func (r *Relay) drainYugabyte(ctx context.Context) {
 	if claimer, ok := r.yugabyte.(claimingOutbox); ok {
 		r.drainClaimed(ctx, claimer)

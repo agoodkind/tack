@@ -1,7 +1,4 @@
-// reader_stream.go is the whole-match-set read. Query builds a slice, which
-// bounds it to what fits in memory; this hands each row to the caller as it is
-// decoded and keeps none, so a read of a production-sized org costs the same as
-// a read of one row.
+// reader_stream.go reads matching ledger rows without collecting the result set.
 
 package audit
 
@@ -16,21 +13,14 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// RowVisitor receives one ledger row. The row is valid for the duration of the
-// call and is released afterwards, so a visitor that needs to keep something
-// must copy what it needs. Returning an error stops the stream.
+// RowVisitor receives one ledger row valid for the duration of the call.
+// The visitor must copy any values it retains. An error stops the stream.
 type RowVisitor func(Row) error
 
-// StreamQuery runs the same filter Query runs and hands every matching row to
-// visit as it arrives off the connection. Peak memory is one row plus the
-// connection's read buffer, whatever the filter matches, because nothing here
-// accumulates: pgx reads one protocol message per row rather than collecting
-// the result set.
-//
-// A zero limit means every matching row, which is where this differs from
-// Query. Query defaults a missing limit to a page because its callers render a
-// page; the caller here is the compliance export, and an export that stopped at
-// a page would be a truncated bundle that reads as a complete one.
+// StreamQuery calls visit for each row that matches the Query filter. It keeps
+// one decoded row and the connection's read buffer rather than collecting rows.
+// A zero limit selects every match for compliance exports; Query instead
+// defaults a zero limit to one page.
 func (r *Reader) StreamQuery(ctx context.Context, f QueryFilter, visit RowVisitor) error {
 	ctx, span := telemetry.StartSpan(
 		ctx,
@@ -70,10 +60,8 @@ func (r *Reader) StreamQuery(ctx context.Context, f QueryFilter, visit RowVisito
 		streamed++
 	}
 
-	// rows.Err is what separates a stream that ended from one that was cut off
-	// mid-result by a dropped connection or a cancelled context. Reading only
-	// the loop's exit would turn a partial read into a short, silent success,
-	// which for an export is a bundle missing its tail.
+	// Check rows.Err after iteration to distinguish completion from a dropped
+	// connection or canceled context. A partial export must return an error.
 	if err := rows.Err(); err != nil {
 		slog.ErrorContext(
 			ctx,

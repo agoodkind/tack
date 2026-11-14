@@ -94,7 +94,7 @@ func newAssemblyPartReader(
 }
 
 // Read copies bytes of the current part into buffer. It reads the next part
-// when the current part has no bytes left and returns [io.EOF] after the last
+// when it exhausts the current part and returns [io.EOF] after the last
 // declared part.
 func (r *assemblyPartReader) Read(buffer []byte) (int, error) {
 	for len(r.pending) == 0 {

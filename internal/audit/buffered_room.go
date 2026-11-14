@@ -49,7 +49,7 @@ const (
 	// admitted means admitOrWait sent the event to the queue.
 	admitted admission = iota
 	// refusedRetained means the queue was full while the flusher retained
-	// undelivered events, so room opens only after a delivery succeeds.
+	// undelivered events. Another delivery must succeed before admission.
 	refusedRetained
 	// mustWait means the queue was full of queued events. The caller waits
 	// on the returned channel and then calls stopWaiting.

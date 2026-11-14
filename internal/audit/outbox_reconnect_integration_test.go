@@ -9,10 +9,9 @@ import (
 	"goodkind.io/tack/internal/testenv"
 )
 
-// TestWriteOutboxSurvivesALostConnection reproduces TACK-497 against a real
-// ledger: the connection an outbox write would use is killed by the server
-// between two writes, the way `ops ledger node-prepare` kills its own node's
-// connection when it stops that node. The second write must still land.
+// TestWriteOutboxSurvivesALostConnection terminates the connection between
+// writes to reproduce ops ledger node-prepare stopping its connected node.
+// The second write must succeed through connection recovery (TACK-497).
 func TestWriteOutboxSurvivesALostConnection(t *testing.T) {
 	dsn := testenv.Ledger(t)
 	ctx := context.Background()
@@ -22,7 +21,7 @@ func TestWriteOutboxSurvivesALostConnection(t *testing.T) {
 		t.Fatalf("parse dsn: %v", err)
 	}
 
-	// One connection, so the write after the kill must use the killed one.
+	// Limit the pool to the connection that the test terminates.
 	config.MaxConns = 1
 	pool, err := pgxpool.NewWithConfig(ctx, config)
 	if err != nil {
@@ -83,6 +82,6 @@ func TestWriteOutboxSurvivesALostConnection(t *testing.T) {
 	}
 
 	if count != 2 {
-		t.Fatalf("outbox holds %d of the two events, want both", count)
+		t.Fatalf("outbox stored %d of the two events, want both", count)
 	}
 }

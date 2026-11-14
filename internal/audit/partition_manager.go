@@ -11,31 +11,24 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// partitionHeadroomAlertFloor is the pg_partman premake count that migration
-// 014 sets for audit.events. A successful maintenance run creates weeks until
-// the newest partition starts at least two weeks after now. HeadroomWeeks
-// counts only the partitions that start after now. It returned 3 after a run
-// in the middle of a week on a freshly provisioned ledger. The manager logs
-// an alert when the count falls below this floor.
+// partitionHeadroomAlertFloor sets the minimum future partition count before
+// the manager alerts. Maintenance creates weekly partitions using migration
+// 014's pg_partman settings; HeadroomWeeks counts starts after the current time.
 const partitionHeadroomAlertFloor = 2
 
-// partitionStore is the data-access seam for the partition-manager, so the loop
-// is unit-testable without a database.
+// partitionStore defines PartitionManager's database operations.
 type partitionStore interface {
-	// RunMaintenance premakes forward partitions for audit.events.
+	// RunMaintenance creates future partitions for audit.events.
 	RunMaintenance(ctx context.Context) error
-	// HeadroomWeeks returns the count of weekly partitions whose range starts
-	// after now, i.e. the forward buffer remaining.
+	// HeadroomWeeks counts weekly partitions starting after now.
 	HeadroomWeeks(ctx context.Context, now time.Time) (int, error)
-	// StrayChildren returns the children of audit.events named outside
-	// events_pYYYY_MM_DD.
+	// StrayChildren returns audit.events children outside events_pYYYY_MM_DD.
 	StrayChildren(ctx context.Context) ([]string, error)
 }
 
-// PartitionManager keeps audit.events supplied with future weekly partitions.
-// It mirrors Notarizer: a recovered goroutine that runs once at
-// boot (catch-up) and then on a fixed period. It reuses the consumer's pool
-// through the store, so Close does not close the pool.
+// PartitionManager creates future weekly audit.events partitions at startup
+// and on a fixed interval. It recovers goroutine panics and shares the consumer
+// pool without closing that pool during shutdown.
 type PartitionManager struct {
 	store  partitionStore
 	period time.Duration
@@ -44,8 +37,7 @@ type PartitionManager struct {
 	stopped chan struct{}
 }
 
-// NewPartitionManager builds a manager over the given store. A non-positive
-// period falls back to 24h.
+// NewPartitionManager uses a 24-hour period when period is nonpositive.
 func NewPartitionManager(store partitionStore, period time.Duration) *PartitionManager {
 	if period <= 0 {
 		period = 24 * time.Hour
@@ -59,7 +51,7 @@ func NewPartitionManager(store partitionStore, period time.Duration) *PartitionM
 	}
 }
 
-// Start launches the maintenance loop in a recovered goroutine.
+// Start launches maintenance in a goroutine that recovers panics.
 func (m *PartitionManager) Start(ctx context.Context) {
 	go func() {
 		defer func() {
@@ -76,8 +68,7 @@ func (m *PartitionManager) loop(ctx context.Context) {
 	defer close(m.stopped)
 	t := time.NewTicker(m.period)
 	defer t.Stop()
-	/* Run once at boot so a freshly deployed or restarted consumer establishes
-	   headroom and catches up missed weeks before the first tick. */
+	// Create missing future weeks before waiting for the first tick.
 	m.runOnce(ctx)
 
 	for {
@@ -106,9 +97,8 @@ func (m *PartitionManager) runOnce(ctx context.Context) {
 		telemetry.IncAuditPartitionMaintenance("ok")
 	}
 
-	/* Headroom is read after a failed run too. A run that keeps failing
-	   creates no partition, and the gauge and the low-headroom alert are the
-	   only signals that the ledger is running out of weeks. */
+	// Read future coverage even after maintenance fails. The gauge and alert
+	// must report shrinking coverage during repeated failures.
 	headroom, err := m.store.HeadroomWeeks(ctx, clock.Now().UTC())
 	if err != nil {
 		telemetry.L(ctx).Error(
@@ -135,7 +125,7 @@ func (m *PartitionManager) runOnce(ctx context.Context) {
 	}
 }
 
-// Close stops the loop. Idempotent. Does not close the shared pool.
+// Close stops the loop without closing the shared pool and supports repeated calls.
 func (m *PartitionManager) Close() error {
 	select {
 	case <-m.stop:
@@ -148,9 +138,8 @@ func (m *PartitionManager) Close() error {
 	return nil
 }
 
-// pgPartitionStore is the production partitionStore backed by the consumer's
-// Yugabyte pool (audit_writer role). Maintenance goes through the SECURITY
-// DEFINER wrapper installed by migration 004.
+// pgPartitionStore uses the consumer's audit_writer pool. Maintenance calls
+// the SECURITY DEFINER wrapper installed by migration 004.
 type pgPartitionStore struct {
 	pool *pgxpool.Pool
 }

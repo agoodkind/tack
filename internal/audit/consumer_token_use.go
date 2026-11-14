@@ -1,7 +1,6 @@
-// consumer_token_use.go projects each token's last use out of the auth events
-// a batch has committed, so the app never writes the token table on the
-// request path (TACK-502). The ledger row is the record; the token column is
-// a projection of it, written in the same transaction.
+// consumer_token_use.go updates token last-use times from auth events in the
+// same transaction as their ledger rows. The app does not update that column
+// during requests (TACK-502).
 
 package audit
 
@@ -17,10 +16,9 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// recordTokenUses writes the newest use time of every token the batch's auth
-// events name, one update per token, inside the batch transaction. The update
-// keeps whichever time is later, so an event delivered out of order or twice
-// can never move a token's last use backwards.
+// recordTokenUses updates each token once with its latest accepted-auth time
+// in the batch transaction. GREATEST prevents older or duplicate events from
+// reducing an existing last-use time.
 func recordTokenUses(ctx context.Context, tx pgx.Tx, projected []committedAuthEvent) error {
 	newest := newestTokenUses(projected)
 	for _, tokenID := range sortedTokenIDs(newest) {
@@ -48,8 +46,7 @@ func recordTokenUses(ctx context.Context, tx pgx.Tx, projected []committedAuthEv
 	return nil
 }
 
-// newestTokenUses folds a batch down to the latest accepted-auth time per
-// token, skipping events that accepted no token.
+// newestTokenUses selects the latest accepted-auth time per non-nil token ID.
 func newestTokenUses(projected []committedAuthEvent) map[uuid.UUID]time.Time {
 	newest := map[uuid.UUID]time.Time{}
 
@@ -67,8 +64,8 @@ func newestTokenUses(projected []committedAuthEvent) map[uuid.UUID]time.Time {
 	return newest
 }
 
-// sortedTokenIDs fixes the update order, so two batches that touch the same
-// tokens lock their rows in the same sequence.
+// sortedTokenIDs orders row updates consistently across batches that update
+// overlapping token sets.
 func sortedTokenIDs(newest map[uuid.UUID]time.Time) []uuid.UUID {
 	ids := make([]uuid.UUID, 0, len(newest))
 	for id := range newest {

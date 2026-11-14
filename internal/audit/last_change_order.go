@@ -7,10 +7,9 @@ import (
 	"github.com/google/uuid"
 )
 
-// changeCandidates stores the successful changes of one entry that can still
-// be the latest one. A commit version orders rows only within the
-// FoundationDB outbox, so versioned keeps the highest versioned change, and
-// unversioned keeps every change without a commit version.
+// changeCandidates stores possible latest successful changes for one entry.
+// versioned keeps the highest commit version within the FoundationDB outbox.
+// unversioned retains every change without a comparable commit version.
 type changeCandidates struct {
 	versioned   *LastChange
 	unversioned []LastChange

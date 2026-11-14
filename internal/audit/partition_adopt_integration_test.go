@@ -21,7 +21,7 @@ func TestPartmanAdoptionPreservesLedgerAndMaintainsHeadroom(t *testing.T) {
 	legacyPartitionCount := fixture.partitionCount(t, `^events_[0-9]{4}_[0-9]{2}_[0-9]{2}$`)
 	if legacyPartitionCount == 0 {
 		t.Fatalf(
-			"migration 003 has no hand-named audit.events partitions; total children = %d",
+			"migration 003 did not create hand-named audit.events partitions; total children = %d",
 			fixture.partitionCount(t, `.*`),
 		)
 	}

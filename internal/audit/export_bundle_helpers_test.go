@@ -1,6 +1,4 @@
-// export_bundle_helpers_test.go is how the export tests read, populate, and
-// assert on a bundle directory. Every test that drives Export into a directory
-// and then looks at what it left shares these.
+// export_bundle_helpers_test.go provides shared bundle inspection and fixture helpers.
 
 package audit
 
@@ -15,8 +13,7 @@ import (
 	"github.com/google/uuid"
 )
 
-// bundleRowsFileNames returns the names of the per-export rows files sitting in
-// a bundle directory, whatever export wrote them.
+// bundleRowsFileNames returns per-export rows file names in dir.
 func bundleRowsFileNames(t *testing.T, dir string) []string {
 	t.Helper()
 	entries, err := os.ReadDir(dir)
@@ -36,8 +33,7 @@ func bundleRowsFileNames(t *testing.T, dir string) []string {
 	return names
 }
 
-// publishedBundle reads the manifest a bundle directory publishes and the bytes
-// of the rows file it names, which is the only pair that is the bundle.
+// publishedBundle reads the published manifest and its referenced rows file.
 func publishedBundle(t *testing.T, dir string) (ExportManifest, []byte) {
 	t.Helper()
 	manifest, err := readExportManifest(dir)
@@ -58,11 +54,8 @@ func publishedBundle(t *testing.T, dir string) (ExportManifest, []byte) {
 	return manifest, rows
 }
 
-// assertDirectoryHoldsOnlyItsBundle fails when a bundle directory carries a
-// file beyond the bundle itself: a staged file a failed export left, or the
-// rows of an export that was superseded or died. The allowed names are listed
-// here rather than read from the production predicate, so a change that
-// widened what counts as reclaimable could not also widen this check.
+// assertDirectoryHoldsOnlyItsBundle rejects staged, abandoned, or superseded
+// files. Its explicit allowlist is independent of the production reclaim predicate.
 func assertDirectoryHoldsOnlyItsBundle(t *testing.T, dir string) {
 	t.Helper()
 	allowed := map[string]bool{exportManifestFile: true, exportActivityLockFile: true}
@@ -83,14 +76,14 @@ func assertDirectoryHoldsOnlyItsBundle(t *testing.T, dir string) {
 	for _, entry := range entries {
 		if !allowed[entry.Name()] {
 			t.Fatalf(
-				"the bundle directory still holds %s, which is not part of the published bundle",
+				"the bundle directory contains %s outside the published bundle",
 				entry.Name(),
 			)
 		}
 	}
 }
 
-// exportTestRows streams a correctly chained ledger of the requested size.
+// exportTestRows generates the requested number of correctly chained rows.
 func exportTestRows(t *testing.T, orgID uuid.UUID, rows int, observe func(int)) *ledgerRowStream {
 	t.Helper()
 
@@ -104,8 +97,7 @@ func exportTestRows(t *testing.T, orgID uuid.UUID, rows int, observe func(int)) 
 	}
 }
 
-// copyBundleRows places one export's rows file into another directory under the
-// name its manifest carries.
+// copyBundleRows copies a rows file under the file name in its manifest.
 func copyBundleRows(t *testing.T, fromDir, toDir, name string) {
 	t.Helper()
 	body, err := os.ReadFile(filepath.Join(fromDir, name))
@@ -118,9 +110,8 @@ func copyBundleRows(t *testing.T, fromDir, toDir, name string) {
 	}
 }
 
-// rewriteManifestField edits one key of the published manifest in place and
-// leaves the signature as it was, which is what a tampered manifest looks like.
-// A nil value removes the key.
+// rewriteManifestField changes or removes a manifest field without updating
+// its signature. A nil value removes the key.
 func rewriteManifestField(t *testing.T, dir, key string, value *string) {
 	t.Helper()
 	path := filepath.Join(dir, exportManifestFile)

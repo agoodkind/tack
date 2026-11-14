@@ -9,25 +9,18 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// failureBackoffCap bounds the pause between polls while a partition keeps
-// failing, so a ledger outage costs a few log lines a minute rather than a
-// storm, while recovery is noticed within the cap.
+// failureBackoffCap bounds the poll delay during partition failures and the
+// delay before detecting recovery.
 const failureBackoffCap = 30 * time.Second
 
 // failureBackoffDoublings caps how many times the pause doubles.
 const failureBackoffDoublings = 8
 
-// projectFetches projects every partition batch one poll returned, winds
-// back the partitions whose batch failed, and commits the rest. It reports
-// whether any batch failed.
-//
-// The poll advanced the client's fetch position past every record it
-// returned, including the ones a failed batch never projected. Those
-// partitions are wound back to the failed batch's first record before
-// anything is committed, so the next poll re-fetches them and no later batch
-// can commit an offset past records the ledger never saw. The seek runs
-// between polls and before the commit, the two conditions the client's own
-// documentation sets for a group consumer.
+// projectFetches projects each partition batch and reports whether any failed.
+// It resets failed partitions to their first fetched record before committing
+// successful batches. The next poll retries records the failed batch did not
+// project. Offsets must not commit past unrecorded events. SetOffsets must run
+// between polls and before the commit, as required for a group consumer.
 func (c *Consumer) projectFetches(ctx context.Context, fetches kgo.Fetches) bool {
 	batches := groupByPartition(fetches)
 	committed := make([]*kgo.Record, 0, len(batches))
@@ -66,9 +59,9 @@ func (c *Consumer) projectFetches(ctx context.Context, fetches kgo.Fetches) bool
 		c.kclient.SetOffsets(rewind)
 	}
 
-	// A commit lost to a rebalance only redelivers, and a redelivered record
-	// is refused by the ledger's identity claim, so the group offset may lag
-	// the ledger but never lead it.
+	// A rebalance can prevent an offset commit and cause redelivery. The
+	// ledger's identity claim rejects duplicates. The group offset can lag
+	// the ledger but must not advance ahead of committed events.
 	if len(committed) > 0 {
 		if err := c.kclient.CommitRecords(ctx, committed...); err != nil {
 			slog.ErrorContext(ctx, "audit.consumer.commit_failed", slog.String("err", err.Error()))
@@ -78,9 +71,9 @@ func (c *Consumer) projectFetches(ctx context.Context, fetches kgo.Fetches) bool
 	return len(rewind) > 0
 }
 
-// backOffAfterFailures pauses before the next poll when this one failed a
-// batch, doubling the pause per consecutive failing poll up to the cap, and
-// resets on a clean poll. The pause ends early on stop or cancellation.
+// backOffAfterFailures doubles the pause for consecutive failed polls up to
+// the cap and resets it after a successful poll. Stop or cancellation ends
+// the pause early.
 func (c *Consumer) backOffAfterFailures(ctx context.Context, failed bool) {
 	if !failed {
 		c.consecutiveFailures = 0
@@ -88,8 +81,7 @@ func (c *Consumer) backOffAfterFailures(ctx context.Context, failed bool) {
 	}
 
 	c.consecutiveFailures++
-	// Doubling stops at the cap, so no poll interval and no failure count
-	// can push the duration past it or over the type's range.
+	// Cap the initial wait and every doubling to prevent duration overflow.
 	wait := min(c.cfg.PollInterval, failureBackoffCap)
 	for i := 0; i < c.consecutiveFailures && i < failureBackoffDoublings && wait < failureBackoffCap; i++ {
 		wait = min(wait*2, failureBackoffCap)

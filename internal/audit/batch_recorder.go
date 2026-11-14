@@ -1,6 +1,5 @@
-// batch_recorder.go is the many-events-at-once shape of the ledger backends.
-// The buffered recorder flushes read-class events through it, so one round
-// trip to the broker settles a whole batch instead of one event (TACK-506).
+// batch_recorder.go defines batch recording for ledger backends. The buffered
+// recorder flushes read-class events in one broker request (TACK-506).
 
 package audit
 
@@ -13,16 +12,16 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// BatchRecorder records many events in one round trip and returns the ones
-// the backend refused, so the caller can put those somewhere durable. The
-// error is for a failure of the batch as a whole, never for one event.
+// BatchRecorder records multiple events in one request and returns refused
+// events for durable storage by the caller. The error reports a failure of
+// the whole batch rather than an individual event.
 type BatchRecorder interface {
 	RecordBatch(ctx context.Context, events []Event) (refused []Event, err error)
 }
 
-// RecordBatch produces every event in one synchronous call and returns the
-// events whose produce the broker refused. An event that cannot be marshaled
-// is counted as dropped and left out, because no retry can change its bytes.
+// RecordBatch produces every event in one synchronous call and returns events
+// the broker refused. It counts encoding failures as dropped and excludes
+// those events because retrying cannot change their bytes.
 func (k *KafkaRecorder) RecordBatch(ctx context.Context, events []Event) ([]Event, error) {
 	records := make([]*kgo.Record, 0, len(events))
 
@@ -73,7 +72,7 @@ func (k *KafkaRecorder) RecordBatch(ctx context.Context, events []Event) ([]Even
 }
 
 // noteRefusal logs a refused produce once per outage at Warn and at Debug
-// after that, the same contract Record keeps (TACK-320).
+// after that, matching Record (TACK-320).
 func (k *KafkaRecorder) noteRefusal(ctx context.Context, ev Event, produceErr error) {
 	attrs := []slog.Attr{
 		slog.String("err", produceErr.Error()),
@@ -89,8 +88,8 @@ func (k *KafkaRecorder) noteRefusal(ctx context.Context, ev Event, produceErr er
 	slog.LogAttrs(ctx, slog.LevelDebug, "kafka.produce.failed", attrs...)
 }
 
-// RecordBatch delivers the batch through Primary and spills every event the
-// primary refused, one by one, with the same per-outage logging Record keeps.
+// RecordBatch records through Primary and appends each refused event to the
+// outbox with the same outage logging as Record.
 func (s *SpillRecorder) RecordBatch(ctx context.Context, events []Event) ([]Event, error) {
 	batcher, ok := s.Primary.(BatchRecorder)
 	if !ok {
@@ -125,8 +124,7 @@ func (s *SpillRecorder) RecordBatch(ctx context.Context, events []Event) ([]Even
 	return lost, nil
 }
 
-// recordOneByOne is the batch shape over a primary that only records one
-// event at a time.
+// recordOneByOne records a batch with a primary that accepts one event per call.
 func (s *SpillRecorder) recordOneByOne(ctx context.Context, events []Event) ([]Event, error) {
 	var lost []Event
 

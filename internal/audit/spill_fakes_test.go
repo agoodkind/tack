@@ -15,14 +15,13 @@ import (
 	"github.com/twmb/franz-go/pkg/kmsg"
 )
 
-// memoryOutbox is the spill target for these tests. It keeps what it is given
-// so the test can decode it the way the relay would.
+// memoryOutbox retains event payloads for decoding as the relay would decode them.
 type memoryOutbox struct {
 	mu      sync.Mutex
 	entries []json.RawMessage
 	fail    error
-	// lastAppendCtxErr records whether the context handed to Append was
-	// already done, which is the cancellation-inheritance defect under test.
+	// lastAppendCtxErr records whether Append received an already-canceled
+	// context, the cancellation defect under test.
 	lastAppendCtxErr error
 }
 
@@ -46,10 +45,9 @@ func (m *memoryOutbox) count() int {
 	return len(m.entries)
 }
 
-// refuseProduce makes the fake broker answer every produce with an error the
-// client does not retry, so a refusal is immediate rather than waiting out the
-// produce timeout. The stop function restores normal produces, which is the
-// broker coming back.
+// refuseProduce makes the broker return a nonretryable error for each produce
+// instead of waiting for the produce timeout. The returned function restores
+// normal broker responses.
 func refuseProduce(cluster *kfake.Cluster) (stop func()) {
 	var stopped sync.Mutex
 	active := true
@@ -72,9 +70,8 @@ func refuseProduce(cluster *kfake.Cluster) (stop func()) {
 			for _, topic := range produceReq.Topics {
 				respTopic := kmsg.NewProduceResponseTopic()
 				respTopic.Topic = topic.Topic
-				// Produce v13 keys the response by topic id rather than name, and
-				// kgo re-enqueues a partition it cannot find in the reply, so a
-				// response that echoes only the name never fails the record.
+				// Produce v13 matches responses by topic ID. Without this ID,
+				// kgo retries the missing partition instead of failing the record.
 				respTopic.TopicID = topic.TopicID
 				for _, partition := range topic.Partitions {
 					respPartition := kmsg.NewProduceResponseTopicPartition()
@@ -109,9 +106,8 @@ func spillTestEvent() Event {
 	}
 }
 
-// captureLogs routes the default logger into a buffer for the test's
-// duration, so the per-outage logging contract can be counted rather than
-// described.
+// captureLogs captures default logger output for outage log count assertions
+// and restores the previous logger during cleanup.
 func captureLogs(t *testing.T) *bytes.Buffer {
 	t.Helper()
 	var buffer bytes.Buffer

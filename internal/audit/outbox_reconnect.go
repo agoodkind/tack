@@ -23,18 +23,14 @@ const (
 	connectionExceptionClass = "08"
 )
 
-// insertOutboxEvent inserts one event and, when the connection it used was
-// lost, inserts it once more on a fresh connection. The ledger DSN names every
-// node, so the fresh connection lands on a node that is still serving.
+// insertOutboxEvent retries an insert once on a fresh connection after a
+// connection failure. The ledger DSN lists every node for connection recovery.
+// The ops ledger node-prepare command stops the local ledger container before
+// recording its outcome. It requires this retry to record the outcome after
+// stopping the connected node (TACK-497).
 //
-// An operator command can stop the very node its connection sits on: `ops
-// ledger node-prepare` stops the local ledger container and then records its
-// outcome. Without the second attempt that outcome write fails on the dead
-// connection, the command exits non-zero, and the deploy never starts the node
-// again (TACK-497).
-//
-// The first attempt can commit and still report a lost connection. A duplicate
-// key on the second attempt is therefore that same row, already written.
+// The first attempt can commit before reporting a connection failure. The
+// retry accepts a duplicate key because the first attempt stored the row.
 func (o *PoolOutbox) insertOutboxEvent(ctx context.Context, event Event, eventJSON []byte) error {
 	_, err := o.pool.Exec(ctx, outboxInsertStatement, event.EventID, eventJSON)
 	if err == nil {

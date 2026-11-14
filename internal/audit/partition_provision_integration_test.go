@@ -149,7 +149,7 @@ func eventsChildNames(t *testing.T, pool *pgxpool.Pool) []string {
 		t.Fatalf("iterate audit.events children: %v", err)
 	}
 	if len(names) == 0 {
-		t.Fatal("audit.events has no child partitions")
+		t.Fatal("audit.events does not have child partitions")
 	}
 	return names
 }

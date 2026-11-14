@@ -91,11 +91,10 @@ func TestConsumerProjectsTokenLastUseFromTheAuthEvent(t *testing.T) {
 	t.Cleanup(func() { purgeOrg(t, pool, orgID) })
 	tokenID := insertTokenRow(t, pool)
 	if lastUsedOf(t, pool, tokenID) != nil {
-		t.Fatal("a fresh token has no last use")
+		t.Fatal("a fresh token must not record a last use")
 	}
 
-	// A fresh ledger has no partition before the Monday of its migration week.
-	// Both events are dated at or after now.
+	// Use current and future timestamps within the fresh ledger's partitions.
 	older := clock.Now().UTC().Truncate(time.Microsecond)
 	newer := older.Add(time.Hour)
 	produceEvents(

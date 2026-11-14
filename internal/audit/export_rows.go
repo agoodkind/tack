@@ -1,5 +1,4 @@
-// export_rows.go writes a bundle's rows. It is the half of an export whose cost
-// must not grow with the ledger.
+// export_rows.go writes bundle rows with bounded memory.
 
 package audit
 
@@ -16,27 +15,14 @@ import (
 	"path/filepath"
 )
 
-// exportWriteBufferBytes buffers the bundle's writes. Encoding straight to the
-// file descriptor costs one write syscall per row, which a ledger-sized export
-// pays hundreds of thousands of times.
+// exportWriteBufferBytes limits buffered writes instead of issuing one write
+// system call per row.
 const exportWriteBufferBytes = 1 << 20
 
-// writeExportRows streams the filter's rows straight into the bundle file and
-// reports how many it wrote and the digest of what it wrote.
-//
-// Nothing here grows with the export: a row is encoded and released as it
-// arrives, the digest folds in the same bytes the file receives, and the count
-// is a counter. Collecting the rows into a slice first is what made a
-// production-sized org unexportable, because the slice, not the file, is what
-// had to fit in memory.
-//
-// The path is this export's own, named for its export id, so the create below
-// can truncate nothing another export is writing or has published, and every
-// failure removes the file rather than leaving rows no manifest will name.
-//
-// It returns only once the rows and the directory entry naming them are both on
-// stable storage. That is what makes it safe for the caller's next steps to sign
-// a manifest over these rows and to free the rows this bundle replaces.
+// writeExportRows encodes one row at a time and returns the row count and file
+// digest. Each export uses its own exclusive path. Failures remove that file
+// without changing another export's rows. Success requires durable file contents
+// and a durable directory entry before signing or reclaiming superseded rows.
 func writeExportRows(
 	ctx context.Context,
 	source RowSource,
@@ -84,10 +70,8 @@ func writeExportRows(
 		return 0, "", fmt.Errorf("audit export query: %w", streamErr)
 	}
 
-	// The buffer holds the tail of the file, and the digest has already counted
-	// those bytes. Skipping the flush would sign a digest of rows the bundle
-	// does not carry, so the failure has to reach the caller rather than be
-	// swallowed by the deferred close.
+	// The digest includes buffered bytes. Flush them before signing their
+	// digest, and return any failure rather than accepting a truncated file.
 	if flushErr := buffered.Flush(); flushErr != nil {
 		_ = file.Close()
 		_ = os.Remove(path)
@@ -95,12 +79,8 @@ func writeExportRows(
 		return 0, "", fmt.Errorf("audit export flush: %w", flushErr)
 	}
 
-	// Flushing moves the tail of the file out of this process and no further.
-	// The bytes are in the kernel's page cache, where a power loss takes them,
-	// and the caller's next steps sign a manifest naming this file and free the
-	// rows it replaces. Both of those are irreversible against a file that is
-	// not on disk yet, so the sync happens here rather than being left to
-	// whenever the kernel gets to it.
+	// Flush writes to the kernel cache. Sync must persist contents before
+	// the caller publishes a manifest or removes superseded rows.
 	if syncErr := file.Sync(); syncErr != nil {
 		_ = file.Close()
 		_ = os.Remove(path)
@@ -113,9 +93,7 @@ func writeExportRows(
 		return 0, "", fmt.Errorf("audit export close: %w", closeErr)
 	}
 
-	// The rows are on disk; the entry naming them is a change to the directory
-	// and is not, so the directory is synced too. Only after this does the file
-	// exist for a host that comes back from a power loss.
+	// Persist the directory entry as well as the file contents before success.
 	if syncErr := syncExportDirectory(filepath.Dir(path)); syncErr != nil {
 		_ = os.Remove(path)
 		return 0, "", syncErr

@@ -24,6 +24,6 @@ func TestKafkaRecordCountsOneSynchronousProduceOnTheRequest(t *testing.T) {
 	}
 
 	if records := consumeRecords(t, cluster.ListenAddrs(), testKafkaTopic, 1); len(records) != 1 {
-		t.Fatalf("broker holds %d records, want 1", len(records))
+		t.Fatalf("broker stored %d records, want 1", len(records))
 	}
 }
