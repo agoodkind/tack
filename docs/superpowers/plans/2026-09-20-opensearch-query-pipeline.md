@@ -12,7 +12,7 @@ The [ranking and continuation](../specs/2026-09-19-search-design.md#ranking-and-
 
 ## Global Constraints
 
-Apply the [implementation constraints](2026-09-19-opensearch.md#global-constraints). Perform this Luna task only inside the selected Tack worktree. The only permitted external writes are the documented branch and pull-request publication operations. Complete ranking, sessions, authorization, MCP registration, configuration, and runtime wiring in one task. Do not start or query FoundationDB, OpenSearch, SQL authentication, MCP, Docker, or another service during this coding task. Keep the default public state unavailable until the release plan completes the empty rebuild and acceptance checks.
+Apply the [implementation constraints](2026-09-19-opensearch.md#global-constraints). Perform this Luna task only inside the selected Tack worktree. The only permitted external writes are the documented branch and pull-request publication operations. Complete ranking, sessions, authorization, MCP registration, configuration, and runtime registration in one task. Do not start or query FoundationDB, OpenSearch, SQL authentication, MCP, Docker, or another service during this coding task. Keep the default public state unavailable until the release plan completes the empty rebuild and acceptance checks.
 
 ## Review Focus
 
@@ -70,7 +70,7 @@ type SessionStore interface { Create(context.Context, Session) (Session, error);
 
 - [ ] **Use native sparse ranking.** Build the search path with `SearchReq.GetRequest`. Send a typed body with `size:100`, saved point in time, `_source:["node_id"]`, lexical `multi_match`, nested `neural_sparse`, and sorting by descending `_score`, ascending `node_id`, then ascending `_shard_doc`. Use the saved `query_tokens`. Do not use collapse, `knn`, dense scripts, hybrid candidate windows, or application filtering as the primary permission filter.
 
-- [ ] **Preserve exact continuation.** Store all three original sort values as raw JSON. Return them unchanged as `search_after`. Treat only an empty raw batch as engine exhaustion. A short batch or a batch containing only visited node IDs remains nonterminal. Read at most four batches of 100 raw page hits for one public response, then return a continuation cursor even when no node is returnable.
+- [ ] **Preserve exact continuation.** Store all three original sort values as raw JSON. Return them unchanged as `search_after`. Treat only an empty raw batch as engine exhaustion. A short batch or a batch containing only visited node IDs remains nonterminal. Read at most four batches of 100 raw page hits for one public response, then return a continuation cursor even when current checks prevent returning any candidate node.
 
 - [ ] **Store bounded durable sessions.** Bind the principal, permission authority, query, access version and keys, physical index, and search generation through deterministic serialization and SHA-256. Authenticate cursors with HMAC-SHA256. Store a bounded header, chunked query-token bytes, one key per visited node, one replay record per response, and bucketed expiry and presence keys. Use a 2-minute idle timeout for the session deadline and point-in-time keep-alive, and a two-hour absolute deadline.
 

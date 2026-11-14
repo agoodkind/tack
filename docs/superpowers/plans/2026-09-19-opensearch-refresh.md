@@ -2,7 +2,7 @@
 
 > Agentic workers must implement this plan task by task with the `superpowers:subagent-driven-development` skill (recommended) or the `superpowers:executing-plans` skill. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-This plan applies metadata and permission-policy changes without restarting Tack or replacing the physical index. Text projection updates regenerate embeddings only for the pages they change. Permission-policy changes regenerate no embeddings. The plan implements the [opaque metadata](../specs/2026-09-19-search-acceptance.md#opaque-metadata) and [permission expansion](../specs/2026-09-19-search-acceptance.md#permission-expansion) requirements.
+This plan applies metadata and permission-policy changes without restarting Tack or replacing the physical index. Text projection updates regenerate embeddings only for the pages they change. Permission-policy changes do not regenerate embeddings. The plan implements the [opaque metadata](../specs/2026-09-19-search-acceptance.md#opaque-metadata) and [permission expansion](../specs/2026-09-19-search-acceptance.md#permission-expansion) requirements.
 
 FoundationDB stores one projection epoch per organization and one durable access-policy rollout per authoritative permission root. Metadata writes refresh MCP registration and schedule bounded content work against the serving index. Workers reread and reembed only affected pages, then retire obsolete page documents. Permission changes update query keys or schedule access-only document work. Workers write a candidate policy beside the active version until verification covers every current page. FoundationDB then activates the candidate atomically.
 
@@ -116,7 +116,7 @@ Extend the index pipeline's stable access state into this rollout state. Initial
 
 - [ ] **Step 6: Keep permission mutation effects explicit.**
 
-The permission service classifies its own node and relationship mutations. A principal membership mutation changes query evaluation only and schedules no OpenSearch work. A direct or inherited resource grant increments the authority's permission-event version and calls the index pipeline's transaction-bound access scheduler for the affected node or bounded scan root in the same transaction. Search storage never switches on permission type identifiers.
+The permission service classifies its own node and relationship mutations. A principal membership mutation changes query evaluation without scheduling OpenSearch work. A direct or inherited resource grant increments the authority's permission-event version and calls the index pipeline's transaction-bound access scheduler for the affected node or bounded scan root in the same transaction. Search storage never switches on permission type identifiers.
 
 - [ ] **Step 7: Backfill and verify every current page.**
 

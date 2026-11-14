@@ -341,7 +341,7 @@ At N=1, use these recovery actions:
 | Failure | Recovery |
 |---|---|
 | App crash | Restart the container and reconnect the producer. |
-| Kafka crash | Restart the combined KRaft broker. Unacknowledged producer-buffer events can be lost. |
+| Kafka crash | Restart the combined KRaft broker. A crash can discard unacknowledged producer-buffer events. |
 | Consumer crash | Restart from the last committed offset. |
 | YugabyteDB crash | Restart the database. Chain advancement waits and state-change writes fail until recovery. |
 | SeaweedFS crash | Restart storage; archive writes fail until recovery. |

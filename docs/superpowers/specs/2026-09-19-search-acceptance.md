@@ -96,8 +96,8 @@ A lexical-only control must miss at least one non-overlapping pair that the comb
 
 ## Complete page processing
 
-- Use the real reader with a small page-byte setting. Indexing must start before the
-  final page is read and continue until the explicit completion value. Change page
+- Use the real reader with a small page-byte setting. The worker must start indexing before reading the
+  final page and continue until the explicit completion value. Change page
   counts between reads without changing search configuration.
 - Put targets at the beginning, middle, page boundary, and final page. Include a
   name and value spanning many pages. A final-page semantic target must rank within
@@ -227,7 +227,7 @@ A lexical-only control must miss at least one non-overlapping pair that the comb
 - Record the corpus, write rate, query mix, duration, and concurrency before each run. Record the Tack revision, image digests, search configuration, model inputs, and corpus with each result.
 - Write a unique revision marker into each created and edited node. Search for the marker during ingestion. Measure freshness lag from the write commit to the first search that returns the marker.
 - Search and replay a continuation of an open session while indexing work for a deleted node or a revoked permission remains pending. Fail the run if any result contains a deleted node or a node the principal can no longer read.
-- Run one bulk import alongside ordinary edits and sustained queries. Continue measurements after the import stops until the oldest pending search work is processed.
+- Run one bulk import alongside ordinary edits and sustained queries. Continue measurements after the import stops until workers complete the oldest pending search work.
 - Include lexical and semantic query variation, large and small documents, principals from several tenants, index maintenance, and an isolated search outage in the workload.
 - Count offered and completed searches separately from ingestion operations.
 - Reuse the session and update machinery of `make test-search-host-group GROUP=throughput-with-server-processes` for reads of 140 unchanged nodes and updates to separate nodes.

@@ -79,7 +79,7 @@ the provider reads that object and identifies the changes needed to satisfy the
 declaration. A command invocation is not a substitute for the object's state.
 
 Refresh must use authenticated interfaces and distinguish an absent object from
-an object that cannot be read because a service or permission check failed. An
+an object it cannot read after a service or permission failure. An
 unreadable object must produce an error without removing its recorded resource.
 Refresh and planning must not initialize or repair stores, rotate credentials,
 restart services, or otherwise change managed deployment state.
@@ -97,8 +97,8 @@ triggers, ignored changes, and [provisioners](https://opentofu.org/docs/language
 do not satisfy planning for the objects they change.
 
 Generated values may remain [unknown before creation](https://opentofu.org/docs/language/expressions/references/#values-not-yet-known),
-but plans must show that uncertainty and reject changes when a required condition
-cannot be checked. Secret values must remain absent from state, plans, logs, and
+but plans must show that uncertainty and reject changes when the provider
+cannot check a required condition. Secret values must remain absent from state, plans, logs, and
 diagnostics; plans explain credential updates through references and rotation
 versions.
 

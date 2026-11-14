@@ -110,7 +110,7 @@ TACK_TEST_ROOT="$PWD" docker compose -f docker-compose.test.yml --profile runner
 
 Require older content, access, and retirement writes to fail after a newer
 generation, every partial bulk failure to retain pending work, access-only work
-to read no page text, and large nodes to yield to live work.
+to omit page-text reads, and large nodes to yield to live work.
 
 - [ ] **Step 5: Validate ranking, access filtering, authorization, and continuation.**
 
@@ -174,7 +174,7 @@ TACK_TEST_ROOT="$PWD" docker compose -f docker-compose.test.yml --profile runner
 
 Require one stable client endpoint, one-member restart recovery, later member joining without a new bootstrap cluster, proxy distribution, model placement, replica allocation, and one-member failure behavior. Do not connect to live Proxmox or apply a plan.
 
-Verify that every eligible predictor is deployed. Verify that cached worker and
+Verify that OpenSearch reports every eligible predictor as deployed. Verify that cached worker and
 target identities match before the first independent member stop and after
 each restart. Save the first public error during each member stop, even if later
 requests succeed.
@@ -212,7 +212,7 @@ The measurements come from these OpenSearch CI jobs:
 | runtime-and-session-audit | `^TestSearch(RuntimeAudit|SessionAudit)` | 76 | 58:06 job time; 57:44 `go test` step time in CI run 41510801397, after two tests moved to remaining-features. | 75m |
 | model-repair-enablement | `^TestSearchClusterModelRepair` | 1 | 129.67 s on the Mac runner (2026-10-02, head 650f19ac) | 5m |
 
-The feature partitions select every search test outside the dedicated continuation, throughput, rebuild, split, restore, cluster recovery, and model repair groups. `features-a-through-m` selects A through M immediately after `TestSearch`. `runtime-and-session-audit` selects names that start with `TestSearchRuntimeAudit` or `TestSearchSessionAudit`. `remaining-features` selects every other feature test. A new search test runs in one feature partition according to its name unless a change assigns it to a dedicated group.
+The feature partitions select every search test outside the dedicated continuation, throughput, rebuild, split, restore, cluster recovery, and model repair groups. `features-a-through-m` selects A through M immediately after `TestSearch`. `runtime-and-session-audit` selects tests with the `TestSearchRuntimeAudit` or `TestSearchSessionAudit` prefix. `remaining-features` selects every other feature test. A new search test runs in one feature partition according to its name unless a change assigns it to a dedicated group.
 
 CI runs the continuation group, the rebuild, split, and restore group, and every feature partition as parallel jobs. Run `throughput-with-server-processes`, `cluster-failures-and-recovery`, and `model-repair-enablement` on the Mac runner. Acceptance requires those Mac runs on the head that merges, with `TACK_SEARCH_CLUSTER=1` for both cluster groups.
 
@@ -254,7 +254,7 @@ Require every search test to pass without a skip. Require `make build` to pass e
 
 - [ ] **Step 10: Repeat the concurrency and replacement tail.**
 
-Run the same 26 tests as three groups, each with count 3. These limits are derived, not measured: each is three times the slowest single CI run of the group's tests, times 1.5. Record the actual duration of each group in the first local tail run against its limit.
+Run the same 26 tests as three groups, each with count 3. Calculate each limit as three times the group's slowest single CI run, multiplied by 1.5. These calculated limits do not establish measured repeated-run durations. Record the actual duration of each group in the first local tail run against its limit.
 
 | Group | Tests | Slowest single CI run | Limit |
 | --- | --- | --- | --- |
@@ -272,7 +272,7 @@ make test-env-down
 ```
 
 Require all 26 selected tests to complete three times, for 78 executions.
-Require identical result sets, no duplicate node, no leaked forbidden node, no lost committed work, and no test service left running.
+Require identical result sets without duplicate or forbidden nodes. Verify that every committed change remains and that all test services stop.
 
 - [ ] **Step 11: Verify Meilisearch removal and branch integrity.**
 
@@ -284,7 +284,7 @@ git log --show-signature --oneline origin/main..HEAD
 git -C "$CONFIGS_ROOT" log --show-signature --oneline origin/main..HEAD
 ```
 
-Require no live Meilisearch code, dependency, configuration, test environment, container, credential injection, mounted volume, fallback, or operator path. An unmounted preserved old volume may exist and must remain unread. Require clean worktrees. Run `git verify-commit` and inspect `git cat-file commit` for a raw `gpgsig` header on every commit in both `origin/main..HEAD` ranges.
+Require the live system to operate without Meilisearch code, dependencies, configuration, test environments, containers, credential injection, mounted volumes, fallbacks, or operator commands. An unmounted preserved old volume may exist and must remain unread. Require clean worktrees. Run `git verify-commit` and inspect `git cat-file commit` for a raw `gpgsig` header on every commit in both `origin/main..HEAD` ranges.
 
 - [ ] **Step 12: Report evidence for release review.**
 

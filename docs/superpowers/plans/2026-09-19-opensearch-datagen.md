@@ -85,7 +85,7 @@ for cursor != "" || first {
 
 - [ ] **Step 5: Add semantic relevance and complete page coverage.**
 
-Create accepted semantic pairs and lexical distractors. Create one node where only the final reader page contains the target. Require both expected IDs within their accepted rank bounds. Search excluded text and require no result.
+Create accepted semantic pairs and lexical distractors. Create one node where only the final reader page contains the target. Require both expected IDs within their accepted rank bounds. Search excluded text and require an empty result.
 
 - [ ] **Step 6: Add edit, deletion, and continuation coverage.**
 

@@ -4,7 +4,7 @@
 
 This plan releases the Meilisearch removal first. It provisions and activates OpenSearch only after the replacement passes real validation. It implements the [evidence and environment requirements](../specs/2026-09-19-search-acceptance.md#evidence-and-environment).
 
-Phase A removes the unused search stack and leaves `tack_search` explicitly unavailable while every other operation continues. Phase B later creates an empty OpenSearch index, rebuilds only from FoundationDB, validates QA, repeats the procedure in production, then enables ranked search. The phases share no search data or compatibility path.
+Phase A removes the unused search stack and leaves `tack_search` explicitly unavailable while every other operation continues. Phase B later creates an empty OpenSearch index, rebuilds only from FoundationDB, validates QA, repeats the procedure in production, then enables ranked search. The phases do not share search data or a compatibility path.
 
 The release uses the existing Configs deployment entry points, OpenSearch operator commands, public MCP checks, and host telemetry.
 
@@ -26,7 +26,7 @@ Phase A proves the outage contract and complete active-service removal. Phase B 
 - [ ] **Deploy the approved Tack removal release.** Record each environment's deployed revision and image digest.
 - [ ] **Verify the public outage contract.** Call `tack_search` with an ordinary query, an exact reference, filters, invalid input, and omitted input. Require exactly `Search is temporarily unavailable.` every time.
 - [ ] **Verify the rest of Tack.** Run one real scenario for every registered non-search MCP tool. Assert that the scenario list exactly matches the non-search tool registry. A newly registered tool without a scenario then fails this check. Require every FoundationDB and SQL write to succeed. Use disposable integration data and QA data. Limit production to safe read and write smoke checks.
-- [ ] **Verify active Meilisearch removal.** Inspect running containers, processes, application environment, proxy routes, credentials, startup logs, and outbound requests. Require no active service or application dependency. Record the preserved old volume separately without reading it.
+- [ ] **Verify active Meilisearch removal.** Inspect running containers, processes, application environment, proxy routes, credentials, startup logs, and outbound requests. Require active services and the application to operate without Meilisearch dependencies. Record the preserved old volume separately without reading it.
 
 Search remains unavailable after Phase A. Update `origin/main` to these merged commits before creating the Tack Graphite stack. OpenSearch implementation and configuration start only from this released state.
 

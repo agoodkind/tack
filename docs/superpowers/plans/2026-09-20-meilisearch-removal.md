@@ -118,7 +118,7 @@ Find the exact files this task owns with `rg -n -i 'meili|meilisearch' .` before
 - [ ] Remove configuration that injects Meilisearch values into Tack. Do not add OpenSearch values yet.
 - [ ] Preserve any existing Meilisearch data volume or disk. Do not declare its deletion in OpenTofu, Ansible, shell, or Docker cleanup.
 - [ ] Run the Configs repository's focused unit checks for the edited roles and `tofu validate` for each edited stack.
-- [ ] Review the planned infrastructure changes. Require no data-volume deletion and no unrelated resource replacement.
+- [ ] Review the planned infrastructure changes. Require the plan to preserve data volumes and unrelated resources.
 - [ ] Create one signed Configs commit with the Codex coauthor trailer.
 
 Publish `[TACK-541] Remove the deployed Meilisearch service` through the normal `pr` workflow. This independent release does not use Graphite.
