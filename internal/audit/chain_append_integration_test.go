@@ -40,7 +40,7 @@ func chainTestPool(t *testing.T) (*pgxpool.Pool, uuid.UUID) {
 
 // chainTestEvent builds a chain input the way YBRecorder.Record and the
 // consumer do: the stored context and delta are the event's own typed fields
-// marshalled to JSON, never a hand-written literal.
+// marshaled to JSON, never a hand-written literal.
 func chainTestEvent(t *testing.T, orgID uuid.UUID, shard int16) chainAppendInput {
 	t.Helper()
 	ev := Event{

@@ -22,8 +22,8 @@ func TestVerifyBundleRejectsReclaimedRowsFile(t *testing.T) {
 		name string
 		rows int
 	}{
-		{name: "a bundle that declares rows", rows: 25},
-		{name: "a bundle that declares none", rows: 0},
+		{name: "verifier rejects missing nonempty rows file", rows: 25},
+		{name: "verifier rejects missing empty rows file", rows: 0},
 	}
 	for _, size := range sizes {
 		t.Run(

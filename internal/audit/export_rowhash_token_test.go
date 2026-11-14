@@ -9,7 +9,7 @@ import (
 	"github.com/google/uuid"
 )
 
-// contextBeforeTokenID is EventContext as the writer marshalled it before
+// contextBeforeTokenID is EventContext as the writer marshaled it before
 // f48a5a6 (TACK-502) added the token id.
 type contextBeforeTokenID struct {
 	OrgID       uuid.UUID `json:"org_id"`

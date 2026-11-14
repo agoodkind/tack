@@ -18,10 +18,10 @@ const exportScaleRows = 50000
 // current row, and uncollected garbage. Collecting the entire fixture exceeds it.
 const exportPeakHeapBudgetBytes = 16 << 20
 
-// TestExportPeakMemoryIsFlatInRowCount compares sampled heap at row counts four
+// TestExportHeapMeetsBudgetAcrossRowCounts compares sampled heap at row counts four
 // times apart. Sampling during export prevents post-export garbage collection
 // from hiding row accumulation. Both samples must fit the ops container budget.
-func TestExportPeakMemoryIsFlatInRowCount(t *testing.T) {
+func TestExportHeapMeetsBudgetAcrossRowCounts(t *testing.T) {
 	small := measureExportPeakHeap(t, exportScaleRows/4)
 	large := measureExportPeakHeap(t, exportScaleRows)
 
