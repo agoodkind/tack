@@ -24,11 +24,6 @@ ifneq ($(filter test,$(MAKECMDGOALS)),)
 endif
 GO_TEST_TARGETS := -timeout 20m $(GO_TEST_PACKAGES)
 
-# Reject deploy before go-build.mk can add its install prerequisite.
-ifneq ($(filter deploy,$(MAKECMDGOALS)),)
-  $(error make deploy is retired: use './server ops deploy' for app images or Ansible deploy-tack.yml for the full stack)
-endif
-
 include bootstrap.mk
 
 ifeq ($(GITHUB_ACTIONS),true)
