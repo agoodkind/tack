@@ -17,10 +17,10 @@ jobs:
     name: Checks
     uses: ./.github/workflows/_go.yml
     with:
-      task: checks
+      build: false
 
   build:
     name: Build
     uses: ./.github/workflows/_go.yml
     with:
-      task: build
+      build: true
