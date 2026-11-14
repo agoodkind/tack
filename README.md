@@ -4,13 +4,6 @@ Tack is a horizontally scalable, multi-tenant project management platform: a
 replacement for Plane CE, Linear, and Jira, built for production scale from the
 first commit. It is not a personal tool or a prototype.
 
-## Design philosophy
-
-These are the durable principles that govern every decision. The binding
-architecture and rules live in [AGENTS.md](AGENTS.md); the design docs and
-runbooks live in [docs/](docs/). If this README and AGENTS.md ever disagree on a
-rule, AGENTS.md wins.
-
 ### Everything is a node
 
 Every entity (org, workspace, project, state, label, issue, epic, cycle, module,
