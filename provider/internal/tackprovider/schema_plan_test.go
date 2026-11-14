@@ -107,7 +107,7 @@ func TestPlanRejectsInvalidVersions(t *testing.T) {
 		want    string
 	}{
 		{
-			name:    "below the applied version",
+			name:    "plan rejects a target below the applied version",
 			applied: highest,
 			target:  highest - 1,
 			want: fmt.Sprintf(
@@ -117,7 +117,7 @@ func TestPlanRejectsInvalidVersions(t *testing.T) {
 			),
 		},
 		{
-			name:    "above the highest available version",
+			name:    "plan rejects a target above the highest available version",
 			applied: highest,
 			target:  highest + 1,
 			want: fmt.Sprintf(
@@ -127,7 +127,7 @@ func TestPlanRejectsInvalidVersions(t *testing.T) {
 			),
 		},
 		{
-			name:    "at the guarded version while the applied version is below it",
+			name:    "plan rejects the guarded target before the guard migration",
 			applied: 17,
 			target:  guardedVersion,
 			want: fmt.Sprintf(
@@ -158,7 +158,7 @@ func TestPlanRejectsInvalidVersions(t *testing.T) {
 	}
 }
 
-func TestPlanAtTheAppliedVersionChangesNothing(t *testing.T) {
+func TestPlanReturnsEmptyPendingAtAppliedVersion(t *testing.T) {
 	status := statusDocument(t, statusDocument(t, 0).highest())
 	applied, pending, diags := planVersion(t, status, status.AppliedVersion)
 	if len(diags) != 0 {

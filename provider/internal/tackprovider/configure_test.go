@@ -55,13 +55,13 @@ func TestConfigureDiagnosticsOmitToken(t *testing.T) {
 		want     string
 	}{
 		{
-			name:     "endpoint without an HTTP scheme",
+			name:     "Configure rejects a non-HTTP endpoint",
 			endpoint: "ftp://[2001:db8::1]:8006",
 			token:    "acceptance@pve!unit=" + unitTokenSecret,
 			want:     "endpoint must start with https:// or http://",
 		},
 		{
-			name:     "token without the user, realm, and token ID",
+			name:     "Configure rejects a token without identity fields",
 			endpoint: "https://[2001:db8::1]:8006",
 			token:    unitTokenSecret,
 			want:     "api_token must have the form user@realm!tokenid=secret",

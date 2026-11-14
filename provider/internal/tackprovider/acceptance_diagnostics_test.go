@@ -34,12 +34,12 @@ func TestSchemaDiagnosticsOmitToken(t *testing.T) {
 		want        *regexp.Regexp
 	}{
 		{
-			name:        "missing install directory",
+			name:        "plan fails for a missing install directory",
 			environment: missingDirectory,
 			want:        regexp.MustCompile(`Tack command failed`),
 		},
 		{
-			name:        "inaccessible guest",
+			name:        "plan fails for an inaccessible guest",
 			environment: inaccessibleGuest,
 			want: regexp.MustCompile(
 				`Proxmox API request failed|Cannot contact the Tack guest`,

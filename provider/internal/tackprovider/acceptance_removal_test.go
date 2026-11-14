@@ -10,11 +10,12 @@ import (
 	"github.com/hashicorp/terraform-plugin-testing/terraform"
 )
 
-// TestSchemaDeclaredRemoval imports at TACK_ACC_VERSION, removes tack_schema.qa
-// through a configuration change, and checks its planned destruction and absence
-// from state. It imports again and checks that applied_version did not change.
+// TestSchemaRemovalPreservesAppliedVersion imports at TACK_ACC_VERSION and removes
+// tack_schema.qa through a configuration change. It checks planned destruction
+// and absence from state, then imports again and checks that applied_version
+// did not change.
 // The test needs only a database at TACK_ACC_VERSION.
-func TestSchemaDeclaredRemoval(t *testing.T) {
+func TestSchemaRemovalPreservesAppliedVersion(t *testing.T) {
 	environment := newAcceptanceEnvironment(t)
 	version := environment.appliedVersion
 	variables := environment.variables(version)
