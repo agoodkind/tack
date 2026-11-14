@@ -22,8 +22,7 @@ containers, databases, Kafka, search, object storage, proxies, certificates, and
 schedules.
 
 Configs defines the combined deployment, while Tack supplies application-specific
-resources. Those resources use the existing Proxmox guest API when guest execution
-is needed. This transport does not require a new guest agent or management
+resources. Those resources use the existing Proxmox guest API for guest execution. This transport does not require a new guest agent or management
 service, and a complete plan includes changes from every participating provider.
 
 For example, Docker packages use the existing guest resource. This excerpt omits
@@ -159,6 +158,6 @@ new resources.
 | Interrupted apply | The next apply recognizes completed work and finishes pending work without repeating destructive initialization. |
 
 Acceptance must also verify engine compatibility and Tack's audit requirements.
-Planning must change no deployed state, and a completed apply must produce a
-subsequent plan with no changes. A second apply must perform no extra work when
-the declaration already matches the system.
+Planning must not change deployed state. After a completed apply, require the
+next plan to report zero changes and a second apply to avoid extra work when
+the declaration matches the system.

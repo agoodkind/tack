@@ -4,7 +4,7 @@ TACK-517 defines the complete search replacement. TACK-518 through TACK-520 defi
 
 ## Problem
 
-The previous search path used one Meilisearch 1.12 container with a 2 GiB memory limit. Production returned no results for ordinary and exact-title queries on September 18, 2026. The endpoint had no accepted result behavior for the replacement to preserve. Migrating or preserving Meilisearch state adds work without protecting source data. FoundationDB already stores the authoritative nodes and can rebuild the index. Meilisearch could not enforce the tenant boundary. Every organization shared one master-key connection, and the adapter formatted filters as strings. The MCP tool had to read each result from FoundationDB and apply current organization and scope checks. Search stopped when the container or its guest stopped. The deployed index had no copy on another guest. Meilisearch matched words rather than meaning. Queries such as `db` required maintained synonyms to find `Database failover`.
+The previous search path used one Meilisearch 1.12 container with a 2 GiB memory limit. Production did not return results for ordinary or exact-title queries on September 18, 2026. The endpoint did not have accepted result behavior for the replacement to preserve. Migrating or preserving Meilisearch state adds work without protecting source data. FoundationDB already stores the authoritative nodes and can rebuild the index. Meilisearch could not enforce the tenant boundary. Every organization shared one master-key connection, and the adapter formatted filters as strings. The MCP tool had to read each result from FoundationDB and apply current organization and scope checks. Search stopped when the container or its guest stopped. The deployed index had no copy on another guest. Meilisearch matched words rather than meaning. Queries such as `db` required maintained synonyms to find `Database failover`.
 
 ## Decision
 
@@ -26,7 +26,7 @@ The permission boundary compiles current FoundationDB state into opaque access k
 
 ## Searchable content
 
-Node types, property types, and property names are opaque identifiers. Metadata defines applicability, inclusion, text representation, and order. Tack uses one generic interpreter. Application code contains no product type allowlist and no property-specific extraction switch.
+Node types, property types, and property names are opaque identifiers. Metadata defines applicability, inclusion, text representation, and order. Tack uses one generic interpreter. Application code does not use a product type allowlist or a property-specific extraction switch.
 
 Tack uses a definition's stored search declaration when one exists, including an explicit exclusion. Otherwise, the property type supplies its default representation: readable scalar values and option labels can contribute text, while node references and some other property types default to exclusion. A property type without a default requires an explicit declaration. The FoundationDB `Indexed` flag does not decide search inclusion because it controls secondary lookup keys rather than searchable text.
 Seeds for new organizations and QA data declare search behavior for convenience, but runtime behavior depends only on stored metadata.
@@ -46,11 +46,11 @@ A future permission definition is itself a node. For example, a definition can i
 
 The current policy compiles each permitted organization and scope pair into one opaque key. A future policy can combine several permission facts into one key before returning it. The query policy compiles the caller and selected entry point with the same version. OpenSearch requires the active version and at least one matching key before scoring.
 
-A principal membership change changes caller keys and schedules no document work. A resource grant, ancestry, or other visibility change schedules access-only work for the affected node or a bounded FoundationDB scan. Native bulk updates replace `search_generation` and `access` on every current page without submitting `page_text`. `skip_existing_embedding` must preserve chunks and sparse weights without invoking the model.
+A principal membership change changes caller keys without scheduling document work. A resource grant, ancestry, or other visibility change schedules access-only work for the affected node or a bounded FoundationDB scan. Native bulk updates replace `search_generation` and `access` on every current page without submitting `page_text`. `skip_existing_embedding` must preserve chunks and sparse weights without invoking the model.
 
 FoundationDB assigns one increasing search generation to every content or access change and stores that generation's policy versions with the durable work. Every page document stores its `search_generation`. A full page write or retirement first reads the stored generation with its sequence number and primary term. Tack refuses a content write below the stored generation or to a retired page, and a retirement below the stored generation leaves the newer page in place. The write then requires that sequence number and primary term (`if_seq_no`, `if_primary_term`). OpenSearch rejects it when another write changed the page after the read, and Tack reads the page again. An access-only update runs a script that rejects a generation below the stored one. Retrying the current generation reuses the same policy versions and is idempotent.
 
-A policy change creates a candidate for one authoritative permission root while its active version serves queries. Independent roots can transition concurrently. New writes include both versions. A bounded access scan adds candidate keys to existing pages. Exact verification precedes activation. Existing sessions retain their version; another access scan removes old keys after those sessions finish. Failure before activation preserves the active version. The transition creates no index, switches no alias, reads no page text, and regenerates no embedding.
+A policy change creates a candidate for one authoritative permission root while its active version serves queries. Independent roots can transition concurrently. New writes include both versions. A bounded access scan adds candidate keys to existing pages. Exact verification precedes activation. Existing sessions retain their version; another access scan removes old keys after those sessions finish. Failure before activation preserves the active version. The transition does not create an index, switch an alias, read page text, or regenerate embeddings.
 
 ## Paginated node reads
 
@@ -62,19 +62,19 @@ Every continuation reads the same source revision and projection. A changed, mis
 
 ## Native sparse semantic indexing
 
-OpenSearch ML Commons runs `amazon/neural-sparse/opensearch-neural-sparse-encoding-doc-v3-gte` version 1.0.0. Deployment pins its 554,924,400-byte TorchScript bundle with SHA-256 `08879b93faf4a92506a44e150f47bbc4cadc9a2f083350c4dc79434738303047` and records the bundled tokenizer SHA-256 `ea725c60b9022a7a491ffc348b5622a199853c806d625f673d0e2ebf1c3b5312`. Tack does not run or reproduce the tokenizer. OpenSearch remains unmodified. Custom plugins, forks, external inference, and application-defined ingest pipelines are excluded.
+OpenSearch ML Commons runs `amazon/neural-sparse/opensearch-neural-sparse-encoding-doc-v3-gte` version 1.0.0. Deployment pins its 554,924,400-byte TorchScript bundle with SHA-256 `08879b93faf4a92506a44e150f47bbc4cadc9a2f083350c4dc79434738303047` and records the bundled tokenizer SHA-256 `ea725c60b9022a7a491ffc348b5622a199853c806d625f673d0e2ebf1c3b5312`. Tack does not run or reproduce the tokenizer. OpenSearch remains unmodified. Do not use custom plugins, forks, external inference, or application-defined ingest pipelines.
 
 The native `semantic` field preserves `page_text` for lexical search. Its fixed-character chunking uses a 160-character limit, 0 overlap, and unlimited chunk count. Native sparse encoding applies `max_ratio` pruning at 0.1 and stores each embedding in the generated nested `page_text_semantic_info.chunks.embedding` `rank_features` field.
 
 Reader pages contain at most 4,096 UTF-8 bytes. Validation inspects the source, every generated chunk, every sparse embedding, and the final character through OpenSearch. Tack enforces only the byte bound and does not reproduce the model tokenizer. Model or semantic field changes require the same coverage proof before release.
 
-Tack pins the stable client `github.com/opensearch-project/opensearch-go/v4` v4.7.3. A compatibility test runs every used core API against the exact OpenSearch 3.8.0 image because the client documents later 3.x releases as best effort. Typed APIs implement core operations and construct search requests. A narrow search response decoder preserves replacement point-in-time IDs and exact sort JSON that `SearchResp` omits or converts. Concrete ML Commons request types satisfy `opensearch.Request`; `opensearch.Do` decodes responses and `opensearch.ParseError` decodes failures. Stable v4.7.3 lacks ML Commons APIs. Tack exposes no generic method-and-path JSON transport and does not import the temporary v5 preview package.
+Tack pins the stable client `github.com/opensearch-project/opensearch-go/v4` v4.7.3. A compatibility test runs every used core API against the exact OpenSearch 3.8.0 image because the client documents later 3.x releases as best effort. Typed APIs implement core operations and construct search requests. A narrow search response decoder preserves replacement point-in-time IDs and exact sort JSON that `SearchResp` omits or converts. Concrete ML Commons request types satisfy `opensearch.Request`; `opensearch.Do` decodes responses and `opensearch.ParseError` decodes failures. Stable v4.7.3 lacks ML Commons APIs. Tack does not expose a generic method-and-path JSON transport or import the temporary v5 preview package.
 
 ## Indexed pages
 
 The `node-pages` alias selects one versioned physical index. Each generation records its model, mapping version, primary shards, reserved routing shards, and replicas.
 When only the primary count changes, OpenSearch splits the serving index into a validated replacement along its reserved routing path.
-Model, tokenizer, embedding format, mapping, page identity, restore, cleanup, and unsupported shard changes rebuild from FoundationDB. Adding a node requires no Tack routing change.
+Model, tokenizer, embedding format, mapping, page identity, restore, cleanup, and unsupported shard changes rebuild from FoundationDB. New nodes do not require a Tack routing change.
 
 The mapping contains only these fixed fields:
 
@@ -99,7 +99,7 @@ Document IDs combine organization, node, revision, text projection version, and 
 
 OpenSearch generates sparse query weights once with the pinned model. Tack stores the returned token-weight JSON as opaque bounded session data. Tack does not load the tokenizer or interpret token keys. Later requests reuse `query_tokens` without repeating inference.
 
-The query adds lexical scores from `name` with boost 3 and `page_text` to the nested sparse semantic score. Each page uses its greatest nested score. OpenSearch uses its sparse inverted index. The query uses no dense script, nearest-neighbor `k`, hybrid result window, field collapse, or fixed total-result limit.
+The query adds lexical scores from `name` with boost 3 and `page_text` to the nested sparse semantic score. Each page uses its greatest nested score. OpenSearch uses its sparse inverted index. The query does not use dense scripts, nearest-neighbor `k`, hybrid result windows, field collapse, or a fixed total-result limit.
 
 The permission boundary returns one active version and bounded opaque keys. The query requires that version and at least one caller key. Optional type and retirement filters use structured JSON. OpenSearch sorts page matches by descending score, ascending node ID, then `_shard_doc`. A point in time freezes index contents and makes `_shard_doc` a stable page-level tie breaker. The first page match for a node establishes that node's rank. Tack skips later matches for visited nodes.
 
@@ -110,11 +110,11 @@ The session binds the normalized query, filters, principal, physical index, and 
 ## Durable indexing and bounded work
 
 Every content or resource-access mutation atomically records desired search work
-in FoundationDB. Principal membership changes alter query keys and record no
+in FoundationDB. Principal membership changes alter query keys without recording
 document work. Workers persist generation, work kind, revision, projection,
 phase, and reader cursor. A worker invocation
-processes at most 32 pages or 5 MiB of encoded requests. It starts no new remote
-operation after its two-second slice deadline. One remote operation can remain in
+processes at most 32 pages or 5 MiB of encoded requests. After its two-second
+slice deadline, it does not start another remote operation. One remote operation can remain in
 flight until its ten-second timeout, then the worker saves progress and yields.
 Cleanup processes at most 100 document IDs before yielding. A crash repeats only
 the uncommitted slice.
@@ -125,7 +125,7 @@ issued document IDs and updates only `search_generation` and the strict `access`
 access backfill, rebuild, or cleanup cannot monopolize all workers. Backpressure
 leaves durable work pending.
 
-After new pages are refreshed, workers retire every older page through bounded
+After workers refresh new pages, they retire every older page through bounded
 resumable operations. A delayed writer cannot restore retired text. Converged FDB
 state contains one desired generation per node plus current issued IDs. Completion
 deletes obsolete work, cursor, error, and issued-ID records. Rebuild journals are
@@ -152,7 +152,7 @@ Permission-policy versions do not start index replacement. Their access-only tra
 
 ## Deployment and capacity
 
-Tack request handlers keep no process-local search state. Every instance opens or continues sessions through FoundationDB. Stable hash buckets distribute session and work keys without sticky routing or a global claim range.
+Tack request handlers do not retain process-local search state. Every instance opens or continues sessions through FoundationDB. Stable hash buckets distribute session and work keys without sticky routing or a global claim range.
 
 QA starts with one combined-role LXC guest on `suburban`. Production starts with one
 on `vault`. Each guest uses OpenSearch 3.8.0 with at least 8 GiB memory, 2 CPU cores,
@@ -185,7 +185,7 @@ stuck episode, and automatic redeploy stays enabled.
 
 The final GTE sparse workload opened the ML memory circuit breaker at 4 GiB. It completed at 8 GiB and used about 3.4 GiB afterward. Eight GiB is the per-guest floor, not a capacity result. Suburban can provision one capped 8 GiB QA guest, but the permanent workload must keep at least 6.26 GiB of host memory available. QA activation requires a complete indexing, query, and rebuild workload before the guest remains enabled. The earlier 3.4 GiB post-workload reading plus the proxy would leave about 6.69 GiB, but that reading did not measure peak use. One guest passes the host CPU and fast-storage projections.
 
-QA and production capacity set pass thresholds for latency, throughput, pending-work age, memory, disk, recovery, and concurrent replacement. The initial release makes no
-OpenSearch failover claim. Before production adds nodes, verify cluster joining, model
+QA and production capacity set pass thresholds for latency, throughput, pending-work age, memory, disk, recovery, and concurrent replacement. The initial release does not
+claim OpenSearch failover. Before production adds nodes, verify cluster joining, model
 placement, proxy selection, replica creation, shard placement, and one-member failure.
 Disk must fit all three index generations.

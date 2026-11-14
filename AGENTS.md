@@ -1,74 +1,74 @@
 # Tack
 
 Tack is a horizontally scalable, multi-tenant project management platform: a
-replacement for Plane CE, Linear, and Jira with a better architecture. It is not
-a personal tool or a prototype. Decide every feature for a real multi-tenant
-product with real users; never frame a decision as "for now, since it's just
-you." `CLAUDE.md` is a symlink to this file.
+replacement for Plane CE, Linear, and Jira. It is not a personal tool or a
+prototype. Decide every feature for a real multi-tenant product with real users;
+never justify a decision by assuming a single user. `CLAUDE.md` is a symlink to
+this file.
 
 ## How to read this file
 
-This file holds durable rules and settled decisions only. It does not restate
-values that live in code or config, because copies drift. For anything concrete
-(keys, schema, env vars, services, hosts), read the source of truth named in
-[Where the truth lives](#where-the-truth-lives). Use code and configuration for
-current values. Correct descriptive statements in this file when they conflict
-with verified code or configuration. Correct code that violates a binding rule;
-an existing violation does not override the rule.
+This file defines durable rules and settled decisions only. It does not restate
+values from code or configuration, because copies drift. For concrete values
+(keys, schema, env vars, services, hosts), read the sources in
+[Check current sources](#check-current-sources). Correct descriptive statements
+in this file when they conflict with verified code or configuration. Correct code
+that violates a binding rule; an existing violation does not override the rule.
 
-## The seam: configs repo vs tack repo
+## Repository responsibilities
 
-One boundary, drawn at the LXC.
+The LXC defines the repository boundary.
 
-- **Up to and including the LXC is the configs repo**
-  (`github.com/agoodkind/configs`). Proxmox, the LXC itself, host networking, the
-  rendered `.env`, the audit signing key, the FoundationDB cluster directory, and
-  the SeaweedFS object-store LXC. Everything around the container runtime.
-- **Inside the LXC is this repo.** Everything Docker runs: `docker-compose.yml`
+- The configs repo (`github.com/agoodkind/configs`) manages Proxmox, the LXC,
+  host networking, the rendered `.env`, the audit signing key, the FoundationDB
+  cluster directory, and the SeaweedFS object-store LXC.
+- This repo manages everything Docker runs inside the LXC: `docker-compose.yml`
   (the stack source of truth), the overlays (`fdb-overlay/fdb.bash`,
   `yugabyte-overlay/yugabyted`), the application code, and `./server ops`.
 
 Any live value absent from the configs repo is drift, and drift is an incident.
-Config goes to the configs repo first and is never hand-edited on the host;
+Change configuration in the configs repo first; never hand-edit it on the host.
 Ansible re-renders `.env` from
 [`tack.env.j2`](https://github.com/agoodkind/configs/blob/main/tack/tack.env.j2)
 on every deploy.
 
-One deploy path:
+Use one deploy path:
 
 - The repository's build workflow builds and pushes the `tack-server` and
   `tack-audit-consumer` images for every commit on `main`.
-- **Ansible
-  [`deploy-tack.yml`](https://github.com/agoodkind/configs/blob/main/ansible/playbooks/deploy-tack.yml)**
-  does first boot and every change: it prepares the LXC, renders `.env` with
+- Ansible
+  [`deploy-tack.yml`](https://github.com/agoodkind/configs/blob/main/ansible/playbooks/deploy-tack.yml)
+  handles first boot and every change: it prepares the LXC, renders `.env` with
   the image tag, fetches the stack from this repo at the deployed ref, and runs
   `docker compose up -d` for every service.
-- **`./server ops deploy verify`** runs on the guest afterwards and asserts
-  the `app` and `audit-consumer` containers run the images the deploy named.
-  Nothing in this repo builds, pushes, or rolls images from a laptop.
+- `./server ops deploy verify` runs on the guest afterward and asserts that
+  the `app` and `audit-consumer` containers run the images the deploy specified.
+  Do not build, push, or replace deployment images from a laptop.
 
 ## Settled decisions (do not re-litigate)
 
-- **SeaweedFS is a configs-owned LXC, not a tack service.** The object store runs
-  as its own Proxmox LXC (the `weed` binary under systemd, S3 on port 8333),
-  reached over S3 from inside the tack LXC. `docker-compose.yml` has no
-  `seaweedfs` service. Its provisioning and config live in the configs repo.
-- **QA (`tack_qa`) is disposable.** Destroy and recreate it freely to match prod.
+- SeaweedFS runs in a configs-owned Proxmox LXC, not as a tack service. The
+  `weed` binary runs under systemd with S3 on port 8333. Clients inside the tack
+  LXC connect over S3. `docker-compose.yml` does not define a `seaweedfs` service.
+  The configs repo manages its provisioning and configuration.
+- QA (`tack_qa`) is disposable. Destroy and recreate it freely to match prod.
   Validate every migration, seed, backfill, and restore on QA before prod; QA is
-  a fresh host with vault-sourced secrets and no live state to protect.
-- **The audit ledger keeps one `audit.events` table.** The Kafka cutover makes
+  a fresh host with vault-sourced secrets and does not require live state
+  protection.
+- The audit ledger keeps one `audit.events` table. The Kafka cutover makes
   the `audit-consumer` the single writer and continues the existing
-  per-`(org, shard)` hash chain through `audit.chain_heads`: no rename, no archive
-  table, no `events_v2`. Design of record:
-  [`docs/plans/audit-kafka-cutover.md`](docs/plans/audit-kafka-cutover.md).
-- **Migrations run via `./server migrate` only**, never on HTTP startup.
-- **Build with `make build`.** It runs the go-makefile pipeline (vet, golangci,
-  staticcheck-extra, govulncheck) baseline-gated. Do not call `go build`
+  per-`(org, shard)` hash chain through `audit.chain_heads`. Do not rename the
+  table, add an archive table, or create `events_v2`. Follow
+  [the audit Kafka cutover design](docs/plans/audit-kafka-cutover.md).
+- Run migrations via `./server migrate` only, never on HTTP startup.
+- Build with `make build`. It runs the go-makefile pipeline (vet, golangci,
+  staticcheck-extra, govulncheck) against the baseline. Do not call `go build`
   directly.
 
-## Where the truth lives
+## Check current sources
 
-Find current state here; do not memorize or copy it into this file.
+Read these sources for current state. Do not memorize or copy their values into
+this file.
 
 | For | Read |
 | --- | --- |
@@ -106,74 +106,72 @@ separately through `make test-store-host-shard`.
 Every entity (org, workspace, project, state, label, issue, epic, cycle, module,
 comment, activity, custom type) is one node. Each follows the same pattern:
 NodeValue (primary record) plus NodeListView (materialized read row) plus
-NodeResolve (global resolution record). Every entity is addressable by its UUID
-alone, with no org context from the caller. Edges are Relationship records.
+NodeResolve (global resolution record). Callers address every entity by its UUID
+alone without providing org context. Edges are Relationship records.
 Behavior follows NodeType metadata, never hardcoded type names.
 
 ### SQL is auth plus compliance audit only
 
-YugabyteDB holds `users`, `api_tokens`, `org_members`, and the `audit.*` ledger.
-No product entity, config, relationship, or read-model table lives in SQL. Treat
-YugabyteDB backups as compliance artifacts: auth gates and the audit ledger must
-survive every recovery.
+YugabyteDB stores `users`, `api_tokens`, `org_members`, and the `audit.*` ledger.
+Do not store product entities, configuration, relationships, or read-model tables
+in SQL. Treat YugabyteDB backups as compliance artifacts: auth gates and the audit
+ledger must survive every recovery.
 
-### FoundationDB holds all product data
+### FoundationDB stores all product data
 
-All entity storage, all relationships, all NodeListView read rows, all
-NodeResolve records, plus activity, comments, properties, sequences, and
-automation rules.
+FoundationDB stores all entities, relationships, NodeListView read rows,
+NodeResolve records, activity, comments, properties, sequences, and automation
+rules.
 
 ### Data access
 
-Every read goes through `NodeReader`; the service layer never calls
+Use `NodeReader` for every read; the service layer never calls
 `EntityRepository`, `PropertyRepository`, `AssignmentRepository`, or
-`LabelRepository` directly for reads. Every write goes through
-`EntityRepository.CreateAtomic` or `EntityRepository.Set`, which write NodeValue,
-property values, NodeResolve, NodeListView, assignments, and labels in one FDB
-transaction. No cross-database transactions, no multi-step creates.
+`LabelRepository` directly for reads. Use `EntityRepository.CreateAtomic` or
+`EntityRepository.Set` for every write. These methods write NodeValue, property
+values, NodeResolve, NodeListView, assignments, and labels in one FDB transaction.
+Do not use cross-database transactions or multi-step creates.
 
 `orgID` is never a caller parameter. Derive it: entity-scoped ops resolve the
 entity (`reader.Resolve`) to its `OrgID`; workspace-scoped ops read the workspace
 node. The storage layer uses `orgID` internally for key locality and never
-surfaces it to the API or service layer.
+exposes it to the API or service layer.
 
 ### Auth
 
-`Authorization: Bearer <token>` hashes to SHA-256, looks up `api_tokens`, and
-yields a `userID`. In `ENV=development` the bearer is the raw user UUID with no
-DB lookup. Per-entity auth resolves the entity to its `orgID` and checks
-`org_members`.
+Authentication hashes the bearer token from `Authorization: Bearer <token>`
+with SHA-256, looks up `api_tokens`, and returns a `userID`. In `ENV=development`, authentication
+uses the bearer as a raw user UUID without a DB lookup. Per-entity auth resolves
+the entity to its `orgID` and checks `org_members`.
 
 ### API layer
 
-- **MCP Streamable HTTP** (`/mcp`) is the primary interface: per-user tool
-  registration driven by NodeType metadata. Human-readable workspace and project
-  inputs are address values declared by metadata. `orgID` never appears as an
-  input field.
-- **Connect-RPC** (`/tack.v1.*`) is the typed API for the future frontend and
-  TUI. Entity-scoped ops take a UUID; collection ops take `workspace_id` or
+- MCP Streamable HTTP (`/mcp`) is the primary interface. NodeType metadata drives
+  per-user tool registration and declares human-readable workspace and project
+  address inputs. `orgID` never appears as an input field.
+- Connect-RPC (`/tack.v1.*`) is the typed API for the future frontend and TUI.
+  Entity-scoped ops take a UUID; collection ops take `workspace_id` or
   `project_id`.
 
 ### Durable invariants
 
-- UUIDv7 for all new entities (k-sortable, coordination-free range scans).
-- Human-readable references are declared metadata; the UUID is canonical
-  identity. Tool, type, and display names are separate from node identity and
-  from address values.
-- Hierarchy is a DAG defined by `CanLiveUnder`; the resolver walks the scope
-  chain for N levels with no depth assumption.
-- Universal-field test: a field belongs on NodeValue/NodeListView only if it
-  would exist on a node in a completely different product on the same
-  architecture (`ID`, `OrgID`, `NodeType`, `Name`, timestamps, `CreatedBy`,
-  `UpdatedBy`, `Props`). Everything else is a property, a NodeResolve scope
-  position, or a relationship.
-- Descriptions are Markdown TEXT, never HTML.
-- Updates are partial everywhere: only provided fields change.
-- Optional MCP input fields are `*string` with `json:",omitempty"` (required by
-  `google/jsonschema-go`); `jsonschema:"..."` tags are descriptions, not
-  validation constraints.
-- No tech debt disguised as "we can fix this later for scale." If it won't scale,
-  don't ship it.
+- Use UUIDv7 for all new entities (k-sortable, coordination-free range scans).
+- Declare human-readable references as metadata; use the UUID as canonical
+  identity. Keep tool, type, and display names separate from node identity and
+  address values.
+- `CanLiveUnder` defines hierarchy as a DAG; the resolver walks the scope chain
+  for N levels without assuming a depth.
+- Add a field to NodeValue/NodeListView only if a node in a completely different
+  product on this architecture would need it (`ID`, `OrgID`, `NodeType`, `Name`,
+  timestamps, `CreatedBy`, `UpdatedBy`, `Props`). Represent everything else as a
+  property, a NodeResolve scope position, or a relationship.
+- Store descriptions as Markdown TEXT, never HTML.
+- Make every update partial: change only provided fields.
+- Declare optional MCP input fields as `*string` with `json:",omitempty"`
+  (required by `google/jsonschema-go`); use `jsonschema:"..."` tags for
+  descriptions, not validation constraints.
+- Do not defer scale requirements as technical debt. If a design will not scale,
+  do not ship it.
 
 ## YugabyteDB on the IPv6-only bridge
 
@@ -185,54 +183,56 @@ only.
 YugabyteDB's database identity must be the stable Docker DNS name `yugabyte`, not
 a container GUA. The `yugabyted` command advertises and listens on `yugabyte`
 (`--advertise_address=yugabyte --listen=yugabyte`); never derive it from
-`getent` or pin a literal GUA, because stale persisted addresses wedge YSQL.
+`getent` or pin a literal GUA, because stale persisted addresses prevent YSQL
+from starting.
 
-The image's `is_port_available` opens an IPv4 socket and fails on this bridge, so
-`yugabyte-overlay/yugabyted` carries the upstream `bin/yugabyted` with the
+The image's `is_port_available` opens an IPv4 socket and fails on this bridge.
+`yugabyte-overlay/yugabyted` includes the upstream `bin/yugabyted` with the
 AF_UNSPEC fix from upstream PR
-[#23158](https://github.com/yugabyte/yugabyte-db/pull/23158), bind-mounted `:ro`.
-On any image bump, refresh the overlay (re-fetch upstream `bin/yugabyted` for the
-new tag, re-apply the `is_port_available` patch), verify on QA first, then prod.
-The overlay is allowlisted in `.gitleaks.toml` and `.gitguardian.yaml`.
+[#23158](https://github.com/yugabyte/yugabyte-db/pull/23158). Docker bind-mounts
+it `:ro`. On any image bump, refresh the overlay (re-fetch upstream
+`bin/yugabyted` for the new tag and re-apply the `is_port_available` patch),
+verify on QA first, then prod. `.gitleaks.toml` and `.gitguardian.yaml` allowlist
+the overlay.
 
 ## Recovery and backups
 
-Disaster recovery is quorum replication across fault domains, which loses no data
-on node or zone failure. Point-in-time recovery and backups are the slower,
-separate layer for corruption and accidental deletion, the failure class
-replication copies everywhere. Object storage is a backup destination, not a DR
-mechanism. On any audit recovery, preserve `audit.chain_heads` so the hash chain
-continues. Procedures: [`docs/runbooks/recovery.md`](docs/runbooks/recovery.md).
+Use quorum replication across fault domains for disaster recovery from node or
+zone failure. Replication preserves committed data while enough replicas survive
+to form a quorum. Use point-in-time recovery and backups for corruption and
+accidental deletion; replication also copies those changes to replicas. Object
+storage stores backups and does not replace quorum replication. Preserve
+`audit.chain_heads` during audit recovery to continue the hash chain. Follow
+[the recovery procedures](docs/runbooks/recovery.md).
 
 ## First boot on a fresh environment
 
 A fresh environment (QA recreate, a new server, a DR restore) is not ready after
-`deploy-tack` alone. The deploy runs `docker compose up -d` and health-gates on
-fdb, but several one-time initialization steps are not yet automated, and fdb is
-not even healthy until the first of them runs. Until the provisioning layer lands
-(TACK-303, "deploy is not provision"), run these in order on a fresh environment:
+`deploy-tack` alone. The deploy runs `docker compose up -d` and checks fdb health,
+but some initialization steps still require manual commands. fdb cannot become
+healthy until the first step runs. Until Tack implements the provisioning layer
+(TACK-303, "deploy is not provision"), run these steps in order:
 
-1. **FoundationDB.** A fresh `tack_fdb-data` volume has no configured database, so
+1. A fresh `tack_fdb-data` volume does not contain a configured database.
    `tack-fdb-1` stays unhealthy and the deploy aborts. Initialize it once:
    `docker exec tack-fdb-1 fdbcli --exec 'configure new single ssd'`, then re-run
    `deploy-tack`. The fdb overlay writes the client cluster file at
    `/etc/foundationdb/fdb.cluster` as `docker:docker@fdb:4500` (the DNS name) on
-   start, so clients survive container IP changes. TACK-290 automates the
-   configure step. NEVER run `configure new` against an already-configured
+   start. Clients use that name after container IP changes. TACK-290 automates
+   the configure step. NEVER run `configure new` against an already-configured
    cluster (prod): it is the one destructive step in this list.
-2. **Migrations.** `docker compose run --rm tack-ops migrate --execute`.
-3. **Audit roles.** `docker compose run --rm tack-ops ops audit seed-roles`. The
-   app and the audit-consumer cannot authenticate to YugabyteDB until this runs.
-   The audit-consumer waits on its own: it pings Yugabyte until the roles exist,
-   then ensures the Kafka topic and starts (TACK-301, TACK-305), so it needs no
-   restart. The app holds no ledger read or redaction connection: every audit
-   read and redaction is a host command (`audit query`, `audit get`,
-   `audit export`, `audit redact-actor`) that opens its own reader and
-   redactor pools, never an MCP tool (TACK-456, TACK-458). The audit queue
-   commands (`ops audit consumer-offsets`, `ops audit dlq inspect`,
-   `ops audit dlq replay`) run in the `audit-ops` service, which mounts the
-   reader DSN and sets the Kafka brokers on the bridge network. tack-ops is
-   host-networked and cannot resolve the broker (TACK-610).
+2. Run `docker compose run --rm tack-ops migrate --execute`.
+3. Run `docker compose run --rm tack-ops ops audit seed-roles`. The app and the
+   audit-consumer cannot authenticate to YugabyteDB until this runs. The
+   audit-consumer pings Yugabyte until the roles exist, then ensures the Kafka
+   topic and starts without a restart (TACK-301, TACK-305). The app does not open
+   ledger read or redaction connections. Host commands (`audit query`,
+   `audit get`, `audit export`, `audit redact-actor`) open their own reader and
+   redactor pools; MCP tools do not provide audit reads or redactions
+   (TACK-456, TACK-458). The audit queue commands (`ops audit consumer-offsets`,
+   `ops audit dlq inspect`, `ops audit dlq replay`) run in the `audit-ops` service,
+   which mounts the reader DSN and sets the Kafka brokers on the bridge network.
+   tack-ops is host-networked and cannot resolve the broker (TACK-610).
    Run the recorded break-glass command (`ops db sql`) in `tack-ops`. The
    `tack-ops` environment has the alarm mail settings the command needs; the
    `app` service connects as `tack_app`, which cannot read the ledger
@@ -243,60 +243,57 @@ not even healthy until the first of them runs. Until the provisioning layer land
    Write to the database only with a migration or a reviewed ops command. The
    schema guard of migration 019 refuses a hand-written schema change on the
    `audit` and `partman` schemas (TACK-552).
-   Migration 011 must be applied before an audit-consumer image that carries
-   it: the full deploy runs `ops provision --execute`, whose ordered steps
-   include the pending migrations, before the app and consumer start
-   (TACK-453); `./server ops deploy` swaps images only, so on a host whose
-   database sits below migration 011 run step 2 above first (TACK-336).
-4. **Kafka topic.** No manual step: the audit-consumer ensures `audit.events.v1`
-   with 256 partitions on startup once Yugabyte is reachable (TACK-305). On a
-   fresh broker it appears automatically after step 3.
-5. **Product seed.** `docker compose exec -T app /server seed` for the initial
-   user, org, workspace, and API token. Run it through the app container, not
-   `tack-ops`: tack-ops is `network_mode: host` and its FDB cluster file names
-   `fdb`, which does not resolve on host networking, so a tack-ops seed cannot
-   write FoundationDB nodes (TACK-318). migrate and seed-roles still use tack-ops
-   because they are SQL-only.
+   Apply migration 011 before deploying the audit-consumer version that requires
+   it. The full deploy runs `ops provision --execute`, which applies pending
+   migrations before starting the app and consumer (TACK-453).
+   `./server ops deploy` swaps images only. If the database has not applied
+   migration 011, run step 2 first (TACK-336).
+4. The audit-consumer ensures `audit.events.v1` with 256 partitions on startup
+   once it can connect to Yugabyte (TACK-305). A fresh broker creates the topic
+   automatically after step 3; do not create it manually.
+5. Run `docker compose exec -T app /server seed` for the initial user, org,
+   workspace, and API token. Use the app container, not `tack-ops`: tack-ops uses
+   `network_mode: host`, which cannot resolve `fdb` in its FDB cluster file.
+   A tack-ops seed cannot write FoundationDB nodes (TACK-318). migrate and
+   seed-roles still use tack-ops because they are SQL-only.
 
-This ordered sequence is the provisioning layer Tack is missing; the design is
-tracked in TACK-303. QA lifecycle (keep running vs hard-recreate each time) is
-TACK-304.
+TACK-303 tracks the missing provisioning layer. TACK-304 tracks whether QA stays
+running or requires recreation each time.
 
 ## Binding rules for code in this repo
 
-1. **Everything is a node** (see Architecture). Behavior follows NodeType
-   metadata, never hardcoded type names.
-2. **No shell-outs in tack Go.** No shell scripts and no `os/exec` of CLIs.
-   Engine CLIs (`fdbbackup`, `yb-admin`, `ysql_dump`, `tar`) run inside one-shot
-   containers through the Docker Go SDK helpers in `internal/ops/dockerctl.go`.
+1. Represent everything as a node (see Architecture). Define behavior with
+   NodeType metadata, never hardcoded type names.
+2. Do not use shell scripts or `os/exec` of CLIs in tack Go. Run engine CLIs
+   (`fdbbackup`, `yb-admin`, `ysql_dump`, `tar`) inside one-shot containers through
+   the Docker Go SDK helpers in `internal/ops/dockerctl.go`.
    Do not create or use non-Go scripts, including temporary and standalone
    helpers, without explicit operator approval. Go implementations must pass
    this repository's canonical lint and quality checks.
-3. **Ops audit choke-point.** Every `./server ops` command records through the one
-   `clispec` audit choke-point; do not weaken it, do not bypass it per command, and
-   keep operator identity pluggable via `audit.OperatorIdentitySource`. See
-   [`docs/operator-identity-and-audit.md`](docs/operator-identity-and-audit.md).
-4. **QA data-generator coverage.** Any new node type, property type,
-   relationship shape, audit verb, or user-visible code path must add coverage
-   to `ops qa datagen` in the same change. Run it through the `app` service,
-   which has FoundationDB reachability and the audit DSNs that the
-   host-networked `tack-ops` container lacks:
+3. Record every `./server ops` command through the one `clispec` audit
+   choke-point; do not weaken it or bypass it per command. Keep operator
+   identity pluggable via `audit.OperatorIdentitySource`. Follow
+   [operator identity and audit requirements](docs/operator-identity-and-audit.md).
+4. Add `ops qa datagen` coverage in the same change for every new node type,
+   property type, relationship shape, audit verb, or user-visible code path.
+   Run it through the `app` service, which can connect to FoundationDB and has
+   the audit DSNs that the host-networked `tack-ops` container lacks:
 
    ```bash
    docker compose run --rm app ops qa datagen seed --scale small --commit
    docker compose run --rm app ops qa datagen soak --duration 60s --rate 3 --commit
    ```
 
-   Writing requires `TACK_DATAGEN_ALLOW_TARGET` to be exactly `qa` or `local`;
-   tack-qa sets it and production leaves it empty, so the generator refuses
-   there. Dry run is the default and needs no marker.
+   Writing requires `TACK_DATAGEN_ALLOW_TARGET` to be exactly `qa` or `local`.
+   tack-qa sets it and production leaves it empty. The generator refuses writes
+   on production. Dry run is the default and does not require a marker.
 
-5. **Backfills expire.** A one-time command declares
+5. Declare a lifetime for every one-time command:
    `Lifetime: clispec.Lifetime{Ticket: "TACK-nnn", RemoveBy: time.Date(...)}`.
    It renders under a `backfill` group with the `once-` prefix, and
-   `make build` fails once the removal day has passed. Every other command
-   declares `clispec.Permanent`.
-   No package outside `internal/service` reads the seed sample data (TACK-512).
+   `make build` fails once the removal day has passed. Declare
+   `clispec.Permanent` for every other command.
+   Only `internal/service` may read the seed sample data (TACK-512).
 
 ## Auditability gate
 
@@ -341,24 +338,24 @@ gate. A healthy deployment or a passing unrelated test does not satisfy it.
 
 ## No config files
 
-Server configuration is environment variables only, through `caarlos0/env`.
-There is no config file. Do not introduce TOML, YAML, JSON, or any file-based
-config loading.
+Configure the server only with environment variables through `caarlos0/env`.
+Do not introduce TOML, YAML, JSON, or any file-based config loading.
 
 ## Logging
 
 Use `log/slog` throughout; `telemetry.Setup` initializes the global logger and
 handlers retrieve the context logger via `telemetry.L(ctx)`. Log every
 significant event: entity lifecycle, background jobs, auth failures, startup, and
-shutdown. Use named `slog.Attr` fields, never positional. Message names use
-`noun.verb` (`issue.created`, `worker.started`). Three levels, used strictly:
-`Info` for normal flow, `Debug` for trace detail, `Error` for actual failures.
+shutdown. Use named `slog.Attr` fields, never positional. Use `noun.verb` message
+names (`issue.created`, `worker.started`). Use only `Info` for normal flow,
+`Debug` for trace detail, and `Error` for actual failures.
 
 ## File size and concern separation
 
-No file exceeds 200 lines; split by concern when it does (one file per entity for
-conversions, bulk ops separate from CRUD). Name a file after its responsibility;
-`utils.go` and `helpers.go` are last resorts for genuinely shared code.
+Keep every file at or below 200 lines. Split larger files by concern (one file per
+entity for conversions, bulk ops separate from CRUD). Name a file after its
+responsibility; use `utils.go` and `helpers.go` only as a last resort for genuinely
+shared code.
 
 ## Readability over conciseness
 
@@ -372,7 +369,7 @@ doc comment; every exported type and non-obvious field has a doc comment.
 - Do not add a config file format (TOML, YAML, JSON).
 - Do not add error handling for scenarios that provably cannot happen.
 - Do not add backwards-compatibility shims, unused exports, or re-exports.
-- Do not add docstrings or comments to code you did not change.
+- Do not add docstrings or comments to unchanged code.
 - Do not add features not explicitly requested.
-- Do not restate in this file values that live in the source-of-truth files
-  above; point to them instead.
+- Do not restate concrete values in this file; reference the source-of-truth
+  files above.

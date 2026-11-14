@@ -1,9 +1,7 @@
-# Builds the audit-consumer image: the single writer of audit.events. It tails
-# Kafka, writes YugabyteDB, and drains the operator-command outboxes, one of
-# which lives in FoundationDB. The
-# FoundationDB Go bindings are a CGO wrapper over the C client, so this image
-# installs that client and builds with CGO enabled, the same way the server
-# image does.
+# The audit-consumer reads Kafka and writes audit.events in YugabyteDB.
+# It also processes operator-command outboxes, including one in FoundationDB.
+# The FoundationDB Go bindings call the C client through CGO.
+# This image installs the C client and enables CGO during compilation.
 
 ARG FDB_VERSION=7.4.6
 
@@ -11,7 +9,7 @@ ARG FDB_VERSION=7.4.6
 FROM golang:1.27.3-bookworm AS builder
 ARG FDB_VERSION
 
-# The FDB C client is required by the CGO bindings at link time.
+# The CGO bindings require the FDB C client at link time.
 RUN set -eux \
     && case "$(dpkg --print-architecture)" in \
          amd64) fdb_arch=amd64 ;; \

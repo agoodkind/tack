@@ -32,7 +32,7 @@ Terminal outcomes are completed, refused, failed, partially completed and incomp
 
 An outer recorder starts before authentication and dispatch. It covers malformed requests, unsupported methods, unknown tools, prompts, resources, health checks and diagnostics. Successful authentication supplies a verified identity. Earlier failures use an unauthenticated actor and the existing system audit organization. Record method, route, operation and safe reason fields. Exclude credentials, raw request bodies and raw database errors. Link authentication and business events by operation ID without conflating their outcomes.
 
-After authentication, the recorder reads the caller's organization memberships and, for a tool call, the organization of the named workspace or node. This lookup runs before the read admission because it selects the organization of each admission. The lookup is an authorization step and returns no product data to the client. When the lookup fails with a backend error, the recorder records an early refusal event in the system organization with the verified actor, the failed outcome, and the `organization_unavailable` reason, then answers HTTP 503 without product data. A caller without memberships and a target in another organization do not cause a lookup failure.
+After authentication, the recorder reads the caller's organization memberships and, for a tool call, the organization of the named workspace or node. This lookup runs before the read admission because it selects the organization of each admission. The authorization lookup does not return product data to the client. When the lookup fails with a backend error, the recorder records an early refusal event in the system organization with the verified actor, the failed outcome, and the `organization_unavailable` reason, then answers HTTP 503 without product data. A caller without memberships and a target in another organization do not cause a lookup failure.
 
 ## Read lifecycle
 
@@ -91,11 +91,11 @@ A scheduled job identifies its service and run. A job initiated by a person or a
 
 ## First-time setup boundary
 
-The existing first-time setup rule remains outside this runtime correction. Ordinary runtime commands must not use that exception when authentication or audit storage fails. This work adds no setup journal, storage prerequisite or service-creation workflow.
+The existing first-time setup rule remains outside this runtime correction. Ordinary runtime commands must not use that exception when authentication or audit storage fails. This work does not add a setup journal, storage prerequisite or service-creation workflow.
 
 ## Retention and scaling
 
-Preserve the existing retention policy. This correction does not add automatic deletion of permanent history. Deleting delivery receipts after confirmed publication does not delete ledger evidence.
+Preserve the existing retention policy. This correction does not add automatic deletion of permanent history. Receipt cleanup after confirmed publication does not delete ledger evidence.
 
 Measure bytes per final event, manifest part and pending receipt, including indexes and replication. Measure writes, broker bytes, delivery lag and recovery under increasing concurrency. Compare one, two and four application/worker instances with the same event mix. Report throughput and latency; fewer rows alone do not prove proportional scaling.
 
@@ -130,4 +130,4 @@ Use the existing Go test harness and real temporary dependencies. Execute each r
 
 ## Review status
 
-The recording contracts, complete values, shared definitions, one final event per bounded read and delivery order reflect approved decisions. Queue settings, fingerprint encoding and stream/manifest handling are agent-selected recommendations. The builder check's multipart-offset question is resolved by the durable assembly transactions above. Bootstrap follows the existing first-boot exception. Implementation planning must preserve these choices and specify file boundaries, signatures and exact verification commands.
+The recording contracts, complete values, shared definitions, one final event per bounded read and delivery order reflect approved decisions. Queue settings, fingerprint encoding and stream/manifest handling are agent-selected recommendations. The durable assembly transactions above resolve the builder check's multipart-offset question. Bootstrap follows the existing first-boot exception. Implementation planning must preserve these choices and specify file boundaries, signatures and exact verification commands.

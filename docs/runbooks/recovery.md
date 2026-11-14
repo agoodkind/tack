@@ -1,69 +1,56 @@
 # Tack recovery
 
-This runbook restores Tack's data stores from backup after data loss or
-corruption.
+Restore Tack's data stores from backup after data loss or corruption, or when
+rebuilding a store from off-host artifacts.
 
-Restore from backup is the slowest recovery tier. The fast, no-data-loss
-mechanism is quorum replication across fault domains, which is the disaster
-recovery plan for availability and node or zone failure. Backups exist for the
-failure class replication cannot help with: corruption or an accidental delete
-that replication copies to every replica. Use this runbook for that case, or
-when a store must be rebuilt from off-host artifacts.
+Backup restore is the slowest recovery tier. Quorum replication across fault
+domains provides availability without data loss after node or zone failure.
+Backups recover from corruption and accidental deletion, which replication copies
+to every replica.
 
-## What is backed up
+## Backup contents
 
-- FoundationDB holds all product data (orgs, workspaces, projects, issues, every
-  node and relationship). Its backup is a continuous stream to the SeaweedFS
-  object store, restorable to any point in its window.
-- YugabyteDB holds auth (`users`, `api_tokens`, `org_members`) and the audit
+- FoundationDB stores all product data, including orgs, workspaces, projects,
+  issues, nodes, and relationships. Its continuous backup to the SeaweedFS
+  object store supports restoration to any point in its window.
+- YugabyteDB stores auth (`users`, `api_tokens`, `org_members`) and the audit
   ledger (`audit.events`, `audit.chain_heads`, `audit.notarizations`,
-  `audit.pii`). Its backup is an engine-native distributed snapshot exported
-  off-host to the object store.
+  `audit.pii`). Its engine-native distributed snapshot backup exports off-host
+  to the object store.
 
-## What each tier costs you
+## Compare recovery points
 
-Read this before choosing a recovery path, because the two stores lose
-different amounts.
+The stores lose different amounts of data during recovery.
 
-FoundationDB streams continuously, so a restore reaches any point still inside
-the stream's window. How far that window trails production is a measured value,
-not a promise: a stalled backup agent or an object store refusing writes moves
-the restorable point backwards while everything else looks healthy. Read the
-observed restorable point before assuming the loss is small, and treat the
-staleness check's fdb-restorable metric as the thing that tells you it drifted.
+FoundationDB supports restoration to any point within its continuous backup
+window. A stalled backup agent or an object store refusing writes delays the
+latest restorable point even when other services appear healthy. Read the
+staleness check's fdb-restorable metric before estimating data loss.
 
-YugabyteDB exports on a schedule, so a restore reaches the newest complete
-export and loses everything written since. Between exports the ledger's only
-protection is quorum replication across the three data guests, which survives
-losing a guest but not a corruption or an accidental delete, because
-replication copies those to every replica. The export is the tier that survives
-everything, so its cadence sets the ledger's floor for loss.
+YugabyteDB restores the newest complete scheduled export and loses writes after
+that export. Between exports, quorum replication across the three data guests
+protects against guest failure, but not corruption or accidental deletion.
+The export schedule determines the recovery point for those failures.
 
-Timers on the guests set that cadence. The owner guest exports daily at 03:17
-UTC with up to five minutes of randomized delay, and each data guest archives
-its own tablet files every 15 minutes, so a run becomes complete within roughly
-a quarter hour of the export that started it. The rehearsal that proves the
-artifacts restore runs daily at 05:40 UTC on the owner, clear of the export and
-its archives. A staleness check runs on a timer on the owner and on one data
-guest, and mails once, in plain words, when a mechanism ages past its
-threshold.
+The owner guest exports daily at 03:17 UTC with up to five minutes of randomized
+delay. Each data guest archives its tablet files every 15 minutes. A run becomes
+complete within roughly a quarter hour of the export that started it. The owner
+runs the restore rehearsal daily at 05:40 UTC, after the export and archives.
+A staleness check runs on timers on the owner and one data guest and mails once
+when a mechanism exceeds its age threshold.
 
-One day plus the archive lag is the ledger's loss only while every scheduled
-export succeeds. A missed export widens it by another day, and the export
-threshold of 36 hours allows exactly one miss before it alerts. The other
-thresholds are looser and each allows a different number of misses: the
-rehearsal threshold of 8 days sits over a daily drill, so seven consecutive
-rehearsals can fail silently before the alarm fires. Read each threshold
-against its own schedule rather than assuming a single missed run everywhere.
+Data loss remains within one day plus archive lag only while every scheduled
+export succeeds. Each missed export adds another day. The 36-hour export threshold
+allows one missed export before alerting. The 8-day rehearsal threshold allows
+seven consecutive daily rehearsals to fail before alerting. Compare each
+threshold with its schedule rather than assuming every check alerts after one
+missed run.
 
-## Confirming the backups restore
+## Confirm the backups restore
 
-`./server ops backup restore-drill` restores each store into throwaway
-containers, confirms the data is present, and removes those containers and
-volumes afterward, including after an interrupt. It never connects to the live
-cluster, so it is safe to run at any time. It performs the same restore steps
-described below, so a passing drill is direct evidence that the procedures here
-work.
+`./server ops backup restore-drill` restores each store into throwaway containers,
+checks the restored data, and removes the containers and volumes afterward,
+including after an interrupt. It performs the recovery steps below.
 
 Run it from the install directory with the `backup` profile available:
 
@@ -76,34 +63,33 @@ TACK_IMAGE_TAG=<image-sha> docker compose run --rm \
   tack-ops ops backup restore-drill
 ```
 
-The drill exits zero when both legs assert data is present and the rehearsal it
-records lands in the object store. The FoundationDB leg runs only when
-`TACK_BACKUP_FDB_CONTINUOUS` is true and is otherwise skipped with a warning.
+The drill exits zero after every enabled store restore confirms data is present
+and the drill writes its rehearsal record to the object store. It restores
+FoundationDB only when `TACK_BACKUP_FDB_CONTINUOUS` is true; otherwise, it logs a
+warning and skips that restore.
 
-That leg watches the restore's progress instead of giving it a deadline, so a
-restore is never failed for being large. It fails when the restore stops
-advancing, naming how long nothing moved and where its counters stopped.
+The FoundationDB check monitors progress without a total restore deadline. A
+large restore can continue while its counters advance. If progress stops, the
+check fails and reports the inactive duration and final counter values.
 
 Add `--fdb-target-time` to restore FoundationDB to one moment instead of the
 latest restorable point. Write the moment as RFC 3339 (`2026-08-30T01:07:23Z`)
-or in FoundationDB's own form (`2026/08/30.01:07:23+0000`); both carry an
-explicit offset, so a target time means the same instant wherever it is typed.
-Name a whole second. FoundationDB resolves a target to a version through a
-timestamp that has no fractional-second field, so the drill refuses a fraction
-rather than restoring the whole second before the moment you asked for.
+or in FoundationDB's own form (`2026/08/30.01:07:23+0000`). Both include an
+explicit offset and identify the same instant regardless of the local time zone.
+Use a whole second. FoundationDB's timestamp-to-version conversion does not
+support fractional seconds. The drill rejects fractions instead of restoring
+the preceding whole second.
 
-The drill reads the backup's restorable window before it restores and stops
-when the target falls outside it, naming the window. That check runs before the
-restore starts, so it is the one part of the leg that does have a time limit of
-its own. Giving the flag is what selects a moment, so every moment you name is
-checked, and the drill never substitutes the latest for one it cannot reach.
+Before restoring, the drill reads the backup's restorable window and rejects
+any target outside it. The window lookup has its own time limit. Every explicit
+target requires this check; the drill must not substitute the latest restorable
+point when it cannot restore the requested target.
 
-## Confirming the backups are still current
+## Confirm the backups are current
 
-`./server ops backup staleness-check --execute` reports how long ago each backup
-mechanism last succeeded and exits nonzero once an age passes its threshold, so a
-mechanism that quietly stopped producing artifacts surfaces as an alert instead
-of a discovery during a recovery. It prints one line per mechanism:
+`./server ops backup staleness-check --execute` prints one line per mechanism
+with the age of its last success. It exits nonzero when an age exceeds its
+threshold and alerts when a mechanism stops producing current artifacts:
 
 ```
 ledger-export age=11520s threshold=129600s FRESH newest complete run 20260829T010000Z
@@ -111,38 +97,38 @@ rehearsal     age=7200s threshold=691200s FRESH restore drill rt20260829T060000Z
 replication   age=0s threshold=1800s FRESH 0 dead nodes, 0 under-replicated tablets
 ```
 
-The ledger export is dated from the newest complete export run, the rehearsal
-from the last passing restore drill, and replication from the last time this
-check saw every node alive and every tablet fully replicated, an observation the
-check makes and records itself. A mechanism with no recorded success reads
-`age=unknown` and counts as stale, because a backup that has never demonstrably
-succeeded is the failure this check exists to catch. The FoundationDB restorable
-point joins the report only when `TACK_BACKUP_FDB_CONTINUOUS` is true. The
-windows are the `TACK_BACKUP_STALENESS_*` settings, in seconds.
+The check dates ledger exports from the newest complete export and rehearsals
+from the last passing restore drill. It dates replication from its own last
+recorded observation that every node was alive and every tablet fully replicated.
+A mechanism without a recorded success reports `age=unknown` and counts as stale.
+The report includes the FoundationDB restorable point only when
+`TACK_BACKUP_FDB_CONTINUOUS` is true. The `TACK_BACKUP_STALENESS_*` settings
+specify thresholds in seconds.
 
-The run that first finds a mechanism stale mails one message to
-`TACK_BACKUP_ALARM_EMAIL`. The subject names the guest and the fault, and the
-body says in plain words what has stopped, when it last succeeded, and what to
-check. The mail does not repeat while the mechanism stays stale, and nothing is
-mailed when it comes back; every run's reading is in the check's journal on the
-guest. The checkers share what they have mailed through
-`backup-status/alarm-state.json` in the backup bucket, and each guest also
-keeps its own copy in `staleness-alarm-state.json` under its backup root
-(`/root/backups`), so a fault produces one mail across both guests, and a guest
-that cannot read the store still mails from its own copy. A mail the relay
-refused is not remembered, so the next run tries again. Delete the object in
-the bucket and the file on each guest to make the next stale run mail again.
+The first run that detects a stale mechanism mails `TACK_BACKUP_ALARM_EMAIL`.
+The subject identifies the guest and fault. The body explains what stopped,
+when it last succeeded, and what to check. The check does not repeat the mail
+while the mechanism remains stale or mail on recovery. The guest's check journal
+records each reading.
+
+The checkers share sent-alarm state in `backup-status/alarm-state.json` in the
+backup bucket. Each guest also saves `staleness-alarm-state.json` under its
+backup root (`/root/backups`). This shared state prevents duplicate mail across
+the guests. A guest that cannot read the store uses its local copy. The check
+retries mail the relay refused on the next run without saving it as sent.
+Delete the bucket object and local file on each guest to send mail again on the
+next stale run.
 
 ## Prerequisites
 
-- The object store is reachable. Its endpoint, host, credentials, and buckets
-  come from the configs-rendered `.env`
-  ([`tack.env.j2`](https://github.com/agoodkind/configs/blob/main/tack/tack.env.j2)),
-  never hand-set on the host.
-- The FoundationDB overlay `fdb-overlay/fdb.bash` and the YugabyteDB overlay
-  `yugabyte-overlay/yugabyted` are present in the install directory.
-- A `backup_agent` is running. In normal operation it is the `fdb-backup-agent`
-  Compose service (profile `backup`); it drains both backups and restores.
+- The object store must accept connections. Use the endpoint, host, credentials,
+  and buckets from the configs-rendered `.env`
+  ([tack.env.j2](https://github.com/agoodkind/configs/blob/main/tack/tack.env.j2)),
+  not manual host settings.
+- The install directory must include the FoundationDB overlay
+  `fdb-overlay/fdb.bash` and YugabyteDB overlay `yugabyte-overlay/yugabyted`.
+- Run a `backup_agent`. Normal operation uses the `fdb-backup-agent` Compose
+  service in the `backup` profile to process backups and restores.
 
 ## Expire old backups
 
@@ -186,26 +172,24 @@ backups. Cancellation stops active one-shot containers before releasing the lock
 
 ## FoundationDB recovery
 
-The continuous backup is stored in the object store under a marker object at
-`backups/<run-id>`. A host that streams starts its session during
-`./server ops provision`, which every deploy runs, so no operator has to arm it.
-Each start records one such marker; the latest is the live backup.
-`./server ops backup fdb-continuous-init` performs the same start out of band and
-is idempotent, so it leaves a running session alone.
+The object store records each continuous backup session with a marker object at
+`backups/<run-id>`. Every deploy runs `./server ops provision`, which starts the
+session automatically on hosts with continuous backup enabled. The latest marker
+identifies the live backup. `./server ops backup fdb-continuous-init` starts a
+session outside provisioning without changing an existing running session.
 
 1. Find the backup name. List the marker objects under `backups/` in the
    `tack-backups` bucket and take the latest run id. The restore drill does this
-   with `listImmediateObjects`; by hand, an S3 client listing `backups/` with the
-   `/` delimiter returns the marker keys `backups/<run-id>`.
+   with `listImmediateObjects`; an S3 client listing `backups/` with the `/`
+   delimiter returns marker keys `backups/<run-id>`.
 
-2. Bring up the recovery FoundationDB cluster. For a clean recovery this is a
-   fresh, empty single-node cluster on a new data volume, configured with
-   `fdbcli --exec 'configure new single ssd'`. Restoring into a cluster that
-   already holds data mixes the two; restore into an empty target.
+2. Start a fresh, empty single-node recovery cluster on a new data volume,
+   configured with `fdbcli --exec 'configure new single ssd'`. Restoring into a
+   cluster that already stores data mixes the records. Use an empty target.
 
-3. Restore. With a `backup_agent` running and the blobstore host reachable, run
-   `fdbrestore` against the recovery cluster, addressing the backup by its bare
-   run id (fdbbackup re-adds the `backups/` folder):
+3. With a `backup_agent` running and a connection to the blobstore host, run
+   `fdbrestore` against the recovery cluster. Use the bare backup run id;
+   fdbbackup re-adds the `backups/` folder:
 
    ```
    fdbrestore start \
@@ -214,15 +198,13 @@ is idempotent, so it leaves a running session alone.
      --waitfordone
    ```
 
-   `fdb-blobstore-host` must resolve to the object store's IPv6 address, the same
-   `--add-host fdb-blobstore-host:<ipv6>` mapping the backup uses, because
-   fdbbackup cannot resolve an IPv6 literal.
+   `fdb-blobstore-host` must resolve to the object store's IPv6 address. Use the
+   backup's `--add-host fdb-blobstore-host:<ipv6>` mapping; fdbbackup cannot resolve
+   an IPv6 literal.
 
-   That form restores the latest restorable point. To restore to a chosen
-   moment, name the moment and a cluster file for the source cluster.
-   fdbrestore converts a wall-clock time into a version using the source's
-   version metadata, so the source has to be reachable and its cluster file
-   readable during the restore:
+   This command restores the latest restorable point. A chosen moment requires
+   the source cluster's version metadata for time-to-version conversion. The
+   restore must connect to that source and read its cluster file:
 
    ```
    fdbrestore start \
@@ -233,68 +215,60 @@ is idempotent, so it leaves a running session alone.
      --waitfordone
    ```
 
-   The two cluster files must name different clusters. Every write goes to the
-   destination; the source is only read for the time-to-version lookup. Naming
-   the live cluster as the destination overwrites production, so mount the
-   source read-only and keep it off FoundationDB's default client path
-   (`/etc/foundationdb/fdb.cluster`), where a command that omitted its
-   cluster-file flag would otherwise pick it up.
+   The two cluster files must identify different clusters. fdbrestore writes only
+   to the destination cluster and reads the source for the time-to-version lookup.
+   Selecting the live cluster as the destination overwrites production. Mount the
+   source cluster file read-only outside FoundationDB's default client path
+   (`/etc/foundationdb/fdb.cluster`). A command without a cluster-file flag would
+   otherwise select that default.
 
    Check the moment against the backup's restorable window before restoring.
    `fdbbackup describe -d '<backup URL>' -C <source-cluster-file>
    --version-timestamps` prints `MinRestorableVersion` and
-   `MaxRestorableVersion` with wall-clock times; a moment outside that span
-   cannot be reached, and fdbrestore given one does not restore that moment.
+   `MaxRestorableVersion` with wall-clock times. fdbrestore cannot restore a
+   moment outside that span.
 
-4. Verify. The product-data keys are tuple-encoded, so confirm the keyspace is
-   non-empty with a range read (`fdbcli --exec 'getrange "" \xff 5'`) rather than
-   a literal-prefix scan. The drill asserts this automatically.
+4. Confirm the tuple-encoded product keyspace is non-empty with a range read
+   (`fdbcli --exec 'getrange "" \xff 5'`), not a literal-prefix scan.
+   The drill checks this automatically.
 
 ## YugabyteDB recovery
 
-The export is stored under `yugabyte-snapshot/<run-id>/` in the object store.
-The orchestrator (`ops backup yb-snapshot-export`) uploads `metadata.snapshot`,
-`schema.sql`, `roles.sql`, and `manifest.json` at the run root; each
-tablet-server guest then fills its own `nodes/<node>/` prefix via
-`ops backup yb-archive-node` with `tablets.tar.gz` and `tablets.inventory`,
-which lists the path and size of every file that tar carries. The manifest
-lists both the run-root artifacts and every node prefix the run needs, and a
-run is restorable only when every run-root artifact holds its object and every
-listed prefix holds both node files. The restore drill enforces this and
-refuses a run it cannot restore, naming what is wrong with it. The latest
-prefix is the most recent export.
+The object store stores each export under `yugabyte-snapshot/<run-id>/`.
+`ops backup yb-snapshot-export` uploads `metadata.snapshot`, `schema.sql`,
+`roles.sql`, and `manifest.json` at the run root. Each tablet-server guest uses
+`ops backup yb-archive-node` to upload `tablets.tar.gz` and `tablets.inventory`
+under its `nodes/<node>/` prefix. The inventory lists the path and size of every
+archived file. The manifest lists required root artifacts and node prefixes.
+A restorable run requires every root artifact and both files for every listed
+node. The drill rejects incomplete runs and reports the missing artifacts.
+The latest prefix identifies the most recent export.
 
-The two SQL files together describe the restored database's access control.
-`roles.sql` carries every role the source cluster held and their memberships,
-with no passwords in it; `schema.sql` carries the grants and revokes as they
-stood at backup time. Apply the roles first: the schema's grants name roles, and
-a grant naming a role the database does not have fails.
+`roles.sql` defines all source cluster roles and memberships without passwords.
+`schema.sql` defines grants and revokes at backup time. Apply roles before the
+schema because grants to missing roles fail.
 
-A run must declare `metadata.snapshot`, `schema.sql`, and `roles.sql`, the three
-a restore opens by name. A manifest declaring fewer is refused whatever the
-object store holds: it either predates the roles file or was truncated, and
-either way it restores into a database with no schema or one no application role
-can read. That refusal reads "manifest does not declare required artifacts", and
-it means the run is finished and only a new export fixes it. It is a different
-failure from "artifacts ... are absent", which means the run declared them and an
-upload did not land, and which the next archive timer or a re-upload can still
-resolve.
+Every manifest must declare `metadata.snapshot`, `schema.sql`, and `roles.sql`.
+The restore opens these by name and rejects a manifest that omits any of them,
+even if the objects exist. An incomplete manifest either predates the roles file
+or suffered truncation and cannot restore both the schema and application access.
+The error "manifest does not declare required artifacts" requires a new export.
+The error "artifacts ... are absent" instead indicates a declared artifact that
+did not upload. The next archive timer or a re-upload can resolve that failure.
 
-The restore drill performs these steps into a throwaway yugabyted and is the
-verified procedure. A real recovery applies the same steps to the recovery
-YugabyteDB:
+The restore drill runs the following steps in a throwaway yugabyted. Apply the
+same steps to the recovery YugabyteDB:
 
 1. Stage `manifest.json` from `yugabyte-snapshot/<run-id>/`, then every artifact
    it lists from `yugabyte-snapshot/<run-id>/<artifact>`, then, for every node
    it lists, both `nodes/<node>/tablets.tar.gz` and
-   `nodes/<node>/tablets.inventory`. If any listed artifact is missing, or
-   either node file is missing for any listed node, stop and pick a complete
-   run.
-2. Bring up the recovery yugabyted with the `yugabyte-overlay/yugabyted` overlay,
+   `nodes/<node>/tablets.inventory`. If any listed artifact or either file for
+   any listed node is missing, stop and select a complete run.
+2. Start the recovery yugabyted with the `yugabyte-overlay/yugabyted` overlay,
    advertising on its own hostname.
-3. Apply `roles.sql`, then create the `pgcrypto` extension, then apply
-   `schema.sql`. Run the roles file with `VERBOSITY=verbose` and without
-   `ON_ERROR_STOP`, then read the errors back:
+3. Apply `roles.sql`, create the `pgcrypto` extension, then apply `schema.sql`.
+   Run the roles file with `VERBOSITY=verbose` and without `ON_ERROR_STOP`, then
+   inspect the errors:
 
    ```
    PGOPTIONS="-c lc_messages=C" LC_ALL= LC_MESSAGES=C \
@@ -302,24 +276,20 @@ YugabyteDB:
      -v VERBOSITY=verbose -q -f roles.sql
    ```
 
-   The locale settings fix what the errors say. A recovery cluster renders both
-   the severity word and the message in its own `lc_messages`, and the engine
-   image ships catalogs for 19 languages, so without the pin the errors below may
-   arrive in another language and read as nothing you can check. `PGOPTIONS` sets
-   the server's rendering and needs a superuser connection, which the bootstrap
-   user a fresh yugabyted creates is; the two client variables set the `LOCATION`
-   and `DETAIL` labels libpq prints itself.
+   Pin the locale to make errors match the checks below. The recovery cluster
+   renders severity and message text according to `lc_messages`; the engine
+   image includes catalogs for 19 languages. `PGOPTIONS` sets server rendering
+   and requires a superuser connection, such as the bootstrap user a fresh
+   yugabyted creates. The client variables set libpq's `LOCATION` and `DETAIL`
+   labels.
 
-   Every error it raises must then carry SQLSTATE `42710` and read
-   `role "..." already exists`, each naming a role the recovery cluster's own
-   engine created (`postgres`, `yugabyte`, `yb_db_admin`, `yb_extension`,
-   `yb_fdw`) or its bootstrap user. Those are expected and lose nothing: the file
-   follows each `CREATE ROLE` with an `ALTER ROLE` that sets the role's
-   attributes, and that still runs. Read the SQLSTATE rather than the word in
-   front of it: a code outside classes `00`, `01`, and `02` is a failed
-   statement whatever language it is written in. Any other error means a role the
-   database did not get, so stop and fix it before applying the schema, rather
-   than restoring a ledger nobody can read.
+   Accept only errors with SQLSTATE `42710` and message `role "..." already exists`
+   for engine-created roles (`postgres`, `yugabyte`, `yb_db_admin`,
+   `yb_extension`, `yb_fdw`) or the bootstrap user. The following `ALTER ROLE`
+   still applies each role's attributes after `CREATE ROLE` fails for an existing
+   role. Read the SQLSTATE regardless of message language. Codes outside classes
+   `00`, `01`, and `02` indicate failed statements. Any other error indicates a
+   missing role; stop and fix it before applying the schema.
 
    Apply the schema dump with `ON_ERROR_STOP=1` to fail the restore when a grant
    targets a missing role. Set `session_replication_role=replica` through
@@ -333,75 +303,64 @@ YugabyteDB:
      -v ON_ERROR_STOP=1 -q -f schema.sql
    ```
 
-   Restored login roles carry no password, because the export deliberately
-   excludes them. Run `ops audit seed-roles` against the recovered database
-   before pointing the application at it, which is what sets those passwords.
+   The export excludes passwords from restored login roles. Set those passwords
+   with `ops audit seed-roles` against the recovered database before configuring
+   the application to use it.
 4. Run `yb-admin import_snapshot metadata.snapshot <database>`. It preserves
    table ids and assigns new tablet ids, printing the old-to-new tablet mapping.
-5. Extract each node archive into its own directory, then check that extraction
-   against that node's `tablets.inventory`: every file it lists must be present
-   at the size it lists. Copy each tablet's files from one node's copy that
-   passes the check (copies of the same tablet exist on several nodes; use one
-   copy, never a mix) into the new tablet's snapshot directory under the rocksdb
-   root, following the mapping from step 4.
+5. Extract each node archive into its own directory. Check every file against
+   that node's `tablets.inventory` for presence and exact size. For each tablet,
+   select one complete node copy and copy its files into the new tablet's snapshot
+   directory under the rocksdb root, using the mapping from step 4. Do not mix
+   files from multiple copies of a tablet.
 
-   Do not judge a tablet by what its directory happens to hold. A directory that
-   exists, and a directory holding one file with bytes in it, both tell you
-   nothing about how much of that tablet arrived; the inventory is the only
-   record of what this backup captured. A tablet no copy passes the check for is
-   a hole, and `restore_snapshot` succeeds over it: the database comes back
-   smaller with nothing to say it did. Stop and pick a complete run rather than
-   restoring a partial one. Only once every tablet in the mapping has a whole
-   copy in place, run `yb-admin restore_snapshot <new-snapshot-id>`. The drill
-   does this itself and fails before it copies anything, naming each tablet it
-   cannot supply and how many of that tablet's archived files are gone.
-6. Verify the auth tables `users`, `api_tokens`, and `org_members` hold rows.
-7. Verify the restored ledger's hash chain, reading it as a login role whose
-   only membership is `audit_reader`, which is the base role the product reads
-   through. Reading as the recovery cluster's bootstrap user proves nothing: it
-   holds a superuser bypass and sees the ledger whatever the grants say, which
-   is how a restore that granted nothing went unnoticed for as long as the
-   backup existed. Export a signed bundle per org over the full time range and
-   verify each one, then read the report's chain-break count. A break is a row whose `prev_hash` does not name the row before it, or
-   whose stored hash does not recompute, and it fails the recovery. A sequence
-   gap fails it too. This export leaves nothing out on purpose, so a missing
-   sequence number is a row the restore did not bring back, and the link across
-   it cannot be checked. Treat a gap as tolerable only when the export was
-   filtered or time-bounded, where the window is what cut the chain. Check as
-   well that the bundle holds every row the restored ledger counts for that org.
-   The drill does all of this automatically and fails when a chain breaks, when
-   a gap appears, when the export covers fewer rows than the ledger holds, or
-   when the ledger comes back empty.
+   A directory's existence or a single non-empty file does not prove tablet
+   completeness. The inventory records every file this backup captured.
+   `restore_snapshot` can succeed with missing tablet data without reporting the
+   loss. Stop and select a complete run if every copy of any tablet fails the
+   inventory check. Run `yb-admin restore_snapshot <new-snapshot-id>` only after
+   every mapped tablet has a complete copy. The drill checks before copying and
+   reports each unavailable tablet and its missing archived file count.
+6. Verify that `users`, `api_tokens`, and `org_members` contain rows.
+7. Verify the restored ledger's hash chain as a login role with only
+   `audit_reader` membership, the base role for ledger reads. The bootstrap
+   superuser bypasses grants and cannot prove that a restored reader can read
+   the ledger. This bypass previously concealed missing grants in backups.
+   Export a signed bundle per org over the full time range, verify each bundle,
+   and inspect the chain-break count. A break occurs when a row's `prev_hash`
+   does not identify the preceding row or its stored hash does not recompute.
+   Fail recovery on a break or sequence gap. A full-range export intentionally
+   omits neither rows nor sequences; a gap indicates a missing restored row and
+   prevents verification of that link. Only filtered or time-bounded exports may
+   tolerate gaps caused by their selection. Compare each bundle's row count
+   with the restored ledger's count for that org. The drill checks all of these
+   conditions and fails on breaks, gaps, missing exported rows, or an empty ledger.
 
-   The export streams. It writes and releases each row as it reads it, so a
-   ledger of any size costs it about as much memory as a single row, and it
-   carries no row cap for an operator to raise. A shortfall against the ledger's
-   own count is therefore a defect to investigate, not a corpus that outgrew a
-   limit. The `audit export` command runs the same export and covers the whole
-   range you ask for unless you pass `--limit`.
+   The export writes and releases each row as it reads it, using about one row's
+   memory regardless of ledger size. It does not impose a row cap. Investigate
+   any shortfall against the ledger's count as a defect, not a size limit.
+   `audit export` uses the same export and includes the full requested range
+   unless the command specifies `--limit`.
 
-   The bundle's rows are not in any particular order. Verification sorts them
-   into per-shard sequence order before it walks the chain, so the chain-break
-   and gap counts do not depend on the order the rows were written in.
+   Bundle rows do not require a particular order. Verification sorts them into
+   per-shard sequence order before checking links. Chain-break and gap counts
+   do not depend on export order.
 
-   A verified chain shows every row the restored ledger holds is consistent with
-   the row before it. It does not show they are all the rows the source held: a
-   restore that lost the newest rows still verifies. Compare row counts against
-   the source separately when completeness matters.
+   A verified chain proves consistency between restored rows, not that recovery
+   restored every source row. Losing the newest rows can leave a valid chain.
+   Compare source and restored row counts separately to check completeness.
 
 ### Audit ledger caveat
 
-The audit ledger is a hash chain. `audit.chain_heads` holds the current per
-`(org, shard)` chain head, and future audit writes continue from it. When
-recovering audit data, preserve or merge `audit.chain_heads` rather than
-overwriting it; restoring auth alone, or resetting the chain heads, breaks the
-chain and loses the ledger's continuity. The recovery target must never write to
-the live cluster's `audit.chain_heads`.
+The audit ledger is a hash chain. `audit.chain_heads` stores the current head for
+each `(org, shard)`, which future writes continue. Preserve or merge these heads
+during recovery rather than overwriting them. Restoring auth alone or resetting
+the heads breaks ledger continuity. The recovery target must never write to the
+live cluster's `audit.chain_heads`.
 
 ## Recovery objectives
 
-For FoundationDB, the recovery point is any version within the continuous
-backup's restore window, which advances while the backup runs. For YugabyteDB,
-it is the most recent snapshot export. Recovery time for both is bounded by the
-restore and its verification, which is the slowest tier; replication, not this
-runbook, is the fast path.
+FoundationDB can recover any version within the continuous backup's advancing
+restore window. YugabyteDB can recover the most recent snapshot export. Restore
+and verification determine recovery time for both stores. Quorum replication
+provides faster recovery from node or zone failure.

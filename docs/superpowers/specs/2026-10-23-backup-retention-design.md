@@ -12,7 +12,7 @@ Retention applies to backup copies, not live database rows or the canonical audi
 
 Use the existing `yugabyte-snapshot/` namespace, timestamp run identifiers, manifests, and artifact completeness checks. Select export runs strictly older than the UTC cutoff. Preserve runs at the boundary and all newer runs.
 
-Before deleting any expired export, establish that at least one complete export survives within the retained window. Refuse deletion when retained exports are absent or incomplete. Validate run identifiers and all selected prefixes. Delete only keys under each selected run's complete prefix, with bounded S3 batches and pagination. Expired incomplete export runs may be removed once the retained complete export guard succeeds. Report API errors and partial completion rather than reporting success after a partial deletion.
+Before deleting any expired export, establish that at least one complete export survives within the retained window. Refuse deletion when retained exports are absent or incomplete. Validate run identifiers and all selected prefixes. Delete only keys under each selected run's complete prefix, with bounded S3 batches and pagination. After the retained complete export guard succeeds, cleanup may remove expired incomplete export runs. Report API errors and partial completion rather than reporting success after a partial deletion.
 
 ## FoundationDB backups
 
@@ -43,7 +43,7 @@ Configs owns the systemd service and daily timer. The service invokes `docker co
 3. Execution refuses ledger deletion when a complete retained export does not exist.
 4. Invalid identifiers and malformed manifests cannot broaden deletion scope.
 5. Paginated object deletion and partial S3 failures produce accurate counts and audit outcomes.
-6. Successful native FoundationDB expiration permits a real restore at the retained boundary. A separate native-refusal case preserves the backup. Deleting an expired closed session preserves the verified surviving session. Active sessions survive, and a failed native guard does not become a forced deletion.
+6. Successful native FoundationDB expiration permits a real restore at the retained boundary. A separate native-refusal case preserves the backup. Cleanup of an expired closed session preserves the verified surviving session. Active sessions survive, and a failed native guard does not become a forced deletion.
 7. Concurrent cleanup and supported restore drills serialize safely. Cancellation releases their process lock.
 8. The new command appears in QA datagen verb reporting and runtime audit coverage; command execution records actual intent, steps, and terminal outcome.
 9. Real-dependency tests run through the existing container harness and clean up their test resources.

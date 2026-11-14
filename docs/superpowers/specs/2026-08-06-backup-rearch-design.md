@@ -1,311 +1,239 @@
-# Backup and resilience: no special guest
+# Backup and resilience across guests
 
 ## Terms
 
-- **Hypervisor**: the physical Proxmox host (vault). It runs every guest.
-- **Guest**: one LXC container on the hypervisor, with its own guest id,
-  IPv6 address, and Docker daemon. Guest is the unit of failure this design
-  protects against.
-- **Service container**: one Docker container inside a guest's compose
-  stack. Every database node, broker, and app instance in this document is a
-  service container, placed one per guest for its tier.
+A hypervisor is the physical Proxmox host, vault. A guest is one LXC container
+on the hypervisor with its own guest ID, IPv6 address, and Docker daemon. This
+design protects against guest failure. A service container runs inside a guest's
+compose stack. Each database node, broker, and app instance runs in one service
+container, with one container per guest for each tier.
 
-This document never uses the word machine. Where an engine's documentation
-says machine (FoundationDB counts fault domains in machines), the unit here
-is the guest.
+FoundationDB uses the term machine for a fault domain. This design uses the
+guest as that fault domain.
 
-## The contract
+## Contract
 
-Losing any one guest must not lose data or stop the service. Five properties
-define done:
+The service must preserve data and continue serving after any one guest fails.
 
-- Durable. Every backup survives the loss of any guest and of the hypervisor,
-  because it lives in the off-host object store.
-- Scalable. No backup step reads the dataset row by row.
-- Continuous. Protection advances on its own; no step depends on a person
-  remembering to run it.
-- Distributed. Every stateful service runs on more than one guest.
-- Recoverable. Restores are rehearsed on a schedule, so a backup that cannot
-  restore is discovered by the rehearsal, not by a disaster.
+- Store durable backups in the off-host object store to survive guest and
+  hypervisor failure.
+- Use backup operations that do not read the dataset row by row.
+- Advance protection automatically rather than requiring manual steps.
+- Run each stateful service on more than one guest.
+- Rehearse restores on a schedule to detect unusable backups before a disaster.
 
-Two numbers bound the design. A disaster may lose at most the last few seconds
-of writes. Loss of any single guest heals automatically in seconds.
+A disaster may lose at most the last few seconds of writes. The service must
+recover automatically from one guest's failure within seconds.
 
-One structural rule: backup work never runs on a guest that is serving
-traffic. Snapshot creation by a database is exempt because it links files
-instead of copying them and is near-free.
+Run backup work on guests that do not serve traffic. Database snapshot creation
+may run on serving guests because it links files rather than copying them.
 
-## Target topology
+## Target topology and addresses
 
-Five guests carry the service.
+Three data guests each run a YugabyteDB node for auth and the audit ledger,
+a FoundationDB process for product data, and a Kafka broker for audit events.
+Each service replicates data across these guests and tolerates one guest failure.
+Two app guests run stateless servers. Traefik probes both and routes only to
+live instances.
 
-Three data guests each run one member of each data service: a YugabyteDB node
-(the SQL database holding auth and the audit ledger), a FoundationDB process
-(the store holding all product data), and a Kafka broker (the queue carrying
-audit events). Each service keeps its data on all three guests, so any one
-guest can die and all three services keep serving.
+Guests connect by IPv6 addresses from `service_mapping.yml`. Do not use
+per-guest public DNS names. The public wildcard resolves every name to the
+proxy, including names for guests that the proxy does not serve.
 
-Two app guests each run the stateless app server. The proxy (traefik) probes
-both with an active health check and routes only to a live one.
+Each container resolves permanent ledger node identities through its hosts file,
+not public DNS. The ledger engine persists each node's announced identity.
+An address used as that identity becomes stale after renumbering.
 
-Guests reach each other by IPv6 address, rendered from `service_mapping.yml`,
-the single source of truth for guest addresses. Per-guest DNS names are not
-used: the public wildcard record sends every name to the proxy, so a name for
-a non-proxied guest would resolve to the wrong place.
-
-The ledger node names below are the one exception, and they are not DNS. Each
-name resolves only inside the containers that carry it, from entries written
-into each container's own hosts file, so no name reaches public resolution.
-The names exist because the ledger engine stores whatever identity a node
-announces, and an address stored there goes stale when the address moves.
-
-QA mirrors the full topology on the testbed. Testbed guest ids are production
-plus 100. Every phase lands on QA before production.
+QA mirrors the topology on the testbed. Testbed guest IDs equal production IDs
+plus 100. Validate every phase on QA before production.
 
 ## Storage placement
 
-The hypervisor has two drives and no third is added. The split is by path,
-not by device class:
+Use the hypervisor's existing drives without adding a third drive.
 
-- The request path lives on the NVMe: the three ledger guest roots (the
-  write-ahead log and tablet data), the product store's data, and the app
-  guests.
-- Slower, asynchronous, and non-critical IO lives on the SATA SSD, which has
-  a DRAM cache: the object store guest that receives every backup, the owner
-  guest's throwaway drill engines and export staging, the hypervisor's own
-  guest backups, and the broker data once the request path no longer waits
-  on the broker.
-- No unthrottled bulk copy runs on the pool the ledger shares. A bulk write
-  on that pool stalls the ledger's write-ahead log, which stalls the leader
-  and triggers an election.
+- Place the three ledger guest roots, including write-ahead logs and tablet
+  data, product-store data, and app guests on NVMe.
+- Place asynchronous, non-critical IO on the SATA SSD with DRAM cache. This
+  includes the object-store guest, owner's throwaway drill engines and export
+  staging, and hypervisor guest backups. Place broker data there only after
+  requests stop waiting on the broker.
+- Prohibit unthrottled bulk copies on the ledger's pool. A bulk write can stall
+  its write-ahead log and leader, triggering an election.
 
-## The ledger database (YugabyteDB)
+## Ledger database: YugabyteDB
 
-Three nodes hold three copies of every row. When the node leading a piece of
-data dies, the other two elect a new leader within about 3 seconds and writes
-continue. This is automatic; no operator acts.
+Three nodes store three copies of every row. When a leader fails, the other two
+elect a replacement within about 3 seconds and resume writes without operator
+intervention.
 
-- Growing from one node to three is an online operation: the second and third
-  nodes join the first, and the copy count rises to three when the third
-  joins. Join the second and third back to back, because the intermediate
-  two-node state has a fragile coordination quorum.
-- Each node announces a permanent name, never an address. The engine writes
-  the announced identity into its internal catalog beside the rows it serves,
-  so a stored address goes stale when the address moves, and the engine then
-  cannot assemble itself to serve rows that are intact on disk. Every tack
-  guest resolves each node name to the owning data guest's pinned address
-  through a hosts entry rendered at deploy from the guest inventory. A
-  renumber changes one inventory line and a redeploy; the stored identity
-  never changes.
-- Node names are permanent identity and carry nothing worth changing.
-  Renaming a node exists only at three nodes: retire the node under its old
-  name, rejoin it under the new one, and the surviving two re-replicate its
-  data onto it, one node at a time, with no catalog surgery. A single node
-  has no rename path; a stale identity there is a wedge, recoverable only by
-  restoring the exported rows into a fresh node.
-- Each node declares a distinct location so the cluster can express fault
-  tolerance, mounts the same patched startup script the single node uses
-  today, and carries explicit memory limits. Explicit limits replace the
-  default self-sizing, which lets the database claim most of a guest's
-  memory and starve everything else.
-- The app connects with a connection string listing all three nodes. The
-  existing database driver supports this with no code change. Callers keep
-  their own retry, because an in-flight query on a dying node still fails.
+- Join the second and third nodes online, back to back. The cluster achieves
+  three copies after the third joins. The intermediate two-node coordination
+  quorum cannot tolerate a node failure.
+- Require each node to announce a permanent name rather than an address. Render
+  hosts entries on every Tack guest from inventory. Renumbering changes one
+  inventory line and requires redeployment, not a stored identity change.
+- Rename only in a three-node cluster. Retire one node under its old name,
+  rejoin it under the new name, and let the surviving two replicate its data
+  onto it before renaming another. Do not edit the catalog. A single-node
+  cluster cannot rename a node; restore exported rows into a fresh node to
+  recover from a stale identity.
+- Declare distinct node locations for fault tolerance. Mount the existing
+  patched startup script and set explicit memory limits rather than letting
+  the database size itself from most of the guest's memory.
+- List all three nodes in the app connection string. The existing driver
+  supports this without a code change. Retain caller retries because an
+  in-flight query still fails when its node dies.
 
-## The product store (FoundationDB)
+## Product store: FoundationDB
 
-Three service containers, one per data guest, hold two copies of every key
-(the mode called double). Double fits three guests; the three-copy mode needs
-three live guests and would turn one guest loss into an outage. Three
-coordinators, one per data guest, keep the cluster's shared configuration.
+Three service containers, one per data guest, store two copies of every key in
+redundancy mode double. Double tolerates one failure among three guests. The
+three-copy mode requires three live guests and cannot tolerate that failure.
+Run three coordinators, one per data guest, for shared cluster configuration.
 
-Three defects in the current setup must be fixed before any expansion:
+Before expansion, correct these defects:
 
-1. Every client mounts the cluster file read-only. The cluster updates that
-   file when coordinators change, so clients need write access or they
-   silently keep stale coordinators.
-2. The startup script rewrites the cluster file to a single entry on every
-   start. It must preserve the real coordinator list.
-3. A new guest's process started with the current script creates its own
-   separate cluster. New guests must be handed the existing coordinator
-   list.
+1. Give clients write access to the cluster file. Read-only mounts prevent
+   clients from saving coordinator changes.
+2. Preserve the current coordinator list on startup rather than rewriting the
+   cluster file to a single entry.
+3. Provide the existing coordinator list before starting a new guest's process
+   rather than allowing it to create a separate cluster.
 
-The cluster file addresses coordinators by the data guests' pinned IPv6
-addresses from `service_mapping.yml`, with each guest publishing its
-FoundationDB port. Guest addresses are stable; container addresses are not
-and are never persisted. (The pinned version also supports DNS names in the
-cluster file, resolving IPv6-first, as a fallback if literals prove awkward.) Client transactions currently retry forever with no timeout; a
-deliberate timeout is set before expansion. Each data guest runs one backup
-agent; agents cooperate automatically.
+Use the data guests' pinned IPv6 addresses from `service_mapping.yml` in the
+cluster file and publish each guest's FoundationDB port. Do not persist
+container addresses. The pinned version also supports DNS coordinator names
+with IPv6-first resolution if literal addresses prove impractical. Set a client
+transaction timeout before expansion; transactions currently retry indefinitely.
+Run one backup agent per data guest. The agents cooperate automatically.
 
-## The event queue (Kafka)
+## Event queue: Kafka
 
-Three brokers hold three copies of the audit event topic, with writes
-requiring two live copies. One broker can die without losing accepted events.
+Three brokers store three copies of the audit event topic. Require two live
+copies for writes to tolerate one broker failure without losing accepted events.
 
-- The cluster's membership record was created in the static style, and no
-  documented online path grows a static membership from one to three. Two
-  candidate routes exist: upgrade the cluster to dynamic membership and add
-  brokers, or rebuild the membership as three static members in a
-  maintenance window. The route is chosen by proving one on QA first.
-- Raising the copy count on the existing 256-partition topic, and on the
-  topic that stores consumer positions, is an online, bandwidth-throttled
-  data movement.
-- Each broker advertises its own routable address. Clients need only a longer
-  address list; the producer already requires acknowledgment from all copies.
-- The audit producer's delivery budget rises above 14 seconds, because a
-  hard broker loss costs up to 9 seconds of lease expiry plus up to 5 seconds
-  of client refresh before recovery, and the current 10-second budget can
-  expire inside that window.
+- Prove a membership expansion method on QA. The cluster uses static
+  membership and does not have a documented online expansion from one to three.
+  Either upgrade to dynamic membership and add brokers or rebuild three static
+  members during a maintenance window.
+- Increase copies of the existing 256-partition audit topic and
+  consumer-position topic online with bandwidth throttling.
+- Advertise each broker's routable address. Extend client address lists.
+  The producer already requires acknowledgment from all copies.
+- Raise the producer delivery budget above 14 seconds. Broker failure can
+  require 9 seconds of lease expiry and 5 seconds of client refresh. The current
+  10-second budget can expire before recovery.
 
-## The app tier
+## App tier
 
-The app holds no per-client state, so any instance can serve any request;
-this is verified in code, and write dedup lives inside the product store's
-transactions where it works across instances. Two fixes precede a second
-instance:
+The app does not store per-client state. Any instance can serve any request.
+Product-store transactions deduplicate writes across instances. Before adding
+the second instance, add datastore checks at the app health endpoint and list
+both instances in Traefik's `tack-service` health checks.
 
-1. The app gains a health endpoint that checks its datastores. The proxy's
-   `tack-service` entry lists both instances and probes that endpoint.
-2. The ledger signer (the notarizer, which signs the audit chain every
-   minute) runs only in the audit-consumer process, never in the app. Each
-   guest keeps generating its own key, and the set of identifiers a chain
-   accepts becomes explicit: the signing host is recorded on each
-   notarization row, the valid identifiers per environment are held in the
-   configs vault, and verification rejects a signature whose identifier is
-   outside that set.
+Run the ledger notarizer, which signs the audit chain every minute, only in the
+audit-consumer process. Each guest generates its own key. Record the signing
+host on each notarization row, store accepted signer identifiers per environment
+in the configs vault, and reject signatures outside that set.
 
-   This reverses an earlier decision, on 2026-08-08, to share one
-   vault-stored key per environment. Sharing does not contain a leak. The
-   identifier stored on each row is written by whoever signed it, so without
-   an accepted set an attacker who reaches an app guest can generate a fresh
-   key, forge checkpoints, and write an identifier indistinguishable from a
-   legitimate new guest. The accepted set is what makes revocation mean
-   something, and it makes per-guest keys containable rather than ambiguous.
+Do not share one environment key as proposed on 2026-08-08. A compromised key
+would affect every guest. Without an accepted signer set, an attacker with app
+guest access could generate a key and forge checkpoints under an identifier
+that verification could not distinguish from a legitimate new guest. The
+accepted set permits revocation of individual guest keys.
 
-The compose file pins development-mode auth, which accepts any UUID as a
-login. A second instance behind public ingress raises the urgency of the
-existing fix ticket (TACK-261).
+The compose file pins development-mode auth, which accepts any UUID as a login.
+A second instance behind public ingress increases the urgency of TACK-261.
 
-## The request path
+## Request processing
 
-The ledger database is both the auth store and the compliance record, so a
-slow ledger write becomes a slow request. The request path leaves the ledger
-and the broker before the data tier gains replicas, because every replica
-added to a synchronous write is added to every request that waits on it.
+Remove synchronous ledger and broker writes from authenticated reads before data
+replication expands. The ledger stores both auth and compliance records;
+requests that wait on its writes also wait on replica acknowledgments.
 
-Per authenticated read call the app performs zero ledger writes, at most one
-ledger read, and zero synchronous broker round trips:
+Each authenticated read must perform zero ledger writes, at most one ledger
+read, and zero synchronous broker round trips.
 
-- The token's last-use time stays exact and is written off the request path.
-- Membership is read once per request at most and cached per principal; the
-  cache is invalidated by the membership write.
-- The token lookup is cached per token hash for a short lifetime and
-  invalidated on revoke.
-- Read-class and auth-accepted audit events are buffered in the app and
-  flushed in batches. State-change events keep their current path: staged in
-  the product store transaction and committed with the change.
+- Update exact token last-use times asynchronously.
+- Read membership at most once per request and cache it per principal.
+  Invalidate the cache when membership changes.
+- Cache token lookups by token hash for a short lifetime and invalidate on revoke.
+- Buffer read-class and auth-accepted audit events in the app and submit batches.
+  Continue committing state-change events in the product-store transaction.
 
-## Derived stores
+## Derived stores and backups
 
-The search index rebuilds from its authoritative data and does not need a backup.
-Temporal workflow state has no backup, matching the recovery runbook.
+Rebuild the search index from authoritative data rather than backing it up.
+Do not back up Temporal workflow state, as the recovery runbook specifies.
 
-## Backups on this topology
+Stream product data continuously to the object store for restoration within
+the stream's time window, using one backup agent per data guest.
 
-- Product data streams continuously to the object store, restorable to any
-  point in the stream's window. Unchanged in shape; one agent per data guest.
-- The ledger exports an engine-native snapshot to the object store on a
-  schedule, driven from a non-leading node. The export's archive phase
-  collects snapshot files from all three nodes according to which node leads
-  each piece of data; the current implementation archives from a single service container and is
-  invalid at three nodes, so it is rewritten. The in-cluster point-in-time rewind schedule
-  remains as the protection against corruption.
-- The bare `ops backup` command runs nothing; it prints its subcommands and
-  exits nonzero. The row-by-row database dump, the workflow-database dump,
-  the search-index archive, their manifest and verify machinery, and the
-  unused audit-archive bucket are deleted. The recovery runbook consumes
-  none of their artifacts.
+Schedule engine-native ledger snapshot exports from a non-leading node.
+Collect snapshot files from all three nodes according to tablet leadership.
+Rewrite the current single-container archive implementation before using three
+nodes. Retain the in-cluster point-in-time rewind schedule for corruption.
 
-## Alarms
+Make bare `ops backup` print subcommands and exit nonzero without running work.
+Delete row-by-row database dumps, workflow-database dumps, search-index archives,
+their manifests and verification machinery, and the unused audit-archive bucket.
+The recovery runbook does not use those artifacts.
 
-Each mechanism reports one number: seconds since its last success. An alert
-fires when that number ages past its threshold. Covered: the product-data
-stream's restorable point, the ledger's last completed export, the last
-passing restore rehearsal, and each cluster's under-replication state. Alarms
-fire on staleness rather than on failure, because a silently broken backup
-never reports a failure.
+## Alarms and rehearsals
 
-## Rehearsals
+Report seconds since last success for the product-data restorable point, ledger
+export, restore rehearsal, and each cluster's under-replication state. Alarm when
+that age exceeds its threshold. A silently stopped job may never report failure.
 
-A restore rehearsal runs on a schedule against the exported artifacts, in
-throwaway containers, never against production. A failover rehearsal kills
-one data guest on QA, verifies every service converges and the app serves
-throughout, then restores the guest. Both rehearsals feed the staleness
-alarms.
+Schedule restore rehearsals from exported artifacts in throwaway containers,
+never production. On QA, kill one data guest, verify that all services recover
+and the app continues serving, then restore the guest. Update the success
+metrics after passing rehearsals.
 
-## Provisioning (configs repo)
+## Provisioning in configs
 
-Configs uses the following layout for data and application guests. Ansible
-continues to manage each deployment field until a provider adopts that field.
+Ansible manages each deployment field until a provider adopts it.
 
-- One `service_mapping.yml` entry per new guest, plus testbed counterparts
-  at id plus 100, plus a parent group for the cluster axis.
-- One OpenTofu resource per guest, each with its own MAC address, its own
-  Docker IPv6 /96, and a matching neighbor-discovery proxy prefix.
-- Per-guest identity (node ids, seed-versus-join role, which single guest
-  may initialize the product store or run migrations) lives in `host_vars`
-  files, one per guest.
-- The deploy playbook splits: host preparation (Docker, IPv6 forwarding,
-  neighbor proxy) runs on every guest; one-time steps (provisioning,
-  migrations, seeding) run on exactly one.
-- Every guest runs a daily Docker prune as its own systemd service and
-  timer pair, removing stopped containers, unused networks, unreferenced
-  images, and build cache older than seven days. Image accumulation with no
-  reclaim is the same disk-fill mechanism that killed the databases in July.
-  The prune never touches volumes, so no persisted data is at risk.
-- Every loopback and compose-internal address in the rendered environment
-  becomes a routable address from the mapping: the ops database URL, the
-  audit database strings and the Kafka broker list.
-- Before sizing is committed, read the hypervisor's real free capacity. The
-  repo declares about 64 GB already committed across guests and does not
-  record the physical ceiling. If the reading comes up short, the unmanaged
-  developer sandbox guest (debianct: 8 cores, 16 GB) is approved for
-  reclaim; its destruction is confirmed with the operator first.
+- Add a mapping entry and OpenTofu resource per guest and testbed counterpart
+  at ID plus 100. Add a parent cluster group.
+- Assign each guest a MAC address, Docker IPv6 /96, and matching
+  neighbor-discovery proxy prefix.
+- Store node IDs, seed or join roles, and the sole provisioning and migration
+  owner in one `host_vars` file per guest.
+- Run host preparation on every guest. Run provisioning, migrations, and
+  seeding on exactly one guest.
+- Install a daily systemd Docker prune service and timer on every guest.
+  Remove stopped containers, unused networks, unreferenced images, and build
+  cache older than seven days. Do not remove volumes. Unreclaimed images filled
+  database disks in July.
+- Replace loopback and compose-internal addresses in the rendered ops database
+  URL, audit connection strings, and Kafka list with mapping addresses.
+- Measure free hypervisor capacity before committing sizes. The repository
+  commits about 64 GB across guests but does not record physical capacity.
+  If capacity falls short, request operator confirmation to destroy the approved
+  unmanaged `debianct` sandbox with 8 cores and 16 GB.
 
-## Rollout phases
+## Rollout order
 
-Every phase lands on QA first.
+Validate each phase on QA first. Complete storage placement and phase 8 before
+phases 4 and 5, which add replica writes and three copies of product-store and
+broker IO to the ledger's drive.
 
-1. No new guests: delete the dump machinery and guard the bare command, set
-   explicit database memory limits, add the app health endpoint, single-home
-   the ledger signer in the audit-consumer, raise the producer delivery
-   budget, and set per-service memory limits on the existing guest.
-2. Provisioning groundwork: mapping entries, guests, host_vars, the deploy
-   split, per-guest networking.
-3. Ledger database to three nodes: joins, the multi-host connection string,
-   the export rewrite, the scheduled follower-driven export, and the
-   under-replication and staleness alarms.
-4. Product store to three guests: fix the three cluster-file defects, join
-   the new guests' processes, switch to double, DNS-named coordinators,
-   one backup agent per data guest, and the client timeout decision.
-5. Event queue to three brokers: the membership route proven on QA, brokers
-   joined, topic copies raised, two-copy write requirement set, per-broker
-   advertised addresses.
-6. Second app instance behind the health-checked proxy.
-7. Scheduled rehearsals and the complete alarm set.
-8. The request path off the ledger and the broker: exact last-use time
-   written asynchronously, one membership read at most, token and membership
-   caches, batched read-class audit events.
+1. Guard bare backup, delete dump machinery, set database and service memory
+   limits, add app health checks, run the signer only in audit-consumer, and
+   raise the producer budget without adding guests.
+2. Add mappings, guests, `host_vars`, deployment separation, and guest networking.
+3. Expand the ledger to three nodes, extend connection strings, rewrite export,
+   schedule follower exports, and add replication and staleness alarms.
+4. Correct cluster-file handling, expand product storage to three guests in
+   double mode, use DNS-named coordinators, add backup agents, and set timeout policy.
+5. Expand broker membership using the QA-proven method, increase topic copies,
+   require two live copies for writes, and set per-broker advertised addresses.
+6. Add the second app instance behind the health-checked proxy.
+7. Schedule rehearsals and complete alarm coverage.
+8. Make last-use updates asynchronous, cache tokens and memberships, limit
+   membership reads to one, and batch read-class events.
 
-Phase 8 and the storage placement land before phases 4 and 5, because those
-two phases add replicas to every synchronous write and add three copies of
-product-store and broker IO to the drive the ledger shares.
-
-## Interactions
-
-- TACK-336, the durable dead-letter queue for audit events plus the queue
-  retention raise, proceeds independently and complements phase 5.
-- The audit cold archive design (columnar files in the object store) is
-  unblocked by nothing here.
-- TACK-261, replacing development-mode auth, rises in urgency with phase 6.
+TACK-336 independently adds a durable dead-letter queue and longer retention,
+complementing phase 5. This work does not implement the columnar audit cold
+archive. Phase 6 increases the urgency of TACK-261, which replaces development-mode auth.
