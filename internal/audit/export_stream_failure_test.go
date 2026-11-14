@@ -1,6 +1,5 @@
-// export_stream_failure_test.go covers the read failure modes: what a ledger
-// read that fails partway through leaves behind, in an empty directory and in
-// one that already holds a published bundle.
+// export_stream_failure_test.go checks cleanup after ledger read failures in
+// empty directories and preservation of already-published bundles.
 
 package audit
 
@@ -17,23 +16,15 @@ import (
 	"github.com/google/uuid"
 )
 
-// TestExportStopsWhenTheLedgerReadFails pins that a read cut off partway
-// through does not leave a signed bundle behind. A stream that ended early is
-// a truncated export, and a truncated export that still writes its manifest is
-// the silent short bundle this whole path exists to make impossible.
-//
-// Both halves of that failure space run. A read that fails before the first row
-// leaves the writer with nothing, which is the easy half: no bytes were ever at
-// risk. A read that fails after rows have already been encoded and flushed is
-// the half where an export has something to damage, and it is the shape a
-// dropped connection actually takes on a large ledger.
+// TestExportStopsWhenTheLedgerReadFails requires an error without a published
+// manifest when the read fails before rows or after writing more than a buffer.
 func TestExportStopsWhenTheLedgerReadFails(t *testing.T) {
 	cases := []struct {
 		name              string
 		rowsBeforeFailure int
 	}{
-		{name: "before any row reaches the export", rowsBeforeFailure: 0},
-		{name: "after rows are already written", rowsBeforeFailure: exportFailureRows},
+		{name: "read fails before first row", rowsBeforeFailure: 0},
+		{name: "read fails after buffered rows flush", rowsBeforeFailure: exportFailureRows},
 	}
 	for _, testCase := range cases {
 		t.Run(
@@ -72,19 +63,12 @@ func TestExportStopsWhenTheLedgerReadFails(t *testing.T) {
 	}
 }
 
-// exportFailureRows is how many rows the failing reads hand over before they
-// fail. It is sized so the export has flushed its write buffer to disk before
-// the failure arrives, which the re-export test below checks rather than
-// assumes; a failure the writer absorbs entirely in memory never exercises what
-// a partial export does to the file.
+// exportFailureRows exceeds the write buffer before the source fails.
+// The re-export test checks the encoded size rather than assuming it.
 const exportFailureRows = 3000
 
-// failingRowSource hands over rowsBeforeFailure rows and then reports the read
-// failed, the shape of a connection dropped partway through a large export.
-//
-// The row count is the point. A source that fails before handing over anything
-// tests only that a read which produced nothing publishes nothing, and every
-// implementation that damages the bundle once rows start arriving passes that.
+// failingRowSource visits rowsBeforeFailure rows before returning a deadline
+// error, reproducing a read interrupted after partial file writes.
 type failingRowSource struct {
 	t                 *testing.T
 	orgID             uuid.UUID
@@ -114,22 +98,8 @@ func (s *failingRowSource) StreamQuery(
 	return context.DeadlineExceeded
 }
 
-// TestFailedReExportLeavesThePublishedBundleIntact pins what a re-export may
-// destroy, which is nothing. An operator re-exporting into a directory that
-// already holds a bundle is the ordinary case, and the export can fail partway
-// for reasons that have nothing to do with the bundle sitting there: a dropped
-// connection, a full disk, a cancelled command. Two earlier shapes of this code
-// damaged that bundle. Writing rows straight to events.jsonl truncated it at the
-// first byte, leaving the old signed manifest describing rows that were gone.
-// Removing the manifest first destroyed the only thing that makes the directory
-// readable as a bundle, for the whole length of an export that then failed.
-// Either way the operator loses evidence they still had a moment earlier, and
-// the second one loses it silently.
-//
-// The failing re-export hands over rows before it fails, because a re-export
-// that never produced a row cannot damage anything: it is the rows arriving
-// that put the published bundle at risk, so a read that fails first would leave
-// every implementation of this path looking correct.
+// TestFailedReExportLeavesThePublishedBundleIntact checks published row bytes
+// and verification after a replacement export fails beyond its write buffer.
 func TestFailedReExportLeavesThePublishedBundleIntact(t *testing.T) {
 	dir := t.TempDir()
 	orgID := uuid.Must(uuid.NewV7())
@@ -160,14 +130,11 @@ func TestFailedReExportLeavesThePublishedBundleIntact(t *testing.T) {
 	}
 
 	_, rowsBefore := publishedBundle(t, dir)
-	// The failing re-export below hands over this same number of rows, so this
-	// is what establishes that its rows were flushed to disk rather than held in
-	// the write buffer and discarded. A failure the buffer absorbed would never
-	// have touched the filesystem, and the assertions after it would hold for a
-	// reason that has nothing to do with staging.
+	// Require actual file writes before the replacement read fails. A failure
+	// contained entirely in the buffer cannot test published-file preservation.
 	if len(rowsBefore) <= exportWriteBufferBytes {
 		t.Fatalf(
-			"%d rows encode to %d bytes, which the %d-byte write buffer holds entirely; the failed re-export would never reach the disk",
+			"%d rows encode to %d bytes within the %d-byte buffer; the failed re-export would not write to disk",
 			exportFailureRows,
 			len(rowsBefore),
 			exportWriteBufferBytes,
@@ -195,8 +162,7 @@ func TestFailedReExportLeavesThePublishedBundleIntact(t *testing.T) {
 		)
 	}
 
-	// The surviving pair still has to verify. Rows that survived beside a
-	// manifest that did not would be the same defect wearing the other mask.
+	// Require the preserved rows and manifest to verify together.
 	report, err := VerifyBundle(dir, publicKey)
 	if err != nil {
 		t.Fatalf("the bundle that survived the failed re-export no longer verifies: %v", err)
@@ -208,7 +174,7 @@ func TestFailedReExportLeavesThePublishedBundleIntact(t *testing.T) {
 
 	if report.RowsScanned != published.RowCount {
 		t.Fatalf(
-			"surviving bundle holds %d rows, want the %d it was published with",
+			"surviving bundle contains %d rows, want the %d it was published with",
 			report.RowsScanned,
 			published.RowCount,
 		)

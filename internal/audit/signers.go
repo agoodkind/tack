@@ -9,12 +9,10 @@ import (
 	"strings"
 )
 
-// KeyIdentifier is the one name a signing key has everywhere: the notarizer
-// stamps it on every audit.notarizations row, the export writes it into the
-// manifest, and the valid signer set lists it. It is the first eight bytes of
-// the SHA-256 of the raw Ed25519 public key, in hex, under the "ed25519:"
-// prefix. One derivation, so a key measured on a host is the same string the
-// ledger holds for it (TACK-437).
+// KeyIdentifier derives the identifier used by notarization rows, export
+// manifests, and valid signer sets (TACK-437). It prefixes the hexadecimal
+// encoding of the first eight SHA-256 digest bytes with "ed25519:".
+// The digest covers the raw Ed25519 public key.
 func KeyIdentifier(pub ed25519.PublicKey) string {
 	digest := sha256.Sum256(pub)
 	return keyIdentifierPrefix + hex.EncodeToString(digest[:keyIdentifierBytes])
@@ -25,24 +23,21 @@ const (
 	keyIdentifierBytes  = 8
 )
 
-// keyIdentifierShape is what a well-formed identifier looks like; a set entry
-// that does not match is a typo, and a typo in an allowlist is a silent hole.
+// keyIdentifierShape defines the accepted format for signer identifiers.
 var keyIdentifierShape = regexp.MustCompile(`^ed25519:[0-9a-f]{16}$`)
 
-// SignerSet is the set of signing-key identifiers an environment accepts. A
-// notarization or an export manifest signed under any other identifier is
-// rejected by verification and reported, so a leaked key is contained by
-// removing its identifier from the set (TACK-437). The set is configured per
-// environment through AUDIT_VALID_SIGNERS; an empty value is no set at all,
-// which verification treats as unconfigured rather than as an empty allowlist.
+// SignerSet defines the signing-key identifiers an environment accepts.
+// Verification rejects notarizations and export manifests signed under other
+// identifiers. Remove an identifier to reject a leaked key (TACK-437).
+// AUDIT_VALID_SIGNERS configures the set per environment. Verification treats
+// an empty value as unconfigured rather than as an empty allowlist.
 type SignerSet struct {
 	ordered []string
 	members map[string]bool
 }
 
-// ParseSignerSet reads a comma-separated list of identifiers. Whitespace
-// around an entry is ignored; an entry of the wrong shape is an error rather
-// than a silently unmatched member.
+// ParseSignerSet reads a comma-separated list of identifiers. It trims
+// whitespace around each entry and rejects entries with an invalid format.
 func ParseSignerSet(raw string) (SignerSet, error) {
 	set := SignerSet{ordered: nil, members: map[string]bool{}}
 
@@ -68,13 +63,13 @@ func ParseSignerSet(raw string) (SignerSet, error) {
 	return set, nil
 }
 
-// Configured reports whether the set names at least one signer.
+// Configured reports whether the set includes at least one signer.
 func (s SignerSet) Configured() bool { return len(s.ordered) > 0 }
 
 // Allows reports whether the identifier is in the set.
 func (s SignerSet) Allows(id string) bool { return s.members[id] }
 
-// Identifiers returns the members in the order they were listed.
+// Identifiers returns the members in their original order.
 func (s SignerSet) Identifiers() []string {
 	out := make([]string, len(s.ordered))
 	copy(out, s.ordered)

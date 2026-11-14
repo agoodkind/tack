@@ -21,8 +21,7 @@ import (
 	"goodkind.io/tack/internal/testenv"
 )
 
-// integrationDSN returns the Yugabyte DSN used by consumer tests: the test
-// ledger's superuser DSN, on a database that carries every migration.
+// integrationDSN returns the migrated test ledger's superuser DSN.
 func integrationDSN(t *testing.T) string {
 	t.Helper()
 	return testenv.Ledger(t)
@@ -69,8 +68,7 @@ func produceEvents(t *testing.T, brokers []string, topic string, events []Event)
 			t.Fatalf("marshal: %v", err)
 		}
 
-		// The producer carries event_id in the payload, so the consumer reads
-		// it from the decoded Event rather than a Kafka header.
+		// The consumer reads event_id from the JSON Event, not a Kafka header.
 		ids = append(ids, ev.EventID)
 		rec := &kgo.Record{
 			Topic: topic,
@@ -84,12 +82,8 @@ func produceEvents(t *testing.T, brokers []string, topic string, events []Event)
 	return ids
 }
 
-// runConsumerOnce starts a consumer and stops it once the test's org holds
-// at least expect ledger rows. The count is by org, because that is the one
-// column the test controls: an earlier version counted through
-// audit.consumer_offsets, which has no org column, so the subquery
-// correlated to the outer table and counted every row in the ledger once
-// any offset row existed.
+// runConsumerOnce stops the consumer after orgID has at least expect ledger
+// rows. Count by org directly; audit.consumer_offsets cannot isolate an org.
 func runConsumerOnce(t *testing.T, cfg ConsumerConfig, orgID uuid.UUID, expect int) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -120,8 +114,8 @@ func runConsumerOnce(t *testing.T, cfg ConsumerConfig, orgID uuid.UUID, expect i
 	}
 }
 
-// runConsumerUntilOffset starts a consumer and stops it once its group has
-// recorded an offset of at least want on some partition of the topic.
+// runConsumerUntilOffset stops the consumer after its group records an offset
+// of at least want on a topic partition.
 func runConsumerUntilOffset(t *testing.T, cfg ConsumerConfig, want int64) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -158,7 +152,7 @@ func runConsumerUntilOffset(t *testing.T, cfg ConsumerConfig, want int64) {
 
 		select {
 		case <-deadline:
-			t.Fatalf("waited for group %s to reach offset %d; got %d", cfg.GroupID, want, got)
+			t.Fatalf("waited for group %s to record offset %d; got %d", cfg.GroupID, want, got)
 		case <-time.After(200 * time.Millisecond):
 		}
 	}
@@ -204,8 +198,7 @@ func makeReadEvent(orgID uuid.UUID, suffix string) Event {
 			Tool:   "tack_get_issue",
 		},
 		Outcome: OutcomeOK,
-		// A current timestamp so the row lands in a weekly partition that
-		// migration 002 creates (current week plus eight).
+		// Use a current timestamp within the partitions migration 002 creates.
 		OccurredAt: clock.Now().UTC(),
 	}
 }
@@ -217,9 +210,8 @@ func purgeOrg(t *testing.T, pool *pgxpool.Pool, orgID uuid.UUID) {
 	_, _ = pool.Exec(ctx, `DELETE FROM audit.chain_heads WHERE org_id = $1`, orgID)
 }
 
-// TestConsumerProjectsToEvents produces 100 events to Kafka, runs the
-// consumer, and asserts all 100 land in audit.events with a chain that
-// matches what YBRecorder would have written for the same input.
+// TestConsumerProjectsToEvents checks that 100 produced events create ledger
+// rows with valid sequence numbers and hash lengths.
 func TestConsumerProjectsToEvents(t *testing.T) {
 	pool, brokers, topic := newConsumerEnv(t)
 	orgID := uuid.Must(uuid.NewV7())
@@ -287,9 +279,8 @@ func TestConsumerProjectsToEvents(t *testing.T) {
 	}
 }
 
-// TestConsumerIdempotentOnEventID produces 100 events, runs the consumer,
-// runs it again (simulating crash mid-batch), and asserts the unique index
-// dedups so exactly 100 rows remain in audit.events.
+// TestConsumerIdempotentOnEventID checks that two groups reading the same 100
+// events create exactly 100 ledger rows.
 func TestConsumerIdempotentOnEventID(t *testing.T) {
 	pool, brokers, topic := newConsumerEnv(t)
 	orgID := uuid.Must(uuid.NewV7())
@@ -320,9 +311,8 @@ func TestConsumerIdempotentOnEventID(t *testing.T) {
 		total,
 	)
 
-	// The second group re-reads the topic from its start; the run ends only
-	// once that group has committed an offset past every produced record,
-	// so a broken dedupe cannot hide behind a consumer that never got there.
+	// Wait until the second group commits past all produced records before
+	// checking duplicates. A group that has not consumed them proves nothing.
 	groupB := "tack-audit-projector-test-" + uuid.NewString()[:8]
 	runConsumerUntilOffset(
 		t,
@@ -349,9 +339,8 @@ func TestConsumerIdempotentOnEventID(t *testing.T) {
 	}
 }
 
-// TestConsumerOffsetAdvanceIsAtomicWithProjection kills the consumer mid
-// batch and restarts. The transactional offset commit guarantees no row is
-// missing and no row is double-projected.
+// TestConsumerOffsetAdvanceIsAtomicWithProjection checks the final row count
+// after stopping and restarting the consumer during projection.
 func TestConsumerOffsetAdvanceIsAtomicWithProjection(t *testing.T) {
 	pool, brokers, topic := newConsumerEnv(t)
 	orgID := uuid.Must(uuid.NewV7())
@@ -403,8 +392,8 @@ func TestConsumerOffsetAdvanceIsAtomicWithProjection(t *testing.T) {
 	}
 }
 
-// TestConsumerNotarizerSigns runs the embedded notarizer for two ticks and
-// asserts two audit.notarizations rows with valid Ed25519 signatures.
+// TestConsumerNotarizerSigns checks at least two notarizations with valid
+// Ed25519 signatures and the expected signing key and host.
 func TestConsumerNotarizerSigns(t *testing.T) {
 	pool, brokers, topic := newConsumerEnv(t)
 	orgID := uuid.Must(uuid.NewV7())
@@ -508,9 +497,8 @@ func TestConsumerNotarizerSigns(t *testing.T) {
 	_ = consumer.Close()
 }
 
-// TestConsumerHandlesMalformedPayload produces one record with invalid JSON
-// and asserts the consumer logs and advances past it without halting the
-// batch. The malformed record lands in audit.events_dlq.
+// TestConsumerHandlesMalformedPayload checks that invalid JSON creates a dead
+// letter without preventing projection of the next event.
 func TestConsumerHandlesMalformedPayload(t *testing.T) {
 	pool, brokers, topic := newConsumerEnv(t)
 	orgID := uuid.Must(uuid.NewV7())

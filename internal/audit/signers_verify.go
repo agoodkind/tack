@@ -14,23 +14,21 @@ import (
 	"github.com/google/uuid"
 )
 
-// SignerCheck is what one verification run needs beyond the reader.
+// SignerCheck configures one notarization verification run.
 type SignerCheck struct {
 	Set      SignerSet
 	LocalPub ed25519.PublicKey
 	Since    time.Time
-	// AcknowledgeUnverified accepts rows under allowed identifiers this host
-	// holds no key for, which is a rotation overlap or a second signing guest.
+	// AcknowledgeUnverified accepts rows under allowed identifiers without
+	// local keys, such as a rotation overlap or a second signing guest.
 	AcknowledgeUnverified bool
 }
 
-// VerifySigners reads every notarization written at or after Since and checks
-// each against the set. A row whose signing_key is outside the set is
-// rejected and reported under its identifier and the hosts it claimed. A row
-// whose identifier is the local key's is also checked cryptographically; a
-// row under another allowed identifier is counted as unverified here and
-// fails the report unless acknowledged. The rows stream through the reader
-// role, so the scan reads the ledger and writes nothing.
+// VerifySigners reads notarizations at or after Since with the reader role.
+// It rejects signing_key identifiers outside the set and reports their claimed
+// hosts. It verifies local signatures cryptographically. Other allowed
+// identifiers fail the report as unverified unless the operator acknowledges
+// them. The scan does not write to the ledger.
 func (r *Reader) VerifySigners(ctx context.Context, check SignerCheck) (*SignerReport, error) {
 	if r == nil || r.pool == nil {
 		return nil, errors.New("audit reader not configured")

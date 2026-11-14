@@ -12,8 +12,7 @@ func TestActorKindCodeOperator(t *testing.T) {
 	}
 }
 
-// TestActorKindCodesStable pins the existing four codes so a reorder can
-// never silently rewrite history's meaning.
+// TestActorKindCodesStable checks the integer codes stored in existing ledger rows.
 func TestActorKindCodesStable(t *testing.T) {
 	cases := []struct {
 		actor ActorType

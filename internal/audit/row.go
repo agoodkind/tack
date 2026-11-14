@@ -11,18 +11,10 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// Row is a flattened audit row sized for the export and operator read
-// surface. The json tags
-// repeat the field names on purpose: an export bundle is a file of these
-// rows, and every bundle already written carries these exact keys, so the
-// tags pin the format rather than change it.
-//
-// Context, Delta, and Error decode into the same types the writer marshalled,
-// so verification re-canonicalizes them to the bytes the hash covered. Extra
-// stays raw: it is verb-specific (operator correlation, backfill
-// reconstruction evidence, and whatever a future emitter adds), and a fixed
-// struct would drop keys it does not know and make honest rows fail their
-// hash check.
+// Row defines the flattened record for exports and operator reads. Preserve
+// the JSON tag spelling to match existing bundles. Context, Delta, and Error
+// use the writer's types for hash verification. Extra remains raw because
+// verb-specific keys must survive decoding and canonicalization.
 type Row struct {
 	OrgID     uuid.UUID `json:"OrgID"`
 	EventTime time.Time `json:"EventTime"`
@@ -37,9 +29,9 @@ type Row struct {
 	EntityKind string       `json:"EntityKind"`
 	EntityID   uuid.UUID    `json:"EntityID"`
 	Context    EventContext `json:"Context"`
-	// Delta is nil for read verbs and for rows whose writer recorded no delta.
+	// Delta is nil for reads and when the writer did not record a delta.
 	Delta *Delta `json:"Delta"`
-	// Error is nil when the action carried no error.
+	// Error is nil when the action did not report an error.
 	Error          *EventError     `json:"Error"`
 	Extra          json.RawMessage `json:"Extra"`
 	PIIRef         *uuid.UUID      `json:"PIIRef"`
@@ -52,11 +44,7 @@ type Row struct {
 	ManifestParts []ManifestPart `json:"ManifestParts,omitempty" exhaustruct:"optional"`
 }
 
-// readAuditRow scans the current audit.events row in the canonical column
-// order every ledger SELECT uses: org_id, event_time, event_id, seq, shard,
-// actor_id, actor_kind, action, outcome, entity_kind, entity_id, context,
-// delta, error, extra, pii_ref, prev_hash, row_hash, hash_version,
-// idempotency_key.
+// readAuditRow scans audit.events columns in the canonical ledger SELECT order.
 func readAuditRow(rows pgx.Rows) (Row, error) {
 	var row Row
 	var outcome *string
@@ -96,18 +84,15 @@ func readAuditRow(rows pgx.Rows) (Row, error) {
 	return row, nil
 }
 
-// rowPayloadTarget is the set of typed payloads a stored JSON column decodes
-// into.
+// rowPayloadTarget defines the destination types for stored JSON columns.
 type rowPayloadTarget interface {
 	*EventContext | **Delta | **EventError
 }
 
-// unmarshalRowPayload decodes one stored JSON payload strictly: a key the
-// type does not declare is an error, never silently dropped. The row hash
-// covers the stored bytes, and the verifier re-marshals the typed value, so a
-// dropped key would let a planted field ride through as hash-valid history.
-// Every writer since the ledger's first row marshalled exactly these types,
-// so an honest row never carries an unknown key.
+// unmarshalRowPayload rejects JSON keys that the destination type does not
+// declare. The verifier re-marshals typed values to check hashes. Dropping an
+// unknown key would hide an injected field from that check. Writers use these
+// same types and do not produce unknown keys.
 func unmarshalRowPayload[T rowPayloadTarget](
 	eventID uuid.UUID,
 	column string,
@@ -134,8 +119,7 @@ func unmarshalRowPayload[T rowPayloadTarget](
 	return nil
 }
 
-// unmarshalRowPayloads decodes the context, delta, and error columns of one
-// row. Extra is kept as read.
+// unmarshalRowPayloads decodes context, delta, and error and retains raw Extra.
 func unmarshalRowPayloads(row *Row, contextRaw, deltaRaw, errorRaw, extraRaw []byte) error {
 	if err := unmarshalRowPayload(row.EventID, "context", contextRaw, &row.Context); err != nil {
 		return err

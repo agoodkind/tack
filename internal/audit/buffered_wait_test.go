@@ -13,8 +13,8 @@ import (
 // test treats it as stalled.
 const stallLimit = 5 * time.Second
 
-// recordWithin runs Record with a context that has no deadline and returns
-// its error, or fails the test when Record does not return within stallLimit.
+// recordWithin calls Record without a context deadline and fails the test if
+// the call does not return within stallLimit.
 func recordWithin(t *testing.T, buffered *audit.BufferedRecorder, ev audit.Event) error {
 	t.Helper()
 	result := make(chan error, 1)

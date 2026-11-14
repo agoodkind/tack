@@ -9,23 +9,16 @@ import (
 	"github.com/google/uuid"
 )
 
-// legacyNanosecondCandidates is how many sub-microsecond values a version 1
-// or 2 row's hash can have covered. Those versions hashed the producer's
-// nanosecond timestamp while the column stores microseconds, so the only
-// unrecoverable input is the remainder in [0, 1000) nanoseconds. Trying every
-// candidate restores full content verification for the whole ledger: a row
-// matches under exactly the timestamp it was written with, and an edited row
-// matches under none, whatever version it claims (TACK-445).
+// legacyNanosecondCandidates covers the lost remainder in [0, 1000) nanoseconds.
+// Versions 1 and 2 hashed producer nanoseconds but stored only microseconds.
+// Trying every remainder recovers the original hash input (TACK-445).
 const legacyNanosecondCandidates = 1000
 
-// checkRowHash reports whether the stored row hash is reproducible from the
-// stored row, and names the failure when it is not. Version 3 rows recompute
-// in one try because their hash covers the timestamp at stored precision,
-// plus one more for a row whose context may carry an explicit zero token id.
-// Version 1 and 2 rows are tried at every possible lost nanosecond remainder.
+// checkRowHash reproduces the stored hash and reports a mismatch reason.
+// Version 3 uses stored precision with an additional explicit-zero-token-ID
+// encoding attempt. Versions 1 and 2 try all lost nanosecond remainders.
 func checkRowHash(row Row) (bool, string, error) {
-	// The ledger has only ever written versions 1 through the current one, so
-	// any other claim is a forged label, not an unknown writer.
+	// Reject versions outside the range the ledger has written.
 	if row.HashVersion < auditHashVersion1 || row.HashVersion > auditHashVersionCurrent {
 		return false, fmt.Sprintf(
 			"claims hash version %d, which the ledger never wrote",
@@ -33,12 +26,9 @@ func checkRowHash(row Row) (bool, string, error) {
 		), nil
 	}
 
-	// The column stores microseconds, so every stored timestamp is a whole
-	// number of them. The candidate search below adds a remainder to the
-	// stored value, so a row that already carries one would let a forger move
-	// a version 3 row's time and relabel the row as legacy: the search would
-	// rediscover the original instant and accept the edit. A stored remainder
-	// is therefore a forged row, not history.
+	// Stored timestamps must use whole microseconds. An existing remainder
+	// could let an edited version 3 timestamp reproduce its original instant
+	// in the legacy candidate search after a false version downgrade.
 	if row.HashVersion < auditHashVersion3 &&
 		row.EventTime.Nanosecond()%legacyNanosecondCandidates != 0 {
 		return false, fmt.Sprintf(
@@ -85,8 +75,7 @@ func contractViolation(row Row) string {
 	return "event contract validation failed: " + err.Error()
 }
 
-// checkLegacyRowHash tries a version 1 or 2 row at every nanosecond remainder
-// its stored timestamp could have carried.
+// checkLegacyRowHash tries each possible nanosecond remainder for a version 1 or 2 row.
 func checkLegacyRowHash(row Row) (bool, string, error) {
 	input, err := rowHashInputFor(row)
 	if err != nil {
@@ -116,13 +105,8 @@ func checkLegacyRowHash(row Row) (bool, string, error) {
 	return false, "hash mismatch", nil
 }
 
-// ComputeRowHash returns the hash a row carries at its chain position,
-// computed from the row's own fields under its stored hash version, the way
-// the writer computed it. The verifier compares a current-version row's stored
-// hash against it, and a row source that stands in for the ledger uses it to
-// hand over rows the verifier accepts. A legacy row is not compared against it
-// directly, because its stored timestamp lost precision that only the
-// candidate search recovers.
+// ComputeRowHash computes the hash from stored fields and the stored version.
+// Legacy verification additionally requires the lost timestamp remainder search.
 func ComputeRowHash(row Row) ([]byte, error) {
 	input, err := rowHashInputFor(row)
 	if err != nil {
@@ -143,10 +127,8 @@ func ComputeRowHash(row Row) ([]byte, error) {
 	return hash, nil
 }
 
-// rowHashInputFor rebuilds the hash input from a stored row. The writer hashed
-// the JSON it marshalled from these same types, and the hash canonicalizes by
-// parsed value, so re-marshalling the decoded row reproduces the covered bytes
-// key for key.
+// rowHashInputFor reconstructs the writer's typed JSON payloads. Canonical
+// hashing uses parsed values rather than JSON whitespace or key order.
 func rowHashInputFor(row Row) (rowHashInput, error) {
 	piiRef := uuid.Nil
 	if row.PIIRef != nil {
@@ -188,11 +170,9 @@ func rowHashInputFor(row Row) (rowHashInput, error) {
 	}, nil
 }
 
-// exportEvent rebuilds the hash-relevant event from a stored row. The hash
-// payload reads its org through Context.OrgID, so that field carries the
-// row's org_id column: the stored context JSON is hashed separately from
-// row.Context itself, and this keeps an edit to either the column or the
-// context visible.
+// exportEvent copies the row's org column into the event hash input while
+// rowHashInputFor separately encodes the original context JSON. Verification
+// must detect changes to either org representation.
 func exportEvent(row Row) Event {
 	context := row.Context
 	context.OrgID = row.OrgID

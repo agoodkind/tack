@@ -12,23 +12,14 @@ import (
 	"github.com/twmb/franz-go/pkg/kgo"
 )
 
-// The dead-letter table is the durable landing zone for every audit event
-// the consumer could not commit to audit.events: payloads it could not
-// decode, and since TACK-336 payloads whose insert the ledger refused, such as
-// a row dated into a week no partition covers. The table has no expiry. A row
-// leaves it only when a replay lands the event, and the consumer, as the one
-// writer of the ledger, is the one that deletes it. The row key and the replay
-// header that names it are in dlq_key.go.
+// The dead-letter table durably stores undecodable payloads and record-specific
+// insert failures, including missing weekly partitions (TACK-336). Rows do not
+// expire. The ledger consumer deletes them after successful replay.
 
-// isDeadLetterable reports whether a projection failure is about the record
-// itself, so that retrying the batch could never land it: a payload the
-// decoder rejects, or a statement the ledger refused for the record's data
-// (SQLSTATE class 22, data exception) or for a constraint it violates (class
-// 23, which includes a row dated into a week no partition covers). Every
-// other failure, a lost connection, a lock timeout, a permission the role
-// lacks, a table that is missing, is about the deployment and must keep
-// failing the batch, so the offset stays put and the record is retried once
-// the fault is fixed.
+// isDeadLetterable accepts malformed payloads, data exceptions (SQLSTATE class
+// 22), and constraint violations (class 23). Connection, lock, permission, and
+// schema failures must fail the batch without advancing its offset for retry
+// after deployment recovery.
 func isDeadLetterable(err error) bool {
 	if errors.Is(err, errMalformedPayload) {
 		return true
@@ -65,17 +56,9 @@ type DeadLetterSummary struct {
 	Newest time.Time
 }
 
-// deadLetterRecord writes one failed record to the dead-letter table inside
-// tx. A first failure inserts the row, and a redelivery of the same record
-// (a rebalance, a commit that was lost) leaves the row as it is; only a
-// replay that fails again counts the attempt on the original row and
-// refreshes its failure text, so attempt_count counts operator replays and
-// nothing else.
-//
-// It runs after the failing statement's savepoint is rolled back, so the
-// transaction is live and the dead-letter row commits with the batch's
-// offset advance: the record is accounted for exactly once, in the table or
-// in the ledger, never in neither.
+// deadLetterRecord records failure after rolling back the record savepoint.
+// Its row commits with the batch offset. Redelivery preserves the existing
+// row; only verified operator replays increment attempts and refresh error text.
 func deadLetterRecord(ctx context.Context, tx pgx.Tx, rec *kgo.Record, cause error) error {
 	key := DeadLetterKey{Topic: rec.Topic, Partition: rec.Partition, Offset: rec.Offset}
 	origin, replaying, err := verifiedReplayOrigin(ctx, tx, rec)
@@ -98,9 +81,8 @@ func deadLetterRecord(ctx context.Context, tx pgx.Tx, rec *kgo.Record, cause err
 			cause.Error(),
 		)
 		if err == nil && tag.RowsAffected() == 0 {
-			// The verified row went away between the check and the count
-			// (an operator's delete); the record is kept under its own key
-			// instead, so the failed replay is still accounted for.
+			// Preserve the failed replay under its own key if the verified
+			// original row disappeared between verification and update.
 			slog.WarnContext(
 				ctx,
 				"audit.consumer.dlq_replay_origin_gone",
@@ -151,18 +133,16 @@ func deadLetterRecord(ctx context.Context, tx pgx.Tx, rec *kgo.Record, cause err
 	return nil
 }
 
-// resolveDeadLetter removes the dead-letter row a replayed record came from,
-// inside the transaction that landed the event, so the row and the ledger
-// row commit or roll back together. A record that is not a replay is a no-op.
+// resolveDeadLetter deletes the replay origin in the ledger transaction.
+// Non-replay records do not change the dead-letter table.
 func resolveDeadLetter(ctx context.Context, tx pgx.Tx, rec *kgo.Record) error {
 	origin, replaying := replayOrigin(ctx, rec)
 	if !replaying {
 		return nil
 	}
 
-	// The row goes only when its stored payload is the bytes that just
-	// landed. A header names a row; the payload proves the record is that
-	// row's replay, so a producer cannot clear a dead letter it did not carry.
+	// Require payload equality as well as the header key. A producer must not
+	// delete a dead letter with unrelated bytes.
 	tag, err := tx.Exec(
 		ctx,
 		`
@@ -186,9 +166,7 @@ func resolveDeadLetter(ctx context.Context, tx pgx.Tx, rec *kgo.Record) error {
 	}
 
 	if tag.RowsAffected() == 0 {
-		// The named row is gone already (a second replay of it landed first)
-		// or its stored payload is not these bytes; either way nothing was
-		// resolved by this record.
+		// Another replay already deleted the row, or its payload differs.
 		slog.WarnContext(
 			ctx,
 			"audit.consumer.dead_letter_not_resolved",

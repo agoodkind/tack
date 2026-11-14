@@ -155,17 +155,11 @@ func (r *Relay) Start(ctx context.Context) {
 }
 
 // Close stops the drain loops and closes the recorder when it supports Close.
-//
-// The wait for the loops is bounded. A FoundationDB or YugabyteDB call already
-// in flight blocks until its own client gives up, and that client owns the
-// timeout, not this code. Waiting without a bound would let one unreachable
-// database hold the whole audit-consumer open, so after the grace period Close
-// stops waiting, says so, and lets shutdown continue. Nothing is lost by
-// abandoning a drain: an event stays in its outbox until a later run delivers
-// it.
-//
-// Close attempts to release the FoundationDB relay lease after the drain
-// loops stop or the wait expires, if the outbox supports leases.
+// It waits at most relayDrainGrace for active database calls, which use their
+// clients' own timeouts. After that deadline it logs a warning and continues
+// shutdown. Undelivered events remain in their outboxes for a later run.
+// Close attempts to release a supported FoundationDB relay lease after the
+// loops stop or the wait expires.
 func (r *Relay) Close() error {
 	r.once.Do(func() { close(r.stop) })
 	timer := time.NewTimer(relayDrainGrace)

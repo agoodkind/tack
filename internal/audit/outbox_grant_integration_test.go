@@ -13,13 +13,9 @@ import (
 	"goodkind.io/tack/internal/testenv"
 )
 
-// TestWriteOutboxIfAbsentUnderInsertOnlyRole runs the idempotent outbox write
-// as the kind of role an operator command authenticates as: INSERT on the
-// outbox and nothing else. The reconstruction writes every one of its events
-// through this path, and under ON CONFLICT it failed on the first event with
-// "permission denied for table ops_outbox", because resolving a conflict
-// target reads the table. The command could not have written its history on
-// any environment that enforces the privilege split, production included.
+// TestWriteOutboxIfAbsentUnderInsertOnlyRole checks idempotent outbox writes
+// with only INSERT privilege. ON CONFLICT would require SELECT while resolving
+// the conflicting row, violating the operator privilege split.
 func TestWriteOutboxIfAbsentUnderInsertOnlyRole(t *testing.T) {
 	dsn := testenv.Ledger(t)
 	ctx := context.Background()
@@ -58,7 +54,7 @@ func TestWriteOutboxIfAbsentUnderInsertOnlyRole(t *testing.T) {
 	}
 
 	if rewritten {
-		t.Fatal("second write reported an insert, so a resumed run would duplicate history")
+		t.Fatal("second write reported a duplicate insert")
 	}
 
 	var rows int
@@ -77,10 +73,8 @@ func TestWriteOutboxIfAbsentUnderInsertOnlyRole(t *testing.T) {
 	}
 }
 
-// insertOnlyOutboxDSN creates a login role holding INSERT on the outbox and
-// nothing else, mirroring the deployment role an operator command uses, and
-// returns a connection string for it. The credential is generated per run and
-// never logged.
+// insertOnlyOutboxDSN creates an INSERT-only login for the outbox and returns
+// its connection string. Each run generates a credential without logging it.
 func insertOnlyOutboxDSN(
 	ctx context.Context,
 	t *testing.T,
@@ -99,8 +93,7 @@ func insertOnlyOutboxDSN(
 		t.Fatalf("generate role suffix: %v", err)
 	}
 
-	// Roles belong to the whole engine rather than one database, so the name
-	// carries a per-run suffix and never meets a role an earlier run left.
+	// Roles span the engine. Use a per-run suffix to avoid earlier test roles.
 	role := "outbox_insert_only_test_" + hex.EncodeToString(suffix)
 
 	if _, err := owner.Exec(

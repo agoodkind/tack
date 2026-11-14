@@ -12,26 +12,24 @@ import (
 )
 
 const (
-	// DefaultQueryPageLimit is the page size when the caller asks for none.
+	// DefaultQueryPageLimit is the page size when the caller omits a limit.
 	DefaultQueryPageLimit = 100
-	// MaxQueryPageLimit caps one page; larger requests clamp down to it.
+	// MaxQueryPageLimit caps one page; larger requests use this limit.
 	MaxQueryPageLimit = 1000
 
 	queryCursorSeparator = "|"
 )
 
-// Page is one page of ledger rows. NextCursor is non-empty exactly when the
-// page filled, and resumes the same query at the next row.
+// Page contains ledger rows and a resume cursor when the page fills.
 type Page struct {
 	Rows []Row
-	// NextCursor is opaque to callers; pass it back through
-	// QueryFilter cursor decoding via QueryPage.
+	// NextCursor is opaque to callers; pass it to QueryPage for the next page.
 	NextCursor string
 }
 
-// QueryPage runs Query with the limit clamped to [1, MaxQueryPageLimit] and
-// keyset pagination behind one opaque cursor, so every surface pages the
-// ledger the same way. An empty cursor starts at the newest row.
+// QueryPage runs Query with a limit in [1, MaxQueryPageLimit] and a cursor
+// containing the last event time and sequence. An empty cursor starts at the
+// newest row.
 func (r *Reader) QueryPage(ctx context.Context, f QueryFilter, cursor string) (Page, error) {
 	if f.Limit <= 0 {
 		f.Limit = DefaultQueryPageLimit
@@ -66,9 +64,8 @@ func (r *Reader) QueryPage(ctx context.Context, f QueryFilter, cursor string) (P
 	return page, nil
 }
 
-// MarshalQueryCursor renders the (event_time, seq) resume position as one
-// opaque string. Exported with UnmarshalQueryCursor so any paging surface
-// shares one cursor format.
+// MarshalQueryCursor encodes the (event_time, seq) resume position in the
+// shared paging cursor format.
 func MarshalQueryCursor(eventTime time.Time, seq int64) string {
 	raw := eventTime.UTC().Format(time.RFC3339Nano) + queryCursorSeparator + strconv.FormatInt(
 		seq,
@@ -78,9 +75,8 @@ func MarshalQueryCursor(eventTime time.Time, seq int64) string {
 	return base64.RawURLEncoding.EncodeToString([]byte(raw))
 }
 
-// UnmarshalQueryCursor reverses MarshalQueryCursor. Every rejection names the
-// broken part; a cursor is operator input, so the reason is logged here where
-// the raw value is still known.
+// UnmarshalQueryCursor decodes MarshalQueryCursor output and logs the specific
+// encoding, shape, time, or sequence error before returning a rejection.
 func UnmarshalQueryCursor(ctx context.Context, cursor string) (time.Time, int64, error) {
 	raw, err := base64.RawURLEncoding.DecodeString(cursor)
 	if err != nil {

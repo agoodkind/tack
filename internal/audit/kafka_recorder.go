@@ -15,48 +15,38 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// KafkaRecorder produces audit events to an Apache Kafka topic. It is the
-// producer-side piece of the audit cutover: it ships the JSON Event payload
-// that the audit-consumer projects into the canonical audit.events row.
-//
-// Produce is synchronous with acks=all and idempotence enabled. Errors
-// surface to the caller; this recorder never silently drops an event.
+// KafkaRecorder synchronously publishes JSON events to Kafka with acks=all
+// and idempotence enabled. The consumer projects them into audit.events.
+// Produce failures return an error to the caller.
 type KafkaRecorder struct {
 	client         *kgo.Client
 	topic          string
 	produceTimeout time.Duration
-	// refusing is true between the first refused produce and the next
-	// accepted one, so the outage is logged once rather than per event.
+	// refusing tracks an outage from the first failed produce to the next success.
 	refusing atomic.Bool
 }
 
-// KafkaConfig collects the producer knobs that vary between deployments.
-// Brokers and Topic are required; the other fields fall back to
-// production-friendly defaults when zero.
+// KafkaConfig configures the producer. Brokers and Topic are required.
+// Zero values use defaults for the other fields.
 type KafkaConfig struct {
-	// Brokers is the comma-separated bootstrap broker list. The franz-go
-	// client uses bootstrap brokers to discover the rest of the cluster
-	// at runtime, so this list is the same shape at N=1 and N=many.
+	// Brokers lists bootstrap addresses used to discover the cluster.
 	Brokers []string
 
-	// Topic is the Kafka topic name. The Phase 2 design fixes the v1
-	// topic at audit.events.v1; the producer treats the topic as opaque.
+	// Topic selects the audit topic without parsing its name.
 	Topic string
 
-	// ClientID labels the producer in broker-side metrics and logs.
+	// ClientID identifies the producer in broker metrics and logs.
 	ClientID string
 
-	// ProduceTimeout caps a single Record call. Nonpositive values fall back to 15s.
+	// ProduceTimeout caps one Record call. Nonpositive values use 15 seconds.
 	ProduceTimeout time.Duration
 }
 
 func applyKafkaDefaults(cfg KafkaConfig) KafkaConfig {
 	if cfg.ProduceTimeout <= 0 {
-		// 15s: this repo does not override Kafka's external
-		// broker.session.timeout.ms default of 9s (broker lease) or franz-go's
-		// external 5s metadata minimum age. A hard broker loss can consume both
-		// before recovery; 10s expired inside that window and surfaced spurious
-		// Record errors during single-broker failures.
+		// Allow recovery across Kafka's nine-second broker lease and franz-go's
+		// five-second metadata minimum age. A ten-second timeout expired before
+		// recovery from single-broker failures.
 		cfg.ProduceTimeout = 15 * time.Second
 	}
 
@@ -67,9 +57,8 @@ func applyKafkaDefaults(cfg KafkaConfig) KafkaConfig {
 	return cfg
 }
 
-// NewKafkaRecorder constructs a KafkaRecorder. The franz-go client opens
-// connections lazily, so this returns immediately even when the broker
-// is unreachable; the first Record call surfaces any connection error.
+// NewKafkaRecorder constructs a client with lazy connections. Construction
+// does not verify broker availability; Record returns connection failures.
 func NewKafkaRecorder(cfg KafkaConfig) (*KafkaRecorder, error) {
 	if len(cfg.Brokers) == 0 {
 		return nil, errors.New("audit kafka: at least one broker required")
@@ -104,10 +93,8 @@ func NewKafkaRecorder(cfg KafkaConfig) (*KafkaRecorder, error) {
 	}, nil
 }
 
-// MarshalEvent encodes an Event as canonical JSON. Exposed as an
-// encoder-shaped helper so the wrapped error from [encoding/json.Marshal]
-// is a codec error, not a side-effecting recorder error. Used by Record
-// and callable directly from tests.
+// MarshalEvent encodes an Event as JSON without recording it. Callers can
+// distinguish encoding errors from recorder side effects.
 func MarshalEvent(ev Event) ([]byte, error) {
 	out, err := json.Marshal(ev)
 	if err != nil {
@@ -123,12 +110,8 @@ func MarshalEvent(ev Event) ([]byte, error) {
 	return out, nil
 }
 
-// Record marshals the event to JSON and produces it synchronously to the
-// configured topic. Returns the broker error on failure; never swallows.
-//
-// EventID and OccurredAt are taken verbatim from ev. CanonicalRecorder
-// stamps both at the recording call site, so the Kafka payload and the
-// consumer's chain hash agree on one identity and one timestamp.
+// Record publishes JSON synchronously and returns produce failures. It preserves
+// EventID and OccurredAt assigned by CanonicalRecorder before serialization.
 func (k *KafkaRecorder) Record(ctx context.Context, ev Event) error {
 	payload, err := MarshalEvent(ev)
 	if err != nil {
@@ -154,14 +137,9 @@ func (k *KafkaRecorder) Record(ctx context.Context, ev Event) error {
 	telemetry.ObserveAuditKafkaProduceLatency(sinceMs(start))
 	if produceErr := res.FirstErr(); produceErr != nil {
 		telemetry.IncAuditKafkaProduce("error")
-		// A refusal is logged once per outage rather than once per event.
-		// The first after a success logs at Warn with the broker's error;
-		// every refusal until the next success logs at Debug. A broker down
-		// for an hour therefore costs one Warn and one Info line rather
-		// than one Error per write, which was the flood TACK-320 names.
-		// What became of the refused event is the caller's to say: behind
-		// a SpillRecorder it is durable, and a caller with nowhere to put
-		// it logs its own loss.
+		// Log the first refusal at Warn and later refusals at Debug until
+		// recovery (TACK-320). The caller records whether spill storage saved
+		// the event or both recording attempts failed.
 		if k.refusing.CompareAndSwap(false, true) {
 			slog.WarnContext(
 				ctx,
@@ -201,10 +179,8 @@ func (k *KafkaRecorder) Record(ctx context.Context, ev Event) error {
 	return nil
 }
 
-// eventIDForLog returns a stable identifier for the produce-failed log line
-// so an operator can correlate the failure with downstream signals. It
-// prefers the canonical EventID. It falls back to the IdempotencyKey, then to
-// the actor and entity IDs joined by a colon, which is never empty.
+// eventIDForLog prefers EventID, then IdempotencyKey, then joined actor and
+// entity IDs for correlating produce failures.
 func eventIDForLog(ev Event) string {
 	if ev.EventID != uuid.Nil {
 		return ev.EventID.String()
@@ -217,17 +193,14 @@ func eventIDForLog(ev Event) string {
 	return ev.Actor.ID.String() + ":" + ev.Entity.ID.String()
 }
 
-// Close flushes the producer queue and shuts the underlying client down.
-// Implements the parameterless Close shape the server shutdown path
-// type-asserts against; uses [context.Background] internally for the flush deadline so
-// shutdown progresses even when the caller's context has already been
-// cancelled by SIGINT.
+// Close flushes and closes the client with a background-context deadline
+// independent of request cancellation, including SIGINT cancellation.
 func (k *KafkaRecorder) Close() error {
 	return k.CloseContext(context.Background())
 }
 
-// CloseContext flushes the producer queue and shuts the underlying client
-// down using the supplied context for the flush deadline.
+// CloseContext flushes and closes the client within the supplied context and
+// the configured produce timeout.
 func (k *KafkaRecorder) CloseContext(ctx context.Context) error {
 	if k == nil || k.client == nil {
 		return nil
@@ -247,11 +220,9 @@ func (k *KafkaRecorder) CloseContext(ctx context.Context) error {
 	return nil
 }
 
-// kafkaPartitionKey packs (org_id, shard) as the producer key. Every event on
-// one (org, shard) chain then lands on the same partition. Kafka assigns one
-// partition to one consumer in a group, so exactly one consumer ever advances
-// a given chain. The shard comes from shardOf(actor_id, event_id), the same
-// function the consumer uses, so the key and the chain unit always agree.
+// kafkaPartitionKey encodes (org_id, shard) for Kafka partition assignment.
+// Events on one chain share a partition and its single group consumer. Both
+// producer and consumer derive the shard with shardOf(actor_id, event_id).
 func kafkaPartitionKey(ev Event) []byte {
 	shard := int(shardOf(ev.Actor.ID, ev.EventID))
 	out := make([]byte, 0, 18)
@@ -261,8 +232,7 @@ func kafkaPartitionKey(ev Event) []byte {
 	return out
 }
 
-// SplitBrokers parses a comma-separated broker list, trimming whitespace
-// and discarding empty entries. Exposed for the cmd/server wiring.
+// SplitBrokers trims comma-separated addresses and discards empty entries.
 func SplitBrokers(s string) []string {
 	if s == "" {
 		return nil

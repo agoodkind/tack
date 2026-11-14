@@ -11,21 +11,18 @@ import (
 	"github.com/twmb/franz-go/pkg/kgo"
 )
 
-// dlqReplayHeader names the Kafka record header a replay carries. Its value
-// is the dead-letter row's key, topic/partition/offset of the original
-// record, so the consumer can resolve the row the replay came from whatever
-// offset the replay itself lands on.
+// dlqReplayHeader identifies the header containing the original dead-letter
+// topic/partition/offset key, independent of the replay record's Kafka offset.
 const dlqReplayHeader = "tack-dlq-replay"
 
-// DeadLetterKey identifies one dead-letter row by the Kafka position of the
-// record that produced it.
+// DeadLetterKey identifies a dead-letter row by its original Kafka position.
 type DeadLetterKey struct {
 	Topic     string
 	Partition int32
 	Offset    int64
 }
 
-// String renders the key in the shape the replay header carries.
+// String encodes the key for the replay header.
 func (k DeadLetterKey) String() string {
 	return k.Topic + "/" + strconv.FormatInt(int64(k.Partition), 10) + "/" + strconv.FormatInt(
 		k.Offset,
@@ -33,15 +30,11 @@ func (k DeadLetterKey) String() string {
 	)
 }
 
-// noDeadLetter is the zero key, returned where no row is named.
+// noDeadLetter is the zero key when a record does not identify a dead-letter row.
 var noDeadLetter = DeadLetterKey{Topic: "", Partition: 0, Offset: 0}
 
-// recordPayload returns the record's value as the bytes the table stores. A
-// record with no value (a tombstone, or a producer that sent nothing) has a
-// nil slice, which the driver binds as SQL NULL and the table's NOT NULL
-// payload refuses; that refusal came back from the dead-letter write itself,
-// so the batch failed, was wound back, and the partition stalled behind the
-// record for ever. An empty payload is stored as zero bytes instead.
+// recordPayload normalizes nil tombstone values to empty bytes. SQL NULL would
+// violate the dead-letter payload constraint and repeatedly fail the batch.
 func recordPayload(rec *kgo.Record) []byte {
 	if rec.Value == nil {
 		return []byte{}
@@ -50,8 +43,8 @@ func recordPayload(rec *kgo.Record) []byte {
 	return rec.Value
 }
 
-// parseDeadLetterKey reads a key back out of a replay header value. A value
-// that does not parse is logged here, once, with the record's offset.
+// parseDeadLetterKey decodes a replay header and logs invalid values once
+// with the replay record's offset.
 func parseDeadLetterKey(ctx context.Context, value string, offset int64) (DeadLetterKey, error) {
 	parts := strings.Split(value, "/")
 	if len(parts) != 3 {
@@ -93,11 +86,9 @@ func parseDeadLetterKey(ctx context.Context, value string, offset int64) (DeadLe
 	return DeadLetterKey{Topic: parts[0], Partition: int32(partition), Offset: position}, nil
 }
 
-// replayOrigin returns the dead-letter row a record is replaying, when the
-// record carries a well-formed replay header. A header that does not parse
-// is reported once and then ignored, so a hostile or broken producer cannot
-// wedge a partition with it: the record is handled as a fresh one, which the
-// ledger's identity claim keeps from landing twice.
+// replayOrigin returns the original key from a valid replay header. Invalid
+// headers log once and do not prevent fresh-record processing. The ledger's
+// identity claim still rejects duplicate event IDs.
 func replayOrigin(ctx context.Context, rec *kgo.Record) (DeadLetterKey, bool) {
 	for _, header := range rec.Headers {
 		if header.Key != dlqReplayHeader {
@@ -115,11 +106,9 @@ func replayOrigin(ctx context.Context, rec *kgo.Record) (DeadLetterKey, bool) {
 	return noDeadLetter, false
 }
 
-// verifiedReplayOrigin returns the dead-letter row a failed record is
-// replaying only when that row's stored payload is the record's bytes. A
-// header that names a row whose payload differs is treated as no replay, so
-// a producer cannot count attempts against, or otherwise touch, a dead
-// letter it did not carry.
+// verifiedReplayOrigin requires the referenced row's payload to equal the
+// replay record bytes before updating attempts. A header alone must not
+// authorize changes to an unrelated dead letter.
 func verifiedReplayOrigin(
 	ctx context.Context,
 	tx pgx.Tx,

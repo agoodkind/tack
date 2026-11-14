@@ -6,10 +6,9 @@ import (
 	"github.com/google/uuid"
 )
 
-// TestSystemOrgID pins the reserved system org id. Global ops record on this
-// org; EventContext.OrgID is mandatory and the reader rejects uuid.Nil, so
-// the constant must be a fixed non-nil UUID that never changes once events
-// reference it.
+// TestSystemOrgID checks the reserved system org ID for global operations.
+// EventContext.OrgID requires a non-nil UUID. Stored events reference this ID,
+// which must remain fixed.
 func TestSystemOrgID(t *testing.T) {
 	if SystemOrgID() == uuid.Nil {
 		t.Fatal("SystemOrgID must not be the nil UUID")
@@ -20,16 +19,14 @@ func TestSystemOrgID(t *testing.T) {
 		t.Fatalf("SystemOrgID = %s, want %s", SystemOrgID(), want)
 	}
 
-	// Two calls must agree. The value reaches stored rows, so a caller that
-	// could change it between calls would split one org's chain in two.
+	// Each call must return the ID that stored rows already reference.
 	if SystemOrgID() != SystemOrgID() {
 		t.Fatal("SystemOrgID is not stable between calls")
 	}
 }
 
-// TestOperatorPrincipalActorType pins that one principal yields one actor
-// kind everywhere: the zero Kind stays operator, and a service principal is
-// never misclassified as a human by an event builder.
+// TestOperatorPrincipalActorType checks that a zero Kind records an operator
+// and a service Kind records a service rather than a human.
 func TestOperatorPrincipalActorType(t *testing.T) {
 	var human OperatorPrincipal
 	if human.ActorType() != ActorOperator {

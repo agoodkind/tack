@@ -40,7 +40,7 @@ func latestMigrationVersion(t *testing.T) int64 {
 		latest = max(latest, version)
 	}
 	if latest == 0 {
-		t.Fatal("migrations.FS has no versioned SQL file")
+		t.Fatal("migrations.FS does not contain a versioned SQL file")
 	}
 	return latest
 }
