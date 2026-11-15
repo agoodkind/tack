@@ -28,7 +28,7 @@ func addAuditCommandCases(cases map[string]coverageCase) {
 	cases["command ops audit consumer-offsets"] = withReadCheck(
 		commandCase(
 			audit.VerbOpsAuditConsumerOffsets,
-			audit.OutcomeCompleted,
+			audit.OutcomeAttempted,
 			func(t *testing.T, env *coverageEnv) commandInput {
 				return commandInput{
 					args:      []string{"ops", "audit", "consumer-offsets"},
@@ -38,12 +38,12 @@ func addAuditCommandCases(cases map[string]coverageCase) {
 			},
 		),
 		audit.VerbOpsAuditConsumerOffsets,
-		audit.OutcomeCompleted,
+		audit.OutcomeAttempted,
 		fixedReadExpectation("audit/consumer-offsets"),
 	)
 	cases["command ops audit dlq inspect"] = commandCase(
 		audit.VerbOpsAuditDLQInspect,
-		audit.OutcomeCompleted,
+		audit.OutcomeAttempted,
 		func(t *testing.T, env *coverageEnv) commandInput {
 			return commandInput{
 				args:      []string{"ops", "audit", "dlq", "inspect"},
@@ -54,7 +54,7 @@ func addAuditCommandCases(cases map[string]coverageCase) {
 	)
 	cases["command ops audit dlq replay"] = commandCase(
 		audit.VerbOpsAuditDLQReplay,
-		audit.OutcomeOK,
+		audit.OutcomeAttempted,
 		func(t *testing.T, env *coverageEnv) commandInput {
 			return commandInput{
 				args:      []string{"ops", "audit", "dlq", "replay", "--limit", "1"},
@@ -65,7 +65,7 @@ func addAuditCommandCases(cases map[string]coverageCase) {
 	)
 	cases["command ops audit manifest-parts"] = commandCase(
 		audit.VerbAuditRead,
-		audit.OutcomeCompleted,
+		audit.OutcomeAttempted,
 		func(t *testing.T, env *coverageEnv) commandInput {
 			return commandInput{
 				args: []string{
@@ -84,12 +84,12 @@ func addAuditCommandCases(cases map[string]coverageCase) {
 	)
 	cases["command ops audit prove-schema-guard"] = commandCase(
 		audit.VerbOpsAuditSchemaGuardProof,
-		audit.OutcomeOK,
+		audit.OutcomeAttempted,
 		fixedCommand("ops", "audit", "prove-schema-guard"),
 	)
 	cases["command ops audit seed-roles"] = commandCase(
 		audit.VerbAuditRolesSeed,
-		audit.OutcomeCompleted,
+		audit.OutcomeAttempted,
 		seedRolesInput,
 	)
 }
@@ -138,7 +138,7 @@ func seedRolesInput(t *testing.T, _ *coverageEnv) commandInput {
 func addAuthCommandCases(cases map[string]coverageCase) {
 	cases["command ops auth token-create"] = commandCase(
 		audit.VerbOpsAuthTokenCreate,
-		audit.OutcomeOK,
+		audit.OutcomeAttempted,
 		func(t *testing.T, env *coverageEnv) commandInput {
 			return commandInput{
 				args: []string{
@@ -158,7 +158,7 @@ func addAuthCommandCases(cases map[string]coverageCase) {
 	cases["command ops auth token-list"] = withReadCheck(
 		commandCase(
 			audit.VerbOpsAuthTokenList,
-			audit.OutcomeCompleted,
+			audit.OutcomeAttempted,
 			func(t *testing.T, env *coverageEnv) commandInput {
 				if _, output, err := env.command(
 					t,
@@ -185,7 +185,7 @@ func addAuthCommandCases(cases map[string]coverageCase) {
 			},
 		),
 		audit.VerbOpsAuthTokenList,
-		audit.OutcomeCompleted,
+		audit.OutcomeAttempted,
 		func(t *testing.T, env *coverageEnv) readExpectation {
 			tokens, err := postgres.NewTokenRepo(env.admin).List(t.Context(), env.server.userID)
 			if err != nil || len(tokens) == 0 {
@@ -213,7 +213,7 @@ func addAuthCommandCases(cases map[string]coverageCase) {
 	)
 	cases["command ops auth token-revoke"] = commandCase(
 		audit.VerbOpsAuthTokenRevoke,
-		audit.OutcomeOK,
+		audit.OutcomeAttempted,
 		func(t *testing.T, env *coverageEnv) commandInput {
 			if _, output, err := env.command(
 				t,

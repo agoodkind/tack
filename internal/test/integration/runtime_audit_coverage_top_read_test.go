@@ -19,12 +19,12 @@ func (env *topLevelEnv) requireFinalReadEvent(
 	t.Helper()
 	for _, event := range readOutboxEvents(t, env.admin, verb, operatorID) {
 		if event.Outcome == outcome && event.Context.OperationClass == audit.OperationRead &&
-			event.Context.Phase == audit.PhaseRead {
+			event.Context.Phase == audit.PhaseAttempt {
 			return
 		}
 	}
 	t.Fatalf(
-		"The operator outbox did not contain a final read event; the operator, verb, and outcome follow: %s %s %s",
+		"The operator outbox did not contain a read attempt; the operator, verb, and outcome follow: %s %s %s",
 		operatorID,
 		verb,
 		outcome,

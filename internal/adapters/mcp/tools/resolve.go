@@ -41,6 +41,7 @@ type Resolver struct {
 	scopeChain        []ScopeLevel
 	sequenceTypeKeys  []string
 	typeIndex         map[string]*node.NodeType
+	setterReferences  map[string]string
 }
 
 func NewResolver(
@@ -59,6 +60,7 @@ func NewResolver(
 		scopeChain:        nil,
 		sequenceTypeKeys:  nil,
 		typeIndex:         nil,
+		setterReferences:  nil,
 	}
 
 	r.typeIndex = node.BuildTypeIndex(nodeTypes)

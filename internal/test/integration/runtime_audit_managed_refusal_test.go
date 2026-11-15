@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
-
 	"goodkind.io/tack/internal/audit"
 )
 
@@ -17,12 +16,8 @@ const managedRefusalReason = "a request cannot set them"
 // through the public MCP boundary with the real recorder, relay, consumer,
 // and ledger. It then calls tack_create_issue with sequence and
 // tack_update_issue with scope_id in the properties. The server must refuse
-// both calls. For each call, the ledger must record the auth.token_used event
-// and exactly one other event under the request operation: a refused result
-// for the verified user with the invalid_argument code, a message that names
-// the property, and no delta. The refused create must target the MCP route of
-// tack_create_issue, and the refused update must target the issue. The ledger
-// must not record a change event for either request.
+// both calls and identify the rejected properties. Each call must record
+// authentication and a mutation attempt.
 func TestRuntimeAuditManagedPropertyRefusals(t *testing.T) {
 	server, ledger := startRecordedPublicServer(t)
 	identifier := "MNG" + strings.ToUpper(uuid.NewString()[:5])
@@ -75,94 +70,29 @@ func TestRuntimeAuditManagedPropertyRefusals(t *testing.T) {
 		},
 	)
 	requireToolRefusal(t, updated, managedRefusalReason)
+	if !strings.Contains(string(created.body), "properties.sequence") ||
+		!strings.Contains(string(updated.body), "properties.scope_id") {
+		t.Fatalf("managed property responses = %s, %s", created.body, updated.body)
+	}
 
-	createRow := onlyResultRow(
+	requireMutationRequest(
 		t,
-		ledger.requestRows(t, server.orgID, createID, hasAuthAndOther),
-		server.userID,
-	)
-	requireManagedRefusalRow(
-		t,
-		createRow,
+		ledger,
+		server,
+		createID,
 		audit.VerbNodeCreate,
-		"properties.sequence",
-		server.userID,
+		"tack_create_issue",
+		"",
+		nil,
 	)
-	createTarget := audit.Target{
-		Kind:         audit.TargetKindResource,
-		NodeType:     "",
-		Reference:    "",
-		Name:         "tack_create_issue",
-		URI:          "/mcp",
-		RelationType: "",
-		ID:           uuid.Nil,
-		SourceID:     uuid.Nil,
-		TargetID:     uuid.Nil,
-	}
-	if *createRow.Context.Target != createTarget {
-		t.Fatalf(
-			"refused create event %s target = %+v, want the tool route %+v",
-			createRow.EventID,
-			createRow.Context.Target,
-			createTarget,
-		)
-	}
-
-	updateRow := onlyResultRow(
+	requireMutationRequest(
 		t,
-		ledger.requestRows(t, server.orgID, updateID, hasAuthAndOther),
-		server.userID,
-	)
-	requireManagedRefusalRow(
-		t,
-		updateRow,
+		ledger,
+		server,
+		updateID,
 		audit.VerbNodeUpdate,
-		"properties.scope_id",
-		server.userID,
+		"tack_update_issue",
+		issueID.String(),
+		nil,
 	)
-	if target := updateRow.Context.Target; target.Kind != audit.TargetKindNode ||
-		target.NodeType != "issue" ||
-		target.ID != issueID {
-		t.Fatalf(
-			"refused update event %s target = %+v, want issue %s",
-			updateRow.EventID,
-			target,
-			issueID,
-		)
-	}
-}
-
-// requireManagedRefusalRow requires a refused result event of verb for
-// actorID with the invalid_argument code, a message that contains property
-// and the refusal reason, a target, and no delta.
-func requireManagedRefusalRow(
-	t *testing.T,
-	row audit.Row,
-	verb audit.Verb,
-	property string,
-	actorID uuid.UUID,
-) {
-	t.Helper()
-	requireResultRow(t, row, verb, audit.OutcomeRefused, "invalid_argument")
-	if row.ActorID != actorID || !strings.Contains(row.Error.Message, property) ||
-		!strings.Contains(row.Error.Message, managedRefusalReason) {
-		t.Fatalf(
-			"event %s actor = %s, error message = %q; want actor %s and a message with %q and %q",
-			row.EventID,
-			row.ActorID,
-			row.Error.Message,
-			actorID,
-			property,
-			managedRefusalReason,
-		)
-	}
-
-	if row.Context.Target == nil || row.Delta != nil {
-		t.Fatalf(
-			"event %s target = %+v, delta = %+v; want a target and no delta",
-			row.EventID,
-			row.Context.Target,
-			row.Delta,
-		)
-	}
 }

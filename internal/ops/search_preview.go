@@ -9,11 +9,7 @@ import (
 	"goodkind.io/tack/internal/clispec"
 )
 
-// recordedSearchPreview returns the dry run of a search command. The dry run
-// records an operator read through clispec.RunRecordedPreview with the read
-// definition that clispec.PreviewSpec derives from spec, and the read event
-// stores the digest of the preview output. It prints the preview output after
-// the read lifecycle store saves the read event.
+// recordedSearchPreview records access before running the command preview.
 func recordedSearchPreview(
 	f *cli.Factory,
 	spec audit.Spec,
@@ -26,14 +22,6 @@ func recordedSearchPreview(
 			return err
 		}
 
-		return clispec.RunRecordedPreview(
-			ctx,
-			f,
-			clispec.PreviewSpec(spec),
-			encoded,
-			func(ctx context.Context, sink clispec.ResultSink) ([]audit.Target, error) {
-				return nil, preview(ctx, sink)
-			},
-		)
+		return clispec.RunRecordedPreview(ctx, f, clispec.PreviewSpec(spec), encoded, preview)
 	}
 }

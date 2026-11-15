@@ -69,6 +69,7 @@ type manifestReadRun struct {
 type manifestRunOptions struct {
 	readerDSN  string
 	lifecycle  *pgxpool.Pool
+	outbox     *pgxpool.Pool `exhaustruct:"optional"`
 	operatorID uuid.UUID
 }
 
@@ -155,7 +156,12 @@ func runOpsTreeCommand(
 	stdout, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	factory := cli.System(&cfg)
 	factory.Out, factory.Err = stdout, stderr
-	factory.SetAuditOutbox(audit.NewPoolOutbox(ledger.admin))
+	outbox := options.outbox
+	if outbox == nil {
+		outbox = ledger.admin
+	}
+
+	factory.SetAuditOutbox(audit.NewPoolOutbox(outbox))
 	factory.SetAuditReads(audit.NewPoolReadLifecycle(options.lifecycle))
 	root := nodeAuditCommandRoot(factory)
 	root.SetContext(t.Context())

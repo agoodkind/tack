@@ -6,7 +6,6 @@ import (
 	"net/url"
 	"slices"
 	"testing"
-	"time"
 
 	"github.com/google/uuid"
 
@@ -28,7 +27,6 @@ func TestSearchOperatorReadsFinalizeBeforeOutput(t *testing.T) {
 	wantDiagnosticURIs := createSearchReadDiagnostics(t, fixture)
 	pool := ledgerAdminPool(t)
 	var events []audit.Event
-	returnedTargets := make(map[uuid.UUID][]audit.Target)
 
 	for _, current := range []struct {
 		command   string
@@ -70,38 +68,27 @@ func TestSearchOperatorReadsFinalizeBeforeOutput(t *testing.T) {
 		event := requireSearchReadEvent(t, pool, operatorID, current.verb, current.reference)
 		requireSearchReadPayload(t, event, payload, targets)
 		events = append(events, event)
-		returnedTargets[event.EventID] = targets
 	}
 
 	pipeline := newPartsPipeline(t)
 	pipeline.startConsumer(t)
 	pipeline.startRelay(t, nil)
-	ledger := publicLedger{stack: pipeline.stack(), since: clock.Now().Add(-time.Hour)}
 
 	for _, event := range events {
 		row := pipeline.stack().waitForRow(t, event.EventID)
 		requireSearchReadLedgerIdentity(t, row, event)
 		if row.Outcome != event.Outcome || row.Context.OperationID != event.Context.OperationID ||
-			row.Context.Read == nil || *row.Context.Read != *event.Context.Read {
-			t.Fatalf("ledger event differs from finalized read %s: %+v", event.EventID, row)
-		}
-
-		if targets := ledger.manifestTargets(t, row); !slices.Equal(
-			targets,
-			returnedTargets[event.EventID],
-		) {
-			t.Fatalf("ledger targets = %+v, want %+v", targets, returnedTargets[event.EventID])
+			row.Context.Read != nil || row.Error != nil {
+			t.Fatalf("ledger event differs from attempt %s: %+v", event.EventID, row)
 		}
 
 		pipeline.requireActorPII(t, event.Actor, row)
 		t.Logf(
-			"ledger event=%s operation=%s verb=%s outcome=%s count=%d sha256=%s",
+			"ledger event=%s operation=%s verb=%s outcome=%s",
 			row.EventID,
 			row.Context.OperationID,
 			row.Action,
 			row.Outcome,
-			row.Context.Read.Count,
-			row.Context.Read.PayloadSHA256,
 		)
 	}
 }

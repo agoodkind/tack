@@ -44,28 +44,6 @@ func ResourceTarget(uri string) Target {
 	}
 }
 
-// NodeTarget returns a resource audit target for nodeID.
-//
-// The target URI appends the string form of nodeID to NodeURIPrefix.
-// ResourceTarget sets the kind to TargetKindResource and leaves the
-// remaining fields empty or zero UUIDs.
-//
-//	target := NodeTarget(nodeID)
-func NodeTarget(nodeID uuid.UUID) Target {
-	return ResourceTarget(NodeURIPrefix + nodeID.String())
-}
-
-// EventTarget returns a resource audit target for eventID.
-//
-// The target URI appends the string form of eventID to EventURIPrefix.
-// ResourceTarget sets the kind to TargetKindResource and leaves the
-// remaining fields empty or zero UUIDs.
-//
-//	target := EventTarget(eventID)
-func EventTarget(eventID uuid.UUID) Target {
-	return ResourceTarget(EventURIPrefix + eventID.String())
-}
-
 // CanonicalUUID returns the canonical UUID string for value.
 //
 // CanonicalUUID trims surrounding whitespace before parsing value. It

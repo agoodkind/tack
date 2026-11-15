@@ -93,7 +93,7 @@ func addNodeToolCases(cases map[string]coverageCase) {
 		cases["mcp tool tack_get_"+nodeType.slug] = toolCase(
 			"tack_get_"+nodeType.slug,
 			audit.VerbNodeRead,
-			audit.OutcomeCompleted,
+			audit.OutcomeAttempted,
 			func(t *testing.T, env *coverageEnv) map[string]any {
 				return env.fixture(t).nodeArguments(nodeType.slug)
 			},
@@ -101,7 +101,7 @@ func addNodeToolCases(cases map[string]coverageCase) {
 		cases["mcp tool tack_list_"+nodeType.plural] = toolCase(
 			"tack_list_"+nodeType.plural,
 			audit.VerbNodeList,
-			audit.OutcomeCompleted,
+			audit.OutcomeAttempted,
 			func(t *testing.T, env *coverageEnv) map[string]any {
 				return env.fixture(t).scopeArguments(nodeType.slug)
 			},
@@ -141,25 +141,25 @@ func addMCPCases(cases map[string]coverageCase) {
 	cases["mcp tool tack_list_workspaces"] = toolCase(
 		"tack_list_workspaces",
 		audit.VerbWorkspaceList,
-		audit.OutcomeCompleted,
+		audit.OutcomeAttempted,
 		func(*testing.T, *coverageEnv) map[string]any { return map[string]any{} },
 	)
 	cases["mcp tool tack_describe_workspace"] = toolCase(
 		"tack_describe_workspace",
 		audit.VerbWorkspaceDescribe,
-		audit.OutcomeCompleted,
+		audit.OutcomeAttempted,
 		workspace,
 	)
 	cases["mcp tool tack_list_members"] = toolCase(
 		"tack_list_members",
 		audit.VerbMembersList,
-		audit.OutcomeCompleted,
+		audit.OutcomeAttempted,
 		workspace,
 	)
 	cases["mcp tool tack_list_property_defs"] = toolCase(
 		"tack_list_property_defs",
 		audit.VerbPropertyDefsList,
-		audit.OutcomeCompleted,
+		audit.OutcomeAttempted,
 		workspace,
 	)
 	issueOnly := func(t *testing.T, env *coverageEnv) map[string]any {
@@ -168,13 +168,13 @@ func addMCPCases(cases map[string]coverageCase) {
 	cases["mcp tool tack_get_properties"] = toolCase(
 		"tack_get_properties",
 		audit.VerbPropsRead,
-		audit.OutcomeCompleted,
+		audit.OutcomeAttempted,
 		issueOnly,
 	)
 	cases["mcp tool tack_list_relationships"] = toolCase(
 		"tack_list_relationships",
 		audit.VerbRelationshipList,
-		audit.OutcomeCompleted,
+		audit.OutcomeAttempted,
 		issueOnly,
 	)
 	cases["mcp tool tack_add_relationship"] = toolCase(
@@ -207,7 +207,7 @@ func addMCPCases(cases map[string]coverageCase) {
 	cases["mcp tool tack_search"] = coverageCase{
 		run:     runSearchCase,
 		verb:    audit.VerbNodeSearch,
-		outcome: audit.OutcomeCompleted,
+		outcome: audit.OutcomeAttempted,
 		check:   requireSearchSessionRow,
 	}
 	addProtocolCases(cases)
@@ -237,8 +237,7 @@ func requireSearchSessionRow(t *testing.T, env *coverageEnv, rows []audit.Row) {
 }
 
 // runSearchCase invokes tack_search and validates its tool result. It expects
-// success with OpenSearch and an error result with a failed audit outcome
-// without OpenSearch.
+// success with OpenSearch and an error result without OpenSearch.
 func runSearchCase(t *testing.T, env *coverageEnv) coverageEvidence {
 	t.Helper()
 	requestID := newRequestID(t, "coverage-search")
@@ -275,6 +274,5 @@ func runSearchCase(t *testing.T, env *coverageEnv) coverageEvidence {
 			response.body,
 		)
 	}
-	evidence.outcome = audit.OutcomeFailed
 	return evidence
 }

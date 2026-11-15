@@ -2,7 +2,6 @@ package ops
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -32,7 +31,6 @@ type provisionEvidence struct {
 	Redundancy   string `json:"redundancy,omitempty"`
 	AllowFDBInit bool   `json:"allow_fdb_init,omitempty"`
 	Container    string `json:"container,omitempty"`
-	State        string `json:"state,omitempty"`
 }
 
 func (provisionEvidence) isStepEvidence() {}
@@ -67,7 +65,6 @@ func runProvisionRecorded(
 		Redundancy:   cfg.OpsFDBRedundancyMode,
 		AllowFDBInit: allowFDBInit,
 		Container:    "",
-		State:        "",
 	}
 	if details, err := provisionStateStep(
 		ctx,
@@ -137,7 +134,6 @@ func provisionSeedRecorded(
 		Redundancy:   "",
 		AllowFDBInit: false,
 		Container:    cfg.OpsAppContainer,
-		State:        "",
 	}
 	details, err := provisionStateStep(
 		ctx,
@@ -190,23 +186,14 @@ func provisionStateStep(
 		return commandOutcome(audit.OutcomeFailed, commandFailedCode, err), err
 	}
 
-	var state string
-
 	return recordedStep(
 		ctx,
 		steps,
 		audit.ExternalStep(externalTarget(reference), plannedJSON),
 		func(ctx context.Context) error {
-			observed, effectErr := effect(ctx)
-			state = observed
+			_, effectErr := effect(ctx)
 
 			return effectErr
-		},
-		func(ctx context.Context) (json.RawMessage, error) {
-			observed := planned
-			observed.State = state
-
-			return encodeEvidence(ctx, observed)
 		},
 	)
 }

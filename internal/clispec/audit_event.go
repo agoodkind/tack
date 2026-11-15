@@ -13,10 +13,7 @@ import (
 	"goodkind.io/tack/internal/response"
 )
 
-// newOperatorEvent builds the event a command records. Extra stores the op
-// id. The ledger stores Extra and the row hash covers it. A reader pairs the
-// intent row with its outcome row by op id, and altering either row breaks
-// the chain.
+// newOperatorEvent records the operator and command correlation ID.
 func newOperatorEvent(
 	ctx context.Context,
 	spec audit.Spec,
@@ -72,7 +69,7 @@ func newOperatorEvent(
 			Reason:      "",
 		},
 		Delta:          nil,
-		Outcome:        audit.OutcomeOK,
+		Outcome:        audit.OutcomeAttempted,
 		Error:          nil,
 		IdempotencyKey: "",
 		OccurredAt:     clock.Now().UTC(),
@@ -82,7 +79,7 @@ func newOperatorEvent(
 
 // operatorEventExtra is the correlation payload of every operator event.
 type operatorEventExtra struct {
-	// OpID is shared by an intent row and its outcome row.
+	// OpID identifies the command invocation.
 	OpID uuid.UUID `json:"op_id"`
 	// StartedAt records when a deferred infrastructure command entered the gate.
 	StartedAt *time.Time `json:"started_at,omitempty"`

@@ -186,8 +186,6 @@ func RegisterMembers(
 				usersOut = append(usersOut, u)
 			}
 
-			addUserTargets(ctx, ws.OrgID, usersOut)
-
 			return successText(renderMembers(usersOut), ""), nil
 		},
 	)

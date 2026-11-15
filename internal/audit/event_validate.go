@@ -9,6 +9,11 @@ import (
 	"github.com/google/uuid"
 )
 
+var (
+	errAttemptOutcome  = errors.New("an access attempt requires the attempted outcome")
+	errAttemptEvidence = errors.New("an access attempt cannot include results or changes")
+)
+
 // ValidateEvent checks format rules and rejects unsupported versions.
 // Format 0 events cannot set format 2 context fields, terminal outcomes,
 // or Protected, and cannot use the unauthenticated actor kind.
@@ -166,6 +171,14 @@ func validatePhase(class OperationClass, phase Phase, outcome Outcome) error {
 		return fmt.Errorf("phase %q is invalid for operation class %s", phase, class)
 	}
 
+	if phase == PhaseAttempt {
+		if outcome != OutcomeAttempted {
+			return errAttemptOutcome
+		}
+
+		return nil
+	}
+
 	if phase == PhaseIntent {
 		if outcome != OutcomePending {
 			return errors.New("intent phase event requires the pending outcome")
@@ -187,6 +200,10 @@ func validatePhase(class OperationClass, phase Phase, outcome Outcome) error {
 
 func validateClassEvidence(event Event) error {
 	eventContext := event.Context
+	if eventContext.Phase == PhaseAttempt && (eventContext.Read != nil || event.Delta != nil) {
+		return errAttemptEvidence
+	}
+
 	if eventContext.OperationClass != OperationRead {
 		if eventContext.Read != nil {
 			return errors.New("only read class events can set read evidence")

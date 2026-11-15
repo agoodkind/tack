@@ -26,7 +26,7 @@ func addBackfillCommandCases(cases map[string]coverageCase) {
 	} {
 		cases["command ops backfill "+name] = commandCase(
 			verb,
-			audit.OutcomeOK,
+			audit.OutcomeAttempted,
 			fixedCommand("ops", "backfill", name),
 		)
 	}
@@ -38,7 +38,7 @@ func addBackfillCommandCases(cases map[string]coverageCase) {
 func addDatagenCommandCases(cases map[string]coverageCase) {
 	cases["command ops qa datagen seed"] = commandCase(
 		audit.VerbOpsDatagenSeed,
-		audit.OutcomeOK,
+		audit.OutcomeAttempted,
 		func(t *testing.T, env *coverageEnv) commandInput {
 			ledger, brokers, topic := testenv.Ledger(t), testenv.Kafka(t), env.ledger.stack.topic
 			return commandInput{
@@ -61,7 +61,7 @@ func addDatagenCommandCases(cases map[string]coverageCase) {
 	)
 	cases["command ops qa datagen soak"] = commandCase(
 		audit.VerbOpsDatagenSoak,
-		audit.OutcomeOK,
+		audit.OutcomeAttempted,
 		func(*testing.T, *coverageEnv) commandInput {
 			return commandInput{
 				args: []string{
@@ -82,7 +82,7 @@ func addDatagenCommandCases(cases map[string]coverageCase) {
 	)
 	cases["command ops qa datagen legacy-ledger-row"] = commandCase(
 		audit.VerbOpsDatagenLegacyLedgerRow,
-		audit.OutcomeOK,
+		audit.OutcomeAttempted,
 		func(t *testing.T, env *coverageEnv) commandInput {
 			ledger := testenv.Ledger(t)
 			return commandInput{
@@ -130,14 +130,14 @@ func addDatagenCommandCases(cases map[string]coverageCase) {
 		cases["command ops qa datagen "+name] = searchCommandCase(
 			commandCase(
 				verb,
-				audit.OutcomeOK,
+				audit.OutcomeAttempted,
 				func(*testing.T, *coverageEnv) commandInput {
 					return commandInput{args: command, outbox: nil, configure: localTarget}
 				},
 			),
 			commandCase(
 				verb,
-				audit.OutcomeOK,
+				audit.OutcomeAttempted,
 				func(t *testing.T, _ *coverageEnv) commandInput {
 					ledger := testenv.Ledger(t)
 					return commandInput{
@@ -159,7 +159,7 @@ func addDatagenCommandCases(cases map[string]coverageCase) {
 func addInfrastructureCommandCases(cases map[string]coverageCase) {
 	cases["command ops db sql"] = commandCase(
 		audit.VerbOpsDBBreakGlass,
-		audit.OutcomeOK,
+		audit.OutcomeAttempted,
 		func(t *testing.T, _ *coverageEnv) commandInput {
 			mail := testenv.Mailpit(t)
 			return commandInput{
@@ -181,7 +181,7 @@ func addInfrastructureCommandCases(cases map[string]coverageCase) {
 	)
 	cases["command ops search reindex"] = commandCase(
 		audit.VerbOpsSearchReindex,
-		audit.OutcomeCompleted,
+		audit.OutcomeAttempted,
 		func(t *testing.T, env *coverageEnv) commandInput {
 			if err := env.stores(t).InitializeSearchIndex(
 				integration.WithTestOperation(t, t.Context()),
@@ -205,12 +205,12 @@ func addInfrastructureCommandCases(cases map[string]coverageCase) {
 	cases["command ops search verify"] = searchCommandCase(
 		failingCommandCase(
 			audit.VerbOpsSearchVerify,
-			audit.OutcomeFailed,
+			audit.OutcomeAttempted,
 			fixedCommand("ops", "search", "verify"),
 		),
 		commandCase(
 			audit.VerbOpsSearchVerify,
-			audit.OutcomeCompleted,
+			audit.OutcomeAttempted,
 			fixedCommand("ops", "search", "verify"),
 		),
 	)
@@ -236,12 +236,12 @@ func addInfrastructureCommandCases(cases map[string]coverageCase) {
 			return operatorEvidence(operatorID)
 		},
 		verb:    audit.VerbOpsDeployVerify,
-		outcome: audit.OutcomeCompleted,
+		outcome: audit.OutcomeAttempted,
 		check:   nil,
 	}
 	cases["command ops backup buckets-init"] = commandCase(
 		audit.VerbOpsBackupBucketsInit,
-		audit.OutcomeCompleted,
+		audit.OutcomeAttempted,
 		func(t *testing.T, _ *coverageEnv) commandInput {
 			bucket := backupBucketConfig(testenv.ObjectStore(t))
 			return commandInput{

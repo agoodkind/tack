@@ -138,8 +138,8 @@ func (op Operation[I]) cobraCommand(f *cli.Factory) *cobra.Command {
 				f,
 				PreviewSpec(op.auditSpec()),
 				json.RawMessage("{}"),
-				func(ctx context.Context, sink ResultSink) ([]audit.Target, error) {
-					return nil, op.DryRun(ctx, in, sink)
+				func(ctx context.Context, sink ResultSink) error {
+					return op.DryRun(ctx, in, sink)
 				},
 			)
 		}

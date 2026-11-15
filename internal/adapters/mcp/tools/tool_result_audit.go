@@ -6,9 +6,7 @@ import (
 	"log/slog"
 
 	"github.com/google/uuid"
-	mcpmcp "github.com/mark3labs/mcp-go/v2/mcp"
 	"goodkind.io/tack/internal/audit"
-	"goodkind.io/tack/internal/auditintent"
 	"goodkind.io/tack/internal/clock"
 	"goodkind.io/tack/internal/telemetry"
 )
@@ -16,36 +14,17 @@ import (
 const (
 	// toolResultRoute is the resource URI of a tool result without a resolved target.
 	toolResultRoute = "/mcp"
-	// unchangedReason is the reason of a successful tool result without a committed change.
-	unchangedReason = "no_change"
-	// committedChangeStep is the committed step of a tool result that failed after its change committed.
-	committedChangeStep = "database_change"
 )
 
-// recordToolResult records the result of one state-changing tool call outside
-// a read collector. The request recorder records every other tool call as a
-// read. When a FoundationDB writer committed change events and the call
-// succeeded, recordToolResult records nothing more. Otherwise it records one
-// format 2 database change result event with the operation ID, target, and
-// outcome of the call.
+// recordToolResult records refusals from state-changing tools.
 func recordToolResult(
 	ctx context.Context,
 	recorder audit.Recorder,
 	toolName string,
-	result *mcpmcp.CallToolResult,
-	runErr error,
-	refused bool,
 ) {
-	committed := auditintent.Committed(ctx)
-	outcome, reason, noted := toolResultOutcome(ctx, refused, runErr, result)
-	if committed && outcome.Outcome == audit.OutcomeCompleted {
+	outcome, reason, noted := toolNoteResult(ctx)
+	if outcome.Outcome != audit.OutcomeRefused {
 		return
-	}
-
-	if committed {
-		outcome.Outcome, outcome.CommittedSteps = audit.OutcomePartiallyCompleted, []string{
-			committedChangeStep,
-		}
 	}
 
 	event, err := toolResultEvent(
@@ -80,60 +59,10 @@ func recordToolResult(
 	}
 }
 
-// toolResultOutcome returns the outcome of one tool call, the reason for a
-// successful result without a change, and the target that the handler stored.
-func toolResultOutcome(
-	ctx context.Context,
-	refused bool,
-	runErr error,
-	result *mcpmcp.CallToolResult,
-) (audit.OutcomeDetails, string, *audit.Target) {
-	noted, reason, target := toolNoteResult(ctx)
-	switch {
-	case refused:
-		return unsuccessful(
-			audit.OutcomeRefused,
-			"permission_denied",
-			"the tool result did not pass a membership check",
-		), "", target
-	case runErr != nil:
-		return unsuccessful(
-			audit.OutcomeFailed,
-			"tool_failed",
-			"the tool handler returned an error",
-		), "", target
-	case noted.Outcome != "":
-		return noted, reason, target
-	case result != nil && result.IsError:
-		return unsuccessful(
-			audit.OutcomeRefused,
-			"tool_request_rejected",
-			"the tool rejected the request arguments",
-		), "", target
-	default:
-		return audit.OutcomeDetails{
-				Outcome:        audit.OutcomeCompleted,
-				FailureCode:    "",
-				FailureMessage: "",
-				CommittedSteps: nil,
-			},
-			unchangedReason, target
-	}
-}
-
 // toolChangesState reports whether toolName resolves to a state-change verb.
 func toolChangesState(toolName string) bool {
 	verb, covered := audit.ToolVerb(toolName)
 	return covered && verb != "" && !audit.IsRead(verb)
-}
-
-func unsuccessful(outcome audit.Outcome, code, message string) audit.OutcomeDetails {
-	return audit.OutcomeDetails{
-		Outcome:        outcome,
-		FailureCode:    code,
-		FailureMessage: message,
-		CommittedSteps: nil,
-	}
 }
 
 // toolResultTarget returns the stored target, the node that the handler

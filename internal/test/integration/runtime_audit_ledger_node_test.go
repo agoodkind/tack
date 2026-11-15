@@ -73,11 +73,10 @@ func TestRuntimeAuditLedgerNodePrepare(t *testing.T) {
 		t.Fatalf("the node-prepare dry run failed: %v\n%s", err, preview)
 	}
 
-	reads := multipartOutboxEvents(t, pool, audit.VerbOpsLedgerNodePrepare, reader)
-	if len(reads) != 1 || reads[0].Outcome != audit.OutcomeCompleted ||
+	reads := readOutboxEvents(t, pool, audit.VerbOpsLedgerNodePrepare, reader)
+	if len(reads) != 1 || reads[0].Outcome != audit.OutcomeAttempted ||
 		reads[0].Context.OperationClass != audit.OperationRead ||
-		reads[0].Context.Read == nil ||
-		len(reads[0].Context.Read.PayloadSHA256) != 64 {
+		reads[0].Context.Phase != audit.PhaseAttempt || reads[0].Context.Read != nil {
 		t.Fatalf(
 			"the dry run recorded %+v instead of one completed read with a payload digest; the dry run printed:\n%s",
 			reads,
@@ -109,13 +108,13 @@ func TestRuntimeAuditLedgerNodePrepare(t *testing.T) {
 		string(audit.VerbOpsLedgerNodePrepare),
 		operator.String(),
 	)
-	intents := eventsInPhase(events, audit.PhaseIntent, uuid.Nil)
+	intents := eventsInPhase(events, audit.PhaseAttempt, uuid.Nil)
 	if len(intents) != 1 {
 		t.Fatalf("node-prepare recorded %d intents instead of 1", len(intents))
 	}
 
 	operationID := intents[0].Context.OperationID
-	planned := decodeNodePrepareStep(t, eventsInPhase(events, audit.PhaseIntent, operationID))
+	planned := decodeNodePrepareStep(t, eventsInPhase(events, audit.PhaseAttempt, operationID))
 	if planned.State != "changed" || planned.Before != "yb-old:7100" ||
 		planned.After != "yb-new:7100" ||
 		planned.Stopped ||
@@ -123,17 +122,6 @@ func TestRuntimeAuditLedgerNodePrepare(t *testing.T) {
 		t.Fatalf(
 			"the step intent recorded %+v instead of the planned change from yb-old:7100 to yb-new:7100",
 			planned,
-		)
-	}
-
-	stepResults := eventsInPhase(events, audit.PhaseResult, operationID)
-	observed := decodeNodePrepareStep(t, stepResults)
-	if stepResults[0].Outcome != audit.OutcomeCompleted || observed.State != "changed" ||
-		!observed.Stopped {
-		t.Fatalf(
-			"the step result is %s with %+v instead of a completed change that stopped the node",
-			stepResults[0].Outcome,
-			observed,
 		)
 	}
 

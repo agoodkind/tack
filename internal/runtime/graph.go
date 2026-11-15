@@ -161,7 +161,7 @@ func BuildGraph(ctx context.Context, cfg *config.Config) (*Graph, error) {
 	})
 	authMiddleware := buildAuthMiddleware(cfg, tokenRepo, orgMembers, auditRuntimeDeps.Recorder)
 	productReads := fdbStores.AuditReads(source)
-	requests := mcpadapter.NewRequestRecorder(productReads)
+	requests := mcpadapter.NewRequestRecorder(audit.NewBatchAppendOutbox(fdbStores.OpsOutbox))
 
 	graph := &Graph{
 		MCPHandler:     mcpHandler,

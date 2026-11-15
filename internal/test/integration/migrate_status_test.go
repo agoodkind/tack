@@ -5,7 +5,6 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"slices"
 	"strconv"
 	"testing"
 
@@ -14,7 +13,6 @@ import (
 	"goodkind.io/tack/internal/audit"
 	"goodkind.io/tack/internal/cli"
 	"goodkind.io/tack/internal/clock"
-	"goodkind.io/tack/internal/schemastatus"
 	"goodkind.io/tack/migrations"
 )
 
@@ -56,7 +54,7 @@ func TestMigrateReportsStateAndRefusesGuardedRuns(t *testing.T) {
 	}
 
 	started := clock.Now().UTC()
-	empty, payload := command.status(t)
+	empty, _ := command.status(t)
 	if empty.MigrationTablePresent || empty.AppliedVersion != 0 ||
 		len(empty.Available) != len(embedded) || len(empty.Pending) != len(embedded) {
 		t.Fatalf(
@@ -78,32 +76,9 @@ func TestMigrateReportsStateAndRefusesGuardedRuns(t *testing.T) {
 		cli.ServiceActorID(command.service),
 		started,
 	)
-	requireReadRow(t, row, audit.VerbDatabaseMigrate, audit.OutcomeCompleted, "", payload)
-	targets := schemastatus.MigrationTargets(empty.Available)
-	manifest := (publicLedger{stack: stack, since: started}).manifestTargets(t, row)
-	if !slices.Equal(manifest, targets) {
-		t.Fatalf("migration status read targets = %+v, want %+v", manifest, targets)
-	}
-
-	manifestDigest, manifestParts, err := audit.ReadManifestDigest(targets)
-	if err != nil {
-		t.Fatalf("compute the migration status manifest: %v", err)
-	}
-
-	var targetCount uint64
-
-	for range targets {
-		targetCount++
-	}
-
-	if row.Context.Read.Count != targetCount || row.Context.Read.ManifestParts != manifestParts ||
-		row.Context.Read.ManifestSHA256 != manifestDigest {
-		t.Fatalf(
-			"migration status read evidence = %+v, want %d targets and manifest %s",
-			row.Context.Read,
-			targetCount,
-			manifestDigest,
-		)
+	if row.Outcome != audit.OutcomeAttempted || row.Context.Phase != audit.PhaseAttempt ||
+		row.Context.OperationClass != audit.OperationRead || row.Context.Read != nil || row.Error != nil {
+		t.Fatalf("migration status attempt = %+v", row)
 	}
 
 	migrateLedgerTo(t, command.dsn, migrateOutboxVersion)

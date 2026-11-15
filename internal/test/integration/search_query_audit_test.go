@@ -30,7 +30,7 @@ func harnessOutbox(t *testing.T, clusterFile string) *fdbadapter.OpsOutboxStore 
 }
 
 // requireSearchAuditInvocation waits until the FoundationDB outbox contains
-// exactly one completed node.search read event for requestID in the harness
+// exactly one node.search access attempt for requestID in the harness
 // organization.
 func requireSearchAuditInvocation(
 	parent context.Context,
@@ -59,8 +59,8 @@ func requireSearchAuditInvocation(
 		if len(events) == 1 {
 			event := events[0]
 			if event.Verb != string(audit.VerbNodeSearch) ||
-				event.Outcome != audit.OutcomeCompleted ||
-				event.Context.OrgID != harness.orgID {
+				event.Outcome != audit.OutcomeAttempted ||
+				event.Context.Phase != audit.PhaseAttempt || event.Context.Read != nil || event.Context.OrgID != harness.orgID {
 				return fmt.Errorf(
 					"search request %s has read event %s %s in organization %s; expected %s %s in organization %s",
 					requestID,
@@ -68,7 +68,7 @@ func requireSearchAuditInvocation(
 					event.Outcome,
 					event.Context.OrgID,
 					audit.VerbNodeSearch,
-					audit.OutcomeCompleted,
+					audit.OutcomeAttempted,
 					harness.orgID,
 				)
 			}

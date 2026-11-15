@@ -3,7 +3,6 @@
 package integration_test
 
 import (
-	"encoding/hex"
 	"testing"
 
 	"github.com/google/uuid"
@@ -13,10 +12,8 @@ import (
 
 // caseEvidenceFound reports whether rows contain an event with the verb and
 // outcome of the case and, when the case acted on a node, a format 2 row that
-// targets that node or a completed read row that lists it in its read
-// manifest. It fails the test when a matching format 2 row does not record a
-// target, or when a completed read row does not record a SHA-256 payload
-// digest that matches the response body of the case.
+// targets that node. It fails the test when a matching format 2 row does not
+// record a target.
 func caseEvidenceFound(
 	t *testing.T,
 	env *coverageEnv,
@@ -30,6 +27,10 @@ func caseEvidenceFound(
 	found := evidence.targetID == uuid.Nil
 	for _, row := range rows {
 		if row.Action != string(verb) || row.Outcome != outcome {
+			continue
+		}
+		if row.Context.AuditFormatVersion == audit.AuditFormatComplete &&
+			outcome == audit.OutcomeAttempted && row.Context.Phase != audit.PhaseAttempt {
 			continue
 		}
 		matched = true
@@ -47,56 +48,12 @@ func caseEvidenceFound(
 		if !found && (target.ID == evidence.targetID || target.SourceID == evidence.targetID) {
 			found = true
 		}
-		if row.Context.OperationClass != audit.OperationRead ||
-			row.Outcome != audit.OutcomeCompleted {
-			continue
-		}
-		requireReadDigest(t, evidence, row)
-		if !found && readManifestLists(env.ledger.manifestTargets(t, row), evidence.targetID) {
+		if !found && row.Context.Selection != nil &&
+			row.Context.Selection.Reference == evidence.targetID.String() {
 			found = true
 		}
 	}
 	return matched && found
-}
-
-// requireReadDigest requires the completed read row to record a SHA-256
-// payload digest that matches the response body when the case has one.
-func requireReadDigest(t *testing.T, evidence coverageEvidence, row audit.Row) {
-	t.Helper()
-	read := row.Context.Read
-	if read == nil || !isPayloadDigest(read.PayloadSHA256) {
-		t.Fatalf(
-			"Completed read event %s did not record a payload digest; the read evidence follows: %+v",
-			row.EventID,
-			read,
-		)
-	}
-	if evidence.body != nil && read.PayloadSHA256 != payloadDigest(evidence.body) {
-		t.Fatalf(
-			"Completed read event %s recorded payload digest %s, but the response body has digest %s.",
-			row.EventID,
-			read.PayloadSHA256,
-			payloadDigest(evidence.body),
-		)
-	}
-}
-
-// readManifestLists reports whether targets contain nodeID as a target ID or
-// a relationship source ID.
-func readManifestLists(targets []audit.Target, nodeID uuid.UUID) bool {
-	for _, target := range targets {
-		if target.ID == nodeID || target.SourceID == nodeID {
-			return true
-		}
-	}
-	return false
-}
-
-// isPayloadDigest reports whether digest is a lowercase hexadecimal SHA-256
-// digest.
-func isPayloadDigest(digest string) bool {
-	decoded, err := hex.DecodeString(digest)
-	return err == nil && len(decoded) == 32 && hex.EncodeToString(decoded) == digest
 }
 
 // argumentNodeID returns the node_id argument of an MCP tool call, or

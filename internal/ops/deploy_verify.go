@@ -58,8 +58,6 @@ func runDeployVerify(
 
 	return audit.OperatorReadOutput{
 		Payload: []byte(strings.Join(lines, "\n")),
-		Format:  deployVerifyPayloadFormat,
-		Targets: replicaTargets(replicas),
 	}, nil
 }
 

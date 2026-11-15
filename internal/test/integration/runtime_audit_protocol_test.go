@@ -66,7 +66,13 @@ func TestRuntimeAuditProtocolCoverage(t *testing.T) {
 			orgID = server.orgID
 		}
 
-		row := ledger.row(t, orgID, requestIDs[index])
+		var row audit.Row
+		if current.outcome == audit.OutcomeRefused {
+			row = ledger.refusal(t, orgID, requestIDs[index])
+		} else {
+			row = ledger.row(t, orgID, requestIDs[index])
+		}
+
 		requireReadRow(t, row, current.verb, current.outcome, current.code, responses[index].body)
 		if row.ActorID != actorID {
 			t.Fatalf(
@@ -133,16 +139,16 @@ func refusalCases(t *testing.T, server *publicServer, foreignProjectID string) [
 			"tack_get_project",
 			map[string]any{"node_id": uuid.NewString()},
 			audit.VerbNodeRead,
-			audit.OutcomeRefused,
-			"not_found",
+			audit.OutcomeAttempted,
+			"",
 		),
 		call(
 			"backend error",
 			"tack_search",
 			map[string]any{"query": "anything"},
 			audit.VerbNodeSearch,
-			audit.OutcomeFailed,
-			"search_unavailable",
+			audit.OutcomeAttempted,
+			"",
 		),
 	}
 }
@@ -206,8 +212,8 @@ func protocolCases(t *testing.T, server *publicServer) []protocolCase {
 		nil,
 		false,
 		audit.VerbMCPRequestRejected,
-		audit.OutcomeRefused,
-		"parse_error",
+		audit.OutcomeAttempted,
+		"",
 	)
 	malformed.body = []byte(`{"jsonrpc": "2.0", "id": `)
 	malformed.status = http.StatusBadRequest
@@ -247,7 +253,7 @@ func protocolCases(t *testing.T, server *publicServer) []protocolCase {
 			map[string]any{"name": "tack_getting_started"},
 			true,
 			audit.VerbMCPPromptInvoked,
-			audit.OutcomeCompleted,
+			audit.OutcomeAttempted,
 			"",
 		),
 		rpc(
@@ -265,7 +271,7 @@ func protocolCases(t *testing.T, server *publicServer) []protocolCase {
 			map[string]any{"uri": "tack://getting-started"},
 			true,
 			audit.VerbMCPResourceRead,
-			audit.OutcomeCompleted,
+			audit.OutcomeAttempted,
 			"",
 		),
 		rpc(
@@ -274,8 +280,8 @@ func protocolCases(t *testing.T, server *publicServer) []protocolCase {
 			map[string]any{},
 			false,
 			audit.VerbMCPRequestRejected,
-			audit.OutcomeRefused,
-			"method_not_found",
+			audit.OutcomeAttempted,
+			"",
 		),
 		rpc(
 			"unknown tool",
@@ -283,8 +289,8 @@ func protocolCases(t *testing.T, server *publicServer) []protocolCase {
 			map[string]any{"name": "tack_unknown_operation", "arguments": map[string]any{}},
 			false,
 			audit.VerbMCPRequestRejected,
-			audit.OutcomeRefused,
-			"invalid_params",
+			audit.OutcomeAttempted,
+			"",
 		),
 		malformed,
 		route(
@@ -320,8 +326,8 @@ func protocolCases(t *testing.T, server *publicServer) []protocolCase {
 			"/unknown-route",
 			http.StatusNotFound,
 			audit.VerbHTTPRouteUnknown,
-			audit.OutcomeRefused,
-			"not_found",
+			audit.OutcomeAttempted,
+			"",
 		),
 	}
 }

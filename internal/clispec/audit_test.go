@@ -79,7 +79,7 @@ func testOperatorSource() audit.OperatorIdentitySource {
 	}
 }
 
-func TestRunAuditedMutationRecordsIntentThenOutcome(t *testing.T) {
+func TestRunAuditedMutationRecordsAttempt(t *testing.T) {
 	for _, createsInfrastructure := range []bool{false, true} {
 		t.Run(
 			fmt.Sprintf("creates infrastructure %t", createsInfrastructure),
@@ -111,36 +111,20 @@ func TestRunAuditedMutationRecordsIntentThenOutcome(t *testing.T) {
 					t.Fatalf("run count = %d, want 1", runCount)
 				}
 
-				if len(outbox.events) != 2 {
-					t.Fatalf("outbox events = %d, want 2", len(outbox.events))
+				if len(outbox.events) != 1 {
+					t.Fatalf("outbox events = %d, want 1", len(outbox.events))
 				}
 
-				if outbox.events[0].Outcome != audit.OutcomePending {
+				if outbox.events[0].Outcome != audit.OutcomeAttempted {
 					t.Fatalf(
-						"intent outcome = %q, want %q",
+						"attempt outcome = %q, want %q",
 						outbox.events[0].Outcome,
-						audit.OutcomePending,
+						audit.OutcomeAttempted,
 					)
 				}
 
-				if outbox.events[1].Outcome != audit.OutcomeOK {
-					t.Fatalf(
-						"result outcome = %q, want %q",
-						outbox.events[1].Outcome,
-						audit.OutcomeOK,
-					)
-				}
-
-				if opIDOf(t, outbox.events[0]) != opIDOf(t, outbox.events[1]) {
-					t.Fatalf(
-						"operation ids differ: %s and %s",
-						opIDOf(t, outbox.events[0]),
-						opIDOf(t, outbox.events[1]),
-					)
-				}
-
-				if outbox.events[0].EventID == outbox.events[1].EventID {
-					t.Fatalf("intent and outcome share event id %s", outbox.events[0].EventID)
+				if opIDOf(t, outbox.events[0]) == uuid.Nil {
+					t.Fatal("attempt has no operation id")
 				}
 			},
 		)

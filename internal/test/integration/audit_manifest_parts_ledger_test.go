@@ -27,7 +27,7 @@ func requireStoredAuditReads(
 	requireRowsMatchRuns(t, ledger, operatorAuditReadRows(t, ledger, operatorID, len(runs)), runs)
 }
 
-// requireRowsMatchRuns matches each row to a run by safe input and evidence. It checks the returned identities.
+// requireRowsMatchRuns matches each attempt to a run by safe input and target.
 func requireRowsMatchRuns(
 	t *testing.T,
 	ledger *nodeAuditLedger,
@@ -68,52 +68,28 @@ func requireRowsMatchRuns(
 			)
 		}
 
-		requireReturnedIdentities(t, ledger, row, remaining[position])
 		remaining = slices.Delete(remaining, position, position+1)
 	}
 }
 
-// manifestRowMatches reports whether a row matches the outcome, class, target, and read evidence of a run. It fails the test when a failed row stores forbidden text.
+// manifestRowMatches checks the attempt and rejects unsafe input in its extra data.
 func manifestRowMatches(t *testing.T, row audit.Row, run manifestReadRun) bool {
 	t.Helper()
 	eventContext := row.Context
-	if row.Outcome != run.outcome || eventContext.OperationClass != audit.OperationRead ||
+	if row.Outcome != audit.OutcomeAttempted || eventContext.Phase != audit.PhaseAttempt ||
+		eventContext.OperationID == uuid.Nil || eventContext.Read != nil || row.Error != nil ||
+		!eventContext.CompletedAt.IsZero() || eventContext.OperationClass != audit.OperationRead ||
 		eventContext.Target == nil || eventContext.Target.URI != run.targetURI {
 		return false
 	}
 
-	if run.outcome != audit.OutcomeCompleted {
-		if eventContext.Read != nil || row.Error == nil ||
-			(run.errorCode != "" && row.Error.Code != run.errorCode) ||
-			!strings.Contains(row.Error.Message, run.messageContains) {
-			return false
+	for _, forbidden := range run.forbidden {
+		if strings.Contains(string(row.Extra), forbidden) {
+			t.Fatalf("row %s stores forbidden text %q: %s", row.EventID, forbidden, row.Extra)
 		}
-
-		for _, forbidden := range run.forbidden {
-			if strings.Contains(row.Error.Message, forbidden) ||
-				strings.Contains(string(row.Extra), forbidden) {
-				t.Fatalf(
-					"row %s stores the text %q: error %+v, extra %s",
-					row.EventID,
-					forbidden,
-					row.Error,
-					row.Extra,
-				)
-			}
-		}
-
-		return true
 	}
 
-	if eventContext.Read == nil || eventContext.Read.PayloadSHA256 != run.payloadSHA256 ||
-		eventContext.Read.Count != uint64(len(run.partURIs)) {
-		return false
-	}
-
-	manifestDigest, manifestParts := expectedManifestEvidence(t, run.partURIs)
-
-	return eventContext.Read.ManifestSHA256 == manifestDigest &&
-		eventContext.Read.ManifestParts == manifestParts
+	return true
 }
 
 // expectedManifestEvidence returns the manifest digest and part count for the part URIs.

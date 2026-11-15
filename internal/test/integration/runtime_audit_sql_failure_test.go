@@ -1,6 +1,7 @@
 package integration_test
 
 import (
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -9,8 +10,10 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"goodkind.io/tack/internal/adapters/postgres"
+	"goodkind.io/tack/internal/audit"
 	"goodkind.io/tack/internal/clock"
 	"goodkind.io/tack/internal/datagen"
+	"goodkind.io/tack/internal/domain"
 	"goodkind.io/tack/internal/domain/org"
 	"goodkind.io/tack/internal/ops"
 	"goodkind.io/tack/internal/testenv"
@@ -190,4 +193,24 @@ func TestRuntimeAuditSQLFailedTokenRevoke(t *testing.T) {
 	_, err = ops.RevokeAuthToken(ctx, changeOnlyPool(t, admin), tokens[0].ID)
 	requireAuditWriteFailure(t, "RevokeAuthToken", err)
 	requireSQLUnchanged(t, admin, userIDs, before, commandID)
+}
+
+// TestRuntimeAuditSQLRequestRollback checks a failed membership change through the repository.
+func TestRuntimeAuditSQLRequestRollback(t *testing.T) {
+	admin := ledgerAdminPool(t)
+	_, operation := sqlAuditContext(t, sqlAuditPrincipal())
+	operation.Context.Source = audit.SourceMCP
+	ctx, err := audit.WithMutationContext(t.Context(), operation)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = postgres.NewOrgMemberRepo(admin).RemoveMember(ctx, uuid.New(), uuid.New())
+	if !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("RemoveMember error = %v, want not found", err)
+	}
+
+	if events := sqlOutboxEvents(t, admin, operation.Context.OperationID); len(events) != 0 {
+		t.Fatalf("rolled back membership change produced %d outbox events", len(events))
+	}
 }

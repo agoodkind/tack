@@ -25,9 +25,9 @@ const provisionCoverageIndex = "node-pages-1"
 
 // TestSearchRuntimeAuditProvisionCoverage runs ops search provision against
 // OpenSearch under a new FoundationDB key prefix that does not record a
-// serving index. The command must record one intent, completed model, index,
-// and alias step results, and a completed result. The test deletes the
-// provisioned index before and after the run.
+// serving index. The command must record its attempt and each model, index,
+// and alias step attempt. The test deletes the provisioned index before and
+// after the run.
 func TestSearchRuntimeAuditProvisionCoverage(t *testing.T) {
 	engine := testenv.OpenSearchWithMemory(t, cohortEngineMemoryBytes)
 	integration.ConfigureSearchMaintenance(t, engine)
@@ -69,28 +69,49 @@ func TestSearchRuntimeAuditProvisionCoverage(t *testing.T) {
 		string(audit.VerbOpsSearchProvision),
 		operatorID.String(),
 	)
-	intents := eventsInPhase(events, audit.PhaseIntent, uuid.Nil)
-	if len(intents) != 1 {
-		t.Fatalf("ops search provision recorded %d intents instead of 1", len(intents))
+	attempts := eventsInPhase(events, audit.PhaseAttempt, uuid.Nil)
+	if len(attempts) != 1 {
+		t.Fatalf("ops search provision recorded %d command attempts instead of 1", len(attempts))
 	}
-	operationID := intents[0].Context.OperationID
-	stepResults := eventsInPhase(events, audit.PhaseResult, operationID)
-	if len(stepResults) != 3 {
+	commandTarget := attempts[0].Context.Target
+	if commandTarget == nil || commandTarget.Kind != audit.TargetKindExternal ||
+		commandTarget.Reference != "opensearch/serving-index" {
+		t.Fatalf("ops search provision recorded command target %+v", commandTarget)
+	}
+	operationID := attempts[0].Context.OperationID
+	stepAttempts := eventsInPhase(events, audit.PhaseAttempt, operationID)
+	if len(stepAttempts) != 3 {
 		t.Fatalf(
-			"ops search provision recorded %d step results instead of 3 for the model, index, and alias steps",
-			len(stepResults),
+			"ops search provision recorded %d step attempts instead of 3 for the model, index, and alias steps",
+			len(stepAttempts),
 		)
 	}
-	for _, result := range stepResults {
-		if result.Outcome != audit.OutcomeCompleted {
+	wantTargets := map[string]bool{
+		"opensearch/model/" + search.PinnedModel.Name: false,
+		"opensearch/index/" + provisionCoverageIndex:  false,
+		"opensearch/alias/" + search.PublicAlias:      false,
+	}
+	for _, attempt := range append(attempts, stepAttempts...) {
+		if attempt.Outcome != audit.OutcomeAttempted || attempt.Actor.ID != operatorID {
 			t.Fatalf(
-				"ops search provision recorded step result %s with outcome %s instead of completed",
-				result.EventID,
-				result.Outcome,
+				"ops search provision recorded attempt %s with actor %s and outcome %s",
+				attempt.EventID,
+				attempt.Actor.ID,
+				attempt.Outcome,
 			)
 		}
+		if attempt.Context.ParentOperationID == uuid.Nil {
+			continue
+		}
+		if attempt.Context.Target == nil {
+			t.Fatalf("step attempt %s does not record a target", attempt.EventID)
+		}
+		reference := attempt.Context.Target.Reference
+		if _, found := wantTargets[reference]; !found || wantTargets[reference] {
+			t.Fatalf("unexpected or repeated step target %q", reference)
+		}
+		wantTargets[reference] = true
 	}
-	requireCompletedResult(t, events, operationID)
 }
 
 // provisionCoverageConfig returns the OpenSearch, ledger, and FoundationDB

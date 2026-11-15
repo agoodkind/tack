@@ -26,11 +26,10 @@ Do not weaken or bypass it:
   run (or record-with-the-change in one transaction for FDB ops).
 - Do not add a per-command flag or env that turns recording off.
 
-The mutation guarantee is that no mutation is ever unrecorded, from day 0. A
-command that changes FoundationDB commits its event in the same transaction as
-the change, so the two can never disagree. Every other mutation commits an intent
-row before it starts and aborts if that write fails. The per-class table and the
-bootstrap exception live in the design doc.
+The command records the operator, action, target, time, and request correlation
+before execution. External commands also record the attempted action for each
+step. Tack records access denials separately. FoundationDB mutations
+record the actual changes in the transaction that commits them.
 
 ## Identity is pluggable (binding, keep it pluggable)
 
@@ -64,16 +63,12 @@ IdP is wired; it does not replace these, it joins them.
 
 ## Dry-run by default (binding)
 
-Every audited command is dry-run by default. In dry-run it resolves and prints the
-operator identity and the action it would take, changes nothing, and records
-nothing. The operator reads the printed identity, confirms it is correct, then
-re-runs with `--execute` to act.
+Every audited command defaults to a dry run. The command prints the operator
+identity and the action it would take. A preview that reads system state
+records the access attempt before reading. A dry run that only prints the
+proposed action does not access system state.
 
-`--execute` is the single action gate. Without it, no command mutates and no event
-is recorded. With it, the command runs and the choke-point records one event.
-
-The point of the gate is that a wrong or shared local identity cannot silently
-act: the human must see the identity and opt in each time.
+Pass `--execute` to perform the requested action.
 
 ## Where events land
 

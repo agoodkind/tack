@@ -108,7 +108,7 @@ func TestRuntimeAuditSeedRolesAuthenticationRecovery(t *testing.T) {
 				string(audit.VerbAuditRolesSeed),
 				actor.String(),
 			)
-			if len(eventsInPhase(events, audit.PhaseIntent, uuid.Nil)) == 1 {
+			if len(eventsInPhase(events, audit.PhaseAttempt, uuid.Nil)) == 1 {
 				break
 			}
 
@@ -281,7 +281,7 @@ func TestRuntimeAuditSeedRolesAuthenticationRecovery(t *testing.T) {
 		string(audit.VerbAuditRolesSeed),
 		actor.String(),
 	)
-	intents := eventsInPhase(events, audit.PhaseIntent, uuid.Nil)
+	intents := eventsInPhase(events, audit.PhaseAttempt, uuid.Nil)
 	if len(intents) != 3 {
 		t.Fatalf("seed-roles recorded %d command intents; want 3", len(intents))
 	}

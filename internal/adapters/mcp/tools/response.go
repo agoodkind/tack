@@ -71,7 +71,14 @@ func recoverableErrorWithNextStep(problem, nextStep string) *mcp.CallToolResult 
 
 // permissionDenied is the fail-closed result the tool wrapper returns when a
 // handler produced data without passing a membership check.
-func permissionDenied() *mcp.CallToolResult {
+func permissionDenied(ctx context.Context) *mcp.CallToolResult {
+	noteOutcome(
+		ctx,
+		audit.OutcomeRefused,
+		"permission_denied",
+		"the tool result did not pass a membership check",
+	)
+
 	return &mcp.CallToolResult{
 		IsError: true,
 		Content: []mcp.Content{

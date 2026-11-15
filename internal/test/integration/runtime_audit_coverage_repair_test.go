@@ -26,7 +26,7 @@ import (
 func addRepairBackfillCases(cases map[string]coverageCase) {
 	cases["command ops backfill once-search-projections"] = commandCase(
 		audit.VerbOpsBackfillSearchProjections,
-		audit.OutcomeOK,
+		audit.OutcomeAttempted,
 		argsCommand(func(t *testing.T, _ *coverageEnv) []string {
 			return []string{
 				"ops",
@@ -39,7 +39,7 @@ func addRepairBackfillCases(cases map[string]coverageCase) {
 	)
 	cases["command ops backfill once-node-integrity"] = commandCase(
 		audit.VerbOpsBackfillNodeIntegrity,
-		audit.OutcomeOK,
+		audit.OutcomeAttempted,
 		func(t *testing.T, env *coverageEnv) commandInput {
 			directory := t.TempDir()
 			return commandInput{
@@ -57,7 +57,7 @@ func addRepairBackfillCases(cases map[string]coverageCase) {
 	)
 	cases["command ops qa datagen repair"] = commandCase(
 		audit.VerbOpsDatagenRepair,
-		audit.OutcomeOK,
+		audit.OutcomeAttempted,
 		func(t *testing.T, _ *coverageEnv) commandInput {
 			directory := t.TempDir()
 			return commandInput{

@@ -75,16 +75,19 @@ func finishExternal(
 	run func(context.Context, StepRecorder) (OutcomeDetails, error),
 ) error {
 	details, runErr := run(ctx, steps)
-	result := externalResult(intent, steps.summary(), details, runErr)
-	if err := recordExternalResult(ctx, outbox, result); err != nil {
-		slog.ErrorContext(
-			ctx,
-			"audit.external.result_failed",
-			slog.String("event_id", result.EventID.String()),
-			slog.String("err", err.Error()),
-		)
+	outcome := resolveExternalOutcome(details, runErr, steps.summary())
+	if intent.Context.Phase != PhaseAttempt {
+		result := externalResult(intent, outcome)
+		if err := recordExternalResult(ctx, outbox, result); err != nil {
+			slog.ErrorContext(
+				ctx,
+				"audit.external.result_failed",
+				slog.String("event_id", result.EventID.String()),
+				slog.String("err", err.Error()),
+			)
 
-		return errors.Join(runErr, err)
+			return errors.Join(runErr, err)
+		}
 	}
 
 	slog.InfoContext(
@@ -92,7 +95,7 @@ func finishExternal(
 		"audit.external.recorded",
 		slog.String("verb", intent.Verb),
 		slog.String("operation_id", intent.Context.OperationID.String()),
-		slog.String("outcome", string(result.Outcome)),
+		slog.String("outcome", string(outcome.Outcome)),
 	)
 
 	return runErr
@@ -121,7 +124,7 @@ func validateExternalIntent(intent Event) error {
 	eventContext := intent.Context
 	if eventContext.AuditFormatVersion != AuditFormatComplete ||
 		eventContext.OperationClass != OperationExternal ||
-		eventContext.Phase != PhaseIntent {
+		(eventContext.Phase != PhaseIntent && eventContext.Phase != PhaseAttempt) {
 		return errors.New(
 			"external intent requires format 2, the external class, and the intent phase",
 		)
@@ -155,7 +158,7 @@ func writeOnce(ctx context.Context, outbox OutboxWriter, event Event) error {
 	return nil
 }
 
-func externalResult(intent Event, steps stepSummary, details OutcomeDetails, runErr error) Event {
+func externalResult(intent Event, resolved OutcomeDetails) Event {
 	now := clock.Now().UTC()
 	result := intent
 	result.EventID = uuid.Must(uuid.NewV7())
@@ -166,7 +169,6 @@ func externalResult(intent Event, steps stepSummary, details OutcomeDetails, run
 		result.Context.CompletedAt = result.Context.StartedAt
 	}
 
-	resolved := resolveExternalOutcome(details, runErr, steps)
 	result.Outcome = resolved.Outcome
 	result.Context.CommittedSteps = resolved.CommittedSteps
 	result.Error = nil

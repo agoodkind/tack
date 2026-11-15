@@ -35,6 +35,8 @@ const (
 	PhaseChange Phase = "change"
 	// PhaseRead records one finished read.
 	PhaseRead Phase = "read"
+	// PhaseAttempt records access before execution.
+	PhaseAttempt Phase = "attempt"
 )
 
 // allowedPhases maps operation classes to phases: read to read, database
@@ -42,9 +44,9 @@ const (
 // ValidateEvent rejects format 2 events if the map does not contain the
 // class or does not list the phase for that class.
 var allowedPhases = map[OperationClass][]Phase{
-	OperationRead:           {PhaseRead},
-	OperationDatabaseChange: {PhaseChange, PhaseResult},
-	OperationExternal:       {PhaseIntent, PhaseResult},
+	OperationRead:           {PhaseRead, PhaseAttempt},
+	OperationDatabaseChange: {PhaseChange, PhaseResult, PhaseAttempt},
+	OperationExternal:       {PhaseIntent, PhaseResult, PhaseAttempt},
 }
 
 const (
@@ -140,7 +142,7 @@ func isTerminalOutcome(outcome Outcome) bool {
 		OutcomePartiallyCompleted,
 		OutcomeIncomplete:
 		return true
-	case OutcomeOK, OutcomeError, OutcomePending, OutcomeUnrecorded:
+	case OutcomeOK, OutcomeError, OutcomePending, OutcomeUnrecorded, OutcomeAttempted:
 		return false
 	default:
 		return false

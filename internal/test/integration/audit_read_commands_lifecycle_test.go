@@ -131,7 +131,7 @@ func TestOperatorReadCommandsRecordReadLifecycle(t *testing.T) {
 				window...,
 			)
 			operatorID, run := runReadLifecycleCommand(t, ledger, args...)
-			requireFailedReadRun(t, run)
+			requireFailedReadRun(t, run, "--entity-id")
 			requireFailedReadRow(
 				t,
 				awaitReadLifecycleRow(t, ledger, operatorID, audit.VerbAuditRead),

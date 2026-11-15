@@ -50,7 +50,7 @@ type publicResponse struct {
 // When store is nil, the request recorder uses graph.ProductReads.
 func startPublicServer(
 	t *testing.T,
-	store func(*appruntime.Graph) audit.ReadLifecycle,
+	store func(*appruntime.Graph) audit.BatchOutboxWriter,
 ) *publicServer {
 	t.Helper()
 	return newPublicServer(t, publicConfig(t), store)
@@ -82,7 +82,7 @@ func publicConfig(t *testing.T) *config.Config {
 func newPublicServer(
 	t *testing.T,
 	cfg *config.Config,
-	store func(*appruntime.Graph) audit.ReadLifecycle,
+	store func(*appruntime.Graph) audit.BatchOutboxWriter,
 ) *publicServer {
 	t.Helper()
 	cfg.AuditKafkaBrokers, cfg.AuditWriterDSN, cfg.AuditAllowUnrecorded = "", "", true
@@ -95,7 +95,7 @@ func newPublicServer(
 func buildPublicServer(
 	t *testing.T,
 	cfg *config.Config,
-	store func(*appruntime.Graph) audit.ReadLifecycle,
+	store func(*appruntime.Graph) audit.BatchOutboxWriter,
 ) *publicServer {
 	t.Helper()
 	ctx := integration.WithTestOperation(t, t.Context())

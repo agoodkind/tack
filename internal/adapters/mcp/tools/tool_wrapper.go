@@ -84,13 +84,12 @@ func wrapToolHandler(name string, h mcpserver.ToolHandlerFunc) mcpserver.ToolHan
 				slog.String("tool", name),
 				slog.String("reason", "no membership check passed"),
 			)
-			res = permissionDenied()
+			res = permissionDenied(ctx)
 		}
 
 		logToolOutcome(ctx, span, name, dur.Milliseconds(), res, err)
-		noteToolOutcome(ctx, refused, err, res)
 		if recordsResult {
-			recordToolResult(ctx, recorder, name, res, err, refused)
+			recordToolResult(ctx, recorder, name)
 		}
 
 		return res, err

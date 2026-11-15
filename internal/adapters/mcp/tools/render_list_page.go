@@ -43,7 +43,6 @@ func renderListPage(rc *renderCtx, kind string, page node.Page) string {
 
 		usedBytes += size
 		items = append(items, item)
-		addNodeTargets(rc.ctx, view)
 	}
 
 	data := collectionTemplateData{

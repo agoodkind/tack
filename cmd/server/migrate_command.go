@@ -15,11 +15,6 @@ import (
 	"goodkind.io/tack/migrations"
 )
 
-const (
-	jsonPayloadFormat = "application/json"
-	textPayloadFormat = "text/plain; charset=utf-8"
-)
-
 // migrateInput contains the inputs for a migration run. A zero flag value does
 // not set a requirement.
 type migrateInput struct {
@@ -165,38 +160,17 @@ func printMigrationStatus(ctx context.Context, f *cli.Factory, input json.RawMes
 	return nil
 }
 
-// readMigrationStatus reads the migration state and returns the exact bytes
-// that the command prints. It also returns one target for each embedded migration.
 func readMigrationStatus(
 	ctx context.Context,
-	f *cli.Factory,
+	factory *cli.Factory,
 	jsonOutput bool,
 ) (audit.OperatorReadOutput, error) {
-	status, err := schemastatus.Read(ctx, f.Cfg.DatabaseURL, migrations.FS)
+	output, err := schemastatus.ReadOutput(ctx, factory.Cfg.DatabaseURL, migrations.FS, jsonOutput)
 	if err != nil {
-		slog.ErrorContext(ctx, "migrate.status_failed", slog.String("err", err.Error()))
-		return audit.OperatorReadOutput{}, fmt.Errorf("read the migration state: %w", err)
+		slog.ErrorContext(ctx, "migrate.status_failed", slog.Any("err", err))
+
+		return output, fmt.Errorf("read the migration state: %w", err)
 	}
 
-	targets := schemastatus.MigrationTargets(status.Available)
-	if !jsonOutput {
-		return audit.OperatorReadOutput{
-			Payload: []byte(status.Summary()),
-			Format:  textPayloadFormat,
-			Targets: targets,
-		}, nil
-	}
-
-	body, err := json.Marshal(status)
-	if err != nil {
-		slog.ErrorContext(ctx, "migrate.status_encode_failed", slog.String("err", err.Error()))
-
-		return audit.OperatorReadOutput{}, fmt.Errorf(
-			"encode the migration state at version %d: %w",
-			status.AppliedVersion,
-			err,
-		)
-	}
-
-	return audit.OperatorReadOutput{Payload: body, Format: jsonPayloadFormat, Targets: targets}, nil
+	return output, nil
 }

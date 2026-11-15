@@ -46,7 +46,7 @@ func addNodeCommandCases(cases map[string]coverageCase) {
 	cases["command ops inspect read"] = withReadCheck(
 		commandCase(
 			audit.VerbOpsInspectRead,
-			audit.OutcomeCompleted,
+			audit.OutcomeAttempted,
 			func(t *testing.T, env *coverageEnv) commandInput {
 				return commandInput{
 					args: []string{
@@ -62,7 +62,7 @@ func addNodeCommandCases(cases map[string]coverageCase) {
 			},
 		),
 		audit.VerbOpsInspectRead,
-		audit.OutcomeCompleted,
+		audit.OutcomeAttempted,
 		func(t *testing.T, env *coverageEnv) readExpectation {
 			return nodeReadExpectation(
 				env.fixture(t).nodes["issue"],
@@ -73,7 +73,7 @@ func addNodeCommandCases(cases map[string]coverageCase) {
 	cases["command ops inspect find"] = withReadCheck(
 		commandCase(
 			audit.VerbOpsInspectFind,
-			audit.OutcomeCompleted,
+			audit.OutcomeAttempted,
 			func(t *testing.T, env *coverageEnv) commandInput {
 				return commandInput{
 					args: []string{
@@ -91,7 +91,7 @@ func addNodeCommandCases(cases map[string]coverageCase) {
 			},
 		),
 		audit.VerbOpsInspectFind,
-		audit.OutcomeCompleted,
+		audit.OutcomeAttempted,
 		func(t *testing.T, env *coverageEnv) readExpectation {
 			return readExpectation{
 				target: uriTarget(audit.OrgURIPrefix + env.server.orgID.String()),
@@ -112,7 +112,7 @@ func addNodeCommandCases(cases map[string]coverageCase) {
 	cases["command ops inspect query"] = withReadCheck(
 		commandCase(
 			audit.VerbOpsInspectQuery,
-			audit.OutcomeCompleted,
+			audit.OutcomeAttempted,
 			func(t *testing.T, env *coverageEnv) commandInput {
 				return commandInput{
 					args: []string{
@@ -134,7 +134,7 @@ func addNodeCommandCases(cases map[string]coverageCase) {
 			},
 		),
 		audit.VerbOpsInspectQuery,
-		audit.OutcomeCompleted,
+		audit.OutcomeAttempted,
 		func(_ *testing.T, env *coverageEnv) readExpectation {
 			workspaceID := node.WorkspaceID(env.server.orgID, env.server.workspace)
 			return readExpectation{
@@ -156,7 +156,7 @@ func addNodeCommandCases(cases map[string]coverageCase) {
 	cases["command ops verify node"] = withReadCheck(
 		commandCase(
 			audit.VerbOpsVerifyNode,
-			audit.OutcomeCompleted,
+			audit.OutcomeAttempted,
 			func(t *testing.T, env *coverageEnv) commandInput {
 				return commandInput{
 					args: []string{
@@ -172,7 +172,7 @@ func addNodeCommandCases(cases map[string]coverageCase) {
 			},
 		),
 		audit.VerbOpsVerifyNode,
-		audit.OutcomeCompleted,
+		audit.OutcomeAttempted,
 		func(t *testing.T, env *coverageEnv) readExpectation {
 			return nodeReadExpectation(
 				env.fixture(t).nodes["issue"],
@@ -183,18 +183,18 @@ func addNodeCommandCases(cases map[string]coverageCase) {
 	cases["command ops repair classes"] = withReadCheck(
 		commandCase(
 			audit.VerbOpsRepairClasses,
-			audit.OutcomeCompleted,
+			audit.OutcomeAttempted,
 			fixedCommand("ops", "repair", "classes"),
 		),
 		audit.VerbOpsRepairClasses,
-		audit.OutcomeCompleted,
+		audit.OutcomeAttempted,
 		fixedReadExpectation("repair/classes"),
 	)
 	var validatedNode uuid.UUID
 	cases["command ops validate node"] = withReadCheck(
 		commandCase(
 			audit.VerbOpsValidateNode,
-			audit.OutcomeCompleted,
+			audit.OutcomeAttempted,
 			func(t *testing.T, env *coverageEnv) commandInput {
 				nodeID, profile := env.legacyRepair(t)
 				validatedNode = nodeID
@@ -216,7 +216,7 @@ func addNodeCommandCases(cases map[string]coverageCase) {
 			},
 		),
 		audit.VerbOpsValidateNode,
-		audit.OutcomeCompleted,
+		audit.OutcomeAttempted,
 		func(*testing.T, *coverageEnv) readExpectation {
 			return nodeReadExpectation(
 				validatedNode,
@@ -228,7 +228,7 @@ func addNodeCommandCases(cases map[string]coverageCase) {
 	cases["command ops repair preview"] = withReadCheck(
 		commandCase(
 			audit.VerbOpsRepairPreview,
-			audit.OutcomeCompleted,
+			audit.OutcomeAttempted,
 			func(t *testing.T, env *coverageEnv) commandInput {
 				nodeID, profile := env.legacyRepair(t)
 				previewedNode = nodeID
@@ -250,7 +250,7 @@ func addNodeCommandCases(cases map[string]coverageCase) {
 			},
 		),
 		audit.VerbOpsRepairPreview,
-		audit.OutcomeCompleted,
+		audit.OutcomeAttempted,
 		func(*testing.T, *coverageEnv) readExpectation {
 			return nodeReadExpectation(
 				previewedNode,
@@ -260,7 +260,7 @@ func addNodeCommandCases(cases map[string]coverageCase) {
 	)
 	cases["command ops repair apply"] = commandCase(
 		audit.VerbOpsRepairApply,
-		audit.OutcomeOK,
+		audit.OutcomeAttempted,
 		func(t *testing.T, env *coverageEnv) commandInput {
 			nodeID, profile := env.legacyRepair(t)
 			return commandInput{
@@ -287,35 +287,35 @@ func addNodeCommandCases(cases map[string]coverageCase) {
 	)
 	cases["command ops repair reference-uniqueness"] = commandCase(
 		audit.VerbOpsRepairReferenceUniqueness,
-		audit.OutcomeOK,
+		audit.OutcomeAttempted,
 		fixedCommand("ops", "repair", "reference-uniqueness", "--keep", "oldest"),
 	)
 	cases["command ops act-as create"] = actAsCreateCase()
 	cases["command ops batch backfill.default_children"] = commandCase(
 		audit.VerbOpsBackfillDefaultChildren,
-		audit.OutcomeOK,
+		audit.OutcomeAttempted,
 		fixedCommand("ops", "batch", "backfill.default_children"),
 	)
 	cases["command ops batch reference.duplicates"] = withReadCheck(
 		commandCase(
 			audit.VerbOpsReferenceDuplicates,
-			audit.OutcomeCompleted,
+			audit.OutcomeAttempted,
 			fixedCommand("ops", "batch", "reference.duplicates"),
 		),
 		audit.VerbOpsReferenceDuplicates,
-		audit.OutcomeCompleted,
+		audit.OutcomeAttempted,
 		fixedReadExpectation("reference/duplicates"),
 	)
 	cases["command ops batch reindex"] = commandCase(
 		audit.VerbOpsReindex,
-		audit.OutcomeOK,
+		audit.OutcomeAttempted,
 		fixedCommand("ops", "batch", "reindex"),
 	)
 	cases["command ops verify strict-validation"] = strictValidationCase()
 }
 
 // strictValidationCase stores an issue with an undeclared property and runs
-// the strict validation dry run, which must succeed and record a completed
+// the strict validation dry run, which must succeed and record an attempted
 // read. The case runs without --execute to keep strict validation inactive for
 // the other cases.
 func strictValidationCase() coverageCase {
@@ -338,7 +338,7 @@ func strictValidationCase() coverageCase {
 			return operatorEvidence(operatorID)
 		},
 		verb:    audit.VerbOpsStrictValidation,
-		outcome: audit.OutcomeCompleted,
+		outcome: audit.OutcomeAttempted,
 		check:   nil,
 	}
 }
@@ -397,7 +397,7 @@ func actAsCreateCase() coverageCase {
 			return operatorEvidence(operatorID)
 		},
 		verb:    audit.VerbOpsActAsCreate,
-		outcome: audit.OutcomeOK,
+		outcome: audit.OutcomeAttempted,
 		check:   nil,
 	}
 }

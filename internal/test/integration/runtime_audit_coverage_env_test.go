@@ -240,6 +240,9 @@ func requireOutboxEvent(
 	var described bytes.Buffer
 	for _, event := range events {
 		if event.Verb == string(verb) && event.Outcome == outcome {
+			if outcome == audit.OutcomeAttempted && event.Context.Phase != audit.PhaseAttempt {
+				continue
+			}
 			return
 		}
 		described.WriteString(event.Verb + " " + string(event.Outcome) + "; ")

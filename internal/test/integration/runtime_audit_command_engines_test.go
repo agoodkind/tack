@@ -98,30 +98,14 @@ func testSearchReindexOutcomes(t *testing.T) {
 		string(audit.VerbOpsSearchReindex),
 		operatorID.String(),
 	)
-	intents := eventsInPhase(events, audit.PhaseIntent, uuid.Nil)
+	intents := eventsInPhase(events, audit.PhaseAttempt, uuid.Nil)
 	if len(intents) != 2 {
 		t.Fatalf("reindex recorded %d intents instead of 2", len(intents))
 	}
 
 	first, second := intents[0].Context.OperationID, intents[1].Context.OperationID
-	stepResults := eventsInPhase(events, audit.PhaseResult, first)
-	if len(stepResults) != 1 {
-		t.Fatalf("the first reindex recorded %d step results instead of 1", len(stepResults))
-	}
-
-	var evidence replacementStepEvidence
-	if err := json.Unmarshal(stepResults[0].Extra, &evidence); err != nil {
-		t.Fatalf("decoding the replacement evidence failed: %v", err)
-	}
-
-	if evidence.SourceIndex != reindexServingIndex || evidence.RebuildID == "" ||
-		evidence.RebuildID == uuid.Nil.String() ||
-		evidence.Generation == 0 {
-		t.Fatalf(
-			"replacement evidence %+v must include source %s, a replacement ID, and a nonzero generation",
-			evidence,
-			reindexServingIndex,
-		)
+	if steps := eventsInPhase(events, audit.PhaseAttempt, first); len(steps) != 1 {
+		t.Fatalf("the first reindex recorded %d step attempts instead of 1", len(steps))
 	}
 
 	rebuild, found, err := stores.SearchRebuilds(clock.Wall{}).CurrentRebuild(t.Context())
@@ -131,7 +115,7 @@ func testSearchReindexOutcomes(t *testing.T) {
 
 	requireInitiation(t, "index replacement", rebuild.Initiation, first, operatorID)
 	requireCompletedResult(t, eventsOfOperation(events, first), first)
-	if steps := eventsInPhase(events, audit.PhaseIntent, second); len(steps) != 0 {
+	if steps := eventsInPhase(events, audit.PhaseAttempt, second); len(steps) != 0 {
 		t.Fatalf("the second reindex recorded %d step intents instead of 0", len(steps))
 	}
 
@@ -215,11 +199,15 @@ func testSeedRolesOutcomes(t *testing.T) {
 		}
 	}
 
-	intents := eventsInPhase(events, audit.PhaseIntent, uuid.Nil)
+	intents := eventsInPhase(events, audit.PhaseAttempt, uuid.Nil)
 	if len(intents) != 1 {
 		t.Fatalf("seed-roles recorded %d intents instead of 1", len(intents))
 	}
 
-	requireRoleSteps(t, eventsInPhase(events, audit.PhaseResult, intents[0].Context.OperationID))
+	requireRoleSteps(
+		t,
+		pool,
+		eventsInPhase(events, audit.PhaseAttempt, intents[0].Context.OperationID),
+	)
 	requireCompletedResult(t, events, intents[0].Context.OperationID)
 }
