@@ -9,7 +9,7 @@ import (
 )
 
 // runReadOperation finalizes the read event before printing captured results.
-func runReadOperation[I Input](ctx context.Context, f *cli.Factory, op Operation[I], in I) error {
+func runReadOperation[OperationInput Input](ctx context.Context, f *cli.Factory, op Operation[OperationInput], in OperationInput) error {
 	input, err := json.Marshal(in)
 	if err != nil {
 		return loggedAuditError(ctx, "encode command input", err)

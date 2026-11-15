@@ -1,19 +1,18 @@
 package clispec
 
-// Arg declares one positional argument and the closure that copies its value
-// into the input struct.
-type Arg[I Input] struct {
+// Arg defines one positional argument and a function that sets its input field.
+type Arg[OperationInput Input] struct {
 	Name        string
 	Description string
-	bind        func(*I, string)
+	bind        func(*OperationInput, string)
 }
 
-// StringArg declares a required positional string argument.
-func StringArg[I Input](name, description string, set func(*I, string)) Arg[I] {
-	return Arg[I]{Name: name, Description: description, bind: set}
+// StringArg defines a required positional string argument.
+func StringArg[OperationInput Input](name, description string, set func(*OperationInput, string)) Arg[OperationInput] {
+	return Arg[OperationInput]{Name: name, Description: description, bind: set}
 }
 
 // placeholder renders the argument in a usage line, for example <backup-dir>.
-func (a Arg[I]) placeholder() string {
+func (a Arg[OperationInput]) placeholder() string {
 	return "<" + a.Name + ">"
 }
