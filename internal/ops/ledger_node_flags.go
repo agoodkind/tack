@@ -1,9 +1,6 @@
-// ledger_node_flags.go is the flag half of `ops ledger node-prepare`: the
-// tablet server reads its flag file once, at start, so a deploy that fetches a
-// changed file leaves the running server on the old values until something
-// restarts it. The command compares the mounted file with what the server
-// reports and stops the node when they differ, so the deploy's next
-// `docker compose up` starts it on the file it was given.
+// The tablet server reads its flag file at startup. The node-prepare command
+// compares the mounted file with the server's flags and stops the node when
+// they differ. The next docker compose up starts the node with the current file.
 
 package ops
 
@@ -19,31 +16,28 @@ import (
 )
 
 const (
-	// ledgerTserverFlagFile is where docker-compose.yml mounts the tserver
-	// flag file inside the ledger container.
+	// ledgerTserverFlagFile specifies the flag file path inside the ledger container.
 	ledgerTserverFlagFile = "/home/yugabyte/tserver.flags"
-	// ledgerTserverVarzURL is the local tablet server's flag listing. The
-	// compose service publishes the tserver admin port on the guest, and
-	// tack-ops runs on the guest's network, so the loopback name reaches it.
+	// ledgerTserverVarzURL specifies the tablet server's local flag endpoint.
+	// The compose service publishes the admin port on the guest. tack-ops uses
+	// the guest network and connects through localhost.
 	ledgerTserverVarzURL = "http://localhost:9000/api/v1/varz"
 )
 
-// ybVarz is the tablet server's flag listing as /api/v1/varz serves it.
+// ybVarz represents the tablet server's /api/v1/varz response.
 type ybVarz struct {
 	Flags []ybVarzFlag `json:"flags"`
 }
 
-// ybVarzFlag is one flag in the listing; value is the string form the server
-// reports whatever the flag's type.
+// ybVarzFlag represents one flag with its value as a string.
 type ybVarzFlag struct {
 	Name  string `json:"name"`
 	Value string `json:"value"`
 }
 
-// staleLedgerNodeFlags reads the flag file mounted in the named container and
-// the flags its tablet server reports, and names the ones that differ. A
-// container that is not running, or a stack without the flag file, has nothing
-// to restart and reads as current.
+// staleLedgerNodeFlags returns the flags that differ between the mounted file
+// and the tablet server. It skips comparison when the container is not running
+// or the flag file does not exist.
 func staleLedgerNodeFlags(
 	ctx context.Context,
 	cli *client.Client,
@@ -84,16 +78,16 @@ func staleLedgerNodeFlags(
 		return nil, fmt.Errorf("read the tablet server's flags: %w", err)
 	}
 
-	running, err := runningTserverFlags(ctx, body)
+	serverFlags, err := runningTserverFlags(ctx, body)
 	if err != nil {
 		return nil, err
 	}
 
-	return staleTserverFlags(parseTserverFlagFile(file.content), running), nil
+	return staleTserverFlags(parseTserverFlagFile(file.content), serverFlags), nil
 }
 
-// parseTserverFlagFile reads the `--name=value` lines of a flag file. Blank
-// lines and comments are skipped; a flag without a value reads as empty.
+// parseTserverFlagFile reads --name=value lines and skips blank lines and comments.
+// A flag without an explicit value gets an empty string.
 func parseTserverFlagFile(content []byte) map[string]string {
 	flags := map[string]string{}
 
@@ -132,14 +126,12 @@ func runningTserverFlags(ctx context.Context, body []byte) (map[string]string, e
 	return flags, nil
 }
 
-// staleTserverFlags names every flag the file sets that the running server
-// does not hold at the file's value, in a fixed order. A flag the server does
-// not list at all counts as stale: the file names it, the server never read it.
-func staleTserverFlags(file, running map[string]string) []string {
+// staleTserverFlags returns sorted file flags with different or missing server values.
+func staleTserverFlags(file, serverFlags map[string]string) []string {
 	var stale []string
 
 	for name, want := range file {
-		if got, ok := running[name]; !ok || got != want {
+		if got, ok := serverFlags[name]; !ok || got != want {
 			stale = append(stale, name)
 		}
 	}

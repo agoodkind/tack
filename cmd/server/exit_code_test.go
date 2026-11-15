@@ -8,12 +8,10 @@ import (
 	"goodkind.io/tack/internal/ops"
 )
 
-// TestExitCodeOfTellsAMarkerFailureFromARestoreFailure pins the status the
-// restore drill's unit restarts on. A drill whose legs all passed and whose
-// marker did not land exits 3, which the unit is told never to restart, so
-// the restores are not repeated to reach the same put; every other failure,
-// a failed leg included, still exits 1 and is restarted.
-func TestExitCodeOfTellsAMarkerFailureFromARestoreFailure(t *testing.T) {
+// TestExitCodeOfDistinguishesMarkerAndRestoreFailures checks restart status.
+// A marker write failure exits 3 after successful restores. The unit does not
+// restart status 3. Other failures exit 1 and cause the unit to restart.
+func TestExitCodeOfDistinguishesMarkerAndRestoreFailures(t *testing.T) {
 	markerFailure := &ops.RestoreDrillMarkerError{
 		Err: errors.New("put object tack-backups/backup-status/rehearsal.json: StatusCode: 500"),
 	}
@@ -26,22 +24,21 @@ func TestExitCodeOfTellsAMarkerFailureFromARestoreFailure(t *testing.T) {
 	}
 
 	legFailure := errors.New(
-		"restore-drill: 1 leg(s) failed: fdb: restore never reached the target",
+		"restore-drill: 1 leg(s) failed: fdb: restore did not complete at the target version",
 	)
 	if got := exitCodeOf(legFailure); got != 1 {
 		t.Fatalf("leg failure exit code = %d, want 1", got)
 	}
 
-	// An error carrying another process's exit status is not this process's:
-	// a child that exited 3 must not read as the marker failure.
+	// A child process exit status must not select the marker failure status.
 	childExit := &childExitError{code: 3}
 	if got := exitCodeOf(fmt.Errorf("run child: %w", childExit)); got != 1 {
-		t.Fatalf("a child's exit code leaked into the process exit code: got %d, want 1", got)
+		t.Fatalf("process exit code = %d for a child error, want 1", got)
 	}
 }
 
-// childExitError has the ExitCode method shape of a child process's exit
-// error, so the test does not need to spawn one.
+// childExitError implements the child process ExitCode contract without
+// starting a process.
 type childExitError struct {
 	code int
 }

@@ -9,8 +9,7 @@ import (
 	"time"
 )
 
-// pinBackupAlarmPartialSuffix makes every temporary this test stages carry
-// suffix, so an entry can be planted at the name before the write.
+// pinBackupAlarmPartialSuffix fixes the temporary suffix for collision tests.
 func pinBackupAlarmPartialSuffix(t *testing.T, suffix string) {
 	t.Helper()
 	previous := backupAlarmPartialSuffix
@@ -18,12 +17,9 @@ func pinBackupAlarmPartialSuffix(t *testing.T, suffix string) {
 	t.Cleanup(func() { backupAlarmPartialSuffix = previous })
 }
 
-// TestBackupStalenessAlarmRefusesASymlinkedStateTemporary plants a symbolic
-// link at the temporary name the state write will use, pointing at a file
-// outside the backup root, and runs a stale check whose mail is accepted. The
-// write must fail at the link rather than follow it: the target keeps its
-// bytes and no state is recorded, so the next run mails again rather than
-// having truncated a file of the planter's choosing.
+// TestBackupStalenessAlarmRefusesASymlinkedStateTemporary checks that a state
+// write rejects a preexisting symbolic link without changing its target or
+// saving alarm state. A later check must retry the alarm mail.
 func TestBackupStalenessAlarmRefusesASymlinkedStateTemporary(t *testing.T) {
 	fixBackupStalenessClock(t, time.Date(2026, 8, 29, 12, 0, 0, 0, time.UTC))
 	captured := captureBackupAlarmSends(t, nil)
@@ -31,7 +27,7 @@ func TestBackupStalenessAlarmRefusesASymlinkedStateTemporary(t *testing.T) {
 	cfg := unreachableBackupStalenessConfig(t, "backups@example.test")
 
 	target := filepath.Join(t.TempDir(), "outside-the-backup-root")
-	if err := os.WriteFile(target, []byte("bytes the checker must not touch"), 0o600); err != nil {
+	if err := os.WriteFile(target, []byte("preserve the target bytes"), 0o600); err != nil {
 		t.Fatalf("place the target: %v", err)
 	}
 
@@ -50,24 +46,21 @@ func TestBackupStalenessAlarmRefusesASymlinkedStateTemporary(t *testing.T) {
 		t.Fatalf("read the target: %v", err)
 	}
 
-	if string(body) != "bytes the checker must not touch" {
-		t.Fatalf("the write followed the link: target now holds %q", body)
+	if string(body) != "preserve the target bytes" {
+		t.Fatalf("the write followed the link and changed the target to %q", body)
 	}
 
 	if _, found := alarmedBackupMetrics(t, cfg); found {
-		t.Fatal("a refused write must leave no state file")
+		t.Fatal("a refused write must not create a state file")
 	}
 
 	if info, err := os.Lstat(partial); err != nil || info.Mode()&os.ModeSymlink == 0 {
-		t.Fatalf("the planted link must be left where it was, lstat = %v, %v", info, err)
+		t.Fatalf("the write must preserve the planted link, lstat = %v, %v", info, err)
 	}
 }
 
-// TestBackupStalenessAlarmLeavesAnotherRunsTemporary leaves a temporary with a
-// suffix this run did not draw, the residue of a crashed run or the live file
-// of an overlapping one, and proves the accepted mail is recorded beside it
-// while the file is neither removed nor renamed: no invocation can tell those
-// two origins apart, so none touches a temporary it did not create.
+// TestBackupStalenessAlarmLeavesAnotherRunsTemporary checks that a successful
+// state write preserves temporary files that another invocation created.
 func TestBackupStalenessAlarmLeavesAnotherRunsTemporary(t *testing.T) {
 	fixBackupStalenessClock(t, time.Date(2026, 8, 29, 12, 0, 0, 0, time.UTC))
 	captureBackupAlarmSends(t, nil)
@@ -81,7 +74,7 @@ func TestBackupStalenessAlarmLeavesAnotherRunsTemporary(t *testing.T) {
 	alarmed, found := alarmedBackupMetrics(t, cfg)
 	if !found || len(alarmed) != 3 {
 		t.Fatalf(
-			"the accepted mail must be recorded beside the other temporary, found = %v state = %v",
+			"the checker must record accepted mail beside the other temporary, found = %v state = %v",
 			found,
 			alarmed,
 		)
@@ -89,17 +82,14 @@ func TestBackupStalenessAlarmLeavesAnotherRunsTemporary(t *testing.T) {
 
 	left, err := os.ReadFile(other)
 	if err != nil || string(left) != "{\"alarmed\":{\"half-written" {
-		t.Fatalf("the other run's temporary must be left untouched, got %q, %v", left, err)
+		t.Fatalf("the write must preserve the other run's temporary, got %q, %v", left, err)
 	}
 }
 
-// TestBackupStalenessAlarmInterleavedSavesLoseNothing stages two saves so both
-// temporaries exist at once, then commits them in the opposite order, the
-// shape of two overlapping runs. Each save must rename exactly its own bytes:
-// both renames succeed, the state file ends as the save that committed last,
-// and nothing is left behind, because neither save unlinked or moved the
-// other's temporary.
-func TestBackupStalenessAlarmInterleavedSavesLoseNothing(t *testing.T) {
+// TestBackupStalenessAlarmInterleavedSavesPreserveBothWrites stages overlapping
+// saves and commits them in reverse order. Each rename must use its own bytes.
+// The final state must match the last commit without retaining temporary files.
+func TestBackupStalenessAlarmInterleavedSavesPreserveBothWrites(t *testing.T) {
 	ctx := context.Background()
 	cfg := unreachableBackupStalenessConfig(t, "backups@example.test")
 	path := backupAlarmStatePath(cfg)
@@ -146,7 +136,7 @@ func TestBackupStalenessAlarmInterleavedSavesLoseNothing(t *testing.T) {
 
 	alarmed, found := alarmedBackupMetrics(t, cfg)
 	if !found || len(alarmed) != 1 || !alarmed[backupStalenessRehearsalName].Equal(at) {
-		t.Fatalf("the state must be the save committed last, found = %v state = %v", found, alarmed)
+		t.Fatalf("the state must match the last committed save, found = %v state = %v", found, alarmed)
 	}
 
 	entries, err := os.ReadDir(cfg.BackupRoot)
@@ -155,11 +145,11 @@ func TestBackupStalenessAlarmInterleavedSavesLoseNothing(t *testing.T) {
 	}
 
 	if len(entries) != 1 || entries[0].Name() != backupAlarmStateFile {
-		names := make([]string, 0, len(entries))
+		entryNames := make([]string, 0, len(entries))
 		for _, entry := range entries {
-			names = append(names, entry.Name())
+			entryNames = append(entryNames, entry.Name())
 		}
 
-		t.Fatalf("only the state file may remain, found %v", names)
+		t.Fatalf("only the state file may remain, found %v", entryNames)
 	}
 }

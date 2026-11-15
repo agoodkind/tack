@@ -6,11 +6,8 @@ import (
 	"testing"
 )
 
-// TestStaleTserverFlagsReadsTheFileAgainstTheServer pins the comparison the
-// deploy relies on: the flag file the stack carries against what the running
-// tablet server reports. A value the server holds at the file's setting is
-// current; a changed value or a flag the server never read is stale.
-func TestStaleTserverFlagsReadsTheFileAgainstTheServer(t *testing.T) {
+// TestStaleTserverFlagsComparesFileAndServer checks matching, changed, and missing flags.
+func TestStaleTserverFlagsComparesFileAndServer(t *testing.T) {
 	file := parseTserverFlagFile(
 		[]byte(
 			`
@@ -31,23 +28,23 @@ func TestStaleTserverFlagsReadsTheFileAgainstTheServer(t *testing.T) {
 		{"name":"memory_limit_hard_bytes","value":"8589934592","type":"Custom"},
 		{"name":"ysql_num_tablets","value":"-1","type":"Default"},
 		{"name":"raft_heartbeat_interval_ms","value":"500","type":"Default"}]}`
-	running, err := runningTserverFlags(context.Background(), []byte(varz))
+	serverFlags, err := runningTserverFlags(context.Background(), []byte(varz))
 	if err != nil {
 		t.Fatalf("runningTserverFlags: %v", err)
 	}
 
-	stale := staleTserverFlags(file, running)
+	stale := staleTserverFlags(file, serverFlags)
 	if strings.Join(stale, ",") != "ysql_num_tablets" {
-		t.Fatalf("stale = %v, want only the flag the server still holds at its default", stale)
+		t.Fatalf("stale = %v, want only the flag with the server's default value", stale)
 	}
 
-	running["ysql_num_tablets"] = "1"
-	if stale := staleTserverFlags(file, running); len(stale) != 0 {
-		t.Fatalf("stale = %v after the server picked the file up, want none", stale)
+	serverFlags["ysql_num_tablets"] = "1"
+	if stale := staleTserverFlags(file, serverFlags); len(stale) != 0 {
+		t.Fatalf("stale = %v after the server applied the file values, want an empty list", stale)
 	}
 
-	delete(running, "memory_limit_hard_bytes")
-	if stale := staleTserverFlags(file, running); strings.Join(
+	delete(serverFlags, "memory_limit_hard_bytes")
+	if stale := staleTserverFlags(file, serverFlags); strings.Join(
 		stale,
 		",",
 	) != "memory_limit_hard_bytes" {
@@ -55,6 +52,6 @@ func TestStaleTserverFlagsReadsTheFileAgainstTheServer(t *testing.T) {
 	}
 
 	if _, err := runningTserverFlags(context.Background(), []byte("not json")); err == nil {
-		t.Fatal("a listing that is not JSON must not read as a flag set")
+		t.Fatal("runningTserverFlags accepted invalid JSON")
 	}
 }
