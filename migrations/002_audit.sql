@@ -2,10 +2,10 @@
 -- +goose StatementBegin
 
 -- Database grants and row-level security protect the append-only audit ledger.
--- tack_app cannot access this schema. NOLOGIN base roles grant the writer
--- INSERT, the reader SELECT, and the redactor selected pii column UPDATE.
--- Only the partition rotation job receives audit_archiver for physical deletion.
--- Applications cannot delete audit events.
+-- NOLOGIN roles separate event insertion, ledger reads, and selected personal-data
+-- updates. This migration revokes PUBLIC privileges on the audit schema and
+-- its tables. It grants audit_archiver SELECT on audit.events without assigning
+-- the role to a login or granting partition deletion privileges.
 --
 -- audit.events partitions rows by week and hashes (org_id, shard) across tablets.
 -- The writer updates audit.chain_heads atomically with each event insertion.
@@ -164,12 +164,10 @@ GRANT SELECT ON audit.events, audit.notarizations, audit.chain_heads TO audit_re
 GRANT UPDATE (payload, redacted, redacted_at) ON audit.pii TO audit_redactor;
 GRANT SELECT ON audit.pii TO audit_redactor;
 
--- Only the archiver job may DROP or DETACH ledger partitions for retention.
--- The job records verb=audit.archive_partition.
+-- Allow audit_archiver to read events for retention processing.
 GRANT SELECT ON audit.events TO audit_archiver;
 
--- Revoke inherited PUBLIC privileges. tack_app cannot read or write audit tables
--- or inspect their existence.
+-- Revoke PUBLIC privileges on the audit schema and its tables.
 REVOKE ALL ON SCHEMA audit FROM PUBLIC;
 REVOKE ALL ON ALL TABLES IN SCHEMA audit FROM PUBLIC;
 
