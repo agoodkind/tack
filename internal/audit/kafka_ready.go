@@ -49,7 +49,7 @@ func (k *KafkaRecorder) checkTopicWritable(ctx context.Context) error {
 	}
 
 	if len(resp.Topics) == 0 {
-		err := fmt.Errorf("audit kafka topic %s: cluster did not return topic metadata", k.topic)
+		err := kafkaTopicMetadataMissingError{Topic: k.topic}
 		slog.ErrorContext(
 			ctx,
 			"audit.kafka.topic_absent",
@@ -94,7 +94,7 @@ func (k *KafkaRecorder) checkPartitions(
 	minInSync int,
 ) error {
 	if len(respTopic.Partitions) == 0 {
-		err := fmt.Errorf("audit kafka topic %s: does not report any partitions", k.topic)
+		err := kafkaTopicPartitionsMissingError{Topic: k.topic}
 		slog.ErrorContext(
 			ctx,
 			"audit.kafka.topic_partitionless",
@@ -231,11 +231,7 @@ func (k *KafkaRecorder) minInSyncReplicas(ctx context.Context) (int, error) {
 		}
 	}
 
-	err = fmt.Errorf(
-		"audit kafka topic %s: cluster did not report %s",
-		k.topic,
-		minInSyncReplicasConfig,
-	)
+	err = kafkaTopicConfigMissingError{Topic: k.topic, Config: minInSyncReplicasConfig}
 	slog.ErrorContext(
 		ctx,
 		"audit.kafka.topic_config_absent",

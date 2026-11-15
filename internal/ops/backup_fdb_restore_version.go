@@ -39,10 +39,7 @@ func RunBackupFDBRestoreVersion(
 	}
 
 	if len(log.Points) == 0 {
-		err := fmt.Errorf(
-			"restore-version: %s does not contain readings; time-to-version conversion requires a recorded reading",
-			fdbVersionLogKey,
-		)
+		err := fdbVersionReadingsMissingError{Key: fdbVersionLogKey}
 		logger.ErrorContext(ctx, "backup.fdb_versions.failed", slog.String("err", err.Error()))
 
 		return err
@@ -86,4 +83,15 @@ func RunBackupFDBRestoreVersion(
 	)
 
 	return nil
+}
+
+type fdbVersionReadingsMissingError struct {
+	Key string
+}
+
+func (failure fdbVersionReadingsMissingError) Error() string {
+	return fmt.Sprintf(
+		"restore-version: %s does not contain readings; time-to-version conversion requires a recorded reading",
+		failure.Key,
+	)
 }

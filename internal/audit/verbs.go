@@ -57,8 +57,9 @@ const (
 	VerbAuditRead         Verb = "audit.read"
 	VerbAuditExport       Verb = "audit.export"
 
-	// Transport verbs record calls independently of their domain changes,
-	// including tools without a semantic verb mapping.
+	// VerbMCPToolInvoked records calls independently of their domain changes,
+	// including tools without a semantic verb mapping. The other transport verbs
+	// record resource reads and prompt calls independently of domain changes.
 	VerbMCPToolInvoked   Verb = "mcp.tool_invoked"
 	VerbMCPResourceRead  Verb = "mcp.resource_read"
 	VerbMCPPromptInvoked Verb = "mcp.prompt_invoked"
@@ -77,7 +78,8 @@ const (
 	VerbBootstrapSeed Verb = "bootstrap.seed"
 	// VerbAuditVerify records audit bundle verification.
 	VerbAuditVerify Verb = "audit.verify"
-	// VerbAuditSignersVerified records notarization checks against the valid signer set.
+	// VerbAuditSignersVerified records notarization checks against the valid
+	// signer set.
 	VerbAuditSignersVerified Verb = "audit.signers_verified"
 	// VerbAuditKeyGenerate records audit signing key generation.
 	VerbAuditKeyGenerate Verb = "audit.key_generate"
@@ -119,7 +121,8 @@ const (
 	VerbOpsAuditDLQInspect Verb = "ops.audit_dlq_inspect"
 	// VerbOpsAuditDLQReplay records dead-letter republication to the audit topic.
 	VerbOpsAuditDLQReplay Verb = "ops.audit_dlq_replay"
-	// VerbOpsAuditConsumerOffsets records committed consumer lag and outbox remainders.
+	// VerbOpsAuditConsumerOffsets records committed consumer lag and outbox
+	// remainders.
 	VerbOpsAuditConsumerOffsets Verb = "ops.audit_consumer_offsets"
 	VerbOpsSearchAccessRollback Verb = "ops.search_access_rollback" // VerbOpsSearchAccessRollback records an access policy rollback.
 	// VerbOpsAuditSchemaGuardProof records an engine-superuser CREATE TABLE probe
@@ -143,13 +146,16 @@ const (
 	VerbOpsBackfillDefaultChildren Verb = "ops.backfill_default_children"
 	// VerbOpsBackfillSearchProjections records the one-time explicit metadata rollout.
 	VerbOpsBackfillSearchProjections Verb = "ops.backfill_search_projections"
-	// VerbOpsBackfillFixedDefinitions records the ops backfill once-fixed-definitions command.
+	// VerbOpsBackfillFixedDefinitions records the ops backfill
+	// once-fixed-definitions command.
 	VerbOpsBackfillFixedDefinitions Verb = "ops.backfill_fixed_definitions"
-	// VerbOpsBackfillMetadataNameIndex records the node type-key and property-name index backfill.
+	// VerbOpsBackfillMetadataNameIndex records the node type-key and
+	// property-name index backfill.
 	VerbOpsBackfillMetadataNameIndex Verb = "ops.backfill_metadata_name_index"
 	// VerbOpsBackfillOrphanNodes records deletion of parentless nodes and descendants.
 	VerbOpsBackfillOrphanNodes Verb = "ops.backfill_orphan_nodes"
-	// VerbOpsBackfillNodeIntegrity records the frozen-manifest integrity backfill (TACK-582).
+	// VerbOpsBackfillNodeIntegrity records the frozen-manifest integrity backfill
+	// (TACK-582).
 	VerbOpsBackfillNodeIntegrity Verb = "ops.backfill_node_integrity"
 	// VerbOpsBackfillAuditPartitionNames records renaming audit.events children
 	// outside the events_pYYYY_MM_DD format.
@@ -178,24 +184,30 @@ const (
 	VerbOpsBackupFDBContinuousInit Verb = "ops.backup_fdb_continuous_init"
 	// VerbOpsBackupStalenessCheck records a backup staleness report.
 	VerbOpsBackupStalenessCheck Verb = "ops.backup_staleness_check"
-	// VerbOpsBackupFDBRestoreVersion records conversion of a time into an FDB restore version.
+	// VerbOpsBackupFDBRestoreVersion records conversion of a time into an FDB
+	// restore version.
 	VerbOpsBackupFDBRestoreVersion Verb = "ops.backup_fdb_restore_version"
-	// VerbOpsDeployVerify records checks of running images against deployed image references.
+	// VerbOpsDeployVerify records checks of running images against deployed image
+	// references.
 	VerbOpsDeployVerify Verb = "ops.deploy_verify"
 	// VerbOpsSearchProvision records search model, empty index, and alias creation.
 	VerbOpsSearchProvision Verb = "ops.search_provision"
-	// VerbOpsSearchVerify records search model, mapping, topology, alias, and health checks.
+	// VerbOpsSearchVerify records search model, mapping, topology, alias, and
+	// health checks.
 	VerbOpsSearchVerify Verb = "ops.search_verify"
 	// VerbOpsSearchSettings records persistent, transient, default, and effective
 	// OpenSearch point-in-time limits.
 	VerbOpsSearchSettings Verb = "ops.search_settings"
-	// VerbOpsSearchAccessRollout records access policy rollout for one permission authority.
+	// VerbOpsSearchAccessRollout records access policy rollout for one permission
+	// authority.
 	VerbOpsSearchAccessRollout Verb = "ops.search_access_rollout"
 	// VerbOpsSearchReindex records search index replacement starts and resumptions.
 	VerbOpsSearchReindex Verb = "ops.search_reindex"
-	// VerbOpsLedgerNodePrepare records saved master-list alignment before restart (TACK-489).
+	// VerbOpsLedgerNodePrepare records saved master-list alignment before restart
+	// (TACK-489).
 	VerbOpsLedgerNodePrepare Verb = "ops.ledger_node_prepare"
-	// VerbOpsLedgerNodeWait records waiting for restarted-node replication progress (TACK-471).
+	// VerbOpsLedgerNodeWait records waiting for restarted-node replication
+	// progress (TACK-471).
 	VerbOpsLedgerNodeWait Verb = "ops.ledger_node_wait"
 	// VerbOpsLedgerAuditBootstrap records migrations and audit role seeding that
 	// create the outbox before other operator commands can record.
@@ -205,23 +217,28 @@ const (
 	VerbOpsLedgerBootstrapWait Verb = "ops.ledger_bootstrap_wait"
 	// VerbOpsStoreStatus records product-store cluster status reads (TACK-408).
 	VerbOpsStoreStatus Verb = "ops.store_status"
-	// VerbOpsStoreSetRedundancy records a product-store copy-count change (TACK-408).
+	// VerbOpsStoreSetRedundancy records a product-store copy-count change
+	// (TACK-408).
 	VerbOpsStoreSetRedundancy Verb = "ops.store_set_redundancy"
 	// VerbOpsStoreSetCoordinators records coordinator-list changes (TACK-408).
 	VerbOpsStoreSetCoordinators Verb = "ops.store_set_coordinators"
 	// VerbOpsStoreExclude records process exclusion after data replication (TACK-408).
 	VerbOpsStoreExclude Verb = "ops.store_exclude"
-	// VerbSearchIndexStructure records index creation, splits, deletion, or alias switches.
+	// VerbSearchIndexStructure records index creation, splits, deletion, or alias
+	// switches.
 	VerbSearchIndexStructure Verb = "search.index_structure"
-	// VerbSearchAccessRolloutPhase records a worker step that can change rollout phase.
+	// VerbSearchAccessRolloutPhase records a worker step that can change rollout
+	// phase.
 	VerbSearchAccessRolloutPhase Verb = "search.access_rollout_phase"
 	// VerbSearchModelRepair records redeployment of a stuck serving model.
 	VerbSearchModelRepair Verb = "search.model_repair"
-	// VerbSearchSessionCreate records new search sessions, replays, or visited records.
+	// VerbSearchSessionCreate records new search sessions, replays, or visited
+	// records.
 	VerbSearchSessionCreate Verb = "search.session_create"
 	// VerbSearchSessionUpdate records search session record changes.
 	VerbSearchSessionUpdate Verb = "search.session_update"
-	// VerbSearchSessionDelete records removal of search sessions, replays, or visited records.
+	// VerbSearchSessionDelete records removal of search sessions, replays, or
+	// visited records.
 	VerbSearchSessionDelete Verb = "search.session_delete"
 	// VerbSearchPointInTimeCreate records an OpenSearch point-in-time creation.
 	VerbSearchPointInTimeCreate Verb = "search.point_in_time_create"
@@ -229,7 +246,8 @@ const (
 	VerbSearchPointInTimeDelete Verb = "search.point_in_time_delete"
 	// VerbAuditPartitionMaintain records one consumer partition maintenance run.
 	VerbAuditPartitionMaintain Verb = "audit.partition_maintain"
-	// VerbNodeSubtreeDeleteResume records subtree deletion without an active runner.
+	// VerbNodeSubtreeDeleteResume records subtree deletion without an active
+	// runner.
 	VerbNodeSubtreeDeleteResume Verb = "node.subtree_delete_resume"
 )
 
@@ -282,7 +300,8 @@ var staticToolVerb = map[string]Verb{
 	"tack_getting_started":     VerbMCPPromptInvoked,
 }
 
-// perTypePrefixVerb maps NodeType-derived prefixes to verbs, longest prefixes first.
+// perTypePrefixVerb maps NodeType-derived prefixes to verbs, longest prefixes
+// first.
 var perTypePrefixVerb = []struct {
 	Prefix string
 	Verb   Verb

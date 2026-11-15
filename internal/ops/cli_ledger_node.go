@@ -14,7 +14,8 @@ import (
 // ledgerNodeTarget is the external target reference of the local ledger node.
 const ledgerNodeTarget = "docker/" + yugabyteBackupContainer
 
-// ledgerNodeWaitInput specifies stall and poll durations in Go syntax, such as 5m and 10s.
+// ledgerNodeWaitInput specifies stall and poll durations in Go syntax, such as
+// 5m and 10s.
 type ledgerNodeWaitInput struct {
 	Stall string `json:"stall"`
 	Poll  string `json:"poll"`
@@ -23,7 +24,8 @@ type ledgerNodeWaitInput struct {
 func (ledgerNodeWaitInput) isCommandInput() {}
 
 // ledgerNodePrepareCommand records observed state and changes as an external
-// step with --execute. Without it, the command records a read and prints the plan.
+// step with --execute. Without it, the command records a read and prints the
+// plan.
 func ledgerNodePrepareCommand(f *cli.Factory) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "node-prepare",

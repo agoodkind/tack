@@ -56,7 +56,8 @@ func fdbVersionLogGetter(
 	}
 }
 
-// readFDBVersionLog decodes the record and treats absence as empty initial state.
+// readFDBVersionLog decodes the record and treats absence as empty initial
+// state.
 func readFDBVersionLog(
 	ctx context.Context,
 	get func(key string) ([]byte, error),

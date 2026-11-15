@@ -17,9 +17,9 @@ import (
 )
 
 // YBRecorder synchronously appends audit.events and advances audit.chain_heads
-// in one YugabyteDB transaction per (org, shard) hash chain. The audit_writer_app
-// role cannot update or delete ledger rows. Each successful Record also emits
-// structured logs and increments telemetry counters.
+// in one YugabyteDB transaction per (org, shard) hash chain. The
+// audit_writer_app role cannot update or delete ledger rows. Each successful
+// Record also emits structured logs and increments telemetry counters.
 type YBRecorder struct {
 	pool *pgxpool.Pool
 }
@@ -144,7 +144,8 @@ func (r *YBRecorder) Record(ctx context.Context, ev Event) error {
 	return nil
 }
 
-// recordOnce writes PII, appends the event, and advances the head before commit.
+// recordOnce writes PII, appends the event, and advances the head before
+// commit.
 // The chain hashes the pii_ref rather than the payload, allowing later GDPR
 // erasure in audit.pii without invalidating chain hashes.
 func (r *YBRecorder) recordOnce(
@@ -192,7 +193,8 @@ func (r *YBRecorder) recordOnce(
 	return res, nil
 }
 
-// hasPII reports whether an actor includes nonempty personal data for audit.pii.
+// hasPII reports whether an actor includes nonempty personal data for
+// audit.pii.
 func hasPII(a Actor) bool {
 	return a.Email != "" || a.Name != "" || a.IP != "" || a.UserAgent != "" || a.APITokenLabel != ""
 }

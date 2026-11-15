@@ -21,8 +21,8 @@ const yugabyteBackupContainer = "tack-yugabyte-1"
 
 // tarYBTabletSnapshots archives this node's matching snapshot directories using
 // find and tar inside the live container. Exit 3 rejects absent directories
-// instead of accepting a nonempty gzip header as a valid archive. Null-delimited
-// paths prevent word splitting and command-line size limits.
+// instead of accepting a nonempty gzip header as a valid archive.
+// Null-delimited paths prevent word splitting and command-line size limits.
 func tarYBTabletSnapshots(
 	ctx context.Context,
 	cli *client.Client,
@@ -117,13 +117,13 @@ func tarYBTabletSnapshots(
 	return nil
 }
 
-// writeYBSnapshotManifest validates structure and required artifact declarations
-// before publishing a manifest. Invalid derived identifiers fail at export time
-// rather than creating an export that every reader must reject.
+// writeYBSnapshotManifest validates structure and required artifact
+// declarations before publishing a manifest. Invalid derived identifiers fail
+// at export time rather than creating an export that every reader must reject.
 //
-// Required artifacts remain separate from decode validation. Archive and cleanup
-// discovery must still decode older runs without roles artifacts to skip them
-// individually instead of aborting an entire search.
+// Required artifacts remain separate from decode validation. Archive and
+// cleanup discovery must still decode older runs without roles artifacts to
+// skip them individually instead of aborting an entire search.
 func writeYBSnapshotManifest(ctx context.Context, path string, manifest ybSnapshotManifest) error {
 	logger := telemetry.L(ctx)
 	if err := manifest.validate(); err != nil {

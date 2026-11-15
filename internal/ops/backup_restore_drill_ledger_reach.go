@@ -91,11 +91,7 @@ func scratchLedgerAddress(
 
 	address := endpointAddress(inspected, networkName)
 	if !address.IsValid() {
-		wrapped := fmt.Errorf(
-			"scratch yugabyted %s does not provide an address on network %s; the drill cannot read the restored ledger",
-			containerName,
-			networkName,
-		)
+		wrapped := scratchLedgerAddressMissingError{Container: containerName, Network: networkName}
 		logger.ErrorContext(
 			ctx,
 			"backup.restore_drill.ledger_chain.failed",
@@ -113,6 +109,19 @@ func scratchLedgerAddress(
 	)
 
 	return address, nil
+}
+
+type scratchLedgerAddressMissingError struct {
+	Container string
+	Network   string
+}
+
+func (failure scratchLedgerAddressMissingError) Error() string {
+	return fmt.Sprintf(
+		"scratch yugabyted %s does not provide an address on network %s; the drill cannot read the restored ledger",
+		failure.Container,
+		failure.Network,
+	)
 }
 
 // endpointAddress prefers IPv6 for the IPv6-only production bridge. An invalid

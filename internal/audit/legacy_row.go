@@ -192,7 +192,8 @@ func appendLegacyChainRow(
 	return seq, nil
 }
 
-// legacyEvent constructs a historical tool-invocation event without outcome fields.
+// legacyEvent constructs a historical tool-invocation event without outcome
+// fields.
 func legacyEvent(in LegacyRowInput, row LegacyRow) Event {
 	verb := string(VerbMCPToolInvoked)
 	if in.Action != "" {

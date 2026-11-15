@@ -19,10 +19,7 @@ func TestSpillStoresBrokerRefusedEvent(t *testing.T) {
 	event := spillTestEvent()
 
 	if err := recorder.Record(context.Background(), event); err != nil {
-		t.Fatalf(
-			"Record = %v, want nil after durable outbox storage",
-			err,
-		)
+		t.Fatalf("Record = %v, want nil after durable outbox storage", err)
 	}
 
 	if outbox.count() != 1 {
@@ -95,11 +92,7 @@ func TestSpillLogsOnceForAnOutageNotOncePerEvent(t *testing.T) {
 	}
 
 	if outbox.count() != spilled {
-		t.Fatalf(
-			"outbox entries = %d, want %d stored refused events",
-			outbox.count(),
-			spilled,
-		)
+		t.Fatalf("outbox entries = %d, want %d stored refused events", outbox.count(), spilled)
 	}
 }
 

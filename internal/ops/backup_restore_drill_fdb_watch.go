@@ -71,13 +71,21 @@ func parseFDBRestoreExit(out string) (int, bool, error) {
 
 	code, err := strconv.Atoi(strings.TrimSpace(status))
 	if err != nil {
-		return 0, false, fmt.Errorf(
-			"read %q as the fdbrestore exit status: it does not include an integer exit code",
-			trimmed,
-		)
+		return 0, false, fdbRestoreExitIntegerMissingError{Output: trimmed}
 	}
 
 	return code, true, nil
+}
+
+type fdbRestoreExitIntegerMissingError struct {
+	Output string
+}
+
+func (failure fdbRestoreExitIntegerMissingError) Error() string {
+	return fmt.Sprintf(
+		"read %q as the fdbrestore exit status: it does not include an integer exit code",
+		failure.Output,
+	)
 }
 
 // fdbRestoreStatusText reads redacted scratch status. FoundationDB 7.4.6's

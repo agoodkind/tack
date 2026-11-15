@@ -217,7 +217,10 @@ func TestVerifySignersRejectsAKeyOutsideTheSet(t *testing.T) {
 
 	if report.RejectedUnknownSigner != 0 || report.AllowedUnverifiedHere != 2 ||
 		len(report.UnknownSigners) != 0 {
-		t.Fatalf("report = %+v, want zero rejected identifiers and two locally unverified rows", *report)
+		t.Fatalf(
+			"report = %+v, want zero rejected identifiers and two locally unverified rows",
+			*report,
+		)
 	}
 
 	if verdict := report.Err(); verdict == nil ||

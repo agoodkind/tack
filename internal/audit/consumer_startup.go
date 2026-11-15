@@ -24,8 +24,8 @@ const pingYugabyteReadyCapWait = 5 * time.Second
 
 // pingYugabyteUntilReady retries with capped linear backoff until connection
 // succeeds or ctx ends. Fresh deployments may start before ops audit seed-roles
-// creates logins. The retry loop permits role initialization without crash loops;
-// failed attempts log at Warn (TACK-301).
+// creates logins. The retry loop permits role initialization without crash
+// loops; failed attempts log at Warn (TACK-301).
 func pingYugabyteUntilReady(ctx context.Context, pool *pgxpool.Pool) error {
 	attempts := 0
 
@@ -153,7 +153,8 @@ func ensureAuditTopic(
 	return nil
 }
 
-// setTopicRetention changes only retention.ms using an incremental config update.
+// setTopicRetention changes only retention.ms using an incremental config
+// update.
 func setTopicRetention(
 	ctx context.Context,
 	client *kgo.Client,

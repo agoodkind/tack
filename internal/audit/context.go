@@ -62,7 +62,8 @@ func SetScopeFields(ctx context.Context, s Scope) {
 	}
 }
 
-// ScopeFromContext copies the stored Scope or returns its zero value when absent.
+// ScopeFromContext copies the stored Scope or returns its zero value when
+// absent.
 func ScopeFromContext(ctx context.Context) Scope {
 	cur, _ := ctx.Value(scopeKey{}).(*Scope)
 	if cur == nil {
@@ -122,7 +123,8 @@ func SetAuditEntity(ctx context.Context, entity Entity) {
 	}
 }
 
-// EntityFromContext copies the stored Entity or returns its zero value when absent.
+// EntityFromContext copies the stored Entity or returns its zero value when
+// absent.
 func EntityFromContext(ctx context.Context) Entity {
 	current, _ := ctx.Value(entityKey{}).(*Entity)
 	if current == nil {

@@ -100,8 +100,8 @@ func assertRestoredLedgerChain(
 	return verifyRestoredLedgerChains(ctx, orgs, bundleRoot, export, verify)
 }
 
-// drillLedgerRoleName normalizes timestamp-and-PID run IDs to lowercase letters,
-// digits, and underscores for an unquoted SQL login role.
+// drillLedgerRoleName normalizes timestamp-and-PID run IDs to lowercase
+// letters, digits, and underscores for an unquoted SQL login role.
 func drillLedgerRoleName(runID string) string {
 	safe := strings.Map(
 		func(r rune) rune {

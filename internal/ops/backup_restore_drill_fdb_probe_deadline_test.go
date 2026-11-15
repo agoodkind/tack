@@ -44,18 +44,12 @@ func TestClassifyFDBRestoreProbeAnswerTakesOnlyTheProbesOwnDeadline(t *testing.T
 
 	got := classifyFDBRestoreProbeAnswer(answered, expired, t.Context(), time.Minute)
 	if !got.timedOut {
-		t.Fatalf(
-			"the probe's own expired deadline must indicate timeout, got %+v",
-			got,
-		)
+		t.Fatalf("the probe's own expired deadline must indicate timeout, got %+v", got)
 	}
 
 	if !errors.Is(got.statusErr, errFDBRestoreProbeTimedOut) ||
 		!errors.Is(got.statusErr, context.DeadlineExceeded) {
-		t.Fatalf(
-			"the timeout must include probe and exec error identities, got %v",
-			got.statusErr,
-		)
+		t.Fatalf("the timeout must include probe and exec error identities, got %v", got.statusErr)
 	}
 
 	if got := classifyFDBRestoreProbeAnswer(
@@ -97,10 +91,7 @@ func TestAwaitFDBRestoreCountsAnAnsweredDeadlineAsATimeout(t *testing.T) {
 	}
 
 	if !strings.Contains(err.Error(), "3 consecutive polls had a probe that did not answer") {
-		t.Fatalf(
-			"an answer at the probe deadline must count as an unanswered poll, got: %v",
-			err,
-		)
+		t.Fatalf("an answer at the probe deadline must count as an unanswered poll, got: %v", err)
 	}
 }
 
@@ -125,10 +116,7 @@ func TestAwaitFDBRestoreToleratesAnExitProbeThatAnsweredWithItsDeadline(t *testi
 
 	_, exitCode, err := awaitOrHang(t, watch)
 	if err != nil {
-		t.Fatalf(
-			"exit-probe deadlines below tolerance must permit recovery: %v",
-			err,
-		)
+		t.Fatalf("exit-probe deadlines below tolerance must permit recovery: %v", err)
 	}
 
 	if exitCode != 0 {
@@ -152,10 +140,7 @@ func TestAwaitFDBRestoreClassifiesNestedDeadlineAsProbeError(t *testing.T) {
 	}
 
 	if strings.Contains(err.Error(), "could not be observed") {
-		t.Fatalf(
-			"an immediate nested deadline must not count as an unanswered poll, got: %v",
-			err,
-		)
+		t.Fatalf("an immediate nested deadline must not count as an unanswered poll, got: %v", err)
 	}
 
 	if !strings.Contains(err.Error(), "made no progress for") ||

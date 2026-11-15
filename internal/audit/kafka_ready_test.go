@@ -115,9 +115,7 @@ func TestReadyRejectsEmptyInSyncReplicaSet(t *testing.T) {
 
 	err := recorder.Ready(ctx)
 	if err == nil {
-		t.Fatal(
-			"a partition without in-sync replicas must refuse acks=all writes",
-		)
+		t.Fatal("a partition without in-sync replicas must refuse acks=all writes")
 	}
 
 	if !strings.Contains(err.Error(), "0 in-sync replicas") {

@@ -32,8 +32,8 @@ type drillLedgerExportFunc func(ctx context.Context, orgID uuid.UUID, dir string
 type drillLedgerVerifyFunc func(dir string) (*audit.VerifyReport, error)
 
 // verifyRestoredLedgerChains attempts every organization despite verification
-// failures and aggregates errors. Empty ledgers fail because operator and export
-// operations must have recorded events; even one intact row can pass.
+// failures and aggregates errors. Empty ledgers fail because operator and
+// export operations must have recorded events; even one intact row can pass.
 func verifyRestoredLedgerChains(
 	ctx context.Context,
 	orgs []drillLedgerOrg,
@@ -137,10 +137,7 @@ func exportWholeOrgLedger(
 	}
 
 	if rowCount == 0 {
-		wrapped := fmt.Errorf(
-			"org %s: the restored ledger lists this org but the export did not write rows",
-			org.ID,
-		)
+		wrapped := restoredLedgerExportEmptyError{OrgID: org.ID}
 		logger.ErrorContext(
 			ctx,
 			"backup.restore_drill.ledger_chain.org_failed",
@@ -151,13 +148,11 @@ func exportWholeOrgLedger(
 	}
 
 	if rowCount != org.RowCount {
-		wrapped := fmt.Errorf(
-			"org %s: the export wrote %d of the %d rows in the restored ledger; "+
-				"omitted rows lack chain verification",
-			org.ID,
-			rowCount,
-			org.RowCount,
-		)
+		wrapped := restoredLedgerExportCountMismatchError{
+			OrgID:    org.ID,
+			Exported: rowCount,
+			Restored: org.RowCount,
+		}
 		logger.ErrorContext(
 			ctx,
 			"backup.restore_drill.ledger_chain.org_failed",
@@ -230,12 +225,7 @@ func verifyRestoredOrgChain(
 	// count-reconciled export cannot. A gap means missing restored rows and
 	// prevents verification of the links across that missing sequence.
 	if report.ChainGapCount > 0 {
-		wrapped := fmt.Errorf(
-			"org %s: %d sequence gap(s) in a whole-ledger export; rows are missing from "+
-				"inside the chain and the links across them are unverified",
-			org.ID,
-			report.ChainGapCount,
-		)
+		wrapped := restoredLedgerSequenceGapError{OrgID: org.ID, Gaps: report.ChainGapCount}
 		logger.ErrorContext(
 			ctx,
 			"backup.restore_drill.ledger_chain.org_failed",

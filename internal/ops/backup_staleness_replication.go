@@ -27,7 +27,8 @@ const (
 	ybClusterHealthy ybClusterObservation = iota
 	// ybClusterDegraded indicates an answer reporting incomplete replication.
 	ybClusterDegraded
-	// ybClusterUnseen indicates that every master failed to provide a usable answer.
+	// ybClusterUnseen indicates that every master failed to provide a usable
+	// answer.
 	ybClusterUnseen
 )
 

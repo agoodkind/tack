@@ -175,10 +175,7 @@ func TestBackupStalenessAlarmMailsWhenTheSharedMemoryCannotBeRead(t *testing.T) 
 	if !strings.Contains(logs, "level=WARN msg=backup.staleness.alarm_memory_unreadable") ||
 		!strings.Contains(logs, "key="+backupAlarmMemoryKey) ||
 		!strings.Contains(logs, "larger than") {
-		t.Fatalf(
-			"the warning must include the unreadable state key and error:\n%s",
-			logs,
-		)
+		t.Fatalf("the warning must include the unreadable state key and error:\n%s", logs)
 	}
 
 	if alarmed, found := alarmedBackupMetrics(t, cfg); !found || len(alarmed) != 3 {

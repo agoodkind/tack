@@ -27,9 +27,11 @@ type ybArchiveTarget struct {
 
 // resolveYBArchiveTarget returns a nil target without error only during
 // discovery when manifests are absent or the newest manifest omits this node.
-// Discovery skips prefixes without manifests because upload publishes them last.
+// Discovery skips prefixes without manifests because upload publishes them
+// last.
 // Explicit run IDs instead require a manifest and node membership.
-// complete=true suppresses uploads only after every required node artifact exists.
+// complete=true suppresses uploads only after every required node artifact
+// exists.
 func resolveYBArchiveTarget(
 	ctx context.Context,
 	cfg *config.Config,
@@ -141,14 +143,22 @@ func localYBNodeName(ctx context.Context, cli *client.Client) (string, error) {
 	}
 
 	if insp.Container.Config == nil || strings.TrimSpace(insp.Container.Config.Hostname) == "" {
-		wrapped := fmt.Errorf(
-			"local yugabyte container %q does not specify a hostname to identify this node",
-			yugabyteBackupContainer,
-		)
+		wrapped := localYBHostnameMissingError{Container: yugabyteBackupContainer}
 		logger.ErrorContext(ctx, "backup.yb_archive.failed", slog.String("err", wrapped.Error()))
 
 		return "", wrapped
 	}
 
 	return insp.Container.Config.Hostname, nil
+}
+
+type localYBHostnameMissingError struct {
+	Container string
+}
+
+func (failure localYBHostnameMissingError) Error() string {
+	return fmt.Sprintf(
+		"local yugabyte container %q does not specify a hostname to identify this node",
+		failure.Container,
+	)
 }
