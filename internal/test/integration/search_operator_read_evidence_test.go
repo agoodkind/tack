@@ -75,10 +75,11 @@ func requireSearchReadEvent(
 		event.Actor.SessionID != searchReadSession ||
 		event.Context.AuditFormatVersion != audit.AuditFormatComplete ||
 		event.Context.OperationClass != audit.OperationRead ||
-		event.Context.Phase != audit.PhaseRead ||
+		event.Context.Phase != audit.PhaseAttempt ||
 		event.Context.OperationID == uuid.Nil ||
 		event.Context.StartedAt.IsZero() ||
-		event.Context.CompletedAt.Before(event.Context.StartedAt) ||
+		!event.Context.CompletedAt.IsZero() || event.Outcome != audit.OutcomeAttempted ||
+		event.Error != nil || event.Context.Read != nil ||
 		!event.OccurredAt.Equal(event.Context.StartedAt) ||
 		event.Context.Target == nil ||
 		event.Context.Target.Reference != reference {
@@ -118,25 +119,7 @@ func requireSearchReadPayload(
 	targets []audit.Target,
 ) {
 	t.Helper()
-	digest, parts, err := audit.ReadManifestDigest(targets)
-	if err != nil {
-		t.Fatalf("digest expected read targets: %v", err)
-	}
-
-	evidence := event.Context.Read
-	if event.Outcome != audit.OutcomeCompleted || evidence == nil || evidence.Count != uint64(
-		len(targets),
-	) ||
-		evidence.PayloadSHA256 != payloadDigest(
-			payload,
-		) || evidence.PayloadFormat != "application/json" ||
-		evidence.ManifestSHA256 != digest ||
-		evidence.ManifestParts != parts {
-		t.Fatalf(
-			"%s read evidence = %+v, want the exact payload and ordered targets %+v",
-			event.Verb,
-			evidence,
-			targets,
-		)
+	if event.Outcome != audit.OutcomeAttempted || event.Context.Read != nil || event.Error != nil {
+		t.Fatalf("%s attempt = %+v", event.Verb, event)
 	}
 }

@@ -3,8 +3,6 @@ package integration_test
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"os"
 	"os/exec"
@@ -17,9 +15,7 @@ import (
 	"goodkind.io/tack/internal/audit"
 	"goodkind.io/tack/internal/cli"
 	"goodkind.io/tack/internal/clock"
-	"goodkind.io/tack/internal/schemastatus"
 	"goodkind.io/tack/internal/testenv"
-	"goodkind.io/tack/migrations"
 )
 
 // TestRuntimeAuditProviderRefresh runs the migration state read that the Tack
@@ -43,11 +39,6 @@ func TestRuntimeAuditProviderRefresh(t *testing.T) {
 		t.Fatalf("decoding the status document failed: %v\n%s", err, stdout)
 	}
 
-	available, err := schemastatus.Available(t.Context(), migrations.FS)
-	if err != nil {
-		t.Fatalf("listing the embedded migrations failed: %v", err)
-	}
-
 	startOutboxRelay(t, stack)
 	row := waitForActorRow(
 		t,
@@ -56,35 +47,14 @@ func TestRuntimeAuditProviderRefresh(t *testing.T) {
 		cli.ServiceActorID(service),
 		started,
 	)
-	var payload bytes.Buffer
-	if err := json.Compact(&payload, envelope.Result); err != nil {
-		t.Fatalf("compacting the printed result failed: %v", err)
-	}
-
-	payloadDigest := sha256.Sum256(payload.Bytes())
-	manifestDigest, manifestParts, err := audit.ReadManifestDigest(
-		schemastatus.MigrationTargets(available),
-	)
-	if err != nil {
-		t.Fatalf("computing the migration manifest digest failed: %v", err)
-	}
-
-	want := audit.ReadEvidence{
-		Count:          uint64(len(available)),
-		PayloadSHA256:  hex.EncodeToString(payloadDigest[:]),
-		PayloadFormat:  "application/json",
-		ManifestSHA256: manifestDigest,
-		ManifestParts:  manifestParts,
-	}
-	if row.Outcome != audit.OutcomeCompleted || row.Context.OperationClass != audit.OperationRead ||
-		row.Context.Read == nil ||
-		*row.Context.Read != want {
+	if row.Outcome != audit.OutcomeAttempted || row.Context.OperationClass != audit.OperationRead ||
+		row.Context.Phase != audit.PhaseAttempt || row.Context.OperationID == uuid.Nil ||
+		row.Context.Read != nil || row.Error != nil || !row.Context.CompletedAt.IsZero() {
 		t.Fatalf(
-			"read is %s %s %+v; evidence must match %+v",
+			"read attempt is %s %s %+v",
 			row.Outcome,
 			row.Context.OperationClass,
 			row.Context.Read,
-			want,
 		)
 	}
 }

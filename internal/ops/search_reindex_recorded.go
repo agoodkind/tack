@@ -2,7 +2,6 @@ package ops
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 
 	"goodkind.io/tack/internal/audit"
@@ -15,9 +14,7 @@ import (
 // begin a replacement because another replacement is in progress.
 const replacementInProgressCode = "replacement_in_progress"
 
-// indexReplacementEvidence records the serving index and requested settings.
-// It records the replacement ID, target index, state, and generation after
-// BeginRebuild returns.
+// indexReplacementEvidence records the selected index and requested settings.
 type indexReplacementEvidence struct {
 	Mode          string `json:"mode"`
 	SourceIndex   string `json:"source_index"`
@@ -25,28 +22,9 @@ type indexReplacementEvidence struct {
 	RoutingShards int    `json:"routing_shards"`
 	Replicas      int    `json:"replicas"`
 	Restored      bool   `json:"restored"`
-	RebuildID     string `json:"rebuild_id,omitempty"`
-	TargetIndex   string `json:"target_index,omitempty"`
-	State         string `json:"state,omitempty"`
-	Generation    int64  `json:"generation,omitempty"`
 }
 
 func (indexReplacementEvidence) isStepEvidence() {}
-
-func replacementEvidence(rebuild searchdomain.Rebuild) indexReplacementEvidence {
-	return indexReplacementEvidence{
-		Mode:          string(rebuild.Mode),
-		SourceIndex:   rebuild.SourceIndex,
-		PrimaryShards: rebuild.PrimaryShards,
-		RoutingShards: rebuild.RoutingShards,
-		Replicas:      rebuild.Replicas,
-		Restored:      rebuild.Restored,
-		RebuildID:     rebuild.ID.String(),
-		TargetIndex:   rebuild.TargetIndex,
-		State:         string(rebuild.State),
-		Generation:    rebuild.Generation,
-	}
-}
 
 // runSearchReindexRecorded records an index replacement as one step on the
 // serving index and prints the replacement. If another replacement is in
@@ -96,10 +74,6 @@ func runSearchReindexRecorded(
 		RoutingShards: plan.request.RoutingShards,
 		Replicas:      plan.request.Replicas,
 		Restored:      plan.request.Restored,
-		RebuildID:     "",
-		TargetIndex:   "",
-		State:         "",
-		Generation:    0,
 	}
 	plannedJSON, err := encodeEvidence(ctx, planned)
 	if err != nil {
@@ -127,9 +101,6 @@ func runSearchReindexRecorded(
 			begun = rebuild
 
 			return nil
-		},
-		func(ctx context.Context) (json.RawMessage, error) {
-			return encodeEvidence(ctx, replacementEvidence(begun))
 		},
 	)
 	if err != nil {

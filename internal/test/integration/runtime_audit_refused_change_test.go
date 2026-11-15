@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
-
 	"goodkind.io/tack/internal/audit"
 )
 
@@ -23,9 +22,7 @@ const (
 // tack_add_relationship with child_of from the issue to the epic, and
 // tack_remove_relationship on the child_of edge from the issue to the
 // project. The server must refuse both calls and leave the child_of edges of
-// the issue unchanged. For each call, the ledger must record one refused
-// result for the verified user with the relationship target, the typed code,
-// and the refusal reason.
+// the issue unchanged. Each call must record authentication and an attempt.
 func TestRuntimeAuditRefusedRelationshipChanges(t *testing.T) {
 	server, ledger := startRecordedPublicServer(t)
 	identifier := "AUD" + strings.ToUpper(uuid.NewString()[:5])
@@ -84,88 +81,36 @@ func TestRuntimeAuditRefusedRelationshipChanges(t *testing.T) {
 		)
 	}
 
-	addRow := onlyResultRow(
+	addTarget := &audit.Target{
+		Kind:         audit.TargetKindRelationship,
+		SourceID:     issueID,
+		TargetID:     epicID,
+		RelationType: "child_of",
+	}
+	removeTarget := &audit.Target{
+		Kind:         audit.TargetKindRelationship,
+		SourceID:     issueID,
+		TargetID:     projectID,
+		RelationType: "child_of",
+	}
+	requireMutationRequest(
 		t,
-		ledger.requestRows(t, server.orgID, addID, hasAuthAndOther),
-		server.userID,
-	)
-	requireRefusedRelationshipRow(
-		t,
-		addRow,
+		ledger,
+		server,
+		addID,
 		audit.VerbRelationshipAdd,
-		"invalid_argument",
-		reservedParentReason,
-		server.userID,
-		audit.Target{
-			Kind:         audit.TargetKindRelationship,
-			NodeType:     "",
-			Reference:    "",
-			Name:         "",
-			URI:          "",
-			RelationType: "child_of",
-			ID:           uuid.Nil,
-			SourceID:     issueID,
-			TargetID:     epicID,
-		},
+		"tack_add_relationship",
+		"",
+		addTarget,
 	)
-	removeRow := onlyResultRow(
+	requireMutationRequest(
 		t,
-		ledger.requestRows(t, server.orgID, removeID, hasAuthAndOther),
-		server.userID,
-	)
-	requireRefusedRelationshipRow(
-		t,
-		removeRow,
+		ledger,
+		server,
+		removeID,
 		audit.VerbRelationshipRemove,
-		"failed_precondition",
-		onlyParentReason,
-		server.userID,
-		audit.Target{
-			Kind:         audit.TargetKindRelationship,
-			NodeType:     "",
-			Reference:    "",
-			Name:         "",
-			URI:          "",
-			RelationType: "child_of",
-			ID:           uuid.Nil,
-			SourceID:     issueID,
-			TargetID:     projectID,
-		},
+		"tack_remove_relationship",
+		"",
+		removeTarget,
 	)
-}
-
-// requireRefusedRelationshipRow requires a refused result event of verb for
-// actorID with code, a message that contains reason, the relationship
-// target, and no delta.
-func requireRefusedRelationshipRow(
-	t *testing.T,
-	row audit.Row,
-	verb audit.Verb,
-	code string,
-	reason string,
-	actorID uuid.UUID,
-	target audit.Target,
-) {
-	t.Helper()
-	requireResultRow(t, row, verb, audit.OutcomeRefused, code)
-	if row.ActorID != actorID || !strings.Contains(row.Error.Message, reason) {
-		t.Fatalf(
-			"event %s actor = %s, error message = %q; want actor %s and a message with %q",
-			row.EventID,
-			row.ActorID,
-			row.Error.Message,
-			actorID,
-			reason,
-		)
-	}
-
-	if row.Context.Target == nil || *row.Context.Target != target || row.Delta != nil {
-		t.Fatalf(
-			"event %s target = %+v, delta = %+v; want target %+v and no delta",
-			row.EventID,
-			row.Context.Target,
-			row.Delta,
-			target,
-		)
-	}
 }

@@ -113,3 +113,13 @@ func textCells(raw [][]byte) []*string {
 
 	return cells
 }
+
+func dbStatementDenied(err error) bool {
+	if errors.Is(err, errDBStatementWrites) {
+		return true
+	}
+
+	var databaseError *pgconn.PgError
+
+	return errors.As(err, &databaseError) && databaseError.Code == "42501"
+}

@@ -99,13 +99,10 @@ func searchRolloutSpec() audit.Spec {
 }
 
 type accessRolloutEvidence struct {
-	AuthorityID        string   `json:"authority_id"`
-	CandidateVersion   string   `json:"candidate_version"`
-	ExpectedGeneration int64    `json:"expected_generation"`
-	ActiveVersion      string   `json:"active_version"`
-	Phase              string   `json:"phase,omitempty"`
-	WriteVersions      []string `json:"write_versions,omitempty"`
-	Generation         int64    `json:"generation,omitempty"`
+	AuthorityID        string `json:"authority_id"`
+	CandidateVersion   string `json:"candidate_version"`
+	ExpectedGeneration int64  `json:"expected_generation"`
+	ActiveVersion      string `json:"active_version"`
 }
 
 func (accessRolloutEvidence) isStepEvidence() {}
@@ -172,9 +169,6 @@ func runSearchRolloutRecorded(
 		CandidateVersion:   in.Candidate,
 		ExpectedGeneration: current.Generation,
 		ActiveVersion:      current.ActiveVersion,
-		Phase:              "",
-		WriteVersions:      nil,
-		Generation:         0,
 	}
 	var begun searchdomain.AccessRollout
 	details, err := searchStep(
@@ -203,14 +197,6 @@ func runSearchRolloutRecorded(
 			begun = rollout
 
 			return nil
-		},
-		func(ctx context.Context) (json.RawMessage, error) {
-			observed := planned
-			observed.Phase, observed.WriteVersions, observed.Generation = string(
-				begun.Phase,
-			), begun.WriteVersions, begun.Generation
-
-			return encodeEvidence(ctx, observed)
 		},
 	)
 	if err != nil {

@@ -19,10 +19,6 @@ type toolNote struct {
 
 type toolNoteKey struct{}
 
-// idempotentMatchReason is the result reason of a create that matched an
-// earlier create with the same idempotency key and wrote nothing.
-const idempotentMatchReason = "idempotent_match"
-
 // withToolNote attaches an empty note for one tool call.
 func withToolNote(ctx context.Context) context.Context {
 	return context.WithValue(

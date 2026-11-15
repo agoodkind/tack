@@ -1,8 +1,6 @@
 package integration_test
 
 import (
-	"encoding/json"
-	"slices"
 	"strings"
 	"testing"
 
@@ -100,42 +98,15 @@ func testStalenessCheckOutcome(t *testing.T) {
 		string(audit.VerbOpsBackupStalenessCheck),
 		operatorID.String(),
 	)
-	intents := eventsInPhase(events, audit.PhaseIntent, uuid.Nil)
+	intents := eventsInPhase(events, audit.PhaseAttempt, uuid.Nil)
 	if len(intents) != 1 {
 		t.Fatalf("staleness-check recorded %d intents instead of 1", len(intents))
 	}
 
 	operationID := intents[0].Context.OperationID
-	stepResults := eventsInPhase(events, audit.PhaseResult, operationID)
-	if len(stepResults) != 1 || stepResults[0].Outcome != audit.OutcomeCompleted {
-		t.Fatalf(
-			"staleness-check recorded %d step results; the test requires one completed step result",
-			len(stepResults),
-		)
-	}
-
-	var evidence stalenessStepEvidence
-	if err := json.Unmarshal(stepResults[0].Extra, &evidence); err != nil {
-		t.Fatalf("decoding the staleness evidence failed: %v", err)
-	}
-
-	if evidence.Bucket != cfg.BackupS3BucketMain || evidence.FDBLeg != "skipped" ||
-		len(evidence.Readings) == 0 {
-		t.Fatalf(
-			"staleness-check recorded %+v; the test requires bucket %s, FDBLeg \"skipped\", and at least one reading",
-			evidence,
-			cfg.BackupS3BucketMain,
-		)
-	}
-
-	for _, reading := range evidence.Readings {
-		if reading.Verdict != "STALE" || !slices.Contains(evidence.Stale, reading.Name) {
-			t.Fatalf(
-				"Reading %+v must have verdict STALE and appear in the stale readings %v",
-				reading,
-				evidence.Stale,
-			)
-		}
+	steps := eventsInPhase(events, audit.PhaseAttempt, operationID)
+	if len(steps) != 1 || steps[0].Outcome != audit.OutcomeAttempted {
+		t.Fatalf("staleness-check recorded %d step attempts; want one", len(steps))
 	}
 
 	requireCompletedResult(t, events, operationID)

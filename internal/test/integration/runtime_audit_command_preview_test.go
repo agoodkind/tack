@@ -65,7 +65,7 @@ func TestRuntimeAuditGeneratedPreviewRecordsRead(t *testing.T) {
 		t.Fatalf("the metadata name index dry run failed: %v\n%s", err, output.String())
 	}
 
-	payload := printedPayload(t, output.Bytes())
+	printedPayload(t, output.Bytes())
 	events := readOutboxEvents(t, pool, audit.VerbOpsBackfillMetadataNameIndex, operatorID)
 	if len(events) != 1 {
 		t.Fatalf(
@@ -82,7 +82,8 @@ func TestRuntimeAuditGeneratedPreviewRecordsRead(t *testing.T) {
 	}
 
 	if eventContext.OperationClass != audit.OperationRead ||
-		event.Outcome != audit.OutcomeCompleted ||
+		event.Outcome != audit.OutcomeAttempted || eventContext.Phase != audit.PhaseAttempt ||
+		eventContext.Read != nil || event.Error != nil ||
 		eventContext.Target == nil ||
 		eventContext.Target.URI != previewCommandTarget {
 		t.Fatalf(
@@ -90,15 +91,6 @@ func TestRuntimeAuditGeneratedPreviewRecordsRead(t *testing.T) {
 			eventContext,
 			event.Outcome,
 			previewCommandTarget,
-		)
-	}
-
-	if eventContext.Read == nil || eventContext.Read.PayloadSHA256 != payloadDigest(payload) ||
-		eventContext.Read.PayloadFormat != "application/json" {
-		t.Fatalf(
-			"the dry run read evidence is %+v instead of the JSON payload digest %s",
-			eventContext.Read,
-			payloadDigest(payload),
 		)
 	}
 

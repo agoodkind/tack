@@ -140,7 +140,7 @@ func updateHandler(nt *node.NodeType, b NodeTypeBinding) mcpserver.ToolHandlerFu
 
 		// Refuse before the write, not only in the response.
 		if !isAuthorized(ctx) {
-			return permissionDenied(), nil
+			return permissionDenied(ctx), nil
 		}
 
 		view, err := b.NodeSvc.Update(
@@ -233,7 +233,7 @@ func deleteHandler(nt *node.NodeType, b NodeTypeBinding) mcpserver.ToolHandlerFu
 		)
 		// Refuse before the write, not only in the response.
 		if !isAuthorized(ctx) {
-			return permissionDenied(), nil
+			return permissionDenied(ctx), nil
 		}
 
 		result, err := b.NodeSvc.Delete(ctx, id, userID)

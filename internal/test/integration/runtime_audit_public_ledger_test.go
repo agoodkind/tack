@@ -235,7 +235,7 @@ func requireReadRow(
 	verb audit.Verb,
 	outcome audit.Outcome,
 	code string,
-	body []byte,
+	_ []byte,
 ) {
 	t.Helper()
 	if row.Action != string(verb) || row.Outcome != outcome {
@@ -250,9 +250,14 @@ func requireReadRow(
 	}
 
 	eventContext := row.Context
+	phase := audit.PhaseRead
+	if outcome == audit.OutcomeAttempted {
+		phase = audit.PhaseAttempt
+	}
+
 	if eventContext.AuditFormatVersion != audit.AuditFormatComplete ||
 		eventContext.OperationClass != audit.OperationRead ||
-		eventContext.Phase != audit.PhaseRead ||
+		eventContext.Phase != phase ||
 		eventContext.OperationID == uuid.Nil {
 		t.Fatalf(
 			"event %s context = %+v, want a format 2 read with an operation ID",
@@ -268,12 +273,35 @@ func requireReadRow(
 		t.Fatalf("event %s error = %+v, want code %s", row.EventID, row.Error, code)
 	}
 
-	if eventContext.Read == nil || eventContext.Read.PayloadSHA256 != payloadDigest(body) {
-		t.Fatalf(
-			"event %s read evidence = %+v, want payload digest %s",
-			row.EventID,
-			eventContext.Read,
-			payloadDigest(body),
-		)
+	if eventContext.Read != nil {
+		t.Fatalf("event %s includes response evidence: %+v", row.EventID, eventContext.Read)
 	}
+}
+
+func (ledger publicLedger) refusal(t *testing.T, orgID uuid.UUID, requestID string) audit.Row {
+	t.Helper()
+
+	rows := ledger.requestRows(
+		t,
+		orgID,
+		requestID,
+		func(rows []audit.Row) bool {
+			for _, row := range rows {
+				if row.Outcome == audit.OutcomeRefused {
+					return true
+				}
+			}
+
+			return false
+		},
+	)
+	for _, row := range rows {
+		if row.Outcome == audit.OutcomeRefused {
+			return row
+		}
+	}
+
+	t.Fatal("request did not record its refusal")
+
+	return audit.Row{}
 }

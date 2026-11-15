@@ -3,49 +3,21 @@ package audit
 import (
 	"context"
 	"sync"
-
-	"github.com/google/uuid"
 )
 
 type readCollectorKey struct{}
 
-// readCollector stores the returned identities and the first reported outcome of one request.
 type readCollector struct {
-	mu        sync.Mutex
-	targets   []Target
-	byOrg     map[uuid.UUID][]Target
-	seen      map[Target]struct{}
-	seenInOrg map[orgTarget]struct{}
-	outcome   OutcomeDetails
+	mu      sync.Mutex
+	outcome OutcomeDetails
 }
 
-type orgTarget struct {
-	orgID  uuid.UUID
-	target Target
-}
-
-// CollectedRead contains the identities that one request returned, in insertion
-// order and grouped by organization, and the first reported outcome.
-type CollectedRead struct {
-	Targets    []Target
-	OrgTargets map[uuid.UUID][]Target
-	Outcome    OutcomeDetails
-}
-
-// WithReadCollector returns a context with an empty collector for the identities
-// and outcome of one public read.
+// WithReadCollector creates a slot for the handler's security decision.
 func WithReadCollector(ctx context.Context) context.Context {
 	return context.WithValue(
 		ctx,
 		readCollectorKey{},
-		&readCollector{
-			mu:        sync.Mutex{},
-			targets:   nil,
-			byOrg:     map[uuid.UUID][]Target{},
-			seen:      map[Target]struct{}{},
-			seenInOrg: map[orgTarget]struct{}{},
-			outcome:   NoOutcome(),
-		},
+		&readCollector{mu: sync.Mutex{}, outcome: NoOutcome()},
 	)
 }
 
@@ -54,31 +26,6 @@ func WithReadCollector(ctx context.Context) context.Context {
 func HasReadCollector(ctx context.Context) bool {
 	collector, _ := ctx.Value(readCollectorKey{}).(*readCollector)
 	return collector != nil
-}
-
-// AddReadTargets appends each target of orgID that the collector in ctx does not
-// already contain. It does not add targets when ctx does not have a collector.
-func AddReadTargets(ctx context.Context, orgID uuid.UUID, targets ...Target) {
-	collector, _ := ctx.Value(readCollectorKey{}).(*readCollector)
-	if collector == nil {
-		return
-	}
-
-	collector.mu.Lock()
-	defer collector.mu.Unlock()
-
-	for _, target := range targets {
-		key := orgTarget{orgID: orgID, target: target}
-		if _, found := collector.seenInOrg[key]; !found {
-			collector.seenInOrg[key] = struct{}{}
-			collector.byOrg[orgID] = append(collector.byOrg[orgID], target)
-		}
-
-		if _, found := collector.seen[target]; !found {
-			collector.seen[target] = struct{}{}
-			collector.targets = append(collector.targets, target)
-		}
-	}
 }
 
 // NoteReadOutcome stores outcome in the collector in ctx if the collector does not already have an outcome.
@@ -103,31 +50,17 @@ func NoteReadOutcome(ctx context.Context, outcome Outcome, code, message string)
 	}
 }
 
-// ReadCollected returns the identities and the first reported outcome from the collector in ctx.
-// It returns a zero outcome if ctx does not have a collector or the collector has not recorded an outcome.
-func ReadCollected(ctx context.Context) CollectedRead {
+// ReadDecision returns the first decision the handler recorded.
+func ReadDecision(ctx context.Context) OutcomeDetails {
 	collector, _ := ctx.Value(readCollectorKey{}).(*readCollector)
 	if collector == nil {
-		return CollectedRead{
-			Targets:    nil,
-			OrgTargets: map[uuid.UUID][]Target{},
-			Outcome:    NoOutcome(),
-		}
+		return NoOutcome()
 	}
 
 	collector.mu.Lock()
 	defer collector.mu.Unlock()
 
-	byOrg := make(map[uuid.UUID][]Target, len(collector.byOrg))
-	for orgID, targets := range collector.byOrg {
-		byOrg[orgID] = append([]Target(nil), targets...)
-	}
-
-	return CollectedRead{
-		Targets:    append([]Target(nil), collector.targets...),
-		OrgTargets: byOrg,
-		Outcome:    collector.outcome,
-	}
+	return collector.outcome
 }
 
 // NoOutcome returns empty outcome details.

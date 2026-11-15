@@ -1,7 +1,6 @@
 package integration_test
 
 import (
-	"encoding/json"
 	"testing"
 	"time"
 
@@ -69,32 +68,14 @@ func testAccessRolloutOutcomes(t *testing.T) {
 		string(audit.VerbOpsSearchAccessRollout),
 		operatorID.String(),
 	)
-	intents := eventsInPhase(events, audit.PhaseIntent, uuid.Nil)
+	intents := eventsInPhase(events, audit.PhaseAttempt, uuid.Nil)
 	if len(intents) != 2 {
 		t.Fatalf("access-rollout recorded %d intents instead of 2", len(intents))
 	}
 
 	first, second := intents[0].Context.OperationID, intents[1].Context.OperationID
-	stepResults := eventsInPhase(events, audit.PhaseResult, first)
-	if len(stepResults) != 1 {
-		t.Fatalf("the first access-rollout recorded %d step results instead of 1", len(stepResults))
-	}
-
-	var evidence rolloutStepEvidence
-	if err := json.Unmarshal(stepResults[0].Extra, &evidence); err != nil {
-		t.Fatalf("decoding the rollout evidence failed: %v", err)
-	}
-
-	if evidence.AuthorityID != authority.String() ||
-		evidence.CandidateVersion != searchaccess.RotatedVersion ||
-		evidence.Phase != "backfill" ||
-		evidence.Generation == 0 {
-		t.Fatalf(
-			"access-rollout recorded %+v; the test requires authority %s, candidate %s, phase backfill, and a nonzero generation",
-			evidence,
-			authority,
-			searchaccess.RotatedVersion,
-		)
+	if steps := eventsInPhase(events, audit.PhaseAttempt, first); len(steps) != 1 {
+		t.Fatalf("the first access-rollout recorded %d step attempts instead of 1", len(steps))
 	}
 
 	requireCompletedResult(t, eventsOfOperation(events, first), first)
@@ -105,7 +86,7 @@ func testAccessRolloutOutcomes(t *testing.T) {
 		first,
 		operatorID,
 	)
-	if steps := eventsInPhase(events, audit.PhaseIntent, second); len(steps) != 0 {
+	if steps := eventsInPhase(events, audit.PhaseAttempt, second); len(steps) != 0 {
 		t.Fatalf("the second access-rollout recorded %d step intents instead of 0", len(steps))
 	}
 
@@ -200,7 +181,7 @@ func requireUnknownCandidateRefused(t *testing.T, cfg *config.Config, pool *pgxp
 		string(audit.VerbOpsSearchAccessRollout),
 		operatorID.String(),
 	)
-	intents := eventsInPhase(events, audit.PhaseIntent, uuid.Nil)
+	intents := eventsInPhase(events, audit.PhaseAttempt, uuid.Nil)
 	if len(intents) != 1 {
 		t.Fatalf(
 			"access-rollout recorded %d intents for an unregistered candidate instead of 1",
@@ -209,7 +190,7 @@ func requireUnknownCandidateRefused(t *testing.T, cfg *config.Config, pool *pgxp
 	}
 
 	operation := intents[0].Context.OperationID
-	if steps := eventsInPhase(events, audit.PhaseIntent, operation); len(steps) != 0 {
+	if steps := eventsInPhase(events, audit.PhaseAttempt, operation); len(steps) != 0 {
 		t.Fatalf(
 			"access-rollout recorded %d step intents for an unregistered candidate instead of 0",
 			len(steps),

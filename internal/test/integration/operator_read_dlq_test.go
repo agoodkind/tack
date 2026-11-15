@@ -5,14 +5,11 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"slices"
 	"testing"
-	"time"
 
 	"github.com/google/uuid"
 
 	"goodkind.io/tack/internal/audit"
-	"goodkind.io/tack/internal/clock"
 	"goodkind.io/tack/internal/config"
 	"goodkind.io/tack/internal/testenv"
 )
@@ -116,20 +113,15 @@ func TestOperatorReadDLQSummary(t *testing.T) {
 	pipeline.startRelay(t, nil)
 	row := pipeline.stack().waitForRow(t, event.EventID)
 	requireSearchReadLedgerIdentity(t, row, event)
-	ledger := publicLedger{stack: pipeline.stack(), since: clock.Now().Add(-time.Hour)}
-	if row.Outcome != audit.OutcomeCompleted || row.Context.Read == nil ||
-		*row.Context.Read != *event.Context.Read ||
-		!slices.Equal(ledger.manifestTargets(t, row), targets) {
-		t.Fatalf("the permanent summary evidence differs from the printed result: %+v", row)
+	if row.Outcome != audit.OutcomeAttempted || row.Context.Read != nil || row.Error != nil {
+		t.Fatalf("the permanent summary attempt differs from the outbox event: %+v", row)
 	}
 
 	t.Logf(
-		"ledger event=%s operation=%s verb=%s outcome=%s count=%d sha256=%s",
+		"ledger event=%s operation=%s verb=%s outcome=%s",
 		row.EventID,
 		row.Context.OperationID,
 		row.Action,
 		row.Outcome,
-		row.Context.Read.Count,
-		row.Context.Read.PayloadSHA256,
 	)
 }

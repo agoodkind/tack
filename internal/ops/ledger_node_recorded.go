@@ -17,23 +17,16 @@ import (
 // launcher config of the local ledger node.
 const ledgerNodeConfigTarget = ledgerNodeTarget + "/launcher-config"
 
-// ledgerNodeJSONFormat is the payload format of the node-prepare preview.
-const ledgerNodeJSONFormat = "application/json"
-
 // ledgerNodeWaitEvidence is the planned and observed state of the node wait.
 type ledgerNodeWaitEvidence struct {
-	Container     string `json:"container"`
-	Stall         string `json:"stall"`
-	Poll          string `json:"poll"`
-	Health        string `json:"health,omitempty"`
-	WaitedSeconds int64  `json:"waited_seconds,omitempty"`
+	Container string `json:"container"`
+	Stall     string `json:"stall"`
+	Poll      string `json:"poll"`
 }
 
 func (ledgerNodeWaitEvidence) isStepEvidence() {}
 
-// runLedgerNodePrepareRecorded records the node-prepare change as one step on
-// the saved launcher config. The step intent records the observed state and
-// planned change. The step result records the result after the change.
+// runLedgerNodePrepareRecorded saves the plan before changing the launcher.
 func runLedgerNodePrepareRecorded(
 	ctx context.Context,
 	cfg *config.Config,
@@ -70,7 +63,6 @@ func runLedgerNodePrepareRecorded(
 
 			return applyErr
 		},
-		func(ctx context.Context) (json.RawMessage, error) { return encodeEvidence(ctx, applied) },
 	)
 	if err != nil {
 		return details, err
@@ -122,8 +114,6 @@ func previewLedgerNodePrepare(ctx context.Context, f *cli.Factory, sink clispec.
 
 			return audit.OperatorReadOutput{
 				Payload: encoded,
-				Format:  ledgerNodeJSONFormat,
-				Targets: []audit.Target{externalTarget(ledgerNodeConfigTarget)},
 			}, nil
 		},
 	)
@@ -150,9 +140,7 @@ func previewLedgerNodePrepare(ctx context.Context, f *cli.Factory, sink clispec.
 	return nil
 }
 
-// runLedgerNodeWaitRecorded records the wait for the local ledger node as one
-// step on its health. The step result records the observed health and the
-// wait time. A stall or a stopped container fails the step.
+// runLedgerNodeWaitRecorded records the wait before checking node health.
 func runLedgerNodeWaitRecorded(
 	ctx context.Context,
 	cfg *config.Config,
@@ -177,11 +165,9 @@ func runLedgerNodeWaitRecorded(
 
 	defer func() { _ = docker.Close() }()
 	planned := ledgerNodeWaitEvidence{
-		Container:     yugabyteBackupContainer,
-		Stall:         stall.String(),
-		Poll:          poll.String(),
-		Health:        "",
-		WaitedSeconds: 0,
+		Container: yugabyteBackupContainer,
+		Stall:     stall.String(),
+		Poll:      poll.String(),
 	}
 	plannedJSON, err := encodeEvidence(ctx, planned)
 	if err != nil {
@@ -216,12 +202,6 @@ func runLedgerNodeWaitRecorded(
 			took = waited
 
 			return nil
-		},
-		func(ctx context.Context) (json.RawMessage, error) {
-			observed := planned
-			observed.Health, observed.WaitedSeconds = ledgerNodeHealthy, int64(took.Seconds())
-
-			return encodeEvidence(ctx, observed)
 		},
 	)
 	if err != nil {

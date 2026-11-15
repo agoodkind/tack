@@ -74,7 +74,7 @@ func RegisterSearch(s *mcpserver.MCPServer, nodes NodeTypeBinding, binding Searc
 		// lists the entry argument as "_reference", and argument validation
 		// rejects any other entry argument as unknown.
 		if !resolver.HasEntryPoint() {
-			return permissionDenied(), nil
+			return permissionDenied(ctx), nil
 		}
 
 		if err := rejectUnknownArgs(request, tool.Name, allowed); err != nil {

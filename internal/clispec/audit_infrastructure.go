@@ -8,7 +8,6 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgconn"
 
 	"goodkind.io/tack/internal/audit"
@@ -18,7 +17,6 @@ import (
 func runAfterCreatingAuditInfrastructure(
 	ctx context.Context,
 	intent audit.Event,
-	outcome audit.Event,
 	runContext context.Context,
 	outbox audit.OutboxWriter,
 	probe audit.InfrastructureProbe,
@@ -55,17 +53,6 @@ func runAfterCreatingAuditInfrastructure(
 	intentWithStart.OccurredAt = clock.Now().UTC()
 	if err := outbox.WriteOutbox(ctx, intentWithStart); err != nil {
 		return recordedAfterRunError(ctx, "record command intent", runErr, err)
-	}
-
-	outcome.EventID = uuid.Must(uuid.NewV7())
-	outcome.OccurredAt = clock.Now().UTC()
-	if runErr != nil {
-		outcome.Outcome = audit.OutcomeError
-		outcome.Error = &audit.EventError{Code: "command_failed", Message: runErr.Error()}
-	}
-
-	if err := outbox.WriteOutbox(ctx, outcome); err != nil {
-		return recordedAfterRunError(ctx, "record command outcome", runErr, err)
 	}
 
 	return runErr

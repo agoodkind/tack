@@ -31,11 +31,8 @@ func startRecordedPublicServer(t *testing.T) (*publicServer, publicLedger) {
 // with the same operation ID, and removes a relationship that does not exist.
 // Every request must record a format 2 auth.token_used event with the request
 // operation ID. The create must record change events under that operation
-// and no mcp.tool_invoked event. The repeated create must record one
-// completed node.create result with the idempotent_match reason and the
-// project target. The removal must state that it removed no edge and record
-// one refused relationship.remove result with the not_found code and the
-// relationship target.
+// and an attempt. The repeated create and the removal must record attempts.
+// The removal must state that it removed no edge.
 func TestRuntimeAuditPublicMutationResults(t *testing.T) {
 	server, ledger := startRecordedPublicServer(t)
 	identifier := "audit-mut-" + uuid.NewString()[:8]
@@ -100,11 +97,32 @@ func TestRuntimeAuditPublicMutationResults(t *testing.T) {
 		)
 	}
 
-	createRows := ledger.requestRows(t, server.orgID, createID, hasAuthAndOther)
+	createRows := ledger.requestRows(
+		t,
+		server.orgID,
+		createID,
+		func(rows []audit.Row) bool {
+			return hasMutationAttempt(rows, audit.VerbNodeCreate) && hasChange(rows) &&
+				hasAuthAndOther(rows)
+		},
+	)
 
 	createAuth := requireTokenUsedRow(t, createRows, server.userID)
+	requireMutationAttempt(
+		t,
+		createRows,
+		createAuth,
+		createID,
+		audit.VerbNodeCreate,
+		"tack_create_project",
+		"",
+		nil,
+		server.workspace,
+	)
+
 	for _, row := range createRows {
-		if row.Action == string(audit.VerbAuthTokenUsed) {
+		if row.Action == string(audit.VerbAuthTokenUsed) ||
+			row.Context.Phase == audit.PhaseAttempt {
 			continue
 		}
 
@@ -119,43 +137,32 @@ func TestRuntimeAuditPublicMutationResults(t *testing.T) {
 		}
 	}
 
-	repeatRow := onlyResultRow(
+	requireMutationRequest(
 		t,
-		ledger.requestRows(t, server.orgID, repeatID, hasAuthAndOther),
-		server.userID,
+		ledger,
+		server,
+		repeatID,
+		audit.VerbNodeCreate,
+		"tack_create_project",
+		"",
+		nil,
 	)
-	requireResultRow(t, repeatRow, audit.VerbNodeCreate, audit.OutcomeCompleted, "")
-	if repeatRow.Context.Reason != "idempotent_match" || repeatRow.Context.Target == nil ||
-		repeatRow.Context.Target.Kind != audit.TargetKindNode || repeatRow.Context.Target.ID != projectID || repeatRow.Delta != nil {
-		t.Fatalf(
-			"repeated create event %s reason = %q, target = %+v, delta = %+v; want idempotent_match, project %s, and no delta",
-			repeatRow.EventID,
-			repeatRow.Context.Reason,
-			repeatRow.Context.Target,
-			repeatRow.Delta,
-			projectID,
-		)
+	target := &audit.Target{
+		Kind:         audit.TargetKindRelationship,
+		SourceID:     projectID,
+		TargetID:     otherID,
+		RelationType: "watches",
 	}
-
-	removeRow := onlyResultRow(
+	requireMutationRequest(
 		t,
-		ledger.requestRows(t, server.orgID, removeID, hasAuthAndOther),
-		server.userID,
+		ledger,
+		server,
+		removeID,
+		audit.VerbRelationshipRemove,
+		"tack_remove_relationship",
+		"",
+		target,
 	)
-	requireResultRow(t, removeRow, audit.VerbRelationshipRemove, audit.OutcomeRefused, "not_found")
-	target := removeRow.Context.Target
-	if target == nil || target.Kind != audit.TargetKindRelationship ||
-		target.SourceID != projectID ||
-		target.RelationType != "watches" ||
-		target.TargetID != otherID {
-		t.Fatalf(
-			"removal event %s target = %+v, want relationship %s watches %s",
-			removeRow.EventID,
-			target,
-			projectID,
-			otherID,
-		)
-	}
 }
 
 // hasAuthAndOther reports whether rows contain an auth.token_used event and

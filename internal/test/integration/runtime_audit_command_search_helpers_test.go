@@ -42,22 +42,12 @@ func requireSearchPreviewRead(
 		t.Fatalf("the dry run of %v failed: %v\n%s", command, err, output)
 	}
 
-	digest := payloadDigest(printedPayload(t, []byte(output)))
+	printedPayload(t, []byte(output))
 	reads := readOutboxEvents(t, pool, verb, reader)
-	if len(reads) != 1 || reads[0].Outcome != audit.OutcomeCompleted ||
-		reads[0].Context.OperationClass != audit.OperationRead {
+	if len(reads) != 1 || reads[0].Outcome != audit.OutcomeAttempted ||
+		reads[0].Context.OperationClass != audit.OperationRead ||
+		reads[0].Context.Phase != audit.PhaseAttempt || reads[0].Context.Read != nil || reads[0].Error != nil {
 		t.Fatalf("the dry run of %v recorded %+v instead of one completed read", command, reads)
-	}
-
-	evidence := reads[0].Context.Read
-	if evidence == nil || evidence.PayloadSHA256 != digest ||
-		evidence.PayloadFormat != "application/json" {
-		t.Fatalf(
-			"the dry run of %v recorded read evidence %+v instead of the JSON digest %s of the printed result",
-			command,
-			evidence,
-			digest,
-		)
 	}
 }
 

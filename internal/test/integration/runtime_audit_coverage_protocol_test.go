@@ -41,7 +41,7 @@ func (env *coverageEnv) rpcCall(
 	}
 }
 
-// methodCase creates an MCP method case that requires HTTP 200 and a completed
+// methodCase creates an MCP method case that requires HTTP 200 and an attempted
 // audit event. It selects the system organization when systemOrg is true and
 // the server's organization otherwise.
 func methodCase(name string, systemOrg bool, verb audit.Verb, params map[string]any) coverageCase {
@@ -54,7 +54,7 @@ func methodCase(name string, systemOrg bool, verb audit.Verb, params map[string]
 			return evidence
 		},
 		verb:    verb,
-		outcome: audit.OutcomeCompleted,
+		outcome: audit.OutcomeAttempted,
 		check:   nil,
 	}
 }
@@ -91,7 +91,7 @@ func addProtocolCases(cases map[string]coverageCase) {
 	cases["mcp method tools/call"] = toolCase(
 		"tack_list_workspaces",
 		audit.VerbWorkspaceList,
-		audit.OutcomeCompleted,
+		audit.OutcomeAttempted,
 		func(*testing.T, *coverageEnv) map[string]any { return map[string]any{} },
 	)
 }

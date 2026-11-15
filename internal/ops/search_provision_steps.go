@@ -2,7 +2,6 @@ package ops
 
 import (
 	"context"
-	"encoding/json"
 
 	"goodkind.io/tack/internal/adapters/search"
 	"goodkind.io/tack/internal/audit"
@@ -15,7 +14,6 @@ type searchModelEvidence struct {
 	Version         string `json:"version"`
 	BundleDigest    string `json:"bundle_digest"`
 	TokenizerDigest string `json:"tokenizer_digest"`
-	ModelID         string `json:"model_id,omitempty"`
 }
 
 func (searchModelEvidence) isStepEvidence() {}
@@ -27,15 +25,13 @@ type searchIndexEvidence struct {
 	Primaries      int    `json:"primary_shards"`
 	RoutingShards  int    `json:"routing_shards"`
 	Replicas       int    `json:"replicas"`
-	Health         string `json:"health,omitempty"`
 }
 
 func (searchIndexEvidence) isStepEvidence() {}
 
 type searchAliasEvidence struct {
-	Alias  string `json:"alias"`
-	Index  string `json:"index"`
-	Target string `json:"target,omitempty"`
+	Alias string `json:"alias"`
+	Index string `json:"index"`
 }
 
 func (searchAliasEvidence) isStepEvidence() {}
@@ -53,7 +49,6 @@ func provisionSearchSteps(
 		Version:         search.PinnedModel.Version,
 		BundleDigest:    search.PinnedModel.BundleDigest,
 		TokenizerDigest: search.PinnedModel.TokenizerDigest,
-		ModelID:         "",
 	}
 	details, err := searchStep(
 		ctx,
@@ -69,12 +64,6 @@ func provisionSearchSteps(
 			model = provisioned
 
 			return nil
-		},
-		func(ctx context.Context) (json.RawMessage, error) {
-			observed := plannedModel
-			observed.ModelID = model.ID
-
-			return encodeEvidence(ctx, observed)
 		},
 	)
 	if err != nil {
@@ -95,7 +84,6 @@ func provisionSearchSteps(
 		Primaries:      spec.Primaries,
 		RoutingShards:  spec.RoutingShards,
 		Replicas:       spec.Replicas,
-		Health:         "",
 	}
 	details, err = searchStep(
 		ctx,
@@ -117,12 +105,6 @@ func provisionSearchSteps(
 
 			return nil
 		},
-		func(ctx context.Context) (json.RawMessage, error) {
-			observed := plannedIndex
-			observed.Health = "green"
-
-			return encodeEvidence(ctx, observed)
-		},
 	)
 	if err != nil {
 		return details, err
@@ -138,9 +120,8 @@ func provisionSearchAlias(
 	steps audit.StepRecorder,
 ) (audit.OutcomeDetails, error) {
 	plannedAlias := searchAliasEvidence{
-		Alias:  search.PublicAlias,
-		Index:  provisionIndex,
-		Target: "",
+		Alias: search.PublicAlias,
+		Index: provisionIndex,
 	}
 	details, err := searchStep(
 		ctx,
@@ -152,22 +133,11 @@ func provisionSearchAlias(
 				return searchProvisionFailure(ctx, "set search alias "+search.PublicAlias, err)
 			}
 
-			return nil
-		},
-		func(ctx context.Context) (json.RawMessage, error) {
-			target, err := adapter.AliasTarget(ctx, search.PublicAlias)
-			if err != nil {
-				return nil, searchProvisionFailure(
-					ctx,
-					"read search alias "+search.PublicAlias,
-					err,
-				)
+			if _, err := adapter.AliasTarget(ctx, search.PublicAlias); err != nil {
+				return searchProvisionFailure(ctx, "read search alias "+search.PublicAlias, err)
 			}
 
-			observed := plannedAlias
-			observed.Target = target
-
-			return encodeEvidence(ctx, observed)
+			return nil
 		},
 	)
 	if err != nil {
@@ -187,7 +157,6 @@ func searchStep[Evidence stepEvidence](
 	reference string,
 	planned Evidence,
 	effect func(context.Context) error,
-	observe func(context.Context) (json.RawMessage, error),
 ) (audit.OutcomeDetails, error) {
 	plannedJSON, err := encodeEvidence(ctx, planned)
 	if err != nil {
@@ -199,6 +168,5 @@ func searchStep[Evidence stepEvidence](
 		steps,
 		audit.ExternalStep(externalTarget(reference), plannedJSON),
 		effect,
-		observe,
 	)
 }

@@ -83,8 +83,7 @@ func TestDBBreakGlassRefusesToRunUnobserved(t *testing.T) {
 // TestDBBreakGlassRunsTheStatementAndRecordsIt is the engine-backed half: a
 // statement that runs returns its cells positionally with a SQL null kept as
 // null, and the alarm address receives the mail first. The ledger outbox
-// contains a pending row written before the statement and an ok row after,
-// paired by attempt, each naming the operator, the reason, and the statement.
+// contains an attempt with the operator, reason, and SQL operation.
 func TestDBBreakGlassRunsTheStatementAndRecordsIt(t *testing.T) {
 	ledgerDSN := testenv.Ledger(t)
 	mail := mailpitFor(t)
@@ -124,47 +123,40 @@ func TestDBBreakGlassRunsTheStatementAndRecordsIt(t *testing.T) {
 	}
 
 	rows := breakGlassRows(t, pool, reason)
-	if len(rows) != 2 {
-		t.Fatalf("ledger rows = %d, want the pending row and the ok row", len(rows))
+	if len(rows) != 1 {
+		t.Fatalf("ledger rows = %d, want one attempt", len(rows))
 	}
 
-	pending, done := rows[0], rows[1]
-	if pending.Outcome != audit.OutcomePending || done.Outcome != audit.OutcomeOK {
-		t.Fatalf("outcomes = %s then %s, want pending then ok", pending.Outcome, done.Outcome)
+	attempt := rows[0]
+	if attempt.Outcome != audit.OutcomeAttempted || attempt.Context.Phase != audit.PhaseAttempt ||
+		attempt.Context.Target == nil ||
+		attempt.Context.Target.Reference != "yugabyte/database" {
+		t.Fatalf("outcome = %s, want attempted", attempt.Outcome)
 	}
 
-	pendingExtra, doneExtra := breakGlassExtra(t, pending), breakGlassExtra(t, done)
-	if pendingExtra.AttemptID != doneExtra.AttemptID || pendingExtra.AttemptID == uuid.Nil {
-		t.Fatal("the pending and ok rows must share one attempt id")
+	extra := breakGlassExtra(t, attempt)
+	if extra.AttemptID == uuid.Nil {
+		t.Fatal("attempt id is empty")
 	}
 
-	if done.Verb != string(audit.VerbOpsDBBreakGlass) ||
-		done.Actor.Email != "operator@example.test" {
-		t.Fatalf("row = %+v, want the break-glass verb by the operator", done)
+	if attempt.Verb != string(audit.VerbOpsDBBreakGlass) ||
+		attempt.Actor.Email != "operator@example.test" {
+		t.Fatalf("row = %+v, want the break-glass verb by the operator", attempt)
 	}
 
-	if doneExtra.Statement != statement || doneExtra.Reason != reason ||
-		doneExtra.RowsReturned != 1 {
-		t.Fatalf("extra = %+v, want the statement, the reason, and the row count", doneExtra)
+	if extra.Statement != "SELECT" || extra.Reason != reason || attempt.Context.Reason != reason {
+		t.Fatalf("extra = %+v, want the SQL operation and reason", extra)
 	}
 
-	if pendingExtra.Statement != doneExtra.Statement || pending.Context.Reason != reason {
-		t.Fatalf("the pending row must carry the same statement and reason: %+v", pendingExtra)
-	}
-
-	// The one-statement contract is the server's: a batch is refused, and the
-	// refusal is recorded as the attempt's error outcome.
+	// The server refuses a batch under the one-statement contract.
 	_, err = runBreakGlass(t, deps, "select 1; select 2", reason)
 	if err == nil || !strings.Contains(err.Error(), "multiple commands") {
 		t.Fatalf("err = %v, want the batch refused by the server", err)
 	}
 
 	rows = breakGlassRows(t, pool, reason)
-	if len(rows) != 4 || rows[3].Outcome != audit.OutcomeError || rows[3].Error == nil {
-		t.Fatalf(
-			"ledger rows = %+v, want a pending row and an error row for the refused batch",
-			rows,
-		)
+	if len(rows) != 2 || rows[1].Outcome != audit.OutcomeAttempted {
+		t.Fatalf("ledger rows = %+v, want an attempt for the refused batch", rows)
 	}
 
 	// A large result is cut at the row limit and says so.
@@ -183,12 +175,7 @@ func TestDBBreakGlassRunsTheStatementAndRecordsIt(t *testing.T) {
 	}
 
 	rows = breakGlassRows(t, pool, reason)
-	if len(rows) != 6 {
-		t.Fatalf("ledger rows = %d, want three pending and outcome pairs", len(rows))
-	}
-
-	if extra := breakGlassExtra(t, rows[5]); !extra.Truncated ||
-		extra.RowsReturned != dbBreakGlassRowLimit {
-		t.Fatalf("the ok row must say the result was cut: %+v", extra)
+	if len(rows) != 3 || rows[2].Outcome != audit.OutcomeAttempted {
+		t.Fatalf("ledger rows = %+v, want three attempts", rows)
 	}
 }

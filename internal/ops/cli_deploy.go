@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
-	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -14,15 +13,8 @@ import (
 	"goodkind.io/tack/internal/clispec"
 )
 
-const (
-	// deployVerifyPayloadFormat is the media type of the deploy verify output.
-	deployVerifyPayloadFormat = "text/plain; charset=utf-8"
-	// deployReference identifies the Docker Compose deployment that deploy
-	// verify reads. The read targets name each checked container.
-	deployReference = "docker/compose"
-	// deployContainerReference prefixes each container that deploy verify reads.
-	deployContainerReference = "docker/containers/"
-)
+// deployReference identifies the Docker Compose deployment.
+const deployReference = "docker/compose"
 
 // deployGroup is the parent of the read that checks a deploy. The repository
 // build workflow builds the images, and the configs deploy rolls them.
@@ -56,9 +48,7 @@ func deployVerifySpec() audit.Spec {
 	}
 }
 
-// deployVerifyCommand builds `ops deploy verify`. With --execute, it records
-// the read through the read lifecycle and prints one line per checked
-// container. A refusal records a failed read.
+// deployVerifyCommand checks each selected container and prints its status.
 func deployVerifyCommand(f *cli.Factory) *cobra.Command {
 	in := deployVerifyInput{Tag: "", Service: "", ServerDigest: "", ConsumerDigest: ""}
 	cmd := &cobra.Command{
@@ -121,18 +111,4 @@ func deployVerifyCommand(f *cli.Factory) *cobra.Command {
 	)
 
 	return cmd
-}
-
-// replicaTargets returns one external target per checked container, in check
-// order.
-func replicaTargets(replicas []serviceReplica) []audit.Target {
-	targets := make([]audit.Target, 0, len(replicas))
-	for _, replica := range replicas {
-		targets = append(
-			targets,
-			externalTarget(deployContainerReference+strings.TrimPrefix(replica.Container, "/")),
-		)
-	}
-
-	return targets
 }

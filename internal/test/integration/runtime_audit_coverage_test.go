@@ -27,12 +27,11 @@ type coverageEvidence struct {
 	actorID   uuid.UUID
 	outcome   audit.Outcome
 	outbox    *pgxpool.Pool
-	// body is the exact response payload of a read case. A completed read
-	// event must record its SHA-256 digest. A nil body skips that comparison.
+	// body is the response payload of a read case.
 	body []byte
 	// targetID is the node that the case acted on. One format 2 event of the
-	// case must target it or list it in a read manifest. uuid.Nil skips that
-	// comparison.
+	// case must target it or record it as the requested reference. uuid.Nil
+	// skips that comparison.
 	targetID uuid.UUID
 }
 

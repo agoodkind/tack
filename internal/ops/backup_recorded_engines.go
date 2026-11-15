@@ -2,7 +2,6 @@ package ops
 
 import (
 	"context"
-	"encoding/json"
 
 	"goodkind.io/tack/internal/audit"
 	"goodkind.io/tack/internal/config"
@@ -65,7 +64,6 @@ func runBackupFDBContinuousInitRecorded(
 		steps,
 		step,
 		func(ctx context.Context) error { return RunBackupFDBContinuousInit(ctx, cfg) },
-		func(context.Context) (json.RawMessage, error) { return evidence, nil },
 	)
 }
 
@@ -99,6 +97,5 @@ func runBackupYBPITRInitRecorded(
 		steps,
 		step,
 		func(ctx context.Context) error { return RunBackupYBPITRInit(ctx, cfg) },
-		func(context.Context) (json.RawMessage, error) { return evidence, nil },
 	)
 }

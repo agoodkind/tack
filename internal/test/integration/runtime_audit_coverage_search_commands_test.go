@@ -12,7 +12,7 @@ import (
 )
 
 // addSearchControlCases adds the provision, settings, access rollout, and
-// access rollback cases. Provision refuses to run without OpenSearch
+// access rollback cases. Provision fails without OpenSearch
 // settings. The settings command fails without OpenSearch settings and
 // reads the point-in-time limit when the environment includes OpenSearch.
 // The rollout commands change the FoundationDB rollout record of a new
@@ -21,23 +21,23 @@ func addSearchControlCases(cases map[string]coverageCase) {
 	cases["command ops search settings"] = searchCommandCase(
 		failingCommandCase(
 			audit.VerbOpsSearchSettings,
-			audit.OutcomeFailed,
+			audit.OutcomeAttempted,
 			fixedCommand("ops", "search", "settings"),
 		),
 		commandCase(
 			audit.VerbOpsSearchSettings,
-			audit.OutcomeCompleted,
+			audit.OutcomeAttempted,
 			fixedCommand("ops", "search", "settings"),
 		),
 	)
 	cases["command ops search provision"] = failingCommandCase(
 		audit.VerbOpsSearchProvision,
-		audit.OutcomeRefused,
+		audit.OutcomeAttempted,
 		fixedCommand("ops", "search", "provision"),
 	)
 	cases["command ops search access-rollout"] = commandCase(
 		audit.VerbOpsSearchAccessRollout,
-		audit.OutcomeCompleted,
+		audit.OutcomeAttempted,
 		func(*testing.T, *coverageEnv) commandInput {
 			return commandInput{
 				args:      accessRolloutArgs(uuid.NewString()),
@@ -48,7 +48,7 @@ func addSearchControlCases(cases map[string]coverageCase) {
 	)
 	cases["command ops search access-rollback"] = commandCase(
 		audit.VerbOpsSearchAccessRollback,
-		audit.OutcomeOK,
+		audit.OutcomeAttempted,
 		func(t *testing.T, env *coverageEnv) commandInput {
 			authority := uuid.NewString()
 			if _, output, err := env.command(t, nil, accessRolloutArgs(authority)...); err != nil {

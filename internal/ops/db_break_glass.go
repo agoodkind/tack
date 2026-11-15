@@ -1,12 +1,3 @@
-// db_break_glass.go runs one operator SQL statement against the database and
-// leaves the traces the raw path never did: a mail to the alarm address sent
-// before the statement runs, a ledger row recording the intent before the
-// statement runs, and an outcome row after. The order is the control: a
-// statement whose mail cannot be delivered or whose intent cannot be recorded
-// does not run, so nobody reaches the database unobserved even when the
-// ledger is the thing being examined, and a crash mid-statement leaves a
-// pending row naming exactly what was attempted.
-
 package ops
 
 import (
@@ -115,39 +106,44 @@ func runDBSQL(
 		return err
 	}
 
+	startedAt := clock.Now().UTC()
 	extra := dbBreakGlassExtra{
-		AttemptID:    uuid.Must(uuid.NewV7()),
-		Statement:    statement,
-		Reason:       reason,
-		MailedTo:     deps.cfg.BackupAlarmEmail,
-		CommandTag:   "",
-		RowsReturned: 0,
-		Truncated:    false,
-		SessionID:    principal.SessionID,
-		OnBehalfOf:   onBehalfOfWithReason(principal, reason),
+		AttemptID:  uuid.Must(uuid.NewV7()),
+		Statement:  dbStatementOperation(statement),
+		Reason:     reason,
+		MailedTo:   deps.cfg.BackupAlarmEmail,
+		SessionID:  principal.SessionID,
+		OnBehalfOf: onBehalfOfWithReason(principal, reason),
 	}
 	if err := recordDBBreakGlass(
 		ctx,
 		deps.outbox,
 		principal,
 		extra,
-		audit.OutcomePending,
+		startedAt,
+		audit.OutcomeAttempted,
 		nil,
 	); err != nil {
 		return err
 	}
 
 	outcome, runErr := runDBStatement(ctx, deps.cfg.DatabaseURL, statement)
-	extra.CommandTag, extra.RowsReturned, extra.Truncated = outcome.Tag, len(
-		outcome.Rows,
-	), outcome.Truncated
-	recorded := audit.OutcomeOK
-	if runErr != nil {
-		recorded = audit.OutcomeError
-	}
-
-	if err := recordDBBreakGlass(ctx, deps.outbox, principal, extra, recorded, runErr); err != nil {
-		return errors.Join(runErr, err)
+	if dbStatementDenied(runErr) {
+		denial := &audit.EventError{
+			Code:    "permission_denied",
+			Message: "database refused this operation",
+		}
+		if err := recordDBBreakGlass(
+			ctx,
+			deps.outbox,
+			principal,
+			extra,
+			startedAt,
+			audit.OutcomeRefused,
+			denial,
+		); err != nil {
+			return errors.Join(runErr, err)
+		}
 	}
 
 	if runErr != nil {

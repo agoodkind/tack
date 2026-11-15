@@ -55,7 +55,7 @@ func TestRunAuditedInfrastructureDefersAfterAuthenticationFailureWhenLoginIsAbse
 		t.Fatalf("runAudited: %v", err)
 	}
 
-	if runCount != 1 || eventsDuringRun != 0 || probe.callCount != 1 || len(outbox.events) != 2 {
+	if runCount != 1 || eventsDuringRun != 0 || probe.callCount != 1 || len(outbox.events) != 1 {
 		t.Fatalf(
 			"runs = %d, events during run = %d, probes = %d, events = %d",
 			runCount,
@@ -65,9 +65,8 @@ func TestRunAuditedInfrastructureDefersAfterAuthenticationFailureWhenLoginIsAbse
 		)
 	}
 
-	if outbox.events[0].Outcome != audit.OutcomePending ||
-		outbox.events[1].Outcome != audit.OutcomeOK {
-		t.Fatalf("outcomes = %q, %q", outbox.events[0].Outcome, outbox.events[1].Outcome)
+	if outbox.events[0].Outcome != audit.OutcomeAttempted {
+		t.Fatalf("outcome = %q, want attempted", outbox.events[0].Outcome)
 	}
 
 	var extra operatorEventExtra
@@ -112,7 +111,7 @@ func TestRunAuditedInfrastructureDefersAfterAuthenticationFailureWhenTableIsAbse
 		t.Fatalf("runAudited: %v", err)
 	}
 
-	if runCount != 1 || probe.callCount != 1 || len(outbox.events) != 2 {
+	if runCount != 1 || probe.callCount != 1 || len(outbox.events) != 1 {
 		t.Fatalf(
 			"runs = %d, probes = %d, events = %d",
 			runCount,
@@ -232,7 +231,7 @@ func TestRunAuditedHealthyOutboxNeverProbes(t *testing.T) {
 			return nil
 		},
 	)
-	if err != nil || eventsDuringRun != 1 || probe.callCount != 0 || len(outbox.events) != 2 {
+	if err != nil || eventsDuringRun != 1 || probe.callCount != 0 || len(outbox.events) != 1 {
 		t.Fatalf(
 			"error = %v, events during run = %d, probes = %d, events = %d",
 			err,
@@ -242,9 +241,8 @@ func TestRunAuditedHealthyOutboxNeverProbes(t *testing.T) {
 		)
 	}
 
-	if outbox.events[0].Outcome != audit.OutcomePending ||
-		outbox.events[1].Outcome != audit.OutcomeOK {
-		t.Fatalf("outcomes = %q, %q", outbox.events[0].Outcome, outbox.events[1].Outcome)
+	if outbox.events[0].Outcome != audit.OutcomeAttempted {
+		t.Fatalf("outcome = %q, want attempted", outbox.events[0].Outcome)
 	}
 }
 

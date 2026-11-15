@@ -58,3 +58,13 @@ func scopeParamNames(chain []ScopeLevel) []string {
 func typeReferenceParamName(nodeTypeToken string) string {
 	return strings.ToLower(nodeTypeToken) + referenceParamSuffix
 }
+
+// SetterReference returns a setter's node reference parameter.
+//
+// It returns an empty string when the per-user server did not register the
+// tool as a reference setter.
+//
+//	parameter := resolver.SetterReference(toolName)
+func (r *Resolver) SetterReference(tool string) string {
+	return r.setterReferences[tool]
+}

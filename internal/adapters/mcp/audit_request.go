@@ -14,14 +14,14 @@ const (
 	unknownRoute     = "/"
 )
 
-// RequestRecorder buffers HTTP read and rejection responses and saves final read events before writing responses.
+// RequestRecorder records access attempts and security decisions.
 // FoundationDB writers record changes from authenticated MCP tools that change state.
 type RequestRecorder struct {
-	store audit.ReadLifecycle
+	store audit.BatchOutboxWriter
 }
 
 // NewRequestRecorder returns a recorder that saves read events in store.
-func NewRequestRecorder(store audit.ReadLifecycle) *RequestRecorder {
+func NewRequestRecorder(store audit.BatchOutboxWriter) *RequestRecorder {
 	return &RequestRecorder{store: store}
 }
 
@@ -103,17 +103,14 @@ func (recorder *RequestRecorder) MCP(
 	})
 }
 
-// serveAuthenticated runs handler without recording a read event if the authenticated tool call changes state.
-// For other requests, it records the verified user and the organizations that
-// Handler.requestOrganizations returns. When the server cannot derive the
-// organizations, it records a failed read in the system organization and answers with 503.
+// serveAuthenticated records the verified access attempt before the tool runs.
 func (recorder *RequestRecorder) serveAuthenticated(
 	writer http.ResponseWriter,
 	request *http.Request,
 	read requestRead,
 	handler *Handler,
 ) {
-	if read.operation.mutation || read.operation.verb == audit.VerbMCPProtocolRead {
+	if read.operation.verb == audit.VerbMCPProtocolRead {
 		handler.ServeHTTP(writer, request)
 		return
 	}
@@ -121,27 +118,22 @@ func (recorder *RequestRecorder) serveAuthenticated(
 	ctx := request.Context()
 	userID, _ := auth.UserID(ctx)
 	read.actor = userActor(ctx, userID)
+	orgIDs, err := handler.requestOrganizations(ctx, &read.operation)
 	read.selection = read.operation.selection
-	orgIDs, err := handler.requestOrganizations(ctx, read.operation)
 	if err != nil {
-		result := organizationUnavailable().readResult(ctx)
-		result.Outcome = failed(
-			"organization_unavailable",
-			"could not read the request organization",
-		)
-		recorder.release(
-			writer,
-			request,
-			read,
-			func(*http.Request) audit.ReadResult[*responseCapture] { return result },
-		)
+		capture := organizationUnavailable()
+		recorder.respond(writer, request, read, capture, audit.NoOutcome())
 
 		return
 	}
 
 	read.orgIDs = orgIDs
-	if read.operation.metadata {
-		request = request.WithContext(withMetadataTargets(ctx))
+	if read.operation.mutation {
+		if recorder.record(writer, request, read, audit.NoOutcome()) {
+			handler.ServeHTTP(writer, request)
+		}
+
+		return
 	}
 
 	recorder.serveRead(writer, request, read, handler)
@@ -160,16 +152,10 @@ func (recorder *RequestRecorder) rejectBeforeAuthentication(
 		read.operation.verb = rejectionVerb(reason)
 	}
 
-	result := capture.readResult(request.Context())
-	result.Targets, result.OrgTargets, result.Count = nil, nil, 0
+	decision := statusOutcome(capture.status)
 	if rejected {
-		result.Outcome = rejectionOutcome(reason)
+		decision = rejectionOutcome(reason)
 	}
 
-	recorder.release(
-		writer,
-		request,
-		read,
-		func(*http.Request) audit.ReadResult[*responseCapture] { return result },
-	)
+	recorder.respond(writer, request, read, capture, decision)
 }

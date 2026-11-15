@@ -17,7 +17,7 @@ func topLevelRead(
 	verb audit.Verb,
 	args func(t *testing.T, env *topLevelEnv) []string,
 ) topLevelCase {
-	current := topLevelCommand(verb, audit.OutcomeCompleted, args)
+	current := topLevelCommand(verb, audit.OutcomeAttempted, args)
 	current.finalRead = true
 	return current
 }
@@ -106,7 +106,7 @@ func topLevelCases() map[string]topLevelCase {
 				return env.runServe(t, args...)
 			},
 			verb:    audit.VerbServerServe,
-			outcome: audit.OutcomeOK,
+			outcome: audit.OutcomeAttempted,
 		}
 	}
 	return map[string]topLevelCase{
@@ -114,47 +114,47 @@ func topLevelCases() map[string]topLevelCase {
 		"command tack serve": serve("serve"),
 		"command tack migrate": topLevelCommand(
 			audit.VerbDatabaseMigrate,
-			audit.OutcomeCompleted,
+			audit.OutcomeAttempted,
 			fixedArgs("migrate"),
 		),
 		"command tack seed": topLevelCommand(
 			audit.VerbBootstrapSeed,
-			audit.OutcomeOK,
+			audit.OutcomeAttempted,
 			fixedArgs("seed", "--allow-reseed"),
 		),
 		"command tack audit export": topLevelCommand(
 			audit.VerbAuditExport,
-			audit.OutcomeOK,
+			audit.OutcomeAttempted,
 			exportArgs("audit", "export"),
 		),
 		"command tack audit-export": topLevelCommand(
 			audit.VerbAuditExport,
-			audit.OutcomeOK,
+			audit.OutcomeAttempted,
 			exportArgs("audit-export"),
 		),
 		"command tack audit verify": topLevelCommand(
 			audit.VerbAuditVerify,
-			audit.OutcomeOK,
+			audit.OutcomeAttempted,
 			verifyArgs("audit", "verify"),
 		),
 		"command tack audit-verify": topLevelCommand(
 			audit.VerbAuditVerify,
-			audit.OutcomeOK,
+			audit.OutcomeAttempted,
 			verifyArgs("audit-verify"),
 		),
 		"command tack audit gen-key": topLevelCommand(
 			audit.VerbAuditKeyGenerate,
-			audit.OutcomeOK,
+			audit.OutcomeAttempted,
 			keyArgs("audit", "gen-key"),
 		),
 		"command tack gen-audit-key": topLevelCommand(
 			audit.VerbAuditKeyGenerate,
-			audit.OutcomeOK,
+			audit.OutcomeAttempted,
 			keyArgs("gen-audit-key"),
 		),
 		"command tack audit signers": topLevelCommand(
 			audit.VerbAuditSignersVerified,
-			audit.OutcomeOK,
+			audit.OutcomeAttempted,
 			signersArgs,
 		),
 		"command tack audit query":       topLevelRead(audit.VerbAuditRead, queryArgs),
@@ -162,7 +162,7 @@ func topLevelCases() map[string]topLevelCase {
 		"command tack audit last-change": topLevelRead(audit.VerbAuditRead, lastChangeArgs),
 		"command tack audit redact-actor": topLevelCommand(
 			audit.VerbAuditPIIRedacted,
-			audit.OutcomeOK,
+			audit.OutcomeAttempted,
 			redactArgs,
 		),
 	}

@@ -54,7 +54,6 @@ func renderSearchPage(
 		}
 
 		items = append(items, fitItemToBudget(nodeListItem(rc, view), service.ResultBytes(result)))
-		addNodeTargets(rc.ctx, view)
 	}
 
 	nextCursor := ""

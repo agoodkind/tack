@@ -48,15 +48,14 @@ func assertOperatorAuthentication(t *testing.T, dsn, password string, wantSucces
 
 func assertSeedRolesOutcome(t *testing.T, events []audit.Event, outcome audit.Outcome) {
 	t.Helper()
-	intents := eventsInPhase(events, audit.PhaseIntent, uuid.Nil)
+	intents := eventsInPhase(events, audit.PhaseAttempt, uuid.Nil)
 	if len(intents) != 1 || len(events) == 0 || events[0].EventID != intents[0].EventID {
 		t.Fatal("the operation did not record its intent first")
 	}
 
-	results := eventsInPhase(events, audit.PhaseResult, uuid.Nil)
-	if len(results) != 1 || results[0].Outcome != outcome ||
-		results[0].Context.OperationID != intents[0].Context.OperationID {
-		t.Fatalf("the operation did not record the expected %s result", outcome)
+	if intents[0].Outcome != audit.OutcomeAttempted || intents[0].Error != nil ||
+		len(eventsInPhase(events, audit.PhaseResult, uuid.Nil)) != 0 {
+		t.Fatalf("the operation did not record one attempt: %+v", intents[0])
 	}
 }
 

@@ -161,6 +161,8 @@ type Outcome string
 const (
 	OutcomeOK    Outcome = "ok"
 	OutcomeError Outcome = "error"
+	// OutcomeAttempted records access before execution.
+	OutcomeAttempted Outcome = "attempted"
 	// OutcomePending is carried by intent rows until the outcome row lands.
 	OutcomePending Outcome = "pending"
 	// OutcomeUnrecorded is what a read returns for a row written before the

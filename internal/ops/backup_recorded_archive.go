@@ -2,7 +2,6 @@ package ops
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -13,15 +12,7 @@ import (
 	"goodkind.io/tack/internal/config"
 )
 
-const (
-	archiveUploadIncompleteCode = "archive_upload_incomplete"
-	// archiveUploaded is the observed state of a node prefix after the command
-	// uploaded the node artifacts.
-	archiveUploaded = "uploaded"
-	// archiveAlreadyArchived is the observed state of a node prefix that
-	// contained every node artifact before the command ran.
-	archiveAlreadyArchived = "already_archived"
-)
+const archiveUploadIncompleteCode = "archive_upload_incomplete"
 
 type nodeArchiveEvidence struct {
 	Bucket     string   `json:"bucket"`
@@ -30,8 +21,6 @@ type nodeArchiveEvidence struct {
 	Node       string   `json:"node"`
 	KeyPrefix  string   `json:"key_prefix"`
 	Artifacts  []string `json:"artifacts"`
-	Present    []string `json:"present,omitempty"`
-	State      string   `json:"state,omitempty"`
 }
 
 func (nodeArchiveEvidence) isStepEvidence() {}
@@ -73,8 +62,6 @@ func runBackupYBArchiveNodeRecorded(
 		Node:       nodeName,
 		KeyPrefix:  target.prefix,
 		Artifacts:  archiveArtifactKeys(target.prefix),
-		Present:    nil,
-		State:      "",
 	}
 	plannedJSON, err := encodeEvidence(ctx, planned)
 	if err != nil {
@@ -87,9 +74,8 @@ func runBackupYBArchiveNodeRecorded(
 			ctx,
 			steps,
 			step,
-			func(context.Context) error { return nil },
-			func(ctx context.Context) (json.RawMessage, error) {
-				return observeNodeArchive(ctx, client, planned, archiveAlreadyArchived)
+			func(ctx context.Context) error {
+				return verifyNodeArchive(ctx, client, planned)
 			},
 		)
 	}
@@ -99,10 +85,11 @@ func runBackupYBArchiveNodeRecorded(
 		steps,
 		step,
 		func(ctx context.Context) error {
-			return uploadYBNodeArchive(ctx, cfg, cli, nodeName, target)
-		},
-		func(ctx context.Context) (json.RawMessage, error) {
-			return observeNodeArchive(ctx, client, planned, archiveUploaded)
+			if err := uploadYBNodeArchive(ctx, cfg, cli, nodeName, target); err != nil {
+				return err
+			}
+
+			return verifyNodeArchive(ctx, client, planned)
 		},
 	)
 	if runErr == nil {
@@ -162,18 +149,15 @@ func presentArchiveArtifacts(
 	return present, nil
 }
 
-// observeNodeArchive lists the node artifacts in the bucket and returns the
-// planned evidence with the present artifacts and state. It returns an error
-// when an artifact is absent.
-func observeNodeArchive(
+// verifyNodeArchive checks that the bucket contains every expected artifact.
+func verifyNodeArchive(
 	ctx context.Context,
 	client *s3.Client,
 	planned nodeArchiveEvidence,
-	state string,
-) (json.RawMessage, error) {
+) error {
 	present, err := presentArchiveArtifacts(ctx, client, planned)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
 	if len(present) != len(planned.Artifacts) {
@@ -186,11 +170,8 @@ func observeNodeArchive(
 		)
 		slog.ErrorContext(ctx, "backup.yb_archive.observe_failed", slog.String("err", err.Error()))
 
-		return nil, err
+		return err
 	}
 
-	observed := planned
-	observed.Present, observed.State = present, state
-
-	return encodeEvidence(ctx, observed)
+	return nil
 }

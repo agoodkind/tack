@@ -26,7 +26,7 @@ func (observer admissionCancellation) TraceQueryStart(
 	return context.WithValue(
 		ctx,
 		readAdmissionQuery{},
-		strings.Contains(data.SQL, "public.ops_read_begin"),
+		strings.Contains(data.SQL, "INSERT INTO public.ops_outbox"),
 	)
 }
 

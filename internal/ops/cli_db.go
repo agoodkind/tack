@@ -37,9 +37,8 @@ func dbSQLOp(f *cli.Factory) clispec.Operation[dbSQLInput] {
 		Short:    "Run one read-only SQL statement against the database, recorded and mailed",
 		Long: "Runs one statement in a read-only session. The server refuses a " +
 			"statement that changes data or schema; a database write needs a " +
-			"migration or a reviewed ops command. The " +
-			"operator, the reason, and the statement are recorded in the ledger, " +
-			"and the alarm address is mailed before the statement runs; a mail " +
+			"migration or a reviewed ops command. Tack records the operator, reason, " +
+			"and SQL operation. The alarm email includes the full statement before execution. A message " +
 			"that cannot be delivered refuses the statement. Nothing runs " +
 			"without --execute; without it the command reports what it would run.",
 		Examples: nil,

@@ -14,7 +14,7 @@ import (
 
 	fdbadapter "goodkind.io/tack/internal/adapters/foundationdb"
 	mcpadapter "goodkind.io/tack/internal/adapters/mcp"
-	"goodkind.io/tack/internal/clock"
+	"goodkind.io/tack/internal/audit"
 	"goodkind.io/tack/internal/runtime"
 	"goodkind.io/tack/internal/testenv"
 )
@@ -171,7 +171,7 @@ func productReadRecorder(t *testing.T) *mcpadapter.RequestRecorder {
 		t.Fatalf("test could not open FoundationDB stores: %v", err)
 	}
 
-	return mcpadapter.NewRequestRecorder(stores.AuditReads(clock.Wall{}))
+	return mcpadapter.NewRequestRecorder(audit.NewBatchAppendOutbox(stores.OpsOutbox))
 }
 
 // clearRecorderPrefix deletes the keys under prefix and resets the test prefix.

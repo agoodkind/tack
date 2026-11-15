@@ -76,8 +76,7 @@ func TestRuntimeAuditReadContextFields(t *testing.T) {
 
 // TestRuntimeAuditReadSelection reads a project by UUID and sends an issue
 // read with an invalid reference. Both read events must record the requested
-// node reference and the workspace argument. The invalid read must record
-// the invalid_reference code. Requests to an unregistered path must record
+// node reference and the workspace argument. Requests to an unregistered path must record
 // the HTTP method beside the route pattern, and record the request path only
 // when it passes the character check.
 func TestRuntimeAuditReadSelection(t *testing.T) {
@@ -128,17 +127,10 @@ func TestRuntimeAuditReadSelection(t *testing.T) {
 
 	ledger := startPublicLedger(t, server)
 	readRow := ledger.row(t, server.orgID, readID)
-	requireReadRow(t, readRow, audit.VerbNodeRead, audit.OutcomeCompleted, "", read.body)
+	requireReadRow(t, readRow, audit.VerbNodeRead, audit.OutcomeAttempted, "", read.body)
 	requireSelection(t, readRow, projectID, server.workspace)
 	invalidRow := ledger.row(t, server.orgID, invalidID)
-	requireReadRow(
-		t,
-		invalidRow,
-		audit.VerbNodeRead,
-		audit.OutcomeRefused,
-		"invalid_reference",
-		invalid.body,
-	)
+	requireReadRow(t, invalidRow, audit.VerbNodeRead, audit.OutcomeAttempted, "", invalid.body)
 	requireSelection(t, invalidRow, "!!invalid", server.workspace)
 	if readRow.Context.HTTPMethod != http.MethodPost || readRow.Context.RequestPath != "/mcp" {
 		t.Fatalf(
@@ -150,14 +142,7 @@ func TestRuntimeAuditReadSelection(t *testing.T) {
 	}
 
 	pathRow := ledger.row(t, audit.SystemOrgID(), pathID)
-	requireReadRow(
-		t,
-		pathRow,
-		audit.VerbHTTPRouteUnknown,
-		audit.OutcomeRefused,
-		"not_found",
-		path.body,
-	)
+	requireReadRow(t, pathRow, audit.VerbHTTPRouteUnknown, audit.OutcomeAttempted, "", path.body)
 	if pathRow.Context.HTTPMethod != http.MethodGet ||
 		pathRow.Context.RequestPath != "/unknown-route/item_1" ||
 		pathRow.Context.Target == nil ||
@@ -175,8 +160,8 @@ func TestRuntimeAuditReadSelection(t *testing.T) {
 		t,
 		rejectedRow,
 		audit.VerbHTTPRouteUnknown,
-		audit.OutcomeRefused,
-		"not_found",
+		audit.OutcomeAttempted,
+		"",
 		rejectedPath.body,
 	)
 	if rejectedRow.Context.HTTPMethod != http.MethodGet || rejectedRow.Context.RequestPath != "" {

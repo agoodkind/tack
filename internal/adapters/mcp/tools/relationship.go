@@ -6,7 +6,6 @@ import (
 	"github.com/google/uuid"
 	mcpmcp "github.com/mark3labs/mcp-go/v2/mcp"
 	mcpserver "github.com/mark3labs/mcp-go/v2/server"
-	"goodkind.io/tack/internal/audit"
 	"goodkind.io/tack/internal/auditintent"
 	"goodkind.io/tack/internal/clock"
 	"goodkind.io/tack/internal/service"
@@ -133,7 +132,7 @@ func resolveRelationshipEndpoints(
 	stampAuditNodeResolve(ctx, resolve)
 	// Refuse before the write, not only in the response.
 	if !isAuthorized(ctx) {
-		return none, permissionDenied()
+		return none, permissionDenied(ctx)
 	}
 
 	return relationshipEndpoints{
@@ -211,19 +210,6 @@ func removeRelationshipHandler(
 		rc := newRenderCtxWithTypes(ctx, resolver.reader, nil, resolver.typeIndex)
 		// The store commits change events only when the relationship existed.
 		if !auditintent.Committed(ctx) {
-			target := relationshipTarget(endpoints.sourceID, endpoints.relType, endpoints.targetID)
-			noteToolResult(
-				ctx,
-				audit.OutcomeDetails{
-					Outcome:        audit.OutcomeRefused,
-					FailureCode:    notFoundCode,
-					FailureMessage: "the relationship does not exist",
-					CommittedSteps: nil,
-				},
-				"",
-				&target,
-			)
-
 			return successText(
 				renderRelationshipMutation(
 					rc,

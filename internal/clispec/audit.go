@@ -9,7 +9,6 @@ import (
 	"github.com/google/uuid"
 
 	"goodkind.io/tack/internal/audit"
-	"goodkind.io/tack/internal/clock"
 )
 
 // RunAudited records an operator command before running it. A command that
@@ -87,13 +86,10 @@ func runAudited(
 		return run(runContext)
 	}
 
-	intent := event
-	intent.Outcome = audit.OutcomePending
-	if err := outbox.WriteOutbox(ctx, intent); err != nil {
+	if err := outbox.WriteOutbox(ctx, event); err != nil {
 		if spec.CreatesAuditInfrastructure {
 			return runAfterCreatingAuditInfrastructure(
 				ctx,
-				intent,
 				event,
 				runContext,
 				outbox,
@@ -106,25 +102,7 @@ func runAudited(
 		return loggedAuditError(ctx, "record command intent", err)
 	}
 
-	runErr := run(runContext)
-
-	// The outcome is a second row, so it needs its own identity: the outbox
-	// keys on event id and the consumer drops a duplicate, so reusing the
-	// intent's id would silently discard the outcome. The shared op id in
-	// Extra is what ties the pair together.
-	outcome := event
-	outcome.EventID = uuid.Must(uuid.NewV7())
-	outcome.OccurredAt = clock.Now().UTC()
-	if runErr != nil {
-		outcome.Outcome = audit.OutcomeError
-		outcome.Error = &audit.EventError{Code: "command_failed", Message: runErr.Error()}
-	}
-
-	if err := outbox.WriteOutbox(ctx, outcome); err != nil {
-		return loggedAuditError(ctx, "record command outcome", err)
-	}
-
-	return runErr
+	return run(runContext)
 }
 
 func validateAuditSpec(spec audit.Spec) error {
