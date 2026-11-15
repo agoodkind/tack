@@ -8,8 +8,8 @@ import (
 	"testing"
 )
 
-// TestSpillStoresBrokerRefusedEvent checks durable outbox storage with the
-// original event ID and time and a successful caller result (TACK-336).
+// TACK-336 requires the outbox copy to retain the original event ID and time.
+// Record must return success after the outbox accepts a refused event.
 func TestSpillStoresBrokerRefusedEvent(t *testing.T) {
 	cluster := newFakeCluster(t)
 	stop := refuseProduce(cluster)

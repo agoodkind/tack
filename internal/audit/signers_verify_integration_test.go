@@ -54,9 +54,9 @@ func insertNotarization(
 	}
 }
 
-// TestVerifySignersRejectsAKeyOutsideTheSet checks valid local signatures,
-// unknown signer identifiers and hosts, forged identifiers, and explicit
-// acknowledgement of allowed signers without local keys (TACK-437).
+// Verification requires explicit acknowledgment when an allowed signer's key
+// is unavailable locally. Acknowledgment must not accept a failed local
+// signature (TACK-437).
 func TestVerifySignersRejectsAKeyOutsideTheSet(t *testing.T) {
 	dsn := integrationDSN(t)
 	ctx := context.Background()

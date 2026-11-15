@@ -1,7 +1,7 @@
 // FoundationDB version logs preserve observed version-time pairs in the
 // object store for recovery after total source-cluster loss (TACK-468).
-// Normal timestamp conversion requires a surviving cluster; recorded restorable
-// points support choosing a version when that metadata no longer exists.
+// Normal timestamp conversion requires a surviving source cluster. Recorded
+// restorable points support choosing a version when that cluster is unavailable.
 
 package ops
 
