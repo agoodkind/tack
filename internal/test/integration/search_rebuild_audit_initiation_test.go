@@ -47,7 +47,7 @@ func rolloutInitiation(t *testing.T, fixture parentEdgeFixture) searchdomain.Ini
 }
 
 // requireCommandInitiation requires initiation to name the parent edge
-// operator and an intent of verb that the operator outbox stores.
+// operator and an attempt of verb that the operator outbox stores.
 func requireCommandInitiation(
 	t *testing.T,
 	fixture parentEdgeFixture,
@@ -62,7 +62,7 @@ func requireCommandInitiation(
 
 	t.Cleanup(pool.Close)
 
-	for _, intent := range eventsInPhase(
+	for _, attempt := range eventsInPhase(
 		outboxEventsByQuery(
 			t,
 			pool,
@@ -70,17 +70,17 @@ func requireCommandInitiation(
 			string(verb),
 			parentEdgeOperatorID.String(),
 		),
-		audit.PhaseIntent,
+		audit.PhaseAttempt,
 		uuid.Nil,
 	) {
-		if intent.Context.OperationID == initiation.OperationID &&
+		if attempt.Context.OperationID == initiation.OperationID &&
 			initiation.ActorID == parentEdgeOperatorID {
 			return
 		}
 	}
 
 	t.Fatalf(
-		"initiation %+v does not name an intent of %s by operator %s",
+		"initiation %+v does not identify an attempt of %s by operator %s",
 		initiation,
 		verb,
 		parentEdgeOperatorID,
