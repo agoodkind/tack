@@ -42,8 +42,6 @@ func (op Operation[OperationInput]) longHelp() string {
 	return help.String()
 }
 
-// registerFlag registers a parameter and returns a function that sets its
-// input field after Cobra parses the command line.
 func registerFlag[OperationInput Input](
 	command *cobra.Command,
 	parameter Param[OperationInput],

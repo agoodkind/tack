@@ -7,7 +7,8 @@ import "time"
 const BackfillNamePrefix = "once-"
 
 // Lifetime distinguishes permanent commands from backfills, which perform
-// one-time work for a ticket. Delete each backfill and its tests by RemoveBy.
+// one-time work for a ticket. RemoveBy sets the deadline for deleting a
+// backfill and its tests.
 // Every Operation specifies Permanent or a Lifetime literal with a ticket and
 // removal date. RemoveBy requires a [time.Date] literal. cmd/backfillcheck
 // checks the source during make build and rejects nonliteral or expired dates.
@@ -32,7 +33,6 @@ func (op Operation[OperationInput]) terminalName() string {
 	return op.Name.CLI()
 }
 
-// backfillGroups stores one backfill command group per parent group.
 type backfillGroups map[*Group]*Group
 
 func (b backfillGroups) under(parent *Group) *Group {

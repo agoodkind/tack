@@ -163,11 +163,7 @@ func TestBackupStalenessAlarmMailsOncePerFault(t *testing.T) {
 	}
 
 	if len(alarmed) != 3 {
-		t.Errorf(
-			"recorded faults = %d, want all 3 observed metrics: %v",
-			len(alarmed),
-			alarmed,
-		)
+		t.Errorf("recorded faults = %d, want all 3 observed metrics: %v", len(alarmed), alarmed)
 	}
 
 	message := captured.messages[0]
@@ -378,7 +374,6 @@ func TestBackupStalenessCheckSkipsEmailForFreshMetrics(t *testing.T) {
 	}
 }
 
-// marshalBackupStatusMarker encodes a success marker's stored JSON.
 func marshalBackupStatusMarker(t *testing.T, at time.Time, detail string) []byte {
 	t.Helper()
 	body, err := json.Marshal(backupStatusMarker{

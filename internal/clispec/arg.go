@@ -1,6 +1,6 @@
 package clispec
 
-// Arg defines one positional argument and a function that sets its input field.
+// Arg binds a required positional string to a command input.
 type Arg[OperationInput Input] struct {
 	Name        string
 	Description string

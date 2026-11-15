@@ -1,4 +1,4 @@
-// Package clispec defines typed operator commands and renders terminal commands without registering MCP tools.
+// Package clispec defines typed operator commands and renders them with Cobra.
 package clispec
 
 import (
@@ -11,18 +11,18 @@ import (
 	"goodkind.io/tack/internal/cli"
 )
 
-// Input requires an operation input struct to embed InputMarker.
+// Input limits command registration to types that embed InputMarker.
 type Input interface {
 	isClispecInput()
 }
 
-// InputMarker implements Input when an input struct embeds it.
+// InputMarker makes an external command input satisfy Input when embedded.
 type InputMarker struct{}
 
 func (InputMarker) isClispecInput() {}
 
-// Name defines the canonical command identity and its terminal verb.
-// CLIOverride replaces the derived verb, for example "read" under "inspect".
+// Name selects the terminal verb from CLIOverride when nonempty.
+// Otherwise, the renderer replaces underscores in Canonical with hyphens.
 type Name struct {
 	Canonical   string
 	CLIOverride string `exhaustruct:"optional"`
@@ -46,14 +46,14 @@ type Group struct {
 	Parent *Group `exhaustruct:"optional"`
 }
 
-// Operation defines one command. OperationInput is the input struct that flag
-// bindings and the work function use. New returns an input with defaults.
+// Operation defines a command with typed input. Args and Params assign values
+// to OperationInput before Run receives it. New supplies input defaults.
 // Run writes results through the sink and does not depend on Cobra types.
 // Aliases register alternate terminal spellings.
 type Operation[OperationInput Input] struct {
 	Name Name
-	// Lifetime specifies Permanent for a product command or a ticket and
-	// removal date for a backfill. Backfill commands use the once- prefix
+	// Lifetime specifies Permanent for a product command or records a ticket
+	// and removal date for a backfill. Backfill commands use the once- prefix
 	// under a backfill group. The build fails after the removal date.
 	Lifetime Lifetime
 	Group    *Group     `exhaustruct:"optional"`

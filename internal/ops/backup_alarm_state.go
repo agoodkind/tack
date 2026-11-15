@@ -1,7 +1,7 @@
-// Local alarm state records accepted fault email to suppress duplicates across
-// repeated checks. Each guest caches state under its mounted backup root and
-// reconciles shared state separately. Absent or unreadable local state permits
-// an initial email unless shared evidence or primary deferral suppresses it.
+// Each guest records accepted fault email in a local file under its mounted
+// backup root and reads shared state separately. Missing or unreadable local
+// state permits an initial email unless shared evidence or primary deferral
+// prevents the guest from sending it.
 
 package ops
 

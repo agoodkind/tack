@@ -1,6 +1,5 @@
 package clispec
 
-// paramKind distinguishes the value types that flags accept.
 type paramKind uint8
 
 const (
@@ -9,8 +8,7 @@ const (
 	kindBool
 )
 
-// Param defines one flag and functions that set its parsed input field.
-// Each binding accepts a concrete value type without reflection.
+// Param binds string, integer, or boolean flags without reflection.
 type Param[OperationInput Input] struct {
 	Kind        paramKind
 	Flag        string
