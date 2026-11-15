@@ -39,7 +39,6 @@ type VerifyReport struct {
 }
 
 // Err returns all failed integrity checks or nil for a verified bundle.
-// Callers must use this verdict as well as displaying the detailed report.
 func (r *VerifyReport) Err() error {
 	var failures []string
 	if !r.FileSHA256OK {
