@@ -349,9 +349,7 @@ A maintenance operation registered through `ops.Register` reports, for every org
 and every NodeType carrying a template, each rendered reference held by more than
 one node, with every candidate UUID and creation time.
 
-Detection is a read-class operation. Under the ops audit contract in
-`docs/operator-identity-and-audit.md`, a read records one access event before it
-runs and fails closed if that event cannot be written.
+Detection is a read-class operation and follows the [audit policy](../../audit.md).
 
 The first run answers whether projects beyond FAN carry duplicates. That scope is
 currently unknown; the eight confirmed duplicates are all in FAN.
@@ -377,9 +375,8 @@ The same pass writes the reference key for every node it visits, so one run both
 repairs duplicates and backfills enforcement data for nodes created before the
 template existed.
 
-Renumbering is an FDB mutation. Under the ops audit contract it declares an
-audit specification with `Atomic` set, so its ledger event commits in the same
-transaction as the change and the two cannot disagree.
+Renumbering commits its change evidence in the same FoundationDB transaction as
+the change.
 
 ### No forwarding record
 

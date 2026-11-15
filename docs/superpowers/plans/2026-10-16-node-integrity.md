@@ -7,7 +7,7 @@ The plan uses Go, real FoundationDB, YugabyteDB, Kafka, the existing repair cons
 ## Establish the implementation base
 
 1. Recheck current main, deployed images, ticket states, active worktrees, and the Tack and Proxmox deployment owners. Use an isolated worktree and preserve ongoing implementation branches.
-2. Read the current [repository contract](../../../AGENTS.md), [operator audit rules](../../operator-identity-and-audit.md), and [Makefile](../../../Makefile). Run `git status --short`, `git rev-parse HEAD`, and `make build` as separate commands before code changes. Record baseline failures explicitly; do not accept new baseline findings.
+2. Read the current [repository contract](../../../AGENTS.md), [audit policy](../../audit.md), and [Makefile](../../../Makefile). Run `git status --short`, `git rev-parse HEAD`, and `make build` as separate commands before code changes. Record baseline failures explicitly; do not accept new baseline findings.
 3. Apply the specification and record mappings. Report a new mismatch when current source evidence invalidates a mapping, and continue independent tasks.
 4. For each coding task, add the smallest necessary regression through a public boundary with real dependencies. Extend QA data generation for changed runtime paths. Run `make build`, the relevant real regression, and `git diff --check` before committing that task.
 

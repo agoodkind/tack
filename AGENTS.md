@@ -56,11 +56,10 @@ One deploy path:
 - **QA (`tack_qa`) is disposable.** Destroy and recreate it freely to match prod.
   Validate every migration, seed, backfill, and restore on QA before prod; QA is
   a fresh host with vault-sourced secrets and no live state to protect.
-- **The audit ledger keeps one `audit.events` table.** The Kafka cutover makes
-  the `audit-consumer` the single writer and continues the existing
+- **The audit ledger keeps one `audit.events` table.** The
+  `audit-consumer` is the single writer and continues the existing
   per-`(org, shard)` hash chain through `audit.chain_heads`: no rename, no archive
-  table, no `events_v2`. Design of record:
-  [`docs/plans/audit-kafka-cutover.md`](docs/plans/audit-kafka-cutover.md).
+  table, no `events_v2`. Read the [audit delivery explanation](docs/plans/audit-kafka-cutover.md).
 - **Migrations run via `./server migrate` only**, never on HTTP startup.
 - **Build with `make build`.** It runs the go-makefile pipeline (vet, golangci,
   staticcheck-extra, govulncheck) baseline-gated. Do not call `go build`
@@ -272,10 +271,10 @@ TACK-304.
    Do not create or use non-Go scripts, including temporary and standalone
    helpers, without explicit operator approval. Go implementations must pass
    this repository's canonical lint and quality checks.
-3. **Ops audit choke-point.** Every `./server ops` command records through the one
-   `clispec` audit choke-point; do not weaken it, do not bypass it per command, and
-   keep operator identity pluggable via `audit.OperatorIdentitySource`. See
-   [`docs/operator-identity-and-audit.md`](docs/operator-identity-and-audit.md).
+3. **Operator identity.** Keep identity pluggable through
+   `audit.OperatorIdentitySource` and preserve the shared `clispec` command gate.
+   Read the [operator identity explanation](docs/operator-identity-and-audit.md)
+   for the current sources and attribution.
 4. **QA data-generator coverage.** Any new node type, property type,
    relationship shape, audit verb, or user-visible code path must add coverage
    to `ops qa datagen` in the same change. Run it through the `app` service,
@@ -300,48 +299,12 @@ TACK-304.
 
 ## Auditability gate
 
-Require complete audit evidence before merging or releasing any new or changed
-operation that reads, lists, searches, exports, creates, updates, deletes, or
-otherwise processes user data. Apply this gate to person-callable public APIs, generated tools, and operator
-commands, including calls from agents and API tokens. Internal first-party code,
-autonomous jobs, internal service calls, indexing, retries, polling, health checks,
-diagnostics, and protocol discovery use operational logs instead of separate
-compliance events.
-
-Follow the [complete audit recording contract](docs/superpowers/specs/2026-10-21-audit-completeness-design.md)
-through the existing shared operation definitions, transactional outboxes, and
-permanent ledger. Apply it to custom node types and relationships.
-
-1. Record the verified actor or explicit unauthenticated identity, operation,
-   complete targets, original time, committed order, and outcome. Retain the
-   initiating identity, operation, user-data changes, and final result when a job
-   completes user-requested work. Do not create separate internal job actions. Record
-   refusals, failures, partial work, and interruptions.
-2. Record actual old and new values for every changed field and relationship,
-   including removals. Commit change evidence atomically with database changes.
-   Record complete relationship identities and apply existing protected-value
-   storage and redaction rules.
-3. Admit reads durably and finalize their evidence before returning data,
-   including each streaming page or chunk. Record returned identities, result
-   counts, selection criteria, and payload fingerprints through the shared read
-   contract. A fingerprint does not reconstruct the returned content.
-4. Refuse unaudited operations when required identity or recording fails. Do not
-   release a read result or commit a database change without its required audit
-   evidence. Record external-operation intent before effects and verify actual
-   state during recovery.
-5. Add regression coverage through the affected public operation with real
-   dependencies. Inspect permanent audit records for the actual actor, targets,
-   outcomes, change values, and read manifests and fingerprints. Exercise
-   authorization refusals and recording failures; declarations and log messages
-   alone do not prove coverage.
-6. Include the audit evidence and test results in the PR. Require the existing
-   `runtime audit coverage` check and applicable integration checks to pass before
-   merge. Verify the accepted behavior on QA before production release.
-
-Do not add recording opt-outs, exclude person-callable operations from coverage, weaken audit
-assertions, bypass required checks, or defer recording to a follow-up ticket.
-Treat an unaudited existing implementation as a defect, not an exception to this
-gate. A healthy deployment or a passing unrelated test does not satisfy it.
+Follow the [audit policy](docs/audit.md). Before merging or releasing a new or
+changed operation, verify compliance through the affected public operation and
+inspect its permanent audit records. Include the evidence and relevant test
+results in the PR. Require the existing `runtime audit coverage` check and
+applicable integration checks to pass before merge. Verify the accepted behavior
+on QA before production release.
 
 ## No config files
 

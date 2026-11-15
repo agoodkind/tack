@@ -968,11 +968,8 @@ investigate. Mitigation: dual-write parity gate at every wave.
 
 ## 12. Migration path: today to N=1
 
-The today-to-N=1 rollout is the hard cutover, not the earlier dual-write wave
-plan. See [audit-kafka-cutover.md](audit-kafka-cutover.md) for the single
-migration `003_audit_kafka_cutover.sql`, the consumer becoming the only writer
-of `audit.events`, the multi-consumer keying, and the cutover and rollback
-steps. There is no dual-write period and no `events_v2`.
+The Kafka cutover is complete. The [audit delivery explanation](audit-kafka-cutover.md)
+explains the current outbox, relay, consumer, and hash-chain behavior.
 
 ---
 
@@ -1141,8 +1138,6 @@ This is operations work; no code deploy required.
 
 ## 16. Critical files
 
-The authoritative list of files the cutover creates and changes lives in
-[audit-kafka-cutover.md](audit-kafka-cutover.md). The earlier wave-based file
-inventory (a shadow recorder, `events_v2` sibling and drop migrations, and a
-separate `audit-consumer` binary) is abandoned. The consumer is
+The completed cutover supersedes the earlier wave-based file inventory.
+The consumer is
 `cmd/audit-consumer`, there is no shadow recorder, and there is no `events_v2`.
