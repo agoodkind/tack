@@ -190,7 +190,7 @@ func ybArchivedPath(name string) (string, error) {
 	path := strings.TrimPrefix(name, "./")
 	if path == "" || strings.ContainsAny(path, "\t\n") {
 		return "", fmt.Errorf(
-			"tablet archive entry %q cannot be recorded as an inventory line",
+			"tablet inventory cannot encode archive entry %q",
 			name,
 		)
 	}

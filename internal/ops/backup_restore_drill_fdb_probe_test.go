@@ -165,7 +165,7 @@ func TestAwaitFDBRestoreDoesNotCountATimedOutProbeAsProgress(t *testing.T) {
 		t.Fatal("an inactive restore must fail even when every other probe times out")
 	}
 
-	if !strings.Contains(err.Error(), "made no progress for") {
+	if !strings.Contains(err.Error(), "did not make progress for") {
 		t.Fatalf("the failure must report observed inactivity, got: %v", err)
 	}
 }

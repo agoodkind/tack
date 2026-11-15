@@ -331,7 +331,7 @@ func cleanupYBExportRuns(
 		logger.InfoContext(
 			ctx,
 			"backup.yb_snapshot.cleanup_orphans_skipped",
-			slog.String("reason", "export run prefixes are absent; a reference set cannot be built"),
+			slog.String("reason", "export run prefixes are absent; cleanup cannot build a reference set"),
 		)
 
 		return referenced, false

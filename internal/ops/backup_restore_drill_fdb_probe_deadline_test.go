@@ -158,7 +158,7 @@ func TestAwaitFDBRestoreClassifiesNestedDeadlineAsProbeError(t *testing.T) {
 		)
 	}
 
-	if !strings.Contains(err.Error(), "made no progress for") ||
+	if !strings.Contains(err.Error(), "did not make progress for") ||
 		!strings.Contains(
 			err.Error(),
 			"the last status read failed: read the fdbrestore status: context deadline exceeded",

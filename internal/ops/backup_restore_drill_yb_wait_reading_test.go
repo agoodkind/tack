@@ -160,7 +160,7 @@ func TestAwaitYBScratchClearsRecoveredReadError(t *testing.T) {
 		ybWaitTestPoll,
 		ybWaitTestProbe,
 	)
-	if err == nil || !strings.Contains(err.Error(), "no progress for") {
+	if err == nil || !strings.Contains(err.Error(), "did not make progress for") {
 		t.Fatalf("err = %v, want a stall", err)
 	}
 

@@ -1,35 +1,17 @@
-// backup_alarm_vocabulary.go is each backup mechanism's share of the alarm
-// mail: the phrase that names each kind of fault, the one sentence that says
-// what happened, and the steps that fix it. Metric names, thresholds in
-// seconds, and run identifiers stay in the journal report; none of them appear
-// here. The composition is in backup_alarm_words.go.
+// Alarm vocabulary separates human-readable fault explanations and recovery
+// steps from machine metric identifiers, raw seconds, and run IDs.
 
 package ops
 
-// backupAlarmWords is one mechanism's vocabulary. The known template takes the
-// last-good time, the age, and the limit, in that order. An unknown age has two
-// vocabularies, chosen by the metric's cause, because a success that was never
-// recorded and a record that could not be read support different claims. The
-// never-recorded template takes the detail alone. The unreadable sentence takes
-// nothing, because the only detail is a client's error text, which stays in the
-// journal; the remembered sentence that may follow it takes the last-good time,
-// the age, and the limit of the last reading this guest took.
+// backupAlarmWords defines message templates. Known paragraphs accept success
+// time, age, and threshold. Never-recorded paragraphs accept sanitized detail;
+// unreadable paragraphs exclude client errors. Historical unreadable readings
+// add the prior observation's time, age, and threshold.
 //
-// paragraphKnownDetail is the sentence appended to a known-age paragraph that
-// names what the reading showed, and it takes the detail alone. It is empty on
-// every mechanism whose known-age detail is the provenance of the last recorded
-// success rather than an observation this run made, because "the last check
-// reported" would be a false claim about a run identifier or a restorable
-// point. Only the ledger cluster's check replaces the detail with its own live
-// reading (replicationStalenessMetric in backup_staleness_replication.go), so
-// only that mechanism declares the sentence. Every mechanism declares this field one
-// way or the other: a composer that handed these words an argument they do not
-// name printed nothing where it was dropped, which is how the sentence reached
-// one mail and no other.
-//
-// No template numbers its arguments. A numbered format string is what silenced
-// that mistake, because Go prints its "%!(EXTRA ...)" marker only for a format
-// string that does not.
+// paragraphKnownDetail accepts live observation detail only for replication.
+// Export run IDs, rehearsal provenance, and restorable points cannot truthfully
+// appear as "the last check reported" observations. Unnumbered format arguments
+// preserve Go's extra-argument diagnostics for mismatched templates.
 type backupAlarmWords struct {
 	phraseKnown            string
 	phraseNeverRecorded    string
@@ -51,17 +33,17 @@ const (
 	backupAlarmLastCheck       = " The last check reported: %s."
 )
 
-// backupAlarmVocabulary maps each metric to its words.
+// backupAlarmVocabulary selects each mechanism's human-readable messages.
 var backupAlarmVocabulary = map[string]backupAlarmWords{
 	backupStalenessExportName: {
 		phraseKnown:            "Nightly ledger export is %s old",
 		phraseNeverRecorded:    "Nightly ledger export has never completed",
-		phraseUnreadable:       "Nightly ledger export status could not be read",
+		phraseUnreadable:       "This guest could not read nightly ledger export status",
 		paragraphKnown:         backupAlarmExportNoun + " last completed" + backupAlarmKnownFact,
 		paragraphKnownDetail:   "",
 		paragraphNeverRecorded: backupAlarmExportNoun + " has never completed." + backupAlarmLastCheck,
-		paragraphUnreadable:    "The nightly ledger export's newest copy could not be dated.",
-		paragraphRemembered:    " The newest copy this guest last read was made" + backupAlarmKnownFact,
+		paragraphUnreadable:    "This guest could not date the nightly ledger export's newest copy.",
+		paragraphRemembered:    " The most recent export this guest read completed" + backupAlarmKnownFact,
 		steps: []string{
 			"On the owner guest, run journalctl -u tack-ledger-export.",
 			"On each data guest, run journalctl -u tack-ledger-archive.",
@@ -71,25 +53,26 @@ var backupAlarmVocabulary = map[string]backupAlarmWords{
 	backupStalenessRehearsalName: {
 		phraseKnown:            "Restore rehearsal has not passed in %s",
 		phraseNeverRecorded:    "Restore rehearsal has never passed",
-		phraseUnreadable:       "Restore rehearsal status could not be read",
+		phraseUnreadable:       "This guest could not read restore rehearsal status",
 		paragraphKnown:         backupAlarmRehearsalNoun + " last passed" + backupAlarmKnownFact,
 		paragraphKnownDetail:   "",
 		paragraphNeverRecorded: backupAlarmRehearsalNoun + " has never passed." + backupAlarmLastCheck,
-		paragraphUnreadable:    "The restore rehearsal's last pass could not be read.",
+		paragraphUnreadable:    "This guest could not read the restore rehearsal's last pass.",
 		paragraphRemembered:    " The newest pass this guest last read was" + backupAlarmKnownFact,
 		steps: []string{
 			"On the owner guest, run journalctl -u tack-backup-restore-drill.",
-			"Fix what it names, then run systemctl start tack-backup-restore-drill.",
+			"Resolve the rehearsal failure, then run systemctl start tack-backup-restore-drill.",
 		},
 	},
 	backupStalenessReplicationName: {
 		phraseKnown:            "Ledger cluster unhealthy for %s",
-		phraseNeverRecorded:    "Ledger cluster has never been seen healthy",
-		phraseUnreadable:       "Ledger cluster health status could not be read",
+		phraseNeverRecorded:    "This guest has never observed a healthy ledger cluster",
+		phraseUnreadable:       "This guest could not read ledger cluster health status",
 		paragraphKnown:         backupAlarmReplicationNoun + " was last healthy" + backupAlarmKnownFact,
 		paragraphKnownDetail:   backupAlarmLastCheck,
-		paragraphNeverRecorded: backupAlarmReplicationNoun + " has never been seen healthy." + backupAlarmLastCheck,
-		paragraphUnreadable:    "The ledger cluster's last healthy reading could not be read.",
+		paragraphNeverRecorded: "This guest has never observed the ledger cluster " +
+			"(logins and audit trail) healthy." + backupAlarmLastCheck,
+		paragraphUnreadable:    "This guest could not read the ledger cluster's last healthy observation.",
 		paragraphRemembered:    " This guest last recorded it healthy" + backupAlarmKnownFact,
 		steps: []string{
 			"Confirm every ledger guest is up.",
@@ -99,12 +82,12 @@ var backupAlarmVocabulary = map[string]backupAlarmWords{
 	},
 	backupStalenessFDBName: {
 		phraseKnown:            "Product database backup stopped %s ago",
-		phraseNeverRecorded:    "Product database backup has no restorable point",
-		phraseUnreadable:       "Product database backup status could not be read",
+		phraseNeverRecorded:    "Product database backup does not have a restorable point",
+		phraseUnreadable:       "This guest could not read product database backup status",
 		paragraphKnown:         backupAlarmFDBNoun + " last advanced" + backupAlarmKnownFact,
 		paragraphKnownDetail:   "",
-		paragraphNeverRecorded: backupAlarmFDBNoun + " has no restorable point." + backupAlarmLastCheck,
-		paragraphUnreadable:    "The product database backup's status could not be read.",
+		paragraphNeverRecorded: backupAlarmFDBNoun + " does not have a restorable point." + backupAlarmLastCheck,
+		paragraphUnreadable:    "This guest could not read the product database backup's status.",
 		paragraphRemembered:    " The newest restorable point this guest last read was" + backupAlarmKnownFact,
 		steps: []string{
 			"On each data guest, run docker ps and confirm tack-fdb-backup-agent-1 is there.",

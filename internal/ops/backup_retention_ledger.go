@@ -75,7 +75,7 @@ func planRetentionLedger(
 
 	if !complete {
 		return nil, fmt.Errorf(
-			"retention refuses ledger deletion: a complete export at or after %s is required",
+			"retention refuses ledger deletion: deletion requires a complete export at or after %s",
 			cutoff.Format(time.RFC3339),
 		)
 	}

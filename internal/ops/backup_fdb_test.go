@@ -105,7 +105,7 @@ func TestFDBBackupActiveFromStatusRejectsDifferentDestination(t *testing.T) {
 				}
 
 				if active {
-					t.Fatal("mismatched backup must not be accepted as active")
+					t.Fatal("destination mismatch must not classify the backup as active")
 				}
 
 				if !strings.Contains(err.Error(), "different destination") {
