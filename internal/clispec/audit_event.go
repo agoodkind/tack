@@ -31,6 +31,7 @@ func newOperatorEvent(
 		DeployCommit:   strings.TrimSpace(deployCommit),
 		SessionID:      principal.SessionID,
 		OnBehalfOf:     principal.OnBehalfOf,
+		Input:          recordedInput(ctx),
 	})
 	if err != nil {
 		return audit.Event{}, loggedAuditError(ctx, "encode operator event extra", err)
