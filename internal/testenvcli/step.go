@@ -20,8 +20,7 @@ type cliStep struct {
 
 // Helper implements the helper marker required by testenv.T.
 //
-// The command does not use [testing.T] and does not track helper stack frames.
-// This method therefore leaves the step unchanged.
+// The command does not track helper stack frames.
 //
 // Engine helpers invoke Helper before provisioning:
 //
@@ -71,7 +70,7 @@ func (step *cliStep) FailNow() {
 //	step.SkipNow()
 func (step *cliStep) SkipNow() { runtime.Goexit() }
 
-// fail writes err and fails the step.
+// fail writes err to stderr and fails the step.
 func (step *cliStep) fail(err error) {
 	_, _ = fmt.Fprintf(step.Output(), "testenv: %v\n", err)
 	step.FailNow()
