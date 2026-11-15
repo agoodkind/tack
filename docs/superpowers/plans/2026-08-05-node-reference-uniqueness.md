@@ -977,8 +977,9 @@ func TestDeleteReleasesTheReference(t *testing.T) {
 - [ ] Replace repository declarations:
 
 ```go
-	// UpdateAtomic writes node/view records, reconciles indexedProps against
-	// oldProps, and replaces reference claims in one transaction.
+	// UpdateAtomic writes node/view records and reconciles indexedProps against
+	// oldProps in one transaction. Nil referenceKeys preserves existing claims;
+	// a non-nil slice replaces them, and a non-nil empty slice releases them all.
 	// A duplicate claim rolls back all changes.
 	UpdateAtomic(
 		ctx context.Context,
@@ -1023,8 +1024,10 @@ func (s *NodeStore) UpdateAtomic(
 			return nil, err
 		}
 		reconcilePropertyIndexes(tr, n, oldProps, indexedProps)
-		if err := writeReferenceKeys(tr, n.OrgID, n.ID, referenceKeys); err != nil {
-			return nil, err
+		if referenceKeys != nil {
+			if err := writeReferenceKeys(tr, n.OrgID, n.ID, referenceKeys); err != nil {
+				return nil, err
+			}
 		}
 		if err := applyRelationshipChanges(ctx, tr, relationshipChanges); err != nil {
 			return nil, err
@@ -1054,9 +1057,12 @@ After property-index clearing in Delete's transaction, add:
 		}
 ```
 
-- [ ] Run make build and supply nil referenceKeys at reported callers.
-  Task 4 supplies real service-create keys; tests, seed, and ops still lack
-  templates at this stage. Require both new integration tests to pass. Commit:
+- [ ] Run make build. The current callers already accept referenceKeys under the
+  [NodeRepository contract](../../../internal/domain/node/repository.go).
+  Task 4 renders service-create keys from metadata. Create callers must supply
+  those keys for templated types. Update callers may pass nil only when preserving
+  existing claims; changed references require the complete replacement key set.
+  Require both new integration tests to pass. Commit:
 
 ```bash
 git add internal/adapters/foundationdb/node.go internal/domain/node/repository.go internal/test/integration/reference_store_test.go
@@ -1087,8 +1093,6 @@ import (
 	"goodkind.io/tack/internal/domain/node"
 )
 
-// TestAllocateCreateSequenceUsesTheTemplateProperty verifies generated property
-// selection from metadata rather than a concrete sequence identifier.
 func TestAllocateCreateSequenceUsesTheTemplateProperty(t *testing.T) {
 	nodeType := &node.NodeType{
 		TypeKey:  "ticket",
@@ -1154,10 +1158,8 @@ import (
 	"goodkind.io/tack/internal/domain/node"
 )
 
-// maxScopeWalkDepth bounds ancestor reads for reference collection.
 const maxScopeWalkDepth = 32
 
-// referenceKeysFor renders every declared template, returning empty for absent templates.
 func (s *NodeService) referenceKeysFor(
 	ctx context.Context,
 	orgID uuid.UUID,
@@ -1184,7 +1186,6 @@ func (s *NodeService) referenceKeysFor(
 	return keys, nil
 }
 
-// scopeRefsFor records each feature's nearest ancestor reference from scopeID upward.
 func (s *NodeService) scopeRefsFor(ctx context.Context, orgID, scopeID uuid.UUID) (map[string]string, error) {
 	refs := map[string]string{}
 	if scopeID == uuid.Nil {
@@ -1213,7 +1214,6 @@ func (s *NodeService) scopeRefsFor(ctx context.Context, orgID, scopeID uuid.UUID
 	return refs, nil
 }
 
-// recordScopeRefs preserves a nearer ancestor's value for each declared feature.
 func recordScopeRefs(refs map[string]string, ancestorType *node.NodeType, view *node.NodeView) {
 	reference := ancestorReference(ancestorType, view)
 	if reference == "" {
@@ -1227,7 +1227,6 @@ func recordScopeRefs(refs map[string]string, ancestorType *node.NodeType, view *
 	}
 }
 
-// ancestorReference supports direct-property scopes addressable without another scope.
 func ancestorReference(ancestorType *node.NodeType, view *node.NodeView) string {
 	property := ancestorType.Reference.DirectAddressProperty()
 	if property == "" {
@@ -1252,8 +1251,7 @@ func uuidPropValue(props map[string]json.RawMessage, name string) uuid.UUID {
 - [ ] Replace allocateCreateSequence in node_create_prepare.go:
 
 ```go
-// allocateCreateSequence fills the declared generated property using its template
-// counter domain rather than a concrete type/property naming convention.
+// The template defines the counter domain instead of a type/property naming convention.
 func (s *NodeService) allocateCreateSequence(
 	ctx context.Context,
 	log *slog.Logger,
@@ -1407,7 +1405,6 @@ func (r *Resolver) resolveSequenceNodeID(ctx context.Context, input string, type
 	return uuid.Nil, fmt.Errorf("reference %q: %w", input, domain.ErrNotFound)
 }
 
-// referenceKeyHolder uses the authoritative index without scanning scope candidates.
 func (r *Resolver) referenceKeyHolder(ctx context.Context, orgID uuid.UUID, typeKeys []string, input string) (uuid.UUID, bool) {
 	for _, typeKey := range typeKeys {
 		nodeType := r.typeIndex[typeKey]
@@ -1519,7 +1516,6 @@ import (
 	"goodkind.io/tack/internal/ops"
 )
 
-// TestFindDuplicateReferencesReportsBothHolders verifies one group with both IDs.
 func TestFindDuplicateReferencesReportsBothHolders(t *testing.T) {
 	env := SetupTestEnv(t)
 	actor := uuid.New()
