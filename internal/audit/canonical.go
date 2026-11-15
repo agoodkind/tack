@@ -13,8 +13,7 @@ import (
 )
 
 // canonicalJSON sorts object keys and uses encoding/json for scalar values.
-// It approximates RFC 8785 canonical JSON for the hash chain. Equal logical
-// values produce equal bytes.
+// It approximates RFC 8785 canonical JSON for the hash chain.
 func canonicalJSON(v any) ([]byte, error) {
 	raw, err := json.Marshal(v)
 	if err != nil {

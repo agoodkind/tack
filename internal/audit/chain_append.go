@@ -18,7 +18,6 @@ import (
 // The caller must roll back the transaction and retry the whole batch.
 var errChainConflict = errors.New("audit chain head advanced concurrently")
 
-// chainAppendInput contains the fields appendChainRow writes for one event.
 type chainAppendInput struct {
 	Event       Event
 	EventID     uuid.UUID
