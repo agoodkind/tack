@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/moby/moby/api/types/container"
 	"github.com/moby/moby/api/types/mount"
@@ -99,6 +100,7 @@ func TestYBPlacementAuditPreservesLedgerContentsAndLiteralPaths(t *testing.T) {
 					{layout.ExpectedLedger, test.expected, test.createExpected},
 					{layout.PlacedLedger, test.placed, test.createPlaced},
 				}
+				past := time.Unix(1, 0)
 				for _, ledger := range ledgers {
 					if ledger.create {
 						if err := os.WriteFile(
@@ -107,6 +109,10 @@ func TestYBPlacementAuditPreservesLedgerContentsAndLiteralPaths(t *testing.T) {
 							0o600,
 						); err != nil {
 							t.Fatalf("write ledger %s: %v", ledger.path, err)
+						}
+
+						if err := os.Chtimes(ledger.path, past, past); err != nil {
+							t.Fatalf("set ledger timestamp %s: %v", ledger.path, err)
 						}
 					}
 				}
@@ -140,6 +146,15 @@ func TestYBPlacementAuditPreservesLedgerContentsAndLiteralPaths(t *testing.T) {
 						content, err := os.ReadFile(ledger.path)
 						if err != nil {
 							t.Fatalf("read literal ledger path %s: %v", ledger.path, err)
+						}
+
+						info, err := os.Stat(ledger.path)
+						if err != nil {
+							t.Fatalf("stat ledger %s: %v", ledger.path, err)
+						}
+
+						if !info.ModTime().After(past) {
+							t.Fatalf("ledger %s did not update its modification time", ledger.path)
 						}
 
 						if string(content) != ledger.content {
