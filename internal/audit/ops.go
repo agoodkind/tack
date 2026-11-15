@@ -27,11 +27,12 @@ type Spec struct {
 	Reads   bool `exhaustruct:"optional"`
 	// CreatesAuditInfrastructure defers recording when the outbox table or
 	// operator login does not exist, or authentication prevents the initial
-	// intent write. The gate records intent and outcome after the command
-	// returns. Only seed-roles within this command can repair mismatched
-	// credentials. The operator role cannot drop either object; only a
-	// superuser can create either absence. A missing login proves that an
-	// operator command has not previously recorded an event.
+	// intent write. The gate retries recording intent and outcome after the
+	// command returns. Authentication failures require the command to repair
+	// the credentials before recording can succeed. Only seed-roles within
+	// this command can repair mismatched credentials. The operator role cannot
+	// drop either object; only a superuser can create either absence. A missing
+	// login proves that an operator command has not previously recorded an event.
 	CreatesAuditInfrastructure bool `exhaustruct:"optional"`
 	// Class is the operation class of the definition. ValidateSpec rejects a
 	// read class on a definition that mutates.

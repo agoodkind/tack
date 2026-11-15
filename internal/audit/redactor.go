@@ -14,8 +14,9 @@ import (
 )
 
 // Redactor implements GDPR Right to Erasure for the audit ledger. It uses
-// audit_redactor_app, which can UPDATE only payload, redacted, and redacted_at
-// in audit.pii. The role can only read other audit tables or cannot access them.
+// tack_audit_redactor, which inherits audit_redactor and can UPDATE only
+// payload, redacted, and redacted_at in audit.pii. The role can SELECT from
+// audit.pii but cannot access other audit tables.
 // The hash chain covers pii_ref, not the erased payload.
 type Redactor struct {
 	pool *pgxpool.Pool

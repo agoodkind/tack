@@ -7,9 +7,8 @@ import (
 	"github.com/google/uuid"
 )
 
-// TestLegacyEventUsesHistoricalDeleteFields checks the historical deletion record
-// required to reproduce the blocked reference-key reconstruction. It requires
-// node.delete, the deleting tool, and mcp_tool without a node ID.
+// Reference-key reconstruction must reproduce the historical deletion record,
+// including its missing node ID.
 func TestLegacyEventUsesHistoricalDeleteFields(t *testing.T) {
 	t.Parallel()
 	in := LegacyRowInput{

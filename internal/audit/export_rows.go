@@ -21,8 +21,9 @@ const exportWriteBufferBytes = 1 << 20
 
 // writeExportRows encodes one row at a time and returns the row count and file
 // digest. Each export uses its own exclusive path. Failures remove that file
-// without changing another export's rows. Success requires durable file contents
-// and a durable directory entry before signing or reclaiming superseded rows.
+// without changing another export's rows. The function returns success only
+// after syncing the file contents and directory entry. The caller signs the
+// manifest and reclaims superseded rows only after this function succeeds.
 func writeExportRows(
 	ctx context.Context,
 	source RowSource,
