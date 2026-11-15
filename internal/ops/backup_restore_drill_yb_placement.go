@@ -130,7 +130,7 @@ func ybTabletIdentity(remap ybTabletRemap) string {
 func ybPlacementAuditScript(layout ybPlacementLayout) string {
 	return "set -e; e=" + shellQuote(layout.ExpectedLedger) +
 		"; p=" + shellQuote(layout.PlacedLedger) + "; " +
-		`if [ ! -e "$e" ]; then : >>"$e"; fi; if [ ! -e "$p" ]; then : >>"$p"; fi; ` +
+		`touch "$e" "$p"; ` +
 		`sort -u "$e" >"$e.sorted"; sort -u "$p" >"$p.sorted"; ` +
 		`printf 'expected %s\nplaced %s\nmissing\n' "$(wc -l <"$e.sorted")" "$(wc -l <"$p.sorted")"; ` +
 		`comm -23 "$e.sorted" "$p.sorted"`
