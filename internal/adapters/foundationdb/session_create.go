@@ -12,19 +12,41 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
+var (
+	errSearchSessionInput  = errors.New("session identity, snapshot, and tokens are required")
+	errSearchSessionExists = errors.New("already exists")
+)
+
 // Create stores a session if its authority still writes the access version.
+//
+// The header, query tokens, and deadline indexes commit together.
+// A duplicate session or outdated access version prevents the write.
+//
+// For example:
+//
+//	created, err := store.Create(ctx, session)
 func (s *SearchSessionStore) Create(
 	ctx context.Context,
 	session searchdomain.Session,
-) (created searchdomain.Session, err error) {
-	defer telemetry.FDBOp(ctx, "store.search_session.create")(&err)
+) (searchdomain.Session, error) {
+	var createErr error
+	defer telemetry.FDBOp(ctx, "store.search_session.create")(&createErr)
+	created, createErr := s.create(ctx, session)
+
+	return created, createErr
+}
+
+func (s *SearchSessionStore) create(
+	ctx context.Context,
+	session searchdomain.Session,
+) (searchdomain.Session, error) {
 	if session.ID == uuid.Nil || session.Version != 0 || len(session.Snapshot.QueryTokens) == 0 ||
 		session.Snapshot.PITID == "" {
 		return searchdomain.Session{}, sessionFailure(
 			ctx,
 			"create search session",
 			session.ID,
-			errors.New("session identity, snapshot, and tokens are required"),
+			errSearchSessionInput,
 		)
 	}
 
@@ -43,14 +65,14 @@ func (s *SearchSessionStore) Create(
 	}
 
 	record := sessionRecordFor(session)
-	err = transactSession(
+	err := transactSession(
 		ctx,
 		s.db,
 		s.clock,
 		"create search session",
 		session.ID,
-		func(tr fdb.Transaction) error {
-			return createSession(ctx, tr, session, record)
+		func(transaction fdb.Transaction) error {
+			return createSession(ctx, transaction, session, record)
 		},
 	)
 	if err != nil {
@@ -70,23 +92,32 @@ func (s *SearchSessionStore) Create(
 
 func createSession(
 	ctx context.Context,
-	tr fdb.Transaction,
+	transaction fdb.Transaction,
 	session searchdomain.Session,
 	record searchSessionRecord,
 ) error {
 	var existing searchSessionRecord
-	found, readErr := readSessionValue(tr, searchSessionKey(session.ID), &existing)
+	found, readErr := readSessionValue(transaction, searchSessionKey(session.ID), &existing)
 	if readErr != nil {
 		return readErr
 	}
 
 	if found {
-		return fmt.Errorf("session %s already exists", session.ID)
+		duplicateErr := fmt.Errorf("session %s %w", session.ID, errSearchSessionExists)
+		slog.ErrorContext(
+			ctx,
+			"search.session.storage_failed",
+			slog.String("err", duplicateErr.Error()),
+			slog.String("operation", "create search session"),
+			slog.String("session_id", session.ID.String()),
+		)
+
+		return duplicateErr
 	}
 
 	if versionErr := requireWrittenVersion(
 		ctx,
-		tr,
+		transaction,
 		session.AuthorityID,
 		session.Query.Access.Version,
 	); versionErr != nil {
@@ -94,7 +125,7 @@ func createSession(
 	}
 
 	if writeErr := writeSessionValue(
-		tr,
+		transaction,
 		searchSessionKey(session.ID),
 		record,
 		maxSessionHeaderBytes,
@@ -106,15 +137,15 @@ func createSession(
 
 	for chunk := range record.TokenChunks {
 		end := min(len(tokens), (chunk+1)*sessionTokenChunkBytes)
-		tr.Set(
+		transaction.Set(
 			fdb.Key(searchSessionTokenKey(session.ID, chunk)),
 			tokens[chunk*sessionTokenChunkBytes:end],
 		)
 	}
 
-	tr.Set(fdb.Key(searchSessionExpiryKey(session.ID, session.IdleDeadline)), nil)
-	tr.Set(fdb.Key(searchSessionPresenceKey(session.Query.Index, session.ID)), nil)
-	tr.Set(
+	transaction.Set(fdb.Key(searchSessionExpiryKey(session.ID, session.IdleDeadline)), nil)
+	transaction.Set(fdb.Key(searchSessionPresenceKey(session.Query.Index, session.ID)), nil)
+	transaction.Set(
 		fdb.Key(
 			searchSessionVersionKey(
 				session.AuthorityID,

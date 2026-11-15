@@ -12,7 +12,15 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// Run starts the consumer and relay and drains them after a termination signal.
+// Run starts the consumer and relay and drains them after a signal.
+//
+// It configures logging and handles SIGINT and SIGTERM. Shutdown waits
+// for workers until the drain deadline. The command loads settings before
+// calling Run.
+//
+// For example:
+//
+//	err := auditconsumer.Run(settings)
 func Run(cfg config.AuditConsumerSettings) error {
 	closer, err := telemetry.Setup(telemetry.LogConfig{
 		Level:         cfg.LogLevel,

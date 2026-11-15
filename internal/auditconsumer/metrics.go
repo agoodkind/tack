@@ -10,6 +10,8 @@ import (
 	"time"
 )
 
+const metricsHeaderTimeout = 10 * time.Second
+
 func startMetricsServer(ctx context.Context, addr string) *http.Server {
 	if addr == "" {
 		return nil
@@ -20,7 +22,7 @@ func startMetricsServer(ctx context.Context, addr string) *http.Server {
 	server := &http.Server{
 		Addr:              addr,
 		Handler:           mux,
-		ReadHeaderTimeout: 10 * time.Second,
+		ReadHeaderTimeout: metricsHeaderTimeout,
 	}
 	slog.InfoContext(ctx, "server.metrics_listening", slog.String("addr", addr))
 	go func() {

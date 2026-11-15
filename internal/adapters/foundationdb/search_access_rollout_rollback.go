@@ -8,7 +8,6 @@ import (
 
 	"github.com/apple/foundationdb/bindings/go/src/fdb"
 	"github.com/google/uuid"
-	"goodkind.io/tack/internal/audit"
 	searchdomain "goodkind.io/tack/internal/domain/search"
 	"goodkind.io/tack/internal/telemetry"
 )
@@ -80,59 +79,17 @@ func (s *SearchAccessRolloutStore) Rollback(
 				return counterErr
 			}
 
-			restored = record
-			restored.ActiveVersion, restored.CandidateVersion = restoredVersion, restoredVersion
-			restored.PreviousVersion, restored.WriteVersions = record.CandidateVersion, []string{
+			var restoreErr error
+			restored, restoreErr = s.restoreRollout(
+				ctx,
+				tr,
+				record,
+				request,
 				restoredVersion,
-			}
-			restored.Phase, restored.ScanCursor, restored.VerifyCursor, restored.RetireCursor = string(
-				searchdomain.AccessVerifying,
-			), "", "", ""
-			restored.ScanComplete, restored.AffectedPass, restored.Generation = false, false, generation
-			interrupted := audit.OutcomeDetails{
-				Outcome:        audit.OutcomeIncomplete,
-				FailureCode:    "access_rollout_rolled_back",
-				FailureMessage: "the operator rolled back the access policy rollout",
-				CommittedSteps: nil,
-			}
-			if record.ActiveVersion == record.CandidateVersion {
-				interrupted.Outcome = audit.OutcomePartiallyCompleted
-				interrupted.CommittedSteps = []string{
-					searchdomain.AccessRolloutTargetReference(record.AuthorityID.String()),
-				}
-			}
+				generation,
+			)
 
-			if err := appendRolloutResult(
-				ctx,
-				tr,
-				restored,
-				s.work.clock.Now(),
-				interrupted,
-			); err != nil {
-				return err
-			}
-
-			restored.InitiatedOperationID, restored.InitiatedActorID = request.Initiation.OperationID, request.Initiation.ActorID
-			restored.InitiatedOperation = request.Initiation.Operation
-			if stopErr := stopRolloutCollecting(
-				ctx,
-				tr,
-				request.AuthorityID,
-				record.Generation,
-			); stopErr != nil {
-				return stopErr
-			}
-
-			if writeErr := writeSearchRecord(
-				ctx,
-				tr,
-				searchRolloutKey(request.AuthorityID),
-				restored,
-			); writeErr != nil {
-				return writeErr
-			}
-
-			return scheduleRolloutWork(ctx, tr, s.work, request.AuthorityID, generation)
+			return restoreErr
 		},
 	)
 	if errors.Is(err, searchdomain.ErrNoRolloutInProgress) ||

@@ -20,21 +20,32 @@ type searchRollbackInput struct {
 func (searchRollbackInput) isCommandInput() {}
 
 func searchRollbackCommand(f *cli.Factory) *cobra.Command {
-	in := searchRollbackInput{Authority: ""}
+	rollbackInput := searchRollbackInput{Authority: ""}
 	cmd := &cobra.Command{
 		Use:   "access-rollback",
 		Short: "Roll back one permission authority's access policy rollout",
 		Long:  "The command defaults to a dry run that prints the authority's current rollout state. With the execute flag, the command restores the previous active version before retirement begins and stops new writes from including the candidate version. The worker removes the candidate keys after sessions that use the candidate finish. The command refuses rollback after retirement begins.",
 		Args:  cobra.NoArgs,
 	}
-	cmd.Flags().StringVar(&in.Authority, "authority", "", "permission authority (organization) ID")
+	cmd.Flags().StringVar(
+		&rollbackInput.Authority,
+		"authority",
+		"",
+		"permission authority (organization) ID",
+	)
 	_ = cmd.MarkFlagRequired("authority")
-	input := func() (json.RawMessage, error) { return encodeCommandInput(in) }
+	input := func() (json.RawMessage, error) { return encodeCommandInput(rollbackInput) }
 	spec := audit.Spec{
-		Verb:    string(audit.VerbOpsSearchAccessRollback),
-		Mutates: true,
-		Class:   audit.OperationExternal,
-		Targets: func(ctx context.Context, input json.RawMessage) ([]audit.Target, error) {
+		Verb:                       string(audit.VerbOpsSearchAccessRollback),
+		Mutates:                    true,
+		Class:                      audit.OperationExternal,
+		Atomic:                     false,
+		Reads:                      false,
+		CreatesAuditInfrastructure: false,
+		Targets: func(ctx context.Context, input json.RawMessage) (
+			[]audit.Target,
+			error,
+		) {
 			var decoded searchRollbackInput
 			if err := json.Unmarshal(input, &decoded); err != nil {
 				return nil, searchRolloutFailure(ctx, "decode access rollback input", err)
@@ -52,7 +63,7 @@ func searchRollbackCommand(f *cli.Factory) *cobra.Command {
 		spec,
 		input,
 		func(ctx context.Context, steps audit.StepRecorder) (audit.OutcomeDetails, error) {
-			err := runSearchRollback(ctx, f, in, clispec.NewCLISink(f), false, steps)
+			err := runSearchRollback(ctx, f, rollbackInput, clispec.NewCLISink(f), false, steps)
 			if errors.Is(err, searchdomain.ErrNoRolloutInProgress) ||
 				errors.Is(err, searchdomain.ErrRetirementStarted) ||
 				errors.Is(err, searchdomain.ErrRolloutChanged) {
@@ -70,7 +81,7 @@ func searchRollbackCommand(f *cli.Factory) *cobra.Command {
 			spec,
 			input,
 			func(ctx context.Context, sink clispec.ResultSink) error {
-				return runSearchRollback(ctx, f, in, sink, true, nil)
+				return runSearchRollback(ctx, f, rollbackInput, sink, true, nil)
 			},
 		),
 	)
@@ -81,14 +92,14 @@ func searchRollbackCommand(f *cli.Factory) *cobra.Command {
 func runSearchRollback(
 	ctx context.Context,
 	f *cli.Factory,
-	in searchRollbackInput,
+	input searchRollbackInput,
 	sink clispec.ResultSink,
 	dryRun bool,
 	steps audit.StepRecorder,
 ) error {
-	authorityID, err := uuid.Parse(in.Authority)
+	authorityID, err := uuid.Parse(input.Authority)
 	if err != nil {
-		return searchRolloutFailure(ctx, "parse authority "+in.Authority, err)
+		return searchRolloutFailure(ctx, "parse authority "+input.Authority, err)
 	}
 
 	env, err := NewEnv(ctx, f.Cfg)
@@ -128,6 +139,7 @@ func runSearchRollback(
 			planned,
 			func(ctx context.Context) error {
 				var rollbackErr error
+
 				rollout, rollbackErr = rollouts.Rollback(
 					ctx,
 					searchdomain.RollbackAccessRollout{
@@ -136,8 +148,15 @@ func runSearchRollback(
 						Initiation:         initiation,
 					},
 				)
+				if rollbackErr != nil {
+					return searchRolloutFailure(
+						ctx,
+						"restore access rollout of authority "+authorityID.String(),
+						rollbackErr,
+					)
+				}
 
-				return rollbackErr
+				return nil
 			},
 			func(ctx context.Context) (json.RawMessage, error) {
 				observed := planned

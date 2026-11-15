@@ -9,7 +9,7 @@ import (
 )
 
 // rolloutStep verifies the rollout claim and stored state before applying step.
-// The completion transaction also records the initiating command's final result.
+// The completion transaction records the initiating command's final result.
 func (s *SearchAccessRolloutStore) rolloutStep(
 	ctx context.Context,
 	work searchdomain.Work,
@@ -19,13 +19,13 @@ func (s *SearchAccessRolloutStore) rolloutStep(
 	return transactSearch(
 		ctx,
 		s.db,
-		func(tr fdb.Transaction) error {
-			workRecord, err := s.work.verifyClaim(ctx, tr, work)
+		func(transaction fdb.Transaction) error {
+			workRecord, err := s.work.verifyClaim(ctx, transaction, work)
 			if err != nil {
 				return err
 			}
 
-			record, err := readRollout(ctx, tr, work.OrgID)
+			record, err := readRollout(ctx, transaction, work.OrgID)
 			if err != nil {
 				return err
 			}
@@ -34,14 +34,14 @@ func (s *SearchAccessRolloutStore) rolloutStep(
 				return searchdomain.ErrWorkChanged
 			}
 
-			if err := step(tr, &record, workRecord); err != nil {
+			if err := step(transaction, &record, workRecord); err != nil {
 				return err
 			}
 
 			if record.Phase == string(searchdomain.AccessStable) {
 				if err := appendRolloutResult(
 					ctx,
-					tr,
+					transaction,
 					record,
 					s.work.clock.Now(),
 					audit.OutcomeDetails{
@@ -55,7 +55,7 @@ func (s *SearchAccessRolloutStore) rolloutStep(
 				}
 			}
 
-			return writeSearchRecord(ctx, tr, searchRolloutKey(work.OrgID), record)
+			return writeSearchRecord(ctx, transaction, searchRolloutKey(work.OrgID), record)
 		},
 	)
 }

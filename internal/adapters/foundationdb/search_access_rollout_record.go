@@ -32,9 +32,9 @@ type searchRolloutRecord struct {
 	// InitiatedOperationID and InitiatedActorID identify the operation that
 	// began the current rollout. A record without a rollout, or one that a
 	// release before this field wrote, stores neither.
-	InitiatedOperationID uuid.UUID       `json:"initiated_operation_id,omitzero" exhaustruct:"optional"`
-	InitiatedActorID     uuid.UUID       `json:"initiated_actor_id,omitzero" exhaustruct:"optional"`
-	InitiatedOperation   json.RawMessage `json:"initiated_operation,omitempty" exhaustruct:"optional"`
+	InitiatedOperationID uuid.UUID       `json:"initiated_operation_id,omitzero"`
+	InitiatedActorID     uuid.UUID       `json:"initiated_actor_id,omitzero"`
+	InitiatedOperation   json.RawMessage `json:"initiated_operation,omitempty"`
 }
 
 // stableRollout returns the state of an authority that never ran a rollout.
@@ -53,6 +53,9 @@ func stableRollout(authorityID uuid.UUID) searchRolloutRecord {
 		AffectedPass:           false,
 		Generation:             0,
 		PermissionEventVersion: 0,
+		InitiatedOperationID:   uuid.Nil,
+		InitiatedActorID:       uuid.Nil,
+		InitiatedOperation:     nil,
 	}
 }
 

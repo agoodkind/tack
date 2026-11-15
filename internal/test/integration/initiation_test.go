@@ -34,6 +34,7 @@ func TestSearchRebuildRefusesMissingOriginalOperation(t *testing.T) {
 			Initiation: searchdomain.Initiation{
 				OperationID: uuid.Must(uuid.NewV7()),
 				ActorID:     integration.TestActorID,
+				Operation:   nil,
 			},
 		},
 	)

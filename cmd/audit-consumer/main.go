@@ -4,29 +4,16 @@
 package main
 
 import (
-	"fmt"
 	"log/slog"
 	"os"
 
 	"goodkind.io/tack/internal/auditconsumer"
-	"goodkind.io/tack/internal/config"
 )
 
 func main() {
-	if err := run(); err != nil {
-		slog.Error("audit_consumer.exit", slog.String("err", err.Error()))
+	err := auditconsumer.Execute()
+	if err != nil {
+		slog.Error("audit_consumer.exit", slog.Any("err", err))
 		os.Exit(1)
 	}
-}
-
-func run() error {
-	cfg, err := config.LoadAuditConsumerSettings()
-	if err != nil {
-		wrapped := fmt.Errorf("load audit consumer configuration: %w", err)
-		slog.Error("audit_consumer.config_failed", slog.String("err", wrapped.Error()))
-
-		return wrapped
-	}
-
-	return auditconsumer.Run(cfg)
 }

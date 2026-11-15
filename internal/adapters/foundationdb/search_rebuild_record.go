@@ -31,9 +31,9 @@ type searchRebuildRecord struct {
 	// InitiatedOperationID and InitiatedActorID identify the operation that
 	// began the replacement. A record that a release before this field
 	// wrote stores neither.
-	InitiatedOperationID uuid.UUID       `json:"initiated_operation_id,omitzero" exhaustruct:"optional"`
-	InitiatedActorID     uuid.UUID       `json:"initiated_actor_id,omitzero" exhaustruct:"optional"`
-	InitiatedOperation   json.RawMessage `json:"initiated_operation,omitempty" exhaustruct:"optional"`
+	InitiatedOperationID uuid.UUID       `json:"initiated_operation_id,omitzero"`
+	InitiatedActorID     uuid.UUID       `json:"initiated_actor_id,omitzero"`
+	InitiatedOperation   json.RawMessage `json:"initiated_operation,omitempty"`
 }
 
 func rebuildRecordFor(rebuild searchdomain.Rebuild) searchRebuildRecord {

@@ -40,7 +40,13 @@ func buildSearchWorkers(
 }
 
 // StartSearchWorkers starts one durable indexing loop per configured worker.
-// Every loop stops when ctx ends or CloseContext runs.
+//
+// Every loop stops when ctx ends or CloseContext runs. A repeated call does
+// not start another set of workers.
+//
+// For example:
+//
+//	graph.StartSearchWorkers(ctx)
 func (g *Graph) StartSearchWorkers(ctx context.Context) {
 	if len(g.search.workers) == 0 || g.searchStarted {
 		return
@@ -88,20 +94,24 @@ func runSearchLoop(ctx context.Context, worker *service.SearchWorker, idle time.
 
 // runSearchIteration runs one slice and recovers a panic in that slice. The
 // loop then continues with the next slice.
-func runSearchIteration(ctx context.Context, worker *service.SearchWorker) (worked bool) {
-	defer func() {
-		if recovered := recover(); recovered != nil {
-			telemetry.L(ctx).ErrorContext(
-				ctx,
-				"search.worker.slice_panicked",
-				slog.String("err", fmt.Sprint(recovered)),
-			)
-			worked = false
-		}
+func runSearchIteration(ctx context.Context, worker *service.SearchWorker) bool {
+	worked := false
+	func() {
+		defer func() {
+			if recovered := recover(); recovered != nil {
+				telemetry.L(ctx).ErrorContext(
+					ctx,
+					"search.worker.slice_panicked",
+					slog.String("err", fmt.Sprint(recovered)),
+				)
+				worked = false
+			}
+		}()
+		claimed, err := worker.RunSlice(ctx)
+		worked = claimed && err == nil
 	}()
-	claimed, err := worker.RunSlice(ctx)
 
-	return claimed && err == nil
+	return worked
 }
 
 // runRetentionLoop checks the retention thresholds once per interval until

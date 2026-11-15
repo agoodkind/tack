@@ -27,6 +27,7 @@ func (s *SearchRebuildStore) AdvanceRebuild(
 		read,
 		func(tr fdb.Transaction, _ searchWorkRecord) error {
 			next.Initiation = read.Initiation
+
 			return writeSearchRecord(ctx, tr, searchRebuildKey(), rebuildRecordFor(next))
 		},
 	)

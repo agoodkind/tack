@@ -12,11 +12,12 @@ import (
 	searchdomain "goodkind.io/tack/internal/domain/search"
 )
 
-// appendSearchOperationResult records the final result of the initiating command
-// in the transaction that completes its search work. Autonomous work does not identify an initiator.
+// appendSearchOperationResult records the initiating command's final result
+// in the transaction that completes its search work. Autonomous work does
+// not identify an initiator.
 func appendSearchOperationResult(
 	ctx context.Context,
-	tr fdb.Transaction,
+	transaction fdb.Transaction,
 	initiation searchdomain.Initiation,
 	now time.Time,
 	result json.RawMessage,
@@ -31,7 +32,8 @@ func appendSearchOperationResult(
 			ctx,
 			"complete search operation "+initiation.OperationID.String(),
 			fmt.Errorf(
-				"%w: search operation %s lacks its original command event; finish pending search work on the previous release before upgrading",
+				"%w: search operation %s lacks its original command event; "+
+					"finish pending search work on the previous release before upgrading",
 				audit.ErrMissingMutationContext,
 				initiation.OperationID,
 			),
@@ -52,7 +54,8 @@ func appendSearchOperationResult(
 			ctx,
 			"complete search operation "+initiation.OperationID.String(),
 			fmt.Errorf(
-				"search operation %s has conflicting initiating identity",
+				"%w: search operation %s has conflicting initiating identity",
+				audit.ErrMissingMutationContext,
 				initiation.OperationID,
 			),
 		)
@@ -109,12 +112,12 @@ func appendSearchOperationResult(
 		)
 	}
 
-	return NewOutboxWriter(tr).WriteEncodedEvent(ctx, encoded)
+	return NewOutboxWriter(transaction).WriteEncodedEvent(ctx, encoded)
 }
 
 func appendRebuildResult(
 	ctx context.Context,
-	tr fdb.Transaction,
+	transaction fdb.Transaction,
 	rebuild searchdomain.Rebuild,
 	now time.Time,
 ) error {
@@ -146,12 +149,12 @@ func appendRebuildResult(
 		return searchReadFailure(ctx, "encode rebuild result "+rebuild.ID.String(), err)
 	}
 
-	return appendSearchOperationResult(ctx, tr, rebuild.Initiation, now, result, details)
+	return appendSearchOperationResult(ctx, transaction, rebuild.Initiation, now, result, details)
 }
 
 func appendRolloutResult(
 	ctx context.Context,
-	tr fdb.Transaction,
+	transaction fdb.Transaction,
 	record searchRolloutRecord,
 	now time.Time,
 	details audit.OutcomeDetails,
@@ -175,5 +178,12 @@ func appendRolloutResult(
 		return searchReadFailure(ctx, "encode rollout result "+record.AuthorityID.String(), err)
 	}
 
-	return appendSearchOperationResult(ctx, tr, record.rollout().Initiation, now, result, details)
+	return appendSearchOperationResult(
+		ctx,
+		transaction,
+		record.rollout().Initiation,
+		now,
+		result,
+		details,
+	)
 }

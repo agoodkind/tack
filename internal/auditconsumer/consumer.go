@@ -26,10 +26,14 @@ func newAuditRelay(
 			FDBTransactionTimeout: cfg.FDBTransactionTimeout,
 			PollInterval:          cfg.PollInterval,
 			BatchSize:             cfg.BatchSize,
+			LeaseDuration:         0,
+			AfterProduce:          nil,
+			AfterLeaseAcquired:    nil,
 		},
 	)
 	if err != nil {
 		slog.ErrorContext(ctx, "audit_consumer.relay_open_failed", slog.String("err", err.Error()))
+
 		return opened, fmt.Errorf("open the audit relay: %w", err)
 	}
 
@@ -76,6 +80,7 @@ func newAuditConsumer(
 	)
 	if err != nil {
 		slog.ErrorContext(ctx, "audit_consumer.consumer_failed", slog.String("err", err.Error()))
+
 		return nil, fmt.Errorf("new consumer: %w", err)
 	}
 

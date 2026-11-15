@@ -16,8 +16,8 @@ const (
 	// sweepCandidateWindow limits the oldest expired sessions eligible for a sweep.
 	// Each process runs four searches at once by default. QA runs two processes.
 	// Eight sweeps selecting two sessions each from 64 select about 14.4 distinct
-	// sessions across 16 selections on average. One read loads about 4.3 KiB of keys
-	// and does not commit. By calculation, the backlog stops falling at about 32
+	// sessions across 16 selections on average. One read loads about 4.3 KiB
+	// of keys and does not commit. The backlog stops falling at about 32
 	// undeletable keys in a full window. A full window of 64 undeletable keys with
 	// valid session IDs stops sweeping. One malformed key in the window stops all
 	// sweeping because the read fails.
