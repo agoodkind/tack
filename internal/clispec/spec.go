@@ -16,7 +16,7 @@ type Input interface {
 	isClispecInput()
 }
 
-// InputMarker makes an external command input satisfy Input when embedded.
+// InputMarker satisfies Input when a command input embeds it.
 type InputMarker struct{}
 
 func (InputMarker) isClispecInput() {}
