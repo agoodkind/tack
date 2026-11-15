@@ -77,12 +77,11 @@ func parseYBInventoryCheck(node, out string) ([]ybArchivedFile, error) {
 	}
 
 	if count > ybInventoryMissingLimit {
-		return nil, fmt.Errorf(
-			"node %s's extraction is missing %d archived files, more than the %d the check reports",
-			node,
-			count,
-			ybInventoryMissingLimit,
-		)
+		return nil, extractionMissingFilesOverflowError{
+			Node:  node,
+			Count: count,
+			Limit: ybInventoryMissingLimit,
+		}
 	}
 
 	var missing []ybArchivedFile
@@ -101,12 +100,7 @@ func parseYBInventoryCheck(node, out string) ([]ybArchivedFile, error) {
 	}
 
 	if len(missing) != count {
-		return nil, fmt.Errorf(
-			"the extraction check for node %s counted %d missing files and listed %d",
-			node,
-			count,
-			len(missing),
-		)
+		return nil, extractionCountMismatchError{Node: node, Count: count, Listed: len(missing)}
 	}
 
 	return missing, nil
@@ -160,4 +154,34 @@ func checkYBNodeExtraction(
 	)
 
 	return missing, nil
+}
+
+type extractionCountMismatchError struct {
+	Node   string
+	Count  int
+	Listed int
+}
+
+func (failure extractionCountMismatchError) Error() string {
+	return fmt.Sprintf(
+		"the extraction check for node %s counted %d missing files and listed %d",
+		failure.Node,
+		failure.Count,
+		failure.Listed,
+	)
+}
+
+type extractionMissingFilesOverflowError struct {
+	Node  string
+	Count int
+	Limit int
+}
+
+func (failure extractionMissingFilesOverflowError) Error() string {
+	return fmt.Sprintf(
+		"node %s's extraction is missing %d archived files, more than the %d the check reports",
+		failure.Node,
+		failure.Count,
+		failure.Limit,
+	)
 }

@@ -41,7 +41,7 @@ type TestEnv struct {
 }
 
 // writeOrgNode writes the root org and its read records directly through
-// stores. The root uses uuid.Nil for ParentID and sets OrgID equal to ID.
+// stores. The root uses [uuid.Nil] for ParentID and sets OrgID equal to ID.
 func writeOrgNode(
 	ctx context.Context,
 	stores *fdbadapter.Stores,

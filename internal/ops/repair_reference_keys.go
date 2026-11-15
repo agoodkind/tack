@@ -17,9 +17,10 @@ type repairedReferenceKey struct {
 	Key  node.ReferenceKey
 }
 
-// writeAllReferenceKeys reasserts rendered reference keys for an org. It returns
-// only claims that were absent or belonged to another node before the write.
-// Reasserting a node's existing claim does not require a mutation event.
+// writeAllReferenceKeys reasserts rendered reference keys for an org. It
+// returns only claims that were absent or belonged to another node before
+// the write. Reasserting a node's existing claim does not require a mutation
+// event.
 func writeAllReferenceKeys(
 	ctx context.Context,
 	env *Env,

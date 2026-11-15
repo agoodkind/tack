@@ -28,18 +28,19 @@ const (
 	provisionSeedDeferred         = "deferred"
 )
 
-// provisionFDB configures a fresh FoundationDB cluster exactly once and returns
-// its observed state. It uses `fdbcli status minimal` to detect a configured
-// cluster and leaves that cluster unchanged. Destructive initialization requires
-// explicit approval.
+// provisionFDB configures a fresh FoundationDB cluster exactly once and
+// returns its observed state. It uses `fdbcli status minimal` to detect a
+// configured cluster and leaves that cluster unchanged. Destructive
+// initialization requires explicit approval.
 //
-// The command runs fdbcli in a one-shot container against this guest's cluster
-// file. It does not require a local store container. Data guests run the store
-// processes, and the cluster file specifies their addresses (TACK-408).
+// The command runs fdbcli in a one-shot container against this guest's
+// cluster file. It does not require a local store container. Data guests run
+// the store processes, and the cluster file specifies their addresses
+// (TACK-408).
 //
-// TACK_OPS_FDB_REDUNDANCY_MODE specifies replication. Configuration fails if the
-// live processes cannot satisfy that mode. Provisioning permits repeated runs
-// after the required processes start.
+// TACK_OPS_FDB_REDUNDANCY_MODE specifies replication. Configuration fails if
+// the live processes cannot satisfy that mode. Provisioning permits repeated
+// runs after the required processes start.
 func provisionFDB(
 	ctx context.Context,
 	cli *client.Client,

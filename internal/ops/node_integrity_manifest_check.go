@@ -15,6 +15,8 @@ import (
 	"goodkind.io/tack/internal/domain/node"
 )
 
+var errIntegrityManifestEmpty = errors.New("manifest does not contain any entries")
+
 // repairIDPattern accepts repair IDs with 1 to 128 characters.
 // The first character must be an ASCII letter or digit.
 // Each later character must be an ASCII letter, digit, period, underscore,
@@ -101,7 +103,7 @@ func checkManifestHeader(version int, ticket string, entries int) error {
 	}
 
 	if entries == 0 {
-		return errors.New("manifest does not contain any entries")
+		return errIntegrityManifestEmpty
 	}
 
 	return nil
@@ -127,7 +129,7 @@ func checkEntries(entries []NodeIntegrityEntry) error {
 
 		repairIDs[entry.RepairID] = true
 		if entry.NodeID == uuid.Nil {
-			return fmt.Errorf("repair %s does not specify node_id", entry.RepairID)
+			return repairNodeIDMissingError{RepairID: entry.RepairID}
 		}
 
 		if nodeIDs[entry.NodeID] {
@@ -150,7 +152,7 @@ func checkEntries(entries []NodeIntegrityEntry) error {
 func checkFrozenSource(ctx context.Context, entry NodeIntegrityEntry) error {
 	source := entry.Source
 	if source == nil {
-		return fmt.Errorf("repair %s does not include a frozen source", entry.RepairID)
+		return repairFrozenSourceMissingError{RepairID: entry.RepairID}
 	}
 
 	if source.PrimaryDigest != primaryDigest(source.Primary) {
@@ -202,4 +204,20 @@ func checkFrozenSource(ctx context.Context, entry NodeIntegrityEntry) error {
 	}
 
 	return nil
+}
+
+type repairFrozenSourceMissingError struct {
+	RepairID string
+}
+
+func (failure repairFrozenSourceMissingError) Error() string {
+	return fmt.Sprintf("repair %s does not include a frozen source", failure.RepairID)
+}
+
+type repairNodeIDMissingError struct {
+	RepairID string
+}
+
+func (failure repairNodeIDMissingError) Error() string {
+	return fmt.Sprintf("repair %s does not specify node_id", failure.RepairID)
 }

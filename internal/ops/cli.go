@@ -67,7 +67,8 @@ type noInput struct {
 }
 
 // RegisterCommands adds the declared ops commands and handwritten backup
-// commands to reg. The backup parent command rejects invocation without a subcommand.
+// commands to reg. The backup parent command rejects invocation without a
+// subcommand.
 func RegisterCommands(reg *clispec.Registry, f *cli.Factory) {
 	clispec.Register(reg, inspectReadOp(f))
 	clispec.Register(reg, inspectFindOp(f))

@@ -154,7 +154,10 @@ func TestAwaitFDBRestoreReportsAStatusItCannotRead(t *testing.T) {
 		t.Fatal("unreadable status must not cause an unbounded wait")
 	}
 
-	if !strings.Contains(err.Error(), "fdbrestore status never reported readable progress counters") {
+	if !strings.Contains(
+		err.Error(),
+		"fdbrestore status never reported readable progress counters",
+	) {
 		t.Fatalf("the failure must report unreadable counters, got: %v", err)
 	}
 

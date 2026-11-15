@@ -35,9 +35,10 @@ type MetadataNameBackfillResult struct {
 }
 
 // RunMetadataNameBackfill finds missing name index entries for node types
-// and property definitions across all organizations. Search uses these indexes
-// to read node types by type key and property definitions by name. Older
-// metadata does not have entries. The function writes them unless dryRun is true.
+// and property definitions across all organizations. Search uses these
+// indexes to read node types by type key and property definitions by name.
+// Older metadata does not have entries. The function writes them unless
+// dryRun is true.
 func RunMetadataNameBackfill(
 	ctx context.Context,
 	nodeTypes NameIndexBackfillStore,

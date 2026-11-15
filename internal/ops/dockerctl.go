@@ -1,4 +1,4 @@
-// Package ops manages the container runtime through the Docker SDK.
+// Docker SDK helpers manage the container runtime.
 // client.FromEnv reads DOCKER_HOST, DOCKER_CERT_PATH, and DOCKER_TLS_VERIFY.
 // Commands use the guest daemon through the socket tack-ops mounts.
 
@@ -223,13 +223,15 @@ func runOneShot(
 }
 
 // containerExec runs cmd in an existing container and returns its output and
-// exit code. Use containerExecStreaming for large output to avoid buffering it.
+// exit code. Use containerExecStreaming for large output to avoid buffering
+// it.
 //
-// Cancellation closes the attached connection to end the read. The Engine API
-// does not support killing an exec; the command continues until it exits or
-// its container stops. Restore drill probes run in scratch containers that
-// cleanupRestoreDrill force-removes, killing their processes. Commands in live
-// containers (provisioning's fdbcli and seed, and export's tar) finish on their own.
+// Cancellation closes the attached connection to end the read. The Engine
+// API does not support killing an exec; the command continues until it exits
+// or its container stops. Restore drill probes run in scratch containers
+// that cleanupRestoreDrill force-removes, killing their processes. Commands
+// in live containers (provisioning's fdbcli and seed, and export's tar)
+// finish on their own.
 func containerExec(
 	ctx context.Context,
 	cli *client.Client,

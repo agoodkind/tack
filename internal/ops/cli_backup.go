@@ -28,10 +28,9 @@ func backupCommand(f *cli.Factory) *cobra.Command {
 		singletonReadSpec(audit.VerbOpsBackup, "backup"),
 		emptyCommandInput,
 		func(context.Context) (audit.OperatorReadOutput, error) {
-			return audit.OperatorReadOutput{}, fmt.Errorf(
-				"ops backup requires a subcommand (%s); the bare command does not run operations",
-				strings.Join(backupSubcommandNames(cmd), ", "),
-			)
+			return audit.OperatorReadOutput{}, backupSubcommandRequiredError{
+				Commands: strings.Join(backupSubcommandNames(cmd), ", "),
+			}
 		},
 	)
 	cmd.AddCommand(
@@ -285,4 +284,15 @@ func backupSubcommandNames(cmd *cobra.Command) []string {
 	}
 
 	return names
+}
+
+type backupSubcommandRequiredError struct {
+	Commands string
+}
+
+func (failure backupSubcommandRequiredError) Error() string {
+	return fmt.Sprintf(
+		"ops backup requires a subcommand (%s); the bare command does not run operations",
+		failure.Commands,
+	)
 }

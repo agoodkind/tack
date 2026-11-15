@@ -17,6 +17,13 @@ import (
 	"goodkind.io/tack/internal/domain/user"
 )
 
+var (
+	errTokenEmailRequired = errors.New("an email is required to identify the token's user")
+	errTokenLabelRequired = errors.New(
+		"a label is required to identify the client that uses the token",
+	)
+)
+
 // AuthTokenIssue is what one issue produced. Raw is the bearer value and
 // exists only in this struct and in the operator's terminal.
 type AuthTokenIssue struct {
@@ -38,7 +45,7 @@ func authTokenHolder(
 ) (*user.User, error) {
 	trimmed := strings.TrimSpace(email)
 	if trimmed == "" {
-		return nil, errors.New("an email is required to identify the token's user")
+		return nil, errTokenEmailRequired
 	}
 
 	users := postgres.NewUserRepo(pool)
@@ -66,10 +73,7 @@ func authTokenHolder(
 			return nil, fmt.Errorf("no user %q exists", trimmed)
 		}
 
-		return nil, fmt.Errorf(
-			"no active user %q exists; token issuance requires an existing user",
-			trimmed,
-		)
+		return nil, tokenUserMissingError{Email: trimmed}
 	}
 
 	return holder, nil
@@ -88,9 +92,7 @@ func IssueAuthToken(
 ) (AuthTokenIssue, error) {
 	trimmedLabel := strings.TrimSpace(label)
 	if trimmedLabel == "" {
-		return AuthTokenIssue{}, errors.New(
-			"a label is required to identify the client that uses the token",
-		)
+		return AuthTokenIssue{}, errTokenLabelRequired
 	}
 
 	holder, err := authTokenHolder(ctx, pool, email, false)
@@ -220,4 +222,15 @@ func withdrawUnconfirmedToken(
 	slog.WarnContext(ctx, "auth.token.withdrawn", slog.String("token_id", tokenID.String()))
 
 	return fmt.Errorf("token %s withdrawn: %w", tokenID, cause)
+}
+
+type tokenUserMissingError struct {
+	Email string
+}
+
+func (failure tokenUserMissingError) Error() string {
+	return fmt.Sprintf(
+		"no active user %q exists; token issuance requires an existing user",
+		failure.Email,
+	)
 }

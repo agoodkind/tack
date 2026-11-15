@@ -156,10 +156,7 @@ func TestChooseFDBBackupForTargetPassesOverASessionItCannotDescribe(t *testing.T
 	}
 
 	if len(store.skipped) != 1 || !strings.Contains(store.skipped[0], "no such backup") {
-		t.Fatalf(
-			"the unreadable session must include a skip reason, got %v",
-			store.skipped,
-		)
+		t.Fatalf("the unreadable session must include a skip reason, got %v", store.skipped)
 	}
 }
 
@@ -206,11 +203,7 @@ func TestChooseFDBBackupForTargetReportsEveryExcludedSession(t *testing.T) {
 		"20260828T000000Z: fdbbackup describe exited 1: expired",
 	} {
 		if !strings.Contains(err.Error(), want) {
-			t.Fatalf(
-				"the refusal must include %q for target selection, got: %v",
-				want,
-				err,
-			)
+			t.Fatalf("the refusal must include %q for target selection, got: %v", want, err)
 		}
 	}
 }

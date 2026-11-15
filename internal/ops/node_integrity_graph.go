@@ -52,7 +52,11 @@ func graphProblem(entry NodeIntegrityEntry, evidence fdbadapter.RepairEvidence) 
 
 	for _, edge := range entry.Result.RemoveEdges {
 		if !outgoing[edge] {
-			return fmt.Sprintf("the node does not have a %s edge to %s", edge.RelationType, edge.TargetID)
+			return fmt.Sprintf(
+				"the node does not have a %s edge to %s",
+				edge.RelationType,
+				edge.TargetID,
+			)
 		}
 
 		if edge.RelationType == node.RelChildOf && edge.TargetID == resultingParent {

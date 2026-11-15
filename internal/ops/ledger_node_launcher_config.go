@@ -17,6 +17,8 @@ import (
 	"github.com/moby/moby/client"
 )
 
+var errLauncherArchiveEmpty = errors.New("the archive does not contain a regular file")
+
 // launcherConfigFile stores config bytes and the original tar header.
 // Rewrites must preserve ownership and mode to permit later launcher writes.
 type launcherConfigFile struct {
@@ -86,7 +88,7 @@ func firstTarFile(ctx context.Context, stream io.Reader) (launcherConfigFile, er
 	for {
 		header, err := reader.Next()
 		if errors.Is(err, io.EOF) {
-			return none, errors.New("the archive does not contain a regular file")
+			return none, errLauncherArchiveEmpty
 		}
 
 		if err != nil {

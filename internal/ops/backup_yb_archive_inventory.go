@@ -20,7 +20,8 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// writeYBArchiveInventory writes an inventory beside the staged archive for upload.
+// writeYBArchiveInventory writes an inventory beside the staged archive for
+// upload.
 func writeYBArchiveInventory(ctx context.Context, runID, node, stageDir, tarPath string) error {
 	logger := telemetry.L(ctx)
 	inventory, err := readYBArchiveInventory(ctx, runID, node, tarPath)
@@ -65,8 +66,9 @@ type ybArchiveInventory struct {
 	Files []ybArchivedFile
 }
 
-// readYBArchiveInventory inventories the completed archive rather than the source
-// directory. This sequential pass records only files the archive actually contains.
+// readYBArchiveInventory inventories the completed archive rather than the
+// source directory. This sequential pass records only files the archive
+// actually contains.
 func readYBArchiveInventory(
 	ctx context.Context,
 	runID string,
@@ -105,7 +107,7 @@ func readYBArchiveInventory(
 	}
 
 	if len(files) == 0 {
-		err := fmt.Errorf("tablet archive %s does not contain regular files", tarPath)
+		err := tabletArchiveEmptyError{Path: tarPath}
 		logger.ErrorContext(
 			ctx,
 			"backup.yb_archive.inventory_failed",
@@ -120,9 +122,10 @@ func readYBArchiveInventory(
 	return ybArchiveInventory{RunID: runID, Node: node, Files: files}, nil
 }
 
-// readYBArchivedFiles skips directories and rejects entries other than regular
-// files. Silently skipping unsupported entries would omit them from restore
-// verification. The export archives each snapshot directory once without hard links.
+// readYBArchivedFiles skips directories and rejects entries other than
+// regular files. Silently skipping unsupported entries would omit them from
+// restore verification. The export archives each snapshot directory once
+// without hard links.
 func readYBArchivedFiles(
 	ctx context.Context,
 	tarPath string,
@@ -153,12 +156,11 @@ func readYBArchivedFiles(
 		}
 
 		if header.Typeflag != tar.TypeReg {
-			err := fmt.Errorf(
-				"tablet archive %s contains %q with unsupported entry type %q",
-				tarPath,
-				header.Name,
-				string(header.Typeflag),
-			)
+			err := tabletArchiveEntryUnsupportedError{
+				Path:  tarPath,
+				Entry: header.Name,
+				Type:  string(header.Typeflag),
+			}
 			logger.ErrorContext(
 				ctx,
 				"backup.yb_archive.inventory_failed",
@@ -196,4 +198,27 @@ func ybArchivedPath(name string) (string, error) {
 	}
 
 	return path, nil
+}
+
+type tabletArchiveEmptyError struct {
+	Path string
+}
+
+func (failure tabletArchiveEmptyError) Error() string {
+	return fmt.Sprintf("tablet archive %s does not contain regular files", failure.Path)
+}
+
+type tabletArchiveEntryUnsupportedError struct {
+	Path  string
+	Entry string
+	Type  string
+}
+
+func (failure tabletArchiveEntryUnsupportedError) Error() string {
+	return fmt.Sprintf(
+		"tablet archive %s contains %q with unsupported entry type %q",
+		failure.Path,
+		failure.Entry,
+		failure.Type,
+	)
 }

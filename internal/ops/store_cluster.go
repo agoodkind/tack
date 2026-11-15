@@ -32,8 +32,8 @@ const (
 // storeRedundancyModes restricts values interpolated into fdbcli commands.
 var storeRedundancyModes = map[string]bool{"single": true, "double": true, "triple": true}
 
-// storeStorageEngine specifies the required storage engine. Changing it rewrites
-// every storage file; operators cannot select another engine here.
+// storeStorageEngine specifies the required storage engine. Changing it
+// rewrites every storage file; operators cannot select another engine here.
 const storeStorageEngine = "ssd"
 
 // validateRedundancyMode refuses a mode outside the accepted set.
@@ -99,7 +99,7 @@ func normalizeCoordinatorAddress(value string) (string, error) {
 
 	portNumber, convErr := strconv.Atoi(port)
 	if convErr != nil || portNumber <= 0 || portNumber > 65535 {
-		return "", fmt.Errorf("coordinator %q does not specify a usable port", value)
+		return "", coordinatorPortMissingError{Address: value}
 	}
 
 	if strings.Contains(host, ":") {
@@ -207,4 +207,12 @@ func storeCLIOptions(cfg *config.Config, command string) runOneShotOptions {
 // without write access for fdbbackup commands that only read the cluster file.
 func fdbClusterReadOnlyBind(cfg *config.Config) string {
 	return cfg.OpsFDBClusterDir + ":" + storeClusterMountPath + ":ro"
+}
+
+type coordinatorPortMissingError struct {
+	Address string
+}
+
+func (failure coordinatorPortMissingError) Error() string {
+	return fmt.Sprintf("coordinator %q does not specify a usable port", failure.Address)
 }

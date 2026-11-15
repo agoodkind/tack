@@ -18,6 +18,15 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
+var (
+	errBreakGlassAlarmEmailRequired = errors.New(
+		"TACK_BACKUP_ALARM_EMAIL is empty; the command must email the statement before execution",
+	)
+	errBreakGlassReasonRequired = errors.New(
+		"a reason is required for the ledger record and the alarm email",
+	)
+)
+
 const (
 	// dbBreakGlassCaller identifies the command in the alarm email.
 	dbBreakGlassCaller = "tack ops db sql"
@@ -66,15 +75,11 @@ func runDBSQL(
 	}
 
 	if reason == "" {
-		return errors.New(
-			"a reason is required for the ledger record and the alarm email",
-		)
+		return errBreakGlassReasonRequired
 	}
 
 	if deps.cfg.BackupAlarmEmail == "" {
-		return errors.New(
-			"TACK_BACKUP_ALARM_EMAIL is empty; the command must email the statement before execution",
-		)
+		return errBreakGlassAlarmEmailRequired
 	}
 
 	result := dbSQLResult{
@@ -201,9 +206,10 @@ func mailDBBreakGlass(
 	return nil
 }
 
-// dbBreakGlassMailIdentity returns the first body line and subject email.
-// A service principal with an accountable operator reports its agent, session,
-// and operator email. Other principals report their own operator line and email.
+// dbBreakGlassMailIdentity returns the first body line and subject email. A
+// service principal with an accountable operator reports its agent, session,
+// and operator email. Other principals report their own operator line and
+// email.
 func dbBreakGlassMailIdentity(principal audit.OperatorPrincipal) (string, string) {
 	if principal.ActorType() == audit.ActorService && principal.OnBehalfOf != nil {
 		accountable := principal.OnBehalfOf.OperatorEmail

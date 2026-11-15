@@ -15,6 +15,8 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
+var errCountQueryResultMissing = errors.New("the count query did not print a result")
+
 // drillAuthTables lists restored tables required for authentication.
 var drillAuthTables = []string{"users", "api_tokens", "org_members"}
 
@@ -99,12 +101,13 @@ func readYBDrillRowCount(
 	return count, nil
 }
 
-// parseYBDrillRowCount accepts only a nonnegative integer from ysqlsh count(*).
-// Empty output, text, and negative numbers cannot establish a table's row count.
+// parseYBDrillRowCount accepts only a nonnegative integer from ysqlsh
+// count(*). Empty output, text, and negative numbers cannot establish a
+// table's row count.
 func parseYBDrillRowCount(out string) (int64, error) {
 	trimmed := strings.TrimSpace(out)
 	if trimmed == "" {
-		return 0, errors.New("the count query did not print a result")
+		return 0, errCountQueryResultMissing
 	}
 
 	count, err := strconv.ParseInt(trimmed, 10, 64)

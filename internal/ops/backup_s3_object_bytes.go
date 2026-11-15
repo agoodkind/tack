@@ -12,10 +12,10 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// smallObjectMaxBytes limits memory use for small records such as JSON status
-// markers. Larger bounded records use getObjectBytesUpTo; large artifacts use
-// getObjectToFile. The limit prevents hostile or corrupt objects from exhausting
-// the staleness check's memory.
+// smallObjectMaxBytes limits memory use for small records such as JSON
+// status markers. Larger bounded records use getObjectBytesUpTo; large
+// artifacts use getObjectToFile. The limit prevents hostile or corrupt
+// objects from exhausting the staleness check's memory.
 const smallObjectMaxBytes = 64 * 1024
 
 // getObjectBytes downloads a small object into memory. Missing optional keys

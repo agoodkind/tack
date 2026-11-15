@@ -87,11 +87,7 @@ func TestYBRestoreRejectsTruncatedTabletFile(t *testing.T) {
 				{identity: ybTabletIdentity(truncated), carried: true, missing: 1},
 			}
 			if !slices.Equal(defects, want) {
-				t.Fatalf(
-					"defects = %+v, want the tablet with a truncated file %+v",
-					defects,
-					want,
-				)
+				t.Fatalf("defects = %+v, want the tablet with a truncated file %+v", defects, want)
 			}
 		},
 	)
@@ -235,7 +231,11 @@ func TestYBRestoreTakesTheCopyThatMatchesItsInventory(t *testing.T) {
 					filepath.Join(fixture.placedTabletDir(remap, newSnap), "000123.sst"),
 				)
 				if err != nil {
-					t.Fatalf("tablet %s counted as placed but its file is absent: %v", remap.new, err)
+					t.Fatalf(
+						"tablet %s counted as placed but its file is absent: %v",
+						remap.new,
+						err,
+					)
 				}
 
 				if !strings.HasPrefix(string(body), "yb2:") {

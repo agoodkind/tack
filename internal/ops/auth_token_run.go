@@ -70,7 +70,7 @@ func runAuthTokenCreate(
 	if !execute {
 		// Dry runs apply the same input validation as execution.
 		if result.Label == "" {
-			return errors.New("a label is required to identify the client that uses the token")
+			return errTokenLabelRequired
 		}
 
 		holder, err := authTokenHolder(ctx, pool, input.Email, false)

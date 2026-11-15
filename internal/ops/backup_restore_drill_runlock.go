@@ -15,6 +15,8 @@ import (
 	"syscall"
 )
 
+var errDrillLockOwned = errors.New("another process owns its lock")
+
 // drillSweepLockName identifies the shared lock for run claims and orphan
 // sweeps. Serialization prevents a sweep from inspecting a new directory
 // before its run acquires the directory lock.
@@ -71,7 +73,7 @@ func claimDrillRun(ctx context.Context, r *restoreDrillCtx) error {
 	runLock, live, err := tryLockDrillRun(ctx, root, r.RunID)
 	if err != nil || live {
 		if err == nil {
-			err = errors.New("another process owns its lock")
+			err = errDrillLockOwned
 		}
 
 		wrapped := fmt.Errorf("lock drill run %s: %w", r.RunID, err)

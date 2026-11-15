@@ -22,10 +22,7 @@ func TestRestoredLedgerChainVerifiesTheNilOrgChain(t *testing.T) {
 
 	reports, verdict := runChainLegOver(t, ledger)
 	if verdict != nil {
-		t.Fatalf(
-			"a restored ledger with intact tenant and nil-org chains failed: %v",
-			verdict,
-		)
+		t.Fatalf("a restored ledger with intact tenant and nil-org chains failed: %v", verdict)
 	}
 
 	for _, orgID := range []uuid.UUID{tenant, uuid.Nil} {

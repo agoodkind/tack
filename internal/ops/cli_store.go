@@ -106,18 +106,11 @@ func storeSetCoordinatorsOp(f *cli.Factory) clispec.Operation[storeAddressesInpu
 			"change on recreation, and site DNS resolves names to the wildcard proxy.",
 		Examples: nil,
 		Args:     nil,
-		Params: []clispec.Param[storeAddressesInput]{
-			clispec.StringParam(
-				"addresses",
-				"comma-separated pinned guest addresses, for example 3d06:bad:b01:210::220,3d06:bad:b01:210::221,3d06:bad:b01:210::222",
-				"",
-				true,
-				func(in *storeAddressesInput, v string) { in.Addresses = v },
-			),
-		},
-		New: func() storeAddressesInput {
-			return storeAddressesInput{InputMarker: clispec.InputMarker{}, Addresses: ""}
-		},
+		Params: storeAddressParams(
+			"comma-separated pinned guest addresses, for example " +
+				"3d06:bad:b01:210::220,3d06:bad:b01:210::221,3d06:bad:b01:210::222",
+		),
+		New: newStoreAddressesInput,
 		Run: func(ctx context.Context, in storeAddressesInput, sink clispec.ResultSink) error {
 			return RunStoreSetCoordinators(ctx, f.Cfg, in.Addresses, sink)
 		},
@@ -141,20 +134,28 @@ func storeExcludeOp(f *cli.Factory) clispec.Operation[storeAddressesInput] {
 			"an excluded address stores the last copy of a key.",
 		Examples: nil,
 		Args:     nil,
-		Params: []clispec.Param[storeAddressesInput]{
-			clispec.StringParam(
-				"addresses",
-				"comma-separated addresses of the processes to take out of service",
-				"",
-				true,
-				func(in *storeAddressesInput, v string) { in.Addresses = v },
-			),
-		},
-		New: func() storeAddressesInput {
-			return storeAddressesInput{InputMarker: clispec.InputMarker{}, Addresses: ""}
-		},
+		Params: storeAddressParams(
+			"comma-separated addresses of the processes to take out of service",
+		),
+		New: newStoreAddressesInput,
 		Run: func(ctx context.Context, in storeAddressesInput, sink clispec.ResultSink) error {
 			return RunStoreExclude(ctx, f.Cfg, in.Addresses, sink)
 		},
 	}
+}
+
+func storeAddressParams(help string) []clispec.Param[storeAddressesInput] {
+	return []clispec.Param[storeAddressesInput]{
+		clispec.StringParam(
+			"addresses",
+			help,
+			"",
+			true,
+			func(input *storeAddressesInput, value string) { input.Addresses = value },
+		),
+	}
+}
+
+func newStoreAddressesInput() storeAddressesInput {
+	return storeAddressesInput{InputMarker: clispec.InputMarker{}, Addresses: ""}
 }

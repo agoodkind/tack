@@ -168,10 +168,10 @@ func restoreDrillFDB(ctx context.Context, r *restoreDrillCtx) error {
 }
 
 // bootScratchFDB starts a standalone container-mode cluster with the IPv6
-// overlay, configures a single-ssd database, and starts backup_agent for restore.
-// The cluster never joins the live cluster. Each run uses fresh data and log
-// directories under the backup root. Other paths under /var/fdb retain the
-// image's contents, including its scripts.
+// overlay, configures a single-ssd database, and starts backup_agent for
+// restore. The cluster never joins the live cluster. Each run uses fresh
+// data and log directories under the backup root. Other paths under /var/fdb
+// retain the image's contents, including its scripts.
 func bootScratchFDB(
 	ctx context.Context,
 	r *restoreDrillCtx,

@@ -64,8 +64,8 @@ func deployVerifyFailure(ctx context.Context, err error) error {
 	return fmt.Errorf("ops deploy verify: %w", err)
 }
 
-// verifyLocalTagDigests compares each replica's digest with its expected image's
-// registry digest from the daemon.
+// verifyLocalTagDigests compares each replica's digest with its expected
+// image's registry digest from the daemon.
 func verifyLocalTagDigests(
 	ctx context.Context,
 	cli *client.Client,
@@ -145,7 +145,8 @@ func inspectImageDigest(ctx context.Context, cli *client.Client, ref string) (st
 
 // containerImageDigest returns the running container's manifest digest. The
 // inspect response's Image field contains an image:tag reference or sha256
-// digest. The function inspects the image again when it needs a digest for a tag.
+// digest. The function inspects the image again when it needs a digest for a
+// tag.
 func containerImageDigest(ctx context.Context, cli *client.Client, name string) (string, error) {
 	insp, err := cli.ContainerInspect(ctx, name, client.ContainerInspectOptions{})
 	if err != nil {

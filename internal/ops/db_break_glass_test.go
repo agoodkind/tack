@@ -59,7 +59,8 @@ func TestDBBreakGlassRefusesToRunUnobserved(t *testing.T) {
 		&bufferSink{buf: &sink},
 		true,
 	)
-	if err == nil || !strings.Contains(err.Error(), "email delivery to alarm@example.test failed") ||
+	if err == nil ||
+		!strings.Contains(err.Error(), "email delivery to alarm@example.test failed") ||
 		!strings.Contains(err.Error(), "the break-glass statement did not run") {
 		t.Fatalf("err = %v, want the undelivered mail to stop the statement", err)
 	}

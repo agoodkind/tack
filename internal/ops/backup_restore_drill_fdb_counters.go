@@ -108,7 +108,8 @@ func newFDBRestoreProgress() *fdbRestoreProgress {
 }
 
 // observe records counters and reports progress when any value establishes a
-// new maximum or minimum. The first readable counters establish initial progress.
+// new maximum or minimum. The first readable counters establish initial
+// progress.
 func (p *fdbRestoreProgress) observe(status string) bool {
 	advanced := false
 

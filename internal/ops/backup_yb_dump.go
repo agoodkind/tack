@@ -25,7 +25,8 @@ func stageWriterUser() string {
 const (
 	// ysqlDumpBinary identifies the single-database dumper in the engine image.
 	ysqlDumpBinary = "/home/yugabyte/postgres/bin/ysql_dump"
-	// ysqlDumpAllBinary identifies the cluster-wide dumper for roles and memberships.
+	// ysqlDumpAllBinary identifies the cluster-wide dumper for roles and
+	// memberships.
 	ysqlDumpAllBinary = "/home/yugabyte/postgres/bin/ysql_dumpall"
 	// ybDumpPort specifies the dumpers' YSQL port.
 	ybDumpPort = "5433"

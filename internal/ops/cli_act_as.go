@@ -13,7 +13,8 @@ import (
 )
 
 // actAsGroup defines recorded product writes as a named user. The ledger
-// records the user as the actor, plus the operator, grant, and reason (TACK-424).
+// records the user as the actor, plus the operator, grant, and reason
+// (TACK-424).
 var actAsGroup = &clispec.Group{
 	Use:    "act-as",
 	Short:  "Make a recorded product write as a named user",

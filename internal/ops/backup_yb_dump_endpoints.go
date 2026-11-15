@@ -37,7 +37,8 @@ func ybDumpHosts(masterAddresses string) []string {
 	return hosts
 }
 
-// ybDumpEndpointRefusal records an endpoint and its failure for the final error.
+// ybDumpEndpointRefusal records an endpoint and its failure for the final
+// error.
 type ybDumpEndpointRefusal struct {
 	host   string
 	reason string
@@ -55,10 +56,7 @@ func runYBDumpOneShot(
 	// Reject it before container creation rather than accepting the client
 	// library's unverified default connection mode (TACK-460).
 	if cfg.LedgerTLSEnabled && ledgerCertsDir(cfg) == "" {
-		err := fmt.Errorf(
-			"ysql %s dump: TLS node verification requires TACK_LEDGER_CERTS_DIR, which is empty",
-			spec.label,
-		)
+		err := ysqlDumpTLSDirectoryMissingError{Label: spec.label}
 		telemetry.L(ctx).ErrorContext(ctx, spec.failEvent, slog.String("err", err.Error()))
 
 		return err
@@ -85,10 +83,7 @@ func walkYBDumpEndpoints(
 ) error {
 	logger := telemetry.L(ctx)
 	if len(hosts) == 0 {
-		wrapped := fmt.Errorf(
-			"ysql %s dump: the configured master addresses do not specify an endpoint",
-			spec.label,
-		)
+		wrapped := ysqlDumpEndpointMissingError{Label: spec.label}
 		logger.ErrorContext(ctx, spec.failEvent, slog.String("err", wrapped.Error()))
 
 		return wrapped
@@ -121,12 +116,11 @@ func walkYBDumpEndpoints(
 			described = append(described, refusal.host+": "+refusal.reason)
 		}
 
-		wrapped := fmt.Errorf(
-			"ysql %s dump: every endpoint failed; tried %s: %s",
-			spec.label,
-			strings.Join(hosts, ", "),
-			strings.Join(described, "; "),
-		)
+		wrapped := ysqlDumpEndpointsFailedError{
+			Label:    spec.label,
+			Hosts:    strings.Join(hosts, ", "),
+			Failures: strings.Join(described, "; "),
+		}
 		logger.ErrorContext(ctx, spec.failEvent, slog.String("err", wrapped.Error()))
 
 		return wrapped
@@ -240,4 +234,41 @@ func ybDumpAttemptOutcome(
 	}
 
 	return info.Size(), ""
+}
+
+type ysqlDumpEndpointMissingError struct {
+	Label string
+}
+
+func (failure ysqlDumpEndpointMissingError) Error() string {
+	return fmt.Sprintf(
+		"ysql %s dump: the configured master addresses do not specify an endpoint",
+		failure.Label,
+	)
+}
+
+type ysqlDumpEndpointsFailedError struct {
+	Label    string
+	Hosts    string
+	Failures string
+}
+
+func (failure ysqlDumpEndpointsFailedError) Error() string {
+	return fmt.Sprintf(
+		"ysql %s dump: every endpoint failed; tried %s: %s",
+		failure.Label,
+		failure.Hosts,
+		failure.Failures,
+	)
+}
+
+type ysqlDumpTLSDirectoryMissingError struct {
+	Label string
+}
+
+func (failure ysqlDumpTLSDirectoryMissingError) Error() string {
+	return fmt.Sprintf(
+		"ysql %s dump: TLS node verification requires TACK_LEDGER_CERTS_DIR, which is empty",
+		failure.Label,
+	)
 }

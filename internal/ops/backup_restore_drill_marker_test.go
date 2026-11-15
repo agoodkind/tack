@@ -155,11 +155,7 @@ func TestRestoreDrillMarkerFailsAfterRetryLimit(t *testing.T) {
 	}
 
 	if store.puts != restoreDrillMarkerAttempts {
-		t.Fatalf(
-			"puts = %d, want exactly %d attempts",
-			store.puts,
-			restoreDrillMarkerAttempts,
-		)
+		t.Fatalf("puts = %d, want exactly %d attempts", store.puts, restoreDrillMarkerAttempts)
 	}
 
 	if len(*waits) != restoreDrillMarkerAttempts-1 {

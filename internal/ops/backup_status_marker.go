@@ -29,8 +29,9 @@ func backupStatusKey(metric string) string {
 	return backupStatusPrefix + metric + ".json"
 }
 
-// writeBackupStatusMarker records a success through the caller's object-store
-// put function. It stores the timestamp in UTC for comparisons across time zones.
+// writeBackupStatusMarker records a success through the caller's
+// object-store put function. It stores the timestamp in UTC for comparisons
+// across time zones.
 func writeBackupStatusMarker(
 	ctx context.Context,
 	put func(key string, body []byte) error,
@@ -95,11 +96,22 @@ func readBackupStatusMarker(
 	}
 
 	if marker.At.IsZero() {
-		wrapped := fmt.Errorf("backup status marker %s does not contain a nonzero at timestamp", key)
+		wrapped := backupMarkerTimestampMissingError{Key: key}
 		logger.ErrorContext(ctx, "backup.status.marker_failed", slog.String("err", wrapped.Error()))
 
 		return absent, false, wrapped
 	}
 
 	return marker, true, nil
+}
+
+type backupMarkerTimestampMissingError struct {
+	Key string
+}
+
+func (failure backupMarkerTimestampMissingError) Error() string {
+	return fmt.Sprintf(
+		"backup status marker %s does not contain a nonzero at timestamp",
+		failure.Key,
+	)
 }

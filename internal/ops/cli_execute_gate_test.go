@@ -29,10 +29,7 @@ func TestOperatorCommandsSetGlobalExecuteFlag(t *testing.T) {
 		}
 
 		if !factory.Execute() {
-			t.Fatalf(
-				"%v --execute did not set the global value; a local flag overrides it",
-				path,
-			)
+			t.Fatalf("%v --execute did not set the global value; a local flag overrides it", path)
 		}
 	}
 }

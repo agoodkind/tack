@@ -178,5 +178,18 @@ func numberPropValue(props map[string]json.RawMessage, name string) (int64, erro
 		}
 	}
 
-	return 0, fmt.Errorf("property %q contains %s, which is not a whole number", name, raw)
+	return 0, referenceCounterNotWholeError{Name: name, Value: raw}
+}
+
+type referenceCounterNotWholeError struct {
+	Name  string
+	Value json.RawMessage
+}
+
+func (failure referenceCounterNotWholeError) Error() string {
+	return fmt.Sprintf(
+		"property %q contains %s, which is not a whole number",
+		failure.Name,
+		failure.Value,
+	)
 }

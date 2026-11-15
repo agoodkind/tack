@@ -42,11 +42,7 @@ func parseYBArchiveInventory(runID, node string, body []byte) (ybArchiveInventor
 	empty := ybArchiveInventory{RunID: "", Node: "", Files: nil}
 	header, rest, found := strings.Cut(string(body), "\n")
 	if !found {
-		return empty, fmt.Errorf(
-			"read %q as the tablet inventory for node %s: it does not include a header line",
-			header,
-			node,
-		)
+		return empty, tabletInventoryHeaderMissingError{Header: header, Node: node}
 	}
 
 	declared, err := parseYBInventoryHeader(header, runID, node)
@@ -70,12 +66,11 @@ func parseYBArchiveInventory(runID, node string, body []byte) (ybArchiveInventor
 	}
 
 	if len(files) != declared {
-		return empty, fmt.Errorf(
-			"the tablet inventory for node %s declares %d files and contains %d",
-			node,
-			declared,
-			len(files),
-		)
+		return empty, tabletInventoryCountMismatchError{
+			Node:     node,
+			Declared: declared,
+			Actual:   len(files),
+		}
 	}
 
 	return ybArchiveInventory{RunID: runID, Node: node, Files: files}, nil
@@ -89,13 +84,12 @@ func parseYBInventoryHeader(header, runID, node string) (int, error) {
 	}
 
 	if fields[1] != runID || fields[2] != node {
-		return 0, fmt.Errorf(
-			"the tablet inventory read for run %s node %s belongs to run %s node %s",
-			runID,
-			node,
-			fields[1],
-			fields[2],
-		)
+		return 0, tabletInventorySourceMismatchError{
+			Run:        runID,
+			Node:       node,
+			ActualRun:  fields[1],
+			ActualNode: fields[2],
+		}
 	}
 
 	declared, err := strconv.Atoi(fields[3])
@@ -120,4 +114,49 @@ func parseYBArchivedFile(line, node string) (ybArchivedFile, error) {
 	}
 
 	return ybArchivedFile{Path: path, Size: size}, nil
+}
+
+type tabletInventoryCountMismatchError struct {
+	Node     string
+	Declared int
+	Actual   int
+}
+
+func (failure tabletInventoryCountMismatchError) Error() string {
+	return fmt.Sprintf(
+		"the tablet inventory for node %s declares %d files and contains %d",
+		failure.Node,
+		failure.Declared,
+		failure.Actual,
+	)
+}
+
+type tabletInventoryHeaderMissingError struct {
+	Header string
+	Node   string
+}
+
+func (failure tabletInventoryHeaderMissingError) Error() string {
+	return fmt.Sprintf(
+		"read %q as the tablet inventory for node %s: it does not include a header line",
+		failure.Header,
+		failure.Node,
+	)
+}
+
+type tabletInventorySourceMismatchError struct {
+	Run        string
+	Node       string
+	ActualRun  string
+	ActualNode string
+}
+
+func (failure tabletInventorySourceMismatchError) Error() string {
+	return fmt.Sprintf(
+		"the tablet inventory read for run %s node %s belongs to run %s node %s",
+		failure.Run,
+		failure.Node,
+		failure.ActualRun,
+		failure.ActualNode,
+	)
 }

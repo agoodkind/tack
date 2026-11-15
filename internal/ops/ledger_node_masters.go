@@ -17,6 +17,10 @@ import (
 	"goodkind.io/tack/internal/config"
 )
 
+var errLedgerNodeHostsEmpty = errors.New(
+	"TACK_LEDGER_NODE_HOSTS does not specify any ledger nodes for the master list",
+)
+
 const (
 	// ledgerLauncherConfigDir stores yugabyted's config on the persisted volume.
 	ledgerLauncherConfigDir = "/home/yugabyte/var/conf"
@@ -40,9 +44,7 @@ func deployedLedgerNodeNames(cfg *config.Config) ([]string, error) {
 	}
 
 	if len(names) == 0 {
-		return nil, errors.New(
-			"TACK_LEDGER_NODE_HOSTS does not specify any ledger nodes for the master list",
-		)
+		return nil, errLedgerNodeHostsEmpty
 	}
 
 	slices.Sort(names)
@@ -72,7 +74,7 @@ func savedLedgerMasters(ctx context.Context, conf []byte) ([]string, error) {
 
 	raw, present := fields[ledgerLauncherMastersKey]
 	if !present {
-		return nil, fmt.Errorf("saved launcher config does not include the %s key", ledgerLauncherMastersKey)
+		return nil, launcherMastersMissingError{Key: ledgerLauncherMastersKey}
 	}
 
 	var joined string
@@ -152,4 +154,12 @@ func decodeLauncherConfig(ctx context.Context, conf []byte) (map[string]json.Raw
 	}
 
 	return fields, nil
+}
+
+type launcherMastersMissingError struct {
+	Key string
+}
+
+func (failure launcherMastersMissingError) Error() string {
+	return fmt.Sprintf("saved launcher config does not include the %s key", failure.Key)
 }

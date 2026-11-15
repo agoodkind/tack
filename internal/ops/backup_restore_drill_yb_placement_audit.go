@@ -84,21 +84,19 @@ func auditYBPlacement(
 // detect failed copies of previously verified sources.
 func ybPlacementVerdict(audit ybPlacementAudit, wanted int) error {
 	if audit.Expected != wanted {
-		return fmt.Errorf(
-			"tablet placement attempted %d of the %d tablets the import created; %d lack an attempt",
-			audit.Expected,
-			wanted,
-			wanted-audit.Expected,
-		)
+		return tabletPlacementAttemptMissingError{
+			Attempted: audit.Expected,
+			Wanted:    wanted,
+			Missing:   wanted - audit.Expected,
+		}
 	}
 
 	if audit.Placed != audit.Expected {
-		return fmt.Errorf(
-			"tablet placement is incomplete: %d of the %d attempted tablets did not record a copy: %s",
-			audit.Expected-audit.Placed,
-			audit.Expected,
-			sampleTabletIdentities(audit.Missing),
-		)
+		return tabletPlacementIncompleteError{
+			Missing:    audit.Expected - audit.Placed,
+			Attempted:  audit.Expected,
+			Identities: sampleTabletIdentities(audit.Missing),
+		}
 	}
 
 	return nil
@@ -142,10 +140,7 @@ func parseYBPlacementAudit(out string) (ybPlacementAudit, error) {
 	}
 
 	if len(lines) < 3 {
-		return empty, fmt.Errorf(
-			"read %q as a placement audit: it does not include two counts and a missing marker",
-			out,
-		)
+		return empty, placementAuditTruncatedError{Output: out}
 	}
 
 	expected, err := parseYBPlacementCount(lines[0], "expected")
@@ -164,12 +159,11 @@ func parseYBPlacementAudit(out string) (ybPlacementAudit, error) {
 
 	missing := lines[3:]
 	if expected-placed != len(missing) {
-		return empty, fmt.Errorf(
-			"the placement audit counts disagree: %d attempted minus %d placed differs from %d listed tablets",
-			expected,
-			placed,
-			len(missing),
-		)
+		return empty, placementAuditCountsDisagreeError{
+			Expected: expected,
+			Placed:   placed,
+			Missing:  len(missing),
+		}
 	}
 
 	return ybPlacementAudit{Expected: expected, Placed: placed, Missing: missing}, nil
@@ -196,4 +190,61 @@ func parseYBPlacementCount(line, label string) (int, error) {
 	}
 
 	return count, nil
+}
+
+type placementAuditCountsDisagreeError struct {
+	Expected int
+	Placed   int
+	Missing  int
+}
+
+func (failure placementAuditCountsDisagreeError) Error() string {
+	return fmt.Sprintf(
+		"the placement audit counts disagree: %d attempted minus %d placed differs from "+
+			"%d listed tablets",
+		failure.Expected,
+		failure.Placed,
+		failure.Missing,
+	)
+}
+
+type placementAuditTruncatedError struct {
+	Output string
+}
+
+func (failure placementAuditTruncatedError) Error() string {
+	return fmt.Sprintf(
+		"read %q as a placement audit: it does not include two counts and a missing marker",
+		failure.Output,
+	)
+}
+
+type tabletPlacementAttemptMissingError struct {
+	Attempted int
+	Wanted    int
+	Missing   int
+}
+
+func (failure tabletPlacementAttemptMissingError) Error() string {
+	return fmt.Sprintf(
+		"tablet placement attempted %d of the %d tablets the import created; %d lack an attempt",
+		failure.Attempted,
+		failure.Wanted,
+		failure.Missing,
+	)
+}
+
+type tabletPlacementIncompleteError struct {
+	Missing    int
+	Attempted  int
+	Identities string
+}
+
+func (failure tabletPlacementIncompleteError) Error() string {
+	return fmt.Sprintf(
+		"tablet placement is incomplete: %d of the %d attempted tablets did not record a copy: %s",
+		failure.Missing,
+		failure.Attempted,
+		failure.Identities,
+	)
 }

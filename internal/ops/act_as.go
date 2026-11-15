@@ -24,10 +24,15 @@ import (
 	"goodkind.io/tack/internal/service"
 )
 
+var errActAsReasonRequired = errors.New(
+	"a reason is required for the grant record and the user's ledger row",
+)
+
 const (
 	// actAsTool distinguishes operator act-as writes from MCP calls in user rows.
 	actAsTool = "ops_act_as_create"
-	// actAsRecordTimeout limits grant recording independently of command cancellation.
+	// actAsRecordTimeout limits grant recording independently of command
+	// cancellation.
 	actAsRecordTimeout = 30 * time.Second
 )
 
@@ -103,7 +108,7 @@ func runActAsCreate(
 ) error {
 	reason := strings.TrimSpace(input.Reason)
 	if reason == "" {
-		return errors.New("a reason is required for the grant record and the user's ledger row")
+		return errActAsReasonRequired
 	}
 
 	if strings.TrimSpace(input.Name) == "" || strings.TrimSpace(input.NodeType) == "" {
@@ -256,12 +261,11 @@ func resolveActAsTarget(
 			slog.String("org_id", resolve.OrgID.String()),
 		)
 
-		return none, fmt.Errorf(
-			"user %q is not a member of org %s containing parent %s",
-			email,
-			resolve.OrgID,
-			parentID,
-		)
+		return none, userOutsideParentOrgError{
+			Email:    email,
+			OrgID:    resolve.OrgID,
+			ParentID: parentID,
+		}
 	}
 
 	return actAsTarget{user: target, orgID: resolve.OrgID, parentID: parentID}, nil
@@ -278,4 +282,19 @@ func writeActAsResult(
 	}
 
 	return nil
+}
+
+type userOutsideParentOrgError struct {
+	Email    string
+	OrgID    uuid.UUID
+	ParentID uuid.UUID
+}
+
+func (failure userOutsideParentOrgError) Error() string {
+	return fmt.Sprintf(
+		"user %q is not a member of org %s containing parent %s",
+		failure.Email,
+		failure.OrgID,
+		failure.ParentID,
+	)
 }

@@ -143,9 +143,7 @@ func TestRunYBDumpOneShotRefusesAnEncryptedLedgerWithNoCertificateDirectory(t *t
 
 	err := runYBDumpOneShot(context.Background(), nil, cfg, t.TempDir(), spec)
 	if err == nil {
-		t.Fatal(
-			"runYBDumpOneShot did not reject TLS without a certificate directory",
-		)
+		t.Fatal("runYBDumpOneShot did not reject TLS without a certificate directory")
 	}
 
 	if !strings.Contains(err.Error(), "TACK_LEDGER_CERTS_DIR") {

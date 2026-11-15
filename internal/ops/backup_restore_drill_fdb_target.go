@@ -38,18 +38,15 @@ func parseFDBTargetTime(value string) (time.Time, error) {
 }
 
 // fdbRestoreTimestampArg renders a whole-second target for --timestamp.
-// time.Parse accepts fractional seconds even when the layout omits them.
+// [time.Parse] accepts fractional seconds even when the layout omits them.
 // Rejecting fractions prevents rounding down to an earlier restore time.
 func fdbRestoreTimestampArg(at time.Time) (string, error) {
 	if at.Nanosecond() != 0 {
-		return "", fmt.Errorf(
-			"restore target %s includes a fraction of a second, which FoundationDB's"+
-				" --timestamp form %s cannot express: use a whole second, and note that"+
-				" %s is the whole second before the moment given",
-			at.UTC().Format(time.RFC3339Nano),
-			fdbTimestampArgForm,
-			formatFDBTime(at),
-		)
+		return "", fractionalRestoreTargetError{
+			Target: at.UTC().Format(time.RFC3339Nano),
+			Format: fdbTimestampArgForm,
+			Before: formatFDBTime(at),
+		}
 	}
 
 	return formatFDBTime(at), nil
@@ -75,4 +72,21 @@ func assertTargetWithinWindow(target time.Time, window fdbRestorableWindow) erro
 // and errors across hosts.
 func formatFDBTime(at time.Time) string {
 	return at.UTC().Format(fdbStatusTimestampLayout)
+}
+
+type fractionalRestoreTargetError struct {
+	Target string
+	Format string
+	Before string
+}
+
+func (failure fractionalRestoreTargetError) Error() string {
+	return fmt.Sprintf(
+		"restore target %s includes a fraction of a second, which FoundationDB's "+
+			"--timestamp form %s cannot express: use a whole second, and note that %s is the "+
+			"whole second before the moment given",
+		failure.Target,
+		failure.Format,
+		failure.Before,
+	)
 }

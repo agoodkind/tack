@@ -336,7 +336,8 @@ func logUnrecordedClass(ctx context.Context, class string, identities []string, 
 	}
 }
 
-// recordRepairReferenceRun records each reference change, counter seed, and key claim.
+// recordRepairReferenceRun records each reference change, counter seed, and
+// key claim.
 func recordRepairReferenceRun(
 	ctx context.Context,
 	factory *cli.Factory,

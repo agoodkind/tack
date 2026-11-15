@@ -238,10 +238,7 @@ func listYBTabletServerNodes(
 
 	nodes := parseYBTabletServers(res.Stdout)
 	if len(nodes) == 0 {
-		wrapped := fmt.Errorf(
-			"yb-snapshot-export: list_all_tablet_servers did not report tablet servers: %q",
-			strings.TrimSpace(res.Stdout),
-		)
+		wrapped := tabletServersMissingError{Output: strings.TrimSpace(res.Stdout)}
 		logger.ErrorContext(ctx, "backup.yb_snapshot.failed", slog.String("err", wrapped.Error()))
 
 		return nil, wrapped
@@ -331,7 +328,10 @@ func cleanupYBExportRuns(
 		logger.InfoContext(
 			ctx,
 			"backup.yb_snapshot.cleanup_orphans_skipped",
-			slog.String("reason", "export run prefixes are absent; a reference set cannot be built"),
+			slog.String(
+				"reason",
+				"export run prefixes are absent; a reference set cannot be built",
+			),
 		)
 
 		return referenced, false
@@ -711,9 +711,10 @@ func unmarshalYBScheduleSnapshotIDs(ctx context.Context, stdout string) (map[str
 }
 
 // ybAdminClusterAccess supplies master addresses and TLS certificate flags
-// with read-only directory binds (TACK-460). yb-admin uses the cluster protocol,
-// not SQL connection settings. TLS without a certificate directory returns
-// only available flags; the command must report its connection failure.
+// with read-only directory binds (TACK-460). yb-admin uses the cluster
+// protocol, not SQL connection settings. TLS without a certificate directory
+// returns only available flags; the command must report its connection
+// failure.
 func ybAdminClusterAccess(cfg *config.Config) (args []string, binds []string) {
 	args = []string{"--master_addresses", cfg.BackupYBMasterAddresses}
 	certsDir := ledgerCertsDir(cfg)
@@ -891,4 +892,15 @@ func ybSnapshotState(listOutput, snapshotID string) ybSnapshotStatus {
 	}
 
 	return ybSnapStatusUnknown
+}
+
+type tabletServersMissingError struct {
+	Output string
+}
+
+func (failure tabletServersMissingError) Error() string {
+	return fmt.Sprintf(
+		"yb-snapshot-export: list_all_tablet_servers did not report tablet servers: %q",
+		failure.Output,
+	)
 }

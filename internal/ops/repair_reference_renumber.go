@@ -253,12 +253,24 @@ func repairReferenceTemplate(
 
 	template := nodeType.PrimaryReferenceTemplate()
 	if template == nil || template.Generated == "" {
-		return nil, nil, nil, fmt.Errorf(
-			"node type %q does not define a generated primary reference for node %s",
-			nodeType.TypeKey,
-			view.ID,
-		)
+		return nil, nil, nil, generatedPrimaryReferenceMissingError{
+			NodeType: nodeType.TypeKey,
+			NodeID:   view.ID,
+		}
 	}
 
 	return nodeType, template, typeIndex, nil
+}
+
+type generatedPrimaryReferenceMissingError struct {
+	NodeType string
+	NodeID   uuid.UUID
+}
+
+func (failure generatedPrimaryReferenceMissingError) Error() string {
+	return fmt.Sprintf(
+		"node type %q does not define a generated primary reference for node %s",
+		failure.NodeType,
+		failure.NodeID,
+	)
 }

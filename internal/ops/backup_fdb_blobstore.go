@@ -29,7 +29,8 @@ const fdbBlobstoreSyntheticHost = "fdb-blobstore-host"
 //
 // Callers use the run ID as name to address each backup independently.
 // This function only encodes the URL; it does not access external resources or
-// log messages. Callers log errors, which include endpoint or credential context.
+// log messages. Callers log errors, which include endpoint or credential
+// context.
 func fdbBlobstoreURL(cfg *config.Config, name string) (string, error) {
 	hostForURL, _, err := blobstoreHostMapping(cfg.BackupS3Endpoint)
 	if err != nil {
@@ -74,10 +75,7 @@ func blobstoreHostMapping(endpoint string) (hostForURL string, extraHost string,
 
 	closeIdx := strings.LastIndex(authority, "]")
 	if closeIdx < 0 {
-		return "", "", fmt.Errorf(
-			"endpoint %q opens an IPv6 bracket but does not close it",
-			endpoint,
-		)
+		return "", "", endpointBracketUnclosedError{Endpoint: endpoint}
 	}
 
 	ipv6 := authority[1:closeIdx]
@@ -115,7 +113,7 @@ func stripScheme(endpoint string) (string, error) {
 	trimmed := strings.TrimPrefix(endpoint, "https://")
 	trimmed = strings.TrimPrefix(trimmed, "http://")
 	if trimmed == "" {
-		return "", fmt.Errorf("endpoint %q does not include a host after the scheme", endpoint)
+		return "", endpointHostMissingError{Endpoint: endpoint}
 	}
 
 	return trimmed, nil
@@ -170,8 +168,9 @@ func fdbBackupStartArgs(
 	return cmd, binds, extraHosts, nil
 }
 
-// blobstoreExtraHosts returns one mapping for an IPv6 literal endpoint or nil
-// for a plain hostname. Docker HostConfig uses nil when a mapping is unnecessary.
+// blobstoreExtraHosts returns one mapping for an IPv6 literal endpoint or
+// nil for a plain hostname. Docker HostConfig uses nil when a mapping is
+// unnecessary.
 func blobstoreExtraHosts(endpoint string) ([]string, error) {
 	_, extraHost, err := blobstoreHostMapping(endpoint)
 	if err != nil {
@@ -183,4 +182,20 @@ func blobstoreExtraHosts(endpoint string) ([]string, error) {
 	}
 
 	return []string{extraHost}, nil
+}
+
+type endpointBracketUnclosedError struct {
+	Endpoint string
+}
+
+func (failure endpointBracketUnclosedError) Error() string {
+	return fmt.Sprintf("endpoint %q opens an IPv6 bracket but does not close it", failure.Endpoint)
+}
+
+type endpointHostMissingError struct {
+	Endpoint string
+}
+
+func (failure endpointHostMissingError) Error() string {
+	return fmt.Sprintf("endpoint %q does not include a host after the scheme", failure.Endpoint)
 }

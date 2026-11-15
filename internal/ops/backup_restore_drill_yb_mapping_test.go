@@ -109,17 +109,11 @@ func TestParseYBSnapshotMappingRefusesRowsItCannotPlace(t *testing.T) {
 
 				remaps, err := parseYBSnapshotMapping(out)
 				if err == nil {
-					t.Fatalf(
-						"an unusable mapping row must fail validation, got %+v",
-						remaps,
-					)
+					t.Fatalf("an unusable mapping row must fail validation, got %+v", remaps)
 				}
 
 				if remaps != nil {
-					t.Fatalf(
-						"a rejected mapping must not return placement rows, got %+v",
-						remaps,
-					)
+					t.Fatalf("a rejected mapping must not return placement rows, got %+v", remaps)
 				}
 
 				if !strings.Contains(err.Error(), strings.Join(strings.Fields(tc.row), " ")) {
@@ -199,17 +193,11 @@ func TestParseYBSnapshotMappingRefusesIdsOutsideTheEngineForm(t *testing.T) {
 
 				remaps, err := parseYBSnapshotMapping(out)
 				if err == nil {
-					t.Fatalf(
-						"a mapping row outside the engine's form must fail, got %+v",
-						remaps,
-					)
+					t.Fatalf("a mapping row outside the engine's form must fail, got %+v", remaps)
 				}
 
 				if remaps != nil {
-					t.Fatalf(
-						"a rejected mapping must not return placement rows, got %+v",
-						remaps,
-					)
+					t.Fatalf("a rejected mapping must not return placement rows, got %+v", remaps)
 				}
 
 				if !strings.Contains(err.Error(), strings.Join(strings.Fields(tc.row), " ")) {

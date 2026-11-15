@@ -12,7 +12,8 @@ import (
 // ybTabletDirComponents counts "table-<id>/tablet-<id>.snapshots/<snapshot>".
 const ybTabletDirComponents = 3
 
-// ybTabletSourceDir returns the archive-relative directory for the old tablet ID.
+// ybTabletSourceDir returns the archive-relative directory for the old
+// tablet ID.
 func ybTabletSourceDir(remap ybTabletRemap, exportSnap string) string {
 	return fmt.Sprintf("table-%s/tablet-%s.snapshots/%s", remap.table, remap.old, exportSnap)
 }
@@ -133,7 +134,8 @@ func chooseYBTabletReplica(
 	return "", defect
 }
 
-// ybTabletDefectError reports the count and sampled reasons for unplaceable tablets.
+// ybTabletDefectError reports the count and sampled reasons for unplaceable
+// tablets.
 func ybTabletDefectError(defects []ybTabletDefect, wanted int) error {
 	reasons := make([]string, 0, len(defects))
 	for _, defect := range defects {

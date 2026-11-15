@@ -260,7 +260,11 @@ func removedEdgeExpectations(
 			return nil, repairRefused(
 				ctx,
 				entry,
-				fmt.Sprintf("the node does not have a %s edge to %s", edge.RelationType, edge.TargetID),
+				fmt.Sprintf(
+					"the node does not have a %s edge to %s",
+					edge.RelationType,
+					edge.TargetID,
+				),
 				domain.ErrConflict,
 			)
 		}

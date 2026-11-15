@@ -1,7 +1,8 @@
 // Package ops registers and runs maintenance operations against Tack stores.
 // The CLI selects operations by lowercase, dot-separated names such as
-// reindex and backfill.default_children. Run initializes shared configuration,
-// a Postgres pool, and FDB stores before execution, then closes the environment.
+// reindex and backfill.default_children. Run initializes shared
+// configuration, a Postgres pool, and FDB stores before execution, then
+// closes the environment.
 package ops
 
 import (
@@ -137,7 +138,7 @@ func RunDryRun(ctx context.Context, cfg *config.Config, name string) error {
 	}
 
 	if op.DryRun == nil {
-		return fmt.Errorf("op %s does not declare a dry run", name)
+		return dryRunUndeclaredError{Operation: name}
 	}
 
 	return runOperation(ctx, cfg, op, op.DryRun)
@@ -179,4 +180,12 @@ func runOperation(
 	env.Log.InfoContext(ctx, "ops.completed", slog.String("op", op.Name))
 
 	return nil
+}
+
+type dryRunUndeclaredError struct {
+	Operation string
+}
+
+func (failure dryRunUndeclaredError) Error() string {
+	return fmt.Sprintf("op %s does not declare a dry run", failure.Operation)
 }
