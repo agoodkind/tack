@@ -1,4 +1,4 @@
-package main
+package testenvcli
 
 import (
 	"context"
@@ -18,24 +18,57 @@ type cliStep struct {
 	failed atomic.Bool
 }
 
-// Helper does not perform an action outside a test binary.
+// Helper implements the helper marker required by testenv.T.
+//
+// The command does not use [testing.T] and does not track helper stack frames.
+// This method therefore leaves the step unchanged.
+//
+// Engine helpers invoke Helper before provisioning:
+//
+//	step.Helper()
 func (step *cliStep) Helper() {}
 
-// Context returns a background context. The tool runs one step per process.
-// An interrupt ends the process rather than canceling its context.
+// Context returns a background context.
+//
+// The tool runs one step per process. An interrupt ends the process rather
+// than canceling its context.
+//
+// Engine helpers obtain the step context before provisioning:
+//
+//	ctx := step.Context()
 func (step *cliStep) Context() context.Context { return context.Background() }
 
 // Output returns stderr for helper failure messages.
+//
+// Engine helpers write their failure reasons to this stream before ending
+// the step. The command keeps those reasons separate from stdout results.
+//
+// The failure handler obtains the stream before writing:
+//
+//	output := step.Output()
 func (step *cliStep) Output() io.Writer { return os.Stderr }
 
 // FailNow marks the step failed and ends its goroutine.
+//
+// The dispatcher observes the failure after the goroutine ends and releases
+// its engines before returning a nonzero status.
+//
+// Engine helpers end a failed step with:
+//
+//	step.FailNow()
 func (step *cliStep) FailNow() {
 	step.failed.Store(true)
 	runtime.Goexit()
 }
 
-// SkipNow ends the step without failing it. Helpers do not request skipping
-// because the tool does not run with -short.
+// SkipNow ends the step without failing it.
+//
+// Helpers do not request skipping because the tool does not run with -short.
+// The method implements the testenv.T contract without marking a failure.
+//
+// A helper can end the step with:
+//
+//	step.SkipNow()
 func (step *cliStep) SkipNow() { runtime.Goexit() }
 
 // fail writes err and fails the step.

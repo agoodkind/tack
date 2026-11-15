@@ -1,7 +1,8 @@
-package main
+package testenvcli
 
 import (
 	"fmt"
+	"os"
 
 	"goodkind.io/tack/internal/testenv"
 )
@@ -15,9 +16,14 @@ func startSearchCluster(step *cliStep, members int) *testenv.OpenSearchCluster {
 		cluster.AddMember(step)
 	}
 
-	_, _ = fmt.Println(cluster.Fixture.Endpoint, cluster.Fixture.Username, cluster.Fixture.Password)
+	_, _ = fmt.Fprintln(
+		os.Stdout,
+		cluster.Fixture.Endpoint,
+		cluster.Fixture.Username,
+		cluster.Fixture.Password,
+	)
 	printSearchBackends(step, cluster)
-	_, _ = fmt.Print(cluster.Fixture.CA)
+	_, _ = fmt.Fprint(os.Stdout, cluster.Fixture.CA)
 
 	return cluster
 }
@@ -27,10 +33,10 @@ func startSearchCluster(step *cliStep, members int) *testenv.OpenSearchCluster {
 func drillSearchCluster(step *cliStep, cluster *testenv.OpenSearchCluster) {
 	for _, member := range cluster.Members() {
 		cluster.StopMember(step, member)
-		_, _ = fmt.Println("stopped", member)
+		_, _ = fmt.Fprintln(os.Stdout, "stopped", member)
 		printSearchBackends(step, cluster)
 		cluster.StartMember(step, member)
-		_, _ = fmt.Println("started", member)
+		_, _ = fmt.Fprintln(os.Stdout, "started", member)
 	}
 }
 
@@ -40,6 +46,6 @@ func printSearchBackends(step *cliStep, cluster *testenv.OpenSearchCluster) {
 	backends := cluster.Backends(step)
 	for _, member := range cluster.Members() {
 		endpoint := cluster.MemberEndpoint(member)
-		_, _ = fmt.Println(member, endpoint, backends[endpoint])
+		_, _ = fmt.Fprintln(os.Stdout, member, endpoint, backends[endpoint])
 	}
 }

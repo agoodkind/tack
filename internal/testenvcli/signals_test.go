@@ -1,6 +1,6 @@
 //go:build darwin && integration && macrunnerfixture
 
-package main
+package testenvcli
 
 import (
 	"encoding/json"
@@ -69,6 +69,7 @@ func TestMacRunnerCommandNonzero(t *testing.T) {
 // that receives its exit status.
 func macCommandStart(options testenv.MacTestOptions) <-chan int {
 	arguments := []string{
+		"testenv",
 		"run-mac",
 		"--root",
 		options.Root,
@@ -80,7 +81,7 @@ func macCommandStart(options testenv.MacTestOptions) <-chan int {
 	}
 	arguments = append(arguments, options.TestArguments...)
 	finished := make(chan int, 1)
-	go func() { finished <- run(arguments) }()
+	go func() { finished <- Run(arguments) }()
 	return finished
 }
 

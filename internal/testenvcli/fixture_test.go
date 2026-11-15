@@ -1,6 +1,6 @@
 //go:build darwin && integration && macrunnerfixture
 
-package main
+package testenvcli
 
 import (
 	"context"
