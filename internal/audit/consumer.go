@@ -19,7 +19,6 @@ import (
 )
 
 // ConsumerConfig collects every input the audit-consumer binary needs.
-// Defaults match the cutover design in docs/plans/audit-kafka-cutover.md.
 type ConsumerConfig struct {
 	Brokers         []string
 	Topic           string

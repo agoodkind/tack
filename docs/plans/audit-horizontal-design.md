@@ -968,7 +968,7 @@ investigate. Mitigation: dual-write parity gate at every wave.
 
 ## 12. Migration path: today to N=1
 
-The Kafka cutover is complete. The [audit delivery explanation](audit-kafka-cutover.md)
+The Kafka cutover is complete. The [audit delivery explanation](../audit-delivery.md)
 explains the current outbox, relay, consumer, and hash-chain behavior.
 
 ---

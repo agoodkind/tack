@@ -59,7 +59,7 @@ One deploy path:
 - **The audit ledger keeps one `audit.events` table.** The
   `audit-consumer` is the single writer and continues the existing
   per-`(org, shard)` hash chain through `audit.chain_heads`: no rename, no archive
-  table, no `events_v2`. Read the [audit delivery explanation](docs/plans/audit-kafka-cutover.md).
+  table, no `events_v2`. Read the [audit delivery explanation](docs/audit-delivery.md).
 - **Migrations run via `./server migrate` only**, never on HTTP startup.
 - **Build with `make build`.** It runs the go-makefile pipeline (vet, golangci,
   staticcheck-extra, govulncheck) baseline-gated. Do not call `go build`

@@ -64,18 +64,12 @@ The [search architecture](../specs/2026-09-19-search-design.md) and [acceptance 
 
 Complete the removal release before creating the OpenSearch stack. Luna creates the dependent Tack slices as one Graphite stack. Sol validates the stack tip and applies each correction to the branch that owns the behavior.
 
-1. [Remove Meilisearch and preserve the public outage contract](2026-09-20-meilisearch-removal.md). Ticket: TACK-541.
-2. Merge and deploy that removal release through the first phase of the [release plan](2026-09-19-opensearch-release.md). Search remains temporarily unavailable.
-3. [Add the official client, native semantic mapping, and audited control operations](2026-09-19-opensearch-native.md). Tickets: TACK-530 and TACK-539.
-4. [Add explicit projection metadata and the expiring backfill](2026-09-19-opensearch-metadata.md). Ticket: TACK-542.
-5. [Build the complete durable indexing pipeline](2026-09-20-opensearch-index-pipeline.md). Tickets: TACK-531, TACK-533, and TACK-534.
-6. [Build ranked, authorized public search](2026-09-20-opensearch-query-pipeline.md). Tickets: TACK-535 and TACK-536.
-7. [Add metadata and permission refresh](2026-09-19-opensearch-refresh.md). Ticket: TACK-532.
-8. [Add rebuild, native split, restore, and alias recovery](2026-09-19-opensearch-rebuild.md). Ticket: TACK-537.
-9. [Add guarded public QA coverage](2026-09-19-opensearch-datagen.md). Ticket: TACK-538.
-10. [Prepare the initial guests, stable endpoints, and scalable configuration](2026-09-19-opensearch-deployment.md). Tickets: TACK-539 and TACK-540.
-11. Give the completed branches to Sol for the [live validation and correction plan](2026-09-19-opensearch-final-validation.md). Tickets: TACK-518, TACK-519, and TACK-520.
-12. Activate OpenSearch in QA and production through the second phase of the [release plan](2026-09-19-opensearch-release.md). Ticket: TACK-544.
+1. Merge and deploy that removal release through the first phase of the [release plan](2026-09-19-opensearch-release.md). Search remains temporarily unavailable.
+2. [Add explicit projection metadata and the expiring backfill](2026-09-19-opensearch-metadata.md). Ticket: TACK-542.
+3. [Build the complete durable indexing pipeline](2026-09-20-opensearch-index-pipeline.md). Tickets: TACK-531, TACK-533, and TACK-534.
+4. [Build ranked, authorized public search](2026-09-20-opensearch-query-pipeline.md). Tickets: TACK-535 and TACK-536.
+5. Give the completed branches to Sol for the [live validation and correction plan](2026-09-19-opensearch-final-validation.md). Tickets: TACK-518, TACK-519, and TACK-520.
+6. Activate OpenSearch in QA and production through the second phase of the [release plan](2026-09-19-opensearch-release.md). Ticket: TACK-544.
 
 The [fixture reference](2026-09-19-opensearch-fixtures.md) defines shared real-dependency setup. It does not define another execution step. TACK-524 and TACK-525 remain separate storage work that implements the reader interface. Their implementation reruns the same search suite at 128 KiB, 1 MiB, 8 MiB, over 100 MB, and larger than worker memory.
 
