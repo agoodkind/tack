@@ -128,9 +128,6 @@ func runSearchRollback(
 			CandidateVersion:   rollout.CandidateVersion,
 			ExpectedGeneration: rollout.Generation,
 			ActiveVersion:      rollout.ActiveVersion,
-			Phase:              "",
-			WriteVersions:      nil,
-			Generation:         0,
 		}
 		_, err = searchStep(
 			ctx,
@@ -157,15 +154,6 @@ func runSearchRollback(
 				}
 
 				return nil
-			},
-			func(ctx context.Context) (json.RawMessage, error) {
-				observed := planned
-				observed.ActiveVersion, observed.Phase = rollout.ActiveVersion, string(
-					rollout.Phase,
-				)
-				observed.WriteVersions, observed.Generation = rollout.WriteVersions, rollout.Generation
-
-				return encodeEvidence(ctx, observed)
 			},
 		)
 		if err != nil {
