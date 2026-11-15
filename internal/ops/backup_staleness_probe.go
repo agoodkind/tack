@@ -1,7 +1,5 @@
-// backup_staleness_probe.go asks the two live systems the staleness check
-// cannot date from the object store: the YugabyteDB masters, for whether the
-// cluster is fully replicated right now, and the FoundationDB continuous
-// backup, for how recent its restorable point is.
+// Live probes read YugabyteDB replication health and the FoundationDB backup's
+// most recent restorable point independently of object-store records.
 
 package ops
 
@@ -22,47 +20,34 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// ybMasterHealthPort is the master's HTTP admin port. The configured master
-// addresses carry RPC ports (7100), so the probe swaps this in. It is a package
-// var so a test can point the probe at its own listener.
+// ybMasterHealthPort replaces the configured RPC port for HTTP health probes.
+// Tests substitute a local listener's port.
 var ybMasterHealthPort = "7000"
 
 const (
-	// ybMasterHealthPath is the master endpoint that summarizes cluster
-	// health. Verified against yugabytedb/yugabyte:2025.2.3.0-b149, which
-	// answers 200 with
+	// ybMasterHealthPath returns cluster health from the leader master.
+	// yugabytedb/yugabyte:2025.2.3.0-b149 returns HTTP 200 with
 	// {"dead_nodes":[],"most_recent_uptime":0,"under_replicated_tablets":[]}.
 	ybMasterHealthPath = "/api/v1/health-check"
-	// ybMasterHealthTimeout bounds one master's probe so an unreachable host
-	// cannot hold up the whole check.
+	// ybMasterHealthTimeout bounds each master's probe.
 	ybMasterHealthTimeout = 10 * time.Second
-	// ybMasterHealthMaxBytes caps the response read. The payload lists every
-	// under-replicated tablet, so an unhealthy cluster's response is unbounded
-	// in principle; a truncated body fails to decode, which reports unhealthy
-	// rather than vouching for a cluster nobody measured.
+	// ybMasterHealthMaxBytes limits responses that list under-replicated tablets.
+	// Truncated JSON must fail decoding rather than establish healthy status.
 	ybMasterHealthMaxBytes = 4 << 20
 )
 
-// ybMasterHealthCheck is the master health-check payload. Both lists are
-// pointers so an absent field is told apart from an empty one: a response that
-// never mentions dead nodes has not vouched for anything, and counting that as
-// zero would let any endpoint answering 200 certify the cluster healthy.
+// ybMasterHealthCheck requires both health lists. Pointer fields distinguish
+// absent fields from empty lists; incomplete payloads cannot establish health.
 type ybMasterHealthCheck struct {
 	DeadNodes              *[]string `json:"dead_nodes"`
 	UnderReplicatedTablets *[]string `json:"under_replicated_tablets"`
 }
 
-// probeYBClusterHealth asks each configured master in turn and returns the
-// first usable answer, because only the leader serves the cluster's view: a
-// follower answers with a page that names the leader instead, which is a
-// reason to ask the next master, not a fault worth a warning.
-//
-// The answer separates a cluster this guest saw from one it did not see at
-// all, because the two support different claims: a master's own answer says
-// whether the cluster is replicated, while no answer says only that this guest
-// is blind (TACK-529). detail always says what happened: it becomes the
-// marker's detail on a healthy answer and the report's reason otherwise. It
-// never carries a master's client error, which the journal records instead.
+// probeYBClusterHealth returns the first usable master response. Followers
+// provide leader links instead of health payloads and require another probe.
+// Missing responses establish observation failure, not cluster degradation
+// (TACK-529). Healthy detail becomes marker detail; other detail explains the
+// report's result. Only journal logs include per-master client errors.
 func probeYBClusterHealth(ctx context.Context, cfg *config.Config) (ybClusterObservation, string) {
 	urls := ybMasterHealthURLs(cfg.BackupYBMasterAddresses)
 	if len(urls) == 0 {
@@ -101,9 +86,8 @@ func probeYBClusterHealth(ctx context.Context, cfg *config.Config) (ybClusterObs
 		return ybClusterDegraded, healthDetail
 	}
 
-	// Each master's failure is a client error that names its address, so it
-	// goes to the journal only; the detail the report and the mail carry says
-	// what the operator acts on.
+	// Journal logs include master addresses. Report and email detail exclude
+	// those client errors and explain the observation failure instead.
 	telemetry.L(ctx).WarnContext(
 		ctx,
 		"backup.staleness.masters_unanswered",
@@ -113,9 +97,8 @@ func probeYBClusterHealth(ctx context.Context, cfg *config.Config) (ybClusterObs
 	return ybClusterUnseen, "no master answered the health check"
 }
 
-// ybMasterHealthURLs turns the configured comma-separated master addresses
-// into health-check URLs on the admin port. The RPC port is dropped and the
-// admin port joined back on, which brackets IPv6 literals.
+// ybMasterHealthURLs replaces RPC ports with the admin port and brackets IPv6
+// literals in health-check URLs.
 func ybMasterHealthURLs(masterAddresses string) []string {
 	var urls []string
 
@@ -131,10 +114,9 @@ func ybMasterHealthURLs(masterAddresses string) []string {
 	return urls
 }
 
-// fetchYBMasterHealth reads one master's health-check body. The endpoint
-// answers with a JSON body under a text/plain content type, so the status code
-// is the only transport-level check. An unreachable master is logged here and
-// left to the caller to fall past, because another master serves the same view.
+// fetchYBMasterHealth checks HTTP status and reads the JSON response body.
+// The endpoint uses text/plain, not a JSON content type. Logged probe failures
+// permit the caller to try another master.
 func fetchYBMasterHealth(ctx context.Context, url string) ([]byte, error) {
 	logger := telemetry.L(ctx)
 	reqCtx, cancel := context.WithTimeout(ctx, ybMasterHealthTimeout)
@@ -189,9 +171,8 @@ func fetchYBMasterHealth(ctx context.Context, url string) ([]byte, error) {
 	return body, nil
 }
 
-// ybClusterHealthFromBody reports whether a master's health payload vouches for
-// a cluster with every node alive and every tablet fully replicated. A payload
-// missing either list is an error rather than a healthy verdict.
+// ybClusterHealthFromBody requires every node alive and every tablet fully
+// replicated. Missing health lists return an error instead of a healthy verdict.
 func ybClusterHealthFromBody(
 	ctx context.Context,
 	body []byte,
@@ -232,37 +213,29 @@ func ybClusterHealthFromBody(
 }
 
 const (
-	// fdbLastCompleteLogLabel is the line `fdbbackup status` prints for the
-	// end of the drained mutation log, which is the recent bound of what a
-	// restore can reach. Captured verbatim from foundationdb 7.4.6:
+	// fdbLastCompleteLogLabel identifies the latest restorable mutation log
+	// in FoundationDB 7.4.6 status output, for example:
 	//   Last complete log version and timestamp        - 100720665, 2026/08/30.01:07:23+0000
 	fdbLastCompleteLogLabel = "Last complete log version and timestamp"
-	// fdbStatusTimestampLayout parses the timestamps in that output.
+	// fdbStatusTimestampLayout parses timestamps in that output.
 	fdbStatusTimestampLayout = "2006/01/02.15:04:05-0700"
-	// fdbRestorableStatusText is the predicate a status uses to vouch for a
-	// restorable point. On 7.4.6 the steady state of a continuous backup reads
-	// "The backup on tag `default' is restorable but continuing to <url>",
-	// while a backup whose first snapshot has not finished reads "is in
-	// progress to <url>" and has no restorable point yet. The leading verb is
-	// part of the match on purpose: the bare word also appears in destination
-	// URLs and tag names, so matching it alone would let an in-progress backup
-	// vouch for itself and report its advancing log timestamp as fresh.
+	// fdbRestorableStatusText matches the complete restorability predicate.
+	// FoundationDB 7.4.6 reports "is restorable but continuing to <url>"
+	// after the initial snapshot and "is in progress to <url>" before it.
+	// Matching only "restorable" would also accept tag names and URLs.
 	fdbRestorableStatusText = " is restorable"
-	// fdbNotRestorableStatusText guards the match above against a negated
-	// phrasing, so a status that denies restorability can never be read as
-	// vouching for it.
+	// fdbNotRestorableStatusText excludes explicitly negated restorability.
 	fdbNotRestorableStatusText = " is not restorable"
 )
 
-// errFDBNoRestorablePoint is returned when a status was read and vouches for no
-// restorable point, as distinct from a status that could not be parsed.
-var errFDBNoRestorablePoint = errors.New("fdbbackup status reports no restorable backup")
+// errFDBNoRestorablePoint distinguishes confirmed absence of a restorable
+// point from unreadable status.
+var errFDBNoRestorablePoint = errors.New("fdbbackup status does not report a restorable backup")
 
-// fdbRestorablePointFromStatus extracts how far a FoundationDB continuous
-// backup can restore to, from `fdbbackup status` output: the moment, and the
-// version a restore names once the source cluster can no longer convert that
-// moment (TACK-468). The timestamp stops advancing as soon as the backup agent
-// stops draining logs, which is the failure this metric exists to surface.
+// fdbRestorablePointFromStatus extracts restorable time and version from
+// fdbbackup status. The version permits restore after the source cluster can
+// no longer convert that time (TACK-468). Log timestamps stop advancing when
+// the backup agent stops processing mutation logs.
 func fdbRestorablePointFromStatus(ctx context.Context, status string) (fdbRestorablePoint, error) {
 	var none fdbRestorablePoint
 	lowered := strings.ToLower(status)
@@ -280,10 +253,8 @@ func fdbRestorablePointFromStatus(ctx context.Context, status string) (fdbRestor
 	return none, fmt.Errorf("fdbbackup status has no %q line", fdbLastCompleteLogLabel)
 }
 
-// fdbRestorablePointFromLine parses one status detail line, which reads
-// "<label>   - <version>, <timestamp>". A line that does not carry both is
-// logged here, because the caller only reports that the restorable point is
-// unknown.
+// fdbRestorablePointFromLine parses "<label> - <version>, <timestamp>" and
+// logs malformed values. The caller reports the restorable point as unknown.
 func fdbRestorablePointFromLine(ctx context.Context, line string) (fdbRestorablePoint, error) {
 	logger := telemetry.L(ctx)
 	var none fdbRestorablePoint

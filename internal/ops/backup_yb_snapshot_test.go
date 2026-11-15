@@ -352,7 +352,7 @@ func TestCleanupYBExportRunsMissingManifestAllowsOrphanPass(t *testing.T) {
 // orphans from other snapshots outside schedules.
 func TestCleanupYBExportRunsNoRunsSkipsOrphanPass(t *testing.T) {
 	fetch := func(string) (ybSnapshotManifest, error) {
-		t.Fatal("fetch must not be called with no run prefixes")
+		t.Fatal("empty run lists must not invoke manifest fetching")
 		return ybSnapshotManifest{}, nil
 	}
 	exists := func(string) (bool, error) { return true, nil }

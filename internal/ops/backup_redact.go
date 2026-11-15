@@ -6,7 +6,7 @@ import (
 	"goodkind.io/tack/internal/config"
 )
 
-// redactSecret removes both S3 credentials before tool output enters logs.
+// redactSecret removes both S3 credentials before logging tool output.
 func redactSecret(cfg *config.Config, text string) string {
 	first := cfg.BackupS3SecretKey
 	second := cfg.BackupS3AccessKey

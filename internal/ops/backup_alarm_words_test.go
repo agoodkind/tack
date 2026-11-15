@@ -8,47 +8,43 @@ import (
 	"time"
 )
 
-// secondsValued matches a bare seconds figure such as "129600s", the unit the
-// thresholds are configured in and the journal report prints. The mail is read
-// in hours and minutes, so none may appear in it.
+// secondsValued detects bare second counts from machine-readable reports.
+// Email durations must use familiar minute, hour, or day units.
 var secondsValued = regexp.MustCompile(`\b\d+s\b`)
 
-// backupAlarmMachineWords matches everything the journal report says that the
-// mail must not: the hyphenated metric names, standing alone rather than inside
-// a systemd unit name such as tack-ledger-export, and the report's field labels.
+// backupAlarmMachineWords detects metric identifiers and report field labels.
+// Systemd unit names, including tack-ledger-export, remain valid in commands.
 var backupAlarmMachineWords = regexp.MustCompile(
 	`(?:^|[^\w-])(` + backupStalenessExportName + `|` + backupStalenessFDBName + `|age=|threshold=|STALE)`,
 )
 
-// assertBackupAlarmPlainWords fails when the mail carries machine words, a
-// seconds-valued figure, an object-store credential, or the store's endpoint.
+// assertBackupAlarmPlainWords rejects machine labels, raw seconds, credentials,
+// and endpoint addresses in subject and body.
 func assertBackupAlarmPlainWords(t *testing.T, subject, body, endpoint string) {
 	t.Helper()
 
 	for _, text := range []string{subject, body} {
 		if match := backupAlarmMachineWords.FindString(text); match != "" {
-			t.Errorf("the mail carries the machine word %q:\n%s", strings.TrimSpace(match), text)
+			t.Errorf("the email includes machine label %q:\n%s", strings.TrimSpace(match), text)
 		}
 
 		if match := secondsValued.FindString(text); match != "" {
-			t.Errorf("the mail carries a seconds-valued figure %q:\n%s", match, text)
+			t.Errorf("the email includes a bare seconds count %q:\n%s", match, text)
 		}
 
 		for _, secret := range []string{"test-access", "test-secret", endpoint} {
 			if secret != "" && strings.Contains(text, secret) {
-				t.Errorf("the mail leaks %q:\n%s", secret, text)
+				t.Errorf("the email exposes %q:\n%s", secret, text)
 			}
 		}
 	}
 }
 
-// qaHost is the guest the composed mails in this file come from.
+// qaHost identifies the guest in composed-message assertions.
 const qaHost = "tack-qa"
 
-// TestBackupStalenessAlarmOneFaultMail pins the whole mail for one fault: the
-// ledger cluster last seen healthy 32 minutes ago against a 30 minute limit.
-// The subject names the guest and the fault; the body is the one sentence of
-// fact with the time in UTC and the steps, nothing else.
+// TestBackupStalenessAlarmOneFaultMail checks the full subject, UTC fact,
+// observed health detail, and recovery steps for one stale replication metric.
 func TestBackupStalenessAlarmOneFaultMail(t *testing.T) {
 	ctx := context.Background()
 	now := time.Date(2026, 9, 6, 16, 23, 0, 0, time.UTC)
@@ -83,9 +79,8 @@ func TestBackupStalenessAlarmOneFaultMail(t *testing.T) {
 	assertBackupAlarmPlainWords(t, subject, body, cfg.BackupS3Endpoint)
 }
 
-// TestBackupStalenessAlarmThreeFaultMail pins the whole mail for three faults
-// at once: the subject counts them, and each block opens with the fault's
-// phrase, then its sentence, then its steps.
+// TestBackupStalenessAlarmThreeFaultMail checks fault counts, ordered headings,
+// dated facts, and recovery steps without exposing export run IDs.
 func TestBackupStalenessAlarmThreeFaultMail(t *testing.T) {
 	ctx := context.Background()
 	now := time.Date(2026, 8, 29, 12, 0, 0, 0, time.UTC)
@@ -134,7 +129,7 @@ func TestBackupStalenessAlarmThreeFaultMail(t *testing.T) {
 		"The restore rehearsal (the daily test restore) last passed at 12:00 PM UTC on Aug 20, 2026, " +
 		"9 days ago; the limit is 8 days.\n" +
 		"1. On the owner guest, run journalctl -u tack-backup-restore-drill.\n" +
-		"2. Fix what it names, then run systemctl start tack-backup-restore-drill.\n" +
+		"2. Resolve the rehearsal failure, then run systemctl start tack-backup-restore-drill.\n" +
 		"\n" +
 		"Ledger cluster unhealthy for 45 minutes\n" +
 		"The ledger cluster (logins and audit trail) was last healthy at 11:15 AM UTC on Aug 29, 2026, " +
@@ -148,14 +143,13 @@ func TestBackupStalenessAlarmThreeFaultMail(t *testing.T) {
 	}
 
 	if strings.Contains(body, "20260827T200000Z") {
-		t.Errorf("the export run id must not reach the mail:\n%s", body)
+		t.Errorf("the email must not include export run IDs:\n%s", body)
 	}
 
 	assertBackupAlarmPlainWords(t, subject, body, cfg.BackupS3Endpoint)
 }
 
-// TestBackupAlarmClock pins the words the subject and body render a duration
-// in.
+// TestBackupAlarmClock checks duration rendering shared by subjects and bodies.
 func TestBackupAlarmClock(t *testing.T) {
 	tests := []struct {
 		d    time.Duration

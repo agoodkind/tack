@@ -207,7 +207,7 @@ func ybScratchStallError(
 	lastReadErr string,
 ) error {
 	message := fmt.Sprintf(
-		"%s: the scratch yugabyted made no progress for %s: %s",
+		"%s: the scratch yugabyted did not make progress for %s: %s",
 		step,
 		stalled.Round(time.Second),
 		progress.summary(),

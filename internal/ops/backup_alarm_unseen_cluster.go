@@ -1,37 +1,32 @@
-// backup_alarm_unseen_cluster.go is the alarm mail of a guest that reached no
-// ledger master. The check alarms on what the guest running it can see for
-// itself, so that guest must say it cannot see the cluster and must not say
-// the cluster is unhealthy: only a master's own answer supports that claim
-// (TACK-529). Every other fault keeps the words in backup_alarm_vocabulary.go.
+// Unanswered master probes cannot establish degraded cluster health. The
+// alarm reports this guest's missing health evidence, not a cluster-wide
+// replication failure (TACK-529).
 
 package ops
 
-// backupAlarmUnseenClusterWords is the vocabulary of a cluster this guest
-// could not see. The unseen cause never carries a fresh success, so the known
-// and never-recorded templates have nothing to say and stay empty: the
-// composition reaches the unreadable sentence, and the remembered sentence
-// after it when this guest's earlier observation dates the reading.
+// backupAlarmUnseenClusterWords uses unreadable and optional historical
+// observations. Missing current evidence cannot establish a fresh success or
+// a definitive never-healthy cluster verdict.
 var backupAlarmUnseenClusterWords = backupAlarmWords{
 	phraseKnown:            "",
 	phraseNeverRecorded:    "",
-	phraseUnreadable:       "This guest cannot see the ledger cluster",
+	phraseUnreadable:       "This guest cannot read ledger cluster health",
 	paragraphKnown:         "",
 	paragraphKnownDetail:   "",
 	paragraphNeverRecorded: "",
-	paragraphUnreadable: "This guest cannot reach the ledger cluster (logins and audit trail), " +
-		"so it cannot say whether the cluster is healthy.",
-	paragraphRemembered: " It last saw the cluster healthy" + backupAlarmKnownFact,
+	paragraphUnreadable: "This guest could not read a usable health report from the ledger cluster " +
+		"(logins and audit trail). " +
+		"This check cannot establish whether the cluster is healthy.",
+	paragraphRemembered: " This guest last observed the cluster healthy" + backupAlarmKnownFact,
 	steps: []string{
 		"Confirm every ledger guest is up.",
 		"From this guest, confirm the ledger master page answers.",
-		"Fix what blocks it; the alarm clears itself once this guest sees the cluster again.",
+		"Resolve the health-check failure; the checker clears the alarm after this guest reads a healthy response.",
 	},
 }
 
-// backupAlarmWordsFor is one fault's vocabulary. A cluster this guest could
-// not see takes words of its own, because the mechanism's own vocabulary would
-// report the cluster's health, which a guest that heard from no master has not
-// established.
+// backupAlarmWordsFor selects observation-failure wording for unseen clusters
+// instead of implying degradation without a valid master response.
 func backupAlarmWordsFor(fault backupStalenessMetric) backupAlarmWords {
 	if fault.Unknown == backupStalenessClusterUnseen {
 		return backupAlarmUnseenClusterWords

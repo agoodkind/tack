@@ -21,7 +21,7 @@ const backupAlarmObjectStoreStandIn = "the object store"
 
 const (
 	// backupAlarmStoreNoun explains the object store at its first mention.
-	backupAlarmStoreNoun = "The object store (where the backups are kept) did not answer"
+	backupAlarmStoreNoun = "The object store (which stores the backups) did not answer"
 	// backupAlarmStoreStep checks store availability before mechanism recovery.
 	backupAlarmStoreStep = " Confirm the object store guest is running before the steps below."
 )

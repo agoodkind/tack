@@ -30,7 +30,7 @@ func TestAwaitFDBRestoreFailsARestoreThatStopsMoving(t *testing.T) {
 		t.Fatal("a restore that stopped making progress must fail the drill")
 	}
 
-	if !strings.Contains(err.Error(), "made no progress for") {
+	if !strings.Contains(err.Error(), "did not make progress for") {
 		t.Fatalf("the failure must report inactivity, got: %v", err)
 	}
 
@@ -64,7 +64,7 @@ func TestAwaitFDBRestoreIgnoresBlocksInProgress(t *testing.T) {
 		t.Fatal("an oscillating counter must not indicate restore progress")
 	}
 
-	if !strings.Contains(err.Error(), "made no progress for") {
+	if !strings.Contains(err.Error(), "did not make progress for") {
 		t.Fatalf("the failure must report inactivity, got: %v", err)
 	}
 }
@@ -127,7 +127,7 @@ func TestAwaitFDBRestoreIgnoresAnApplyVersionLagThatClimbs(t *testing.T) {
 		t.Fatal("lag above the recorded minimum must not indicate restore progress")
 	}
 
-	if !strings.Contains(err.Error(), "made no progress for") {
+	if !strings.Contains(err.Error(), "did not make progress for") {
 		t.Fatalf("the failure must report inactivity, got: %v", err)
 	}
 }

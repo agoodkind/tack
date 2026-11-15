@@ -6,21 +6,18 @@ import (
 	"time"
 )
 
-// TestBackupStalenessAlarmUnreadableWords runs the whole command against an
-// object store and ledger masters that refuse every connection, on a guest
-// that has never read the store. Nothing here proves a backup was never made,
-// only that nothing could be read, so every sentence must say the record could
-// not be read and none may say the record does not exist. The store is named
-// once, before the faults, and each fault still gets its steps under its
-// phrase with none of the client's error text.
-func TestBackupStalenessAlarmUnreadableWords(t *testing.T) {
+// TestBackupAlarmReportsUnreadableEvidence checks refused store and master
+// connections without claiming that success records do not exist. The email
+// explains store failure once and supplies each mechanism's recovery steps
+// without client error text.
+func TestBackupAlarmReportsUnreadableEvidence(t *testing.T) {
 	fixBackupStalenessClock(t, time.Date(2026, 8, 29, 12, 0, 0, 0, time.UTC))
 	captured := captureBackupAlarmSends(t, nil)
 	cfg := unreachableBackupStalenessConfig(t, "backups@example.test")
 
 	runStaleBackupStalenessCheck(t, cfg)
 	if len(captured.messages) != 1 {
-		t.Fatalf("three faults on one run must mail once, sent %d", len(captured.messages))
+		t.Fatalf("three faults on one run must produce one email, sent %d", len(captured.messages))
 	}
 
 	wantSubject := "[" + backupAlarmHost() + "] 3 backup problems"
@@ -31,17 +28,17 @@ func TestBackupStalenessAlarmUnreadableWords(t *testing.T) {
 	body := captured.messages[0].Body
 
 	for _, sentence := range []string{
-		"The object store (where the backups are kept) did not answer this check. " +
+		"The object store (which stores the backups) did not answer this check. " +
 			"Confirm the object store guest is running before the steps below.\n\n" +
-			"Nightly ledger export status could not be read\n" +
-			"The nightly ledger export's newest copy could not be dated.\n" +
+			"This guest could not read nightly ledger export status\n" +
+			"This guest could not date the nightly ledger export's newest copy.\n" +
 			"1. On the owner guest, run journalctl -u tack-ledger-export.\n",
-		"\n\nRestore rehearsal status could not be read\n" +
-			"The restore rehearsal's last pass could not be read.\n" +
+		"\n\nThis guest could not read restore rehearsal status\n" +
+			"This guest could not read the restore rehearsal's last pass.\n" +
 			"1. On the owner guest, run journalctl -u tack-backup-restore-drill.\n",
-		"\n\nThis guest cannot see the ledger cluster\n" +
-			"This guest cannot reach the ledger cluster (logins and audit trail), " +
-			"so it cannot say whether the cluster is healthy.\n" +
+		"\n\nThis guest cannot read ledger cluster health\n" +
+			"This guest could not read a usable health report from the ledger cluster (logins and audit trail). " +
+			"This check cannot establish whether the cluster is healthy.\n" +
 			"1. Confirm every ledger guest is up.\n",
 	} {
 		if !strings.Contains(body, sentence) {
@@ -50,7 +47,7 @@ func TestBackupStalenessAlarmUnreadableWords(t *testing.T) {
 	}
 
 	if !strings.HasPrefix(body, "The object store") {
-		t.Errorf("the body must open on the object store, named once:\n%s", body)
+		t.Errorf("the body must explain the object store first:\n%s", body)
 	}
 
 	for _, claim := range []string{
@@ -61,26 +58,24 @@ func TestBackupStalenessAlarmUnreadableWords(t *testing.T) {
 		"failed",
 	} {
 		if strings.Contains(body, claim) {
-			t.Errorf("an unreadable store must not be described as empty (%q):\n%s", claim, body)
+			t.Errorf("unreadable evidence must not imply absent records (%q):\n%s", claim, body)
 		}
 	}
 
 	assertBackupAlarmPlainWords(t, captured.messages[0].Subject, body, cfg.BackupS3Endpoint)
 }
 
-// TestBackupStalenessAlarmNeverRecordedWords runs the whole command against a
-// reachable object store that holds nothing: no export run and no marker. That
-// reading does prove no success was ever recorded, so the mail says so, in
-// different words from the unreadable case, and each fault still gets its
-// steps under its phrase.
-func TestBackupStalenessAlarmNeverRecordedWords(t *testing.T) {
+// TestBackupAlarmReportsMissingSuccessRecords checks distinct wording for
+// readable absent export and rehearsal records, while unanswered master probes
+// still cannot establish cluster health.
+func TestBackupAlarmReportsMissingSuccessRecords(t *testing.T) {
 	fixBackupStalenessClock(t, time.Date(2026, 8, 29, 12, 0, 0, 0, time.UTC))
 	captured := captureBackupAlarmSends(t, nil)
 	cfg := storedBackupStalenessConfig(t, newBackupTestStore(t, nil))
 
 	runStaleBackupStalenessCheck(t, cfg)
 	if len(captured.messages) != 1 {
-		t.Fatalf("three faults on one run must mail once, sent %d", len(captured.messages))
+		t.Fatalf("three faults on one run must produce one email, sent %d", len(captured.messages))
 	}
 
 	body := captured.messages[0].Body
@@ -94,12 +89,10 @@ func TestBackupStalenessAlarmNeverRecordedWords(t *testing.T) {
 			"The restore rehearsal (the daily test restore) has never passed. " +
 			"The last check reported: no backup-status/rehearsal.json in " + cfg.BackupS3BucketMain + ".\n" +
 			"1. On the owner guest, run journalctl -u tack-backup-restore-drill.\n",
-		// The store answered and holds no cluster record, but this guest
-		// heard from no master either, so the only claim it can make is
-		// about its own eyesight.
-		"\n\nThis guest cannot see the ledger cluster\n" +
-			"This guest cannot reach the ledger cluster (logins and audit trail), " +
-			"so it cannot say whether the cluster is healthy.\n",
+		// Shared-record absence cannot replace this guest's own cluster observation.
+		"\n\nThis guest cannot read ledger cluster health\n" +
+			"This guest could not read a usable health report from the ledger cluster (logins and audit trail). " +
+			"This check cannot establish whether the cluster is healthy.\n",
 		"\n1. Confirm every ledger guest is up.\n",
 	} {
 		if !strings.Contains(body, sentence) {
@@ -107,9 +100,10 @@ func TestBackupStalenessAlarmNeverRecordedWords(t *testing.T) {
 		}
 	}
 
-	if strings.Contains(body, "could not be") {
+	if strings.Contains(body, "This guest could not date the nightly ledger export") ||
+		strings.Contains(body, "This guest could not read the restore rehearsal's last pass") {
 		t.Errorf(
-			"an empty store was read fine, so nothing may be described as unreadable:\n%s",
+			"readable empty store records must not use unreadable-record wording:\n%s",
 			body,
 		)
 	}

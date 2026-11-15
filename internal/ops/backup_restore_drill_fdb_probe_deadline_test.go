@@ -143,7 +143,7 @@ func TestAwaitFDBRestoreClassifiesNestedDeadlineAsProbeError(t *testing.T) {
 		t.Fatalf("an immediate nested deadline must not count as an unanswered poll, got: %v", err)
 	}
 
-	if !strings.Contains(err.Error(), "made no progress for") ||
+	if !strings.Contains(err.Error(), "did not make progress for") ||
 		!strings.Contains(
 			err.Error(),
 			"the last status read failed: read the fdbrestore status: context deadline exceeded",
