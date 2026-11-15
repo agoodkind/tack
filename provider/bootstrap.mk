@@ -1,7 +1,7 @@
 # bootstrap.mk obtains the go-makefile bootstrap helper and includes the engine.
 # Consumer Makefiles set BINARY, CMD, VPKG, MODULES, and other identity variables
 # before including this file. agoodkind/go-makefile maintains the canonical copy.
-# Consumers download the helper to receive validation, reuse, and failure updates.
+# The helper obtains the go-mk engine and runs its provision command.
 
 GO_MK_DEV_DIR  ?=
 GO_MK_MODULES  ?=
@@ -17,7 +17,8 @@ GO_MK_BOOTSTRAP := .make/scripts/go-mk-bootstrap.sh
 GO_MK_BOOTSTRAP_BASE_URL ?= https://raw.githubusercontent.com
 GO_MK_BOOTSTRAP_URL := $(GO_MK_BOOTSTRAP_BASE_URL)/$(GO_MK_API_REPO)/$(GO_MK_API_REF)/scripts/go-mk-bootstrap.sh
 
-# Preserve an existing helper for offline use. A cold offline start fails.
+# The fetch rule reuses a non-empty helper before attempting a download.
+# Without a helper or a GO_MK_DEV_DIR copy, an offline start fails.
 # Changes to this committed fetch rule require a consumer update.
 # --speed-limit and --speed-time stop stalled transfers after about 3 seconds.
 # --retry-max-time bounds retries; curl retries speed-limit and max-time errors.

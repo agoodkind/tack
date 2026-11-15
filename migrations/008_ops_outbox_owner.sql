@@ -24,7 +24,7 @@ $$;
 ALTER TABLE public.ops_outbox OWNER TO ops_outbox_owner;
 -- +goose StatementEnd
 
--- Restrict the relay to reading and deleting pending events.
+-- Grant the relay SELECT and DELETE access to public.ops_outbox.
 -- +goose StatementBegin
 DO $$
 BEGIN
@@ -34,8 +34,10 @@ END
 $$;
 -- +goose StatementEnd
 
--- Revoke the migration runner's direct rights. It writes using audit_operator
--- like other commands.
+-- Revoke the current migration role's explicit grants on public.ops_outbox.
+-- This does not remove superuser privileges. Migration 018 later grants
+-- tack_migrator SELECT for schema dumps. Operator commands record events
+-- using audit_operator.
 -- +goose StatementBegin
 DO $$
 DECLARE
