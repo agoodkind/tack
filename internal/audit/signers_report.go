@@ -84,7 +84,8 @@ func (r *SignerReport) Err() error {
 	return errors.New(strings.Join(failures, "; "))
 }
 
-// ErrNoSignerSet reports that verification requires a nonempty valid signer set.
+// ErrNoSignerSet reports that verification requires a nonempty valid signer
+// set.
 var ErrNoSignerSet = errors.New("no valid signer set: set AUDIT_VALID_SIGNERS or pass --signers")
 
 // ErrNoLocalKey reports that verification requires a local signing key.

@@ -71,7 +71,8 @@ type Consumer struct {
 	assemblyAlertAt time.Time
 }
 
-// processedSummary accumulates batch counts for one debug summary per N records.
+// processedSummary accumulates batch counts for one debug summary per N
+// records.
 type processedSummary struct {
 	count        int
 	verbCounts   map[string]int
@@ -329,9 +330,9 @@ func (c *Consumer) loop(ctx context.Context) {
 	}
 }
 
-// observeLag publishes each partition's lag and warns at the configured threshold.
-// Lag is HighWatermark minus (the last consumed offset plus one). An empty fetch
-// reports HighWatermark as lag, including during idle polls.
+// observeLag publishes each partition's lag and warns at the configured
+// threshold. Lag is HighWatermark minus (the last consumed offset plus one).
+// An empty fetch reports HighWatermark as lag, including during idle polls.
 func (c *Consumer) observeLag(ctx context.Context, fetches kgo.Fetches) {
 	fetches.EachPartition(func(p kgo.FetchTopicPartition) {
 		var lastOffset int64 = -1
@@ -672,7 +673,8 @@ func (c *Consumer) projectOne(
 	return projected, err == nil, err
 }
 
-// preparedEvent caches decoded fields and their JSON encodings for chain insertion.
+// preparedEvent caches decoded fields and their JSON encodings for chain
+// insertion.
 type preparedEvent struct {
 	Event       Event
 	EventID     uuid.UUID
@@ -750,7 +752,8 @@ func prepareEvent(ctx context.Context, ev Event) (preparedEvent, error) {
 
 // advanceChain appends the event and advances its (org, shard) head with the
 // shared compare-and-swap protocol. It returns errAlreadyProjected for a
-// duplicate event ID and errChainConflict when another writer advances the head.
+// duplicate event ID and errChainConflict when another writer advances the
+// head.
 func (c *Consumer) advanceChain(
 	ctx context.Context,
 	tx pgx.Tx,
@@ -916,7 +919,7 @@ type rowHashPayloadV3 struct {
 }
 
 // piiRefArg binds SQL NULL for a nil reference and the UUID otherwise.
-// A literal uuid.Nil would bind an all-zero UUID rather than SQL NULL.
+// A literal [uuid.Nil] would bind an all-zero UUID rather than SQL NULL.
 func piiRefArg(ref uuid.UUID) pgtype.UUID {
 	if ref == uuid.Nil {
 		return pgtype.UUID{Bytes: [16]byte{}, Valid: false}

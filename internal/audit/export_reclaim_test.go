@@ -59,7 +59,10 @@ func TestVerifyBundleRejectsReclaimedRowsFile(t *testing.T) {
 
 				report, err := VerifyBundle(dir, publicKey)
 				if err == nil {
-					t.Fatalf("the verifier accepted a bundle after its rows disappeared: %+v", report)
+					t.Fatalf(
+						"the verifier accepted a bundle after its rows disappeared: %+v",
+						report,
+					)
 				}
 			},
 		)

@@ -110,8 +110,9 @@ func MarshalEvent(ev Event) ([]byte, error) {
 	return out, nil
 }
 
-// Record publishes JSON synchronously and returns produce failures. It preserves
-// EventID and OccurredAt assigned by CanonicalRecorder before serialization.
+// Record publishes JSON synchronously and returns produce failures. It
+// preserves EventID and OccurredAt assigned by CanonicalRecorder before
+// serialization.
 func (k *KafkaRecorder) Record(ctx context.Context, ev Event) error {
 	payload, err := MarshalEvent(ev)
 	if err != nil {

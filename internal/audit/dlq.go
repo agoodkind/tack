@@ -58,7 +58,8 @@ type DeadLetterSummary struct {
 
 // deadLetterRecord records failure after rolling back the record savepoint.
 // Its row commits with the batch offset. Redelivery preserves the existing
-// row; only verified operator replays increment attempts and refresh error text.
+// row; only verified operator replays increment attempts and refresh error
+// text.
 func deadLetterRecord(ctx context.Context, tx pgx.Tx, rec *kgo.Record, cause error) error {
 	key := DeadLetterKey{Topic: rec.Topic, Partition: rec.Partition, Offset: rec.Offset}
 	origin, replaying, err := verifiedReplayOrigin(ctx, tx, rec)

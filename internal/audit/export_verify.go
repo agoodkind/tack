@@ -136,7 +136,8 @@ func VerifyBundle(dir string, pub ed25519.PublicKey) (*VerifyReport, error) {
 }
 
 // VerifyBundleWithSigners also rejects verification keys outside a configured
-// signer set and claimed identifiers that differ from the verified key (TACK-437).
+// signer set and claimed identifiers that differ from the verified key
+// (TACK-437).
 func VerifyBundleWithSigners(
 	dir string,
 	pub ed25519.PublicKey,

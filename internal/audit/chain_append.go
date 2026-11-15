@@ -67,8 +67,9 @@ func claimEventIdentity(ctx context.Context, tx pgx.Tx, eventID uuid.UUID) (bool
 // appendChainRow inserts one event into audit.events and advances its
 // (org, shard) head in audit.chain_heads with a compare-and-swap. The head
 // write requires last_seq to equal the value this call read. Concurrent writers
-// cannot claim the same seq. The losing writer affects zero rows at read-committed
-// isolation or gets a serialization failure at repeatable-read isolation.
+// cannot claim the same seq. The losing writer affects zero rows at
+// read-committed isolation or gets a serialization failure at repeatable-read
+// isolation.
 // The caller retries both failures.
 //
 // It returns errAlreadyProjected when the ledger already records the event ID

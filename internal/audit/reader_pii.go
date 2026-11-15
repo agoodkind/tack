@@ -14,7 +14,8 @@ import (
 
 // PIIRefsForActor returns every audit.pii reference that an event in orgID
 // recorded for actorID. The reader role can SELECT from audit.events; the
-// redactor role cannot. The redactor receives references without reading the ledger.
+// redactor role cannot. The redactor receives references without reading the
+// ledger.
 func (r *Reader) PIIRefsForActor(
 	ctx context.Context,
 	orgID uuid.UUID,

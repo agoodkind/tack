@@ -13,7 +13,8 @@ import (
 
 // partitionHeadroomAlertFloor sets the minimum future partition count before
 // the manager alerts. Maintenance creates weekly partitions using migration
-// 014's pg_partman settings; HeadroomWeeks counts starts after the current time.
+// 014's pg_partman settings; HeadroomWeeks counts starts after the current
+// time.
 const partitionHeadroomAlertFloor = 2
 
 // partitionStore defines PartitionManager's database operations.
@@ -125,7 +126,8 @@ func (m *PartitionManager) runOnce(ctx context.Context) {
 	}
 }
 
-// Close stops the loop without closing the shared pool and supports repeated calls.
+// Close stops the loop without closing the shared pool and supports repeated
+// calls.
 func (m *PartitionManager) Close() error {
 	select {
 	case <-m.stop:

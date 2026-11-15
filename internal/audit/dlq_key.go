@@ -30,7 +30,8 @@ func (k DeadLetterKey) String() string {
 	)
 }
 
-// noDeadLetter is the zero key when a record does not identify a dead-letter row.
+// noDeadLetter is the zero key when a record does not identify a dead-letter
+// row.
 var noDeadLetter = DeadLetterKey{Topic: "", Partition: 0, Offset: 0}
 
 // recordPayload normalizes nil tombstone values to empty bytes. SQL NULL would

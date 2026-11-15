@@ -99,7 +99,7 @@ func stagedForExport(stagedName, base string) bool {
 }
 
 // isExportIDText requires the canonical UUID spelling the exporter writes.
-// uuid.Parse also accepts URNs, braces, omitted hyphens, and uppercase hex.
+// [uuid.Parse] also accepts URNs, braces, omitted hyphens, and uppercase hex.
 // The exporter does not write those forms and must not remove their files.
 func isExportIDText(text string) bool {
 	parsed, err := uuid.Parse(text)

@@ -9,7 +9,8 @@ import (
 	"github.com/google/uuid"
 )
 
-// legacyNanosecondCandidates covers the lost remainder in [0, 1000) nanoseconds.
+// legacyNanosecondCandidates covers the lost remainder in [0, 1000)
+// nanoseconds.
 // Versions 1 and 2 hashed producer nanoseconds but stored only microseconds.
 // Trying every remainder recovers the original hash input (TACK-445).
 const legacyNanosecondCandidates = 1000
@@ -75,7 +76,8 @@ func contractViolation(row Row) string {
 	return "event contract validation failed: " + err.Error()
 }
 
-// checkLegacyRowHash tries each possible nanosecond remainder for a version 1 or 2 row.
+// checkLegacyRowHash tries each possible nanosecond remainder for a version 1
+// or 2 row.
 func checkLegacyRowHash(row Row) (bool, string, error) {
 	input, err := rowHashInputFor(row)
 	if err != nil {
@@ -106,7 +108,8 @@ func checkLegacyRowHash(row Row) (bool, string, error) {
 }
 
 // ComputeRowHash computes the hash from stored fields and the stored version.
-// Legacy verification additionally requires the lost timestamp remainder search.
+// Legacy verification additionally requires the lost timestamp remainder
+// search.
 func ComputeRowHash(row Row) ([]byte, error) {
 	input, err := rowHashInputFor(row)
 	if err != nil {

@@ -75,10 +75,7 @@ func assertDirectoryHoldsOnlyItsBundle(t *testing.T, dir string) {
 
 	for _, entry := range entries {
 		if !allowed[entry.Name()] {
-			t.Fatalf(
-				"the bundle directory contains %s outside the published bundle",
-				entry.Name(),
-			)
+			t.Fatalf("the bundle directory contains %s outside the published bundle", entry.Name())
 		}
 	}
 }

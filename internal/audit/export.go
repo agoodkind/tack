@@ -22,7 +22,8 @@ type RowSource interface {
 }
 
 // ExportManifest identifies one exported bundle. Its signature covers every
-// field except Signature. The bundle consists of this manifest and its rows file.
+// field except Signature. The bundle consists of this manifest and its rows
+// file.
 type ExportManifest struct {
 	ExportID uuid.UUID `json:"export_id"`
 	OrgID    uuid.UUID `json:"org_id"`

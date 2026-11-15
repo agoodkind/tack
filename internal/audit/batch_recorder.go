@@ -124,7 +124,8 @@ func (s *SpillRecorder) RecordBatch(ctx context.Context, events []Event) ([]Even
 	return lost, nil
 }
 
-// recordOneByOne records a batch with a primary that accepts one event per call.
+// recordOneByOne records a batch with a primary that accepts one event per
+// call.
 func (s *SpillRecorder) recordOneByOne(ctx context.Context, events []Event) ([]Event, error) {
 	var lost []Event
 

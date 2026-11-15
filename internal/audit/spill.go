@@ -18,8 +18,8 @@ import (
 const SpillTimeout = 10 * time.Second
 
 // OutboxAppender durably stores events the primary recorder refuses. The
-// FoundationDB operator outbox implements it in production. The audit-consumer's
-// relay publishes the stored events to Kafka.
+// FoundationDB operator outbox implements it in production. The
+// audit-consumer's relay publishes the stored events to Kafka.
 type OutboxAppender interface {
 	Append(ctx context.Context, event json.RawMessage) error
 }

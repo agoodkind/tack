@@ -60,14 +60,14 @@ func TestVerifyBundleReportsOversizedManifestCount(t *testing.T) {
 
 	report, err := VerifyBundle(dir, pub)
 	if err != nil {
-		t.Fatalf("VerifyBundle must report on an invalid manifest count, not fail outright: %v", err)
+		t.Fatalf(
+			"VerifyBundle must report on an invalid manifest count, not fail outright: %v",
+			err,
+		)
 	}
 
 	if report.RowsScanned != 3 {
-		t.Fatalf(
-			"RowsScanned = %d, want the 3 rows in the file",
-			report.RowsScanned,
-		)
+		t.Fatalf("RowsScanned = %d, want the 3 rows in the file", report.RowsScanned)
 	}
 
 	if report.ManifestRowCount != math.MaxInt64 {

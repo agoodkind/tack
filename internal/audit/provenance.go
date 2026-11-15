@@ -9,7 +9,8 @@ import (
 	"github.com/google/uuid"
 )
 
-// ActProvenance identifies the operator behind a write recorded as a product user.
+// ActProvenance identifies the operator behind a write recorded as a product
+// user.
 // The user's ledger row includes this provenance in its hash and records the
 // user as its actor. The provenance records the operator, grant, and reason
 // for the change (TACK-424). OperatorID and OperatorEmail identify the
@@ -27,7 +28,8 @@ type ActProvenance struct {
 
 type provenanceKey struct{}
 
-// WithActProvenance stores the operator provenance in ctx for staged state changes.
+// WithActProvenance stores the operator provenance in ctx for staged state
+// changes.
 func WithActProvenance(ctx context.Context, provenance ActProvenance) context.Context {
 	return context.WithValue(ctx, provenanceKey{}, provenance)
 }

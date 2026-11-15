@@ -116,7 +116,8 @@ func (o *PoolOutbox) WriteOutboxIfAbsent(ctx context.Context, event Event) (bool
 	return true, nil
 }
 
-// isOutboxDuplicate reports whether the primary key rejected an existing event ID.
+// isOutboxDuplicate reports whether the primary key rejected an existing
+// event ID.
 func isOutboxDuplicate(err error) bool {
 	var postgresError *pgconn.PgError
 	return errors.As(err, &postgresError) && postgresError.Code == uniqueViolationSQLState
