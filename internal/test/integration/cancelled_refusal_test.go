@@ -1,12 +1,15 @@
 package integration_test
 
 import (
+	"bytes"
 	"context"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
+	"github.com/google/uuid"
 	"goodkind.io/tack/internal/audit"
+	"goodkind.io/tack/internal/auth"
 	"goodkind.io/tack/internal/telemetry"
 )
 
@@ -16,60 +19,27 @@ func TestRuntimeAuditReadRefusalAfterCancellation(t *testing.T) {
 	requestID := newRequestID(t, "cancelled-refusal")
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
-	handler := server.graph.Requests.Diagnostics(
-		http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
-			attempt := ledger.row(t, audit.SystemOrgID(), requestID)
-			requireReadRow(
-				t,
-				attempt,
-				audit.VerbHTTPDiagnosticsRead,
-				audit.OutcomeAttempted,
-				"",
-				nil,
-			)
-			writer.WriteHeader(http.StatusForbidden)
+	authenticate := func(next http.Handler) http.Handler {
+		actual := server.graph.AuthMiddleware(next)
+		return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+			actual.ServeHTTP(writer, request)
 			cancel()
-		}),
-	)
-	request := httptest.NewRequestWithContext(ctx, http.MethodGet, "/debug/vars", nil)
+		})
+	}
+	handler := server.graph.Requests.MCP(authenticate, server.graph.MCPHandler)
+	body := rpcBody(t, "tools/call", map[string]any{"name": "tack_list_workspaces", "arguments": map[string]any{}})
+	request := httptest.NewRequestWithContext(ctx, http.MethodPost, "/mcp", bytes.NewReader(body))
 	request.Header.Set(telemetry.RequestIDHeader, requestID)
+	request.Header.Set("Content-Type", "application/json")
 	response := httptest.NewRecorder()
 	telemetry.RequestLogger(handler).ServeHTTP(response, request)
-	if response.Code != http.StatusForbidden {
-		t.Fatalf("diagnostics status = %d, want 403", response.Code)
+	if response.Code != http.StatusUnauthorized {
+		t.Fatalf("MCP status = %d, want 401", response.Code)
 	}
-
-	rows := ledger.requestRows(
-		t,
-		audit.SystemOrgID(),
-		requestID,
-		func(rows []audit.Row) bool {
-			return len(rows) == 2
-		},
-	)
-	var attempt, refusal audit.Row
-
-	for _, row := range rows {
-		switch row.Outcome {
-		case audit.OutcomeAttempted:
-			attempt = row
-		case audit.OutcomeRefused:
-			refusal = row
-		}
-	}
-
-	requireReadRow(t, attempt, audit.VerbHTTPDiagnosticsRead, audit.OutcomeAttempted, "", nil)
-	requireReadRow(
-		t,
-		refusal,
-		audit.VerbHTTPDiagnosticsRead,
-		audit.OutcomeRefused,
-		"forbidden",
-		nil,
-	)
-	if attempt.Context.OperationID != refusal.Context.OperationID ||
-		attempt.ActorID != refusal.ActorID || refusal.Context.Target == nil ||
-		refusal.Context.Target.URI != "/debug/vars" {
-		t.Fatalf("attempt context = %+v, refusal context = %+v", attempt.Context, refusal.Context)
+	row := ledger.row(t, audit.SystemOrgID(), requestID)
+	requireReadRow(t, row, audit.VerbAuthLoginFailed, audit.OutcomeRefused, auth.RejectionMissingAuthorization, nil)
+	if row.ActorID != uuid.Nil || row.Context.RequestID != requestID ||
+		row.Context.Target == nil || row.Context.Target.URI != "/mcp" {
+		t.Fatalf("authentication refusal actor = %s, context = %+v", row.ActorID, row.Context)
 	}
 }
