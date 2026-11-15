@@ -113,13 +113,18 @@ func (op Operation[I]) cobraCommand(f *cli.Factory) *cobra.Command {
 			apply(&in)
 		}
 
+		ctx, err := inputContext(cmd.Context(), op.auditSpec().Verb, in)
+		if err != nil {
+			return err
+		}
+
 		if op.auditSpec().Class == audit.OperationRead {
-			return runReadOperation(cmd.Context(), f, op, in)
+			return runReadOperation(ctx, f, op, in)
 		}
 
 		if !f.Execute() && op.DryRun != nil {
 			err := RunAudited(
-				cmd.Context(),
+				ctx,
 				dryRunDestination(f, f.Out),
 				op.auditSpec(),
 				f.OperatorIdentitySource(),
@@ -134,7 +139,7 @@ func (op Operation[I]) cobraCommand(f *cli.Factory) *cobra.Command {
 			}
 
 			return RunRecordedPreview(
-				cmd.Context(),
+				ctx,
 				f,
 				PreviewSpec(op.auditSpec()),
 				json.RawMessage("{}"),
@@ -145,7 +150,7 @@ func (op Operation[I]) cobraCommand(f *cli.Factory) *cobra.Command {
 		}
 
 		return RunAudited(
-			cmd.Context(),
+			ctx,
 			dryRunDestination(f, f.Out),
 			op.auditSpec(),
 			f.OperatorIdentitySource(),
