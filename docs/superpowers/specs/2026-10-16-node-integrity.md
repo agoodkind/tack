@@ -75,7 +75,7 @@ OpenSearch must filter opaque access keys before ranking. Tack must check curren
 
 The correction must preserve complete Unicode text coverage, distinct results, durable continuation and replay, one inference per session, bounded work, source-write durability during search outages, stale-write rejection, replacement recovery, and eventual cleanup. A successful exact-title query does not establish semantic acceptance.
 
-The [search correction and delivery plan](../plans/2026-10-16-search-correction.md) maps every existing acceptance section to required evidence. The full criteria remain mandatory, including workload measurements and environment-specific recovery proof.
+Full search acceptance includes workload measurements and environment-specific recovery proof.
 
 ## Record committed changes in the audit ledger
 

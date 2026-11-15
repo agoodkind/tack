@@ -10,7 +10,7 @@ The fixtures use Go, FoundationDB, SQL authentication, MCP, and the official Ope
 
 ## Global Constraints
 
-Apply the [implementation constraints](2026-09-19-opensearch.md#global-constraints). Write these fixtures only inside the selected Tack worktree. Do not run them. The only permitted external writes are the documented branch and pull-request publication operations. No fixture replaces a production dependency. These steps belong to the index and query pipeline tasks, not a separate deployment. Sol runs every real-dependency fixture.
+Apply the [search acceptance criteria](../specs/2026-09-19-search-acceptance.md). Write these fixtures only inside the selected Tack worktree. Do not run them. The only permitted external writes are the documented branch and pull-request publication operations. No fixture replaces a production dependency. These steps belong to the index and query pipeline tasks, not a separate deployment. Sol runs every real-dependency fixture.
 
 ## Review Focus
 

@@ -2,7 +2,7 @@
 
 Implement the [node integrity specification](../specs/2026-10-16-node-integrity.md) through the existing generic node and audit boundaries. Concrete production repairs retain the existing manifest review and execution requirements.
 
-The plan uses Go, real FoundationDB, YugabyteDB, Kafka, the existing repair console, and the public MCP interface. The [search correction plan](2026-10-16-search-correction.md) covers search implementation, complete acceptance, and coordinated delivery.
+The plan uses Go, real FoundationDB, YugabyteDB, Kafka, the existing repair console, and the public MCP interface. The [search acceptance procedure](../../runbooks/search.md) covers validation through real dependencies.
 
 ## Establish the implementation base
 
@@ -86,7 +86,7 @@ Run `make test-integration` and the command's help and preview against the test 
 
 ## 6. Complete delivery without losing scope
 
-Use the search correction plan for release order and the full acceptance evidence. Keep prevention, source-data repair, and search recovery as distinct results. Independent audit and validation development can continue during repair preparation and verification.
+Use the search acceptance procedure for the full acceptance evidence. Keep prevention, source-data repair, and search recovery as distinct results. Independent audit and validation development can continue during repair preparation and verification.
 
 Before closing a ticket, attach the canonical requirement and plan links, relevant merged commits, installed revisions, and direct acceptance evidence. Close a superseded ticket only after the replacement covers its full scope.
 
