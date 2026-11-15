@@ -92,18 +92,17 @@ func bootstrapRunProjected(rows []bootstrapLedgerRow) bool {
 	intent := slices.ContainsFunc(
 		rows,
 		func(row bootstrapLedgerRow) bool {
-			return row.Outcome == string(audit.OutcomePending) && row.OpID != ""
+			return row.Outcome == string(audit.OutcomeAttempted) && row.OpID != ""
 		},
 	)
-	result := slices.ContainsFunc(
+	step := slices.ContainsFunc(
 		rows,
 		func(row bootstrapLedgerRow) bool {
-			return row.Outcome == string(audit.OutcomeCompleted) && row.OpID != ""
+			return row.OpID == "" && row.Outcome == string(audit.OutcomeAttempted)
 		},
 	)
-	step := slices.ContainsFunc(rows, func(row bootstrapLedgerRow) bool { return row.OpID == "" })
 
-	return intent && result && step
+	return intent && step
 }
 
 // bootstrapRowsOfVerb returns the rows that record verb.
@@ -134,48 +133,23 @@ func requireBootstrapRun(t *testing.T, rows []bootstrapLedgerRow, verb audit.Ver
 		}
 	}
 
-	if len(run) != 2 {
-		t.Fatalf("%s rows = %+v, want an intent row and a result row with an op id", verb, rows)
-	}
-
-	outcomes := []string{run[0].Outcome, run[1].Outcome}
-	slices.Sort(outcomes)
-	if !slices.Equal(
-		outcomes,
-		[]string{string(audit.OutcomeCompleted), string(audit.OutcomePending)},
-	) {
-		t.Fatalf(
-			"%s outcomes = %v, want one %s and one %s",
-			verb,
-			outcomes,
-			audit.OutcomePending,
-			audit.OutcomeCompleted,
-		)
+	if len(run) != 1 || run[0].Outcome != string(audit.OutcomeAttempted) {
+		t.Fatalf("%s rows = %+v, want one attempt with an op id", verb, rows)
 	}
 
 	requireBootstrapOpID(t, verb, run[0])
-	if run[0].OpID != run[1].OpID {
-		t.Fatalf(
-			"%s op ids = %s and %s, want one op id on both rows",
-			verb,
-			run[0].OpID,
-			run[1].OpID,
-		)
-	}
 
 	if len(steps) == 0 {
 		t.Fatalf("%s did not record a step row", verb)
 	}
 
 	for _, step := range steps {
-		if step.Outcome != string(audit.OutcomePending) &&
-			step.Outcome != string(audit.OutcomeCompleted) {
+		if step.Outcome != string(audit.OutcomeAttempted) {
 			t.Fatalf(
-				"%s step row outcome = %s, want %s or %s",
+				"%s step row outcome = %s, want %s",
 				verb,
 				step.Outcome,
-				audit.OutcomePending,
-				audit.OutcomeCompleted,
+				audit.OutcomeAttempted,
 			)
 		}
 	}

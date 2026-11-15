@@ -89,7 +89,7 @@ func TestAuditOperatorReadStoresCLIRequestIdentity(t *testing.T) {
 
 	targetURI := "tack:audit-event/" + eventID.String()
 	if eventContext.OperationID == uuid.Nil || eventContext.OperationID != extra.OpID ||
-		eventContext.Target == nil || eventContext.Target.URI != targetURI || row.Outcome != audit.OutcomeCompleted {
+		eventContext.Target == nil || eventContext.Target.URI != targetURI || row.Outcome != audit.OutcomeAttempted {
 		t.Fatalf(
 			"row %s operation %s (extra op %s), target %+v, outcome %q, want one operation with target %s and outcome %q",
 			row.EventID,
@@ -98,7 +98,7 @@ func TestAuditOperatorReadStoresCLIRequestIdentity(t *testing.T) {
 			eventContext.Target,
 			row.Outcome,
 			targetURI,
-			audit.OutcomeCompleted,
+			audit.OutcomeAttempted,
 		)
 	}
 
@@ -153,18 +153,16 @@ func TestAuditOperatorFailedReadStoresCLIRequestIdentity(t *testing.T) {
 	}
 
 	targetURI := "tack:audit-event/" + eventID.String()
-	if row.Outcome != audit.OutcomeFailed || row.Error == nil ||
-		row.Error.Code != manifestReadFailedCode ||
+	if row.Outcome != audit.OutcomeAttempted || row.Error != nil || row.Context.Read != nil ||
 		eventContext.Target == nil ||
 		eventContext.Target.URI != targetURI {
 		t.Fatalf(
-			"row %s outcome %q, error %+v, target %+v, want outcome %q with code %s and target %s",
+			"row %s outcome %q, error %+v, target %+v, want outcome %q with target %s",
 			row.EventID,
 			row.Outcome,
 			row.Error,
 			eventContext.Target,
-			audit.OutcomeFailed,
-			manifestReadFailedCode,
+			audit.OutcomeAttempted,
 			targetURI,
 		)
 	}

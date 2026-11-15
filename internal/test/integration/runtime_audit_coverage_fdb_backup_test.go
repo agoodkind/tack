@@ -4,10 +4,7 @@ package integration_test
 
 import (
 	"path/filepath"
-	"slices"
 	"testing"
-
-	"github.com/google/uuid"
 
 	"goodkind.io/tack/internal/audit"
 	"goodkind.io/tack/internal/config"
@@ -23,52 +20,15 @@ const (
 	// source cluster. The drill requires a restored keyspace that is not
 	// empty.
 	coverageRestoreKey = "tack-coverage-restore-drill"
-	// skippedDrillLeg is the committed step that a drill without the
-	// FoundationDB leg reports for its YugabyteDB leg.
-	skippedDrillLeg = "restore-drill/yugabyte"
-	// drillStepPrefix starts the external target reference of the drill
-	// step, which ends with the backup bucket.
-	drillStepPrefix = "backup/restore-drill/"
 )
 
 // skippedLegDrillCase runs restore-drill with continuous FoundationDB backup
-// disabled. The drill skips the FoundationDB leg and records
-// partially_completed with the YugabyteDB leg and the drill step as its
-// committed steps.
+// disabled. The drill skips the FoundationDB leg.
 func skippedLegDrillCase() coverageCase {
-	drill := commandCase(
+	return commandCase(
 		audit.VerbOpsBackupRestoreDrill,
-		audit.OutcomePartiallyCompleted,
+		audit.OutcomeAttempted,
 		backupCommand("ops", "backup", "restore-drill"),
-	)
-	drill.check = requireSkippedLegSteps
-	return drill
-}
-
-// requireSkippedLegSteps requires the drill result to list the YugabyteDB leg
-// and then the drill step in CommittedSteps.
-func requireSkippedLegSteps(t *testing.T, env *coverageEnv, rows []audit.Row) {
-	t.Helper()
-	want := []string{skippedDrillLeg, drillStepPrefix + env.backup.cfg.BackupS3BucketMain}
-	for _, row := range rows {
-		result := row.Context.Phase == audit.PhaseResult &&
-			row.Context.ParentOperationID == uuid.Nil
-		if !result || row.Action != string(audit.VerbOpsBackupRestoreDrill) ||
-			row.Outcome != audit.OutcomePartiallyCompleted {
-			continue
-		}
-		if !slices.Equal(row.Context.CommittedSteps, want) {
-			t.Fatalf(
-				"The drill result lists committed steps %q; the case requires %q",
-				row.Context.CommittedSteps,
-				want,
-			)
-		}
-		return
-	}
-	t.Fatalf(
-		"The ledger does not contain a partially_completed restore-drill result for the operator; the events are: %s",
-		describeRows(rows),
 	)
 }
 

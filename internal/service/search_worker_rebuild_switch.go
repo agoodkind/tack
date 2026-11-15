@@ -54,11 +54,7 @@ func (w *SearchWorker) rebuildSwitch(
 		)
 	}
 
-	if err := w.recordAliasSwitch(
-		ctx,
-		rebuild,
-		func(ctx context.Context) error { return w.moveAlias(ctx, rebuild) },
-	); err != nil {
+	if err := w.moveAlias(ctx, rebuild); err != nil {
 		return w.settleEngine(ctx, work, "switch public alias to "+rebuild.TargetIndex, err)
 	}
 

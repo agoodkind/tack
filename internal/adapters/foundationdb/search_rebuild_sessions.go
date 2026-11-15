@@ -2,37 +2,21 @@ package foundationdb
 
 import (
 	"context"
-	"errors"
-	"fmt"
-	"log/slog"
 	"time"
 
 	"github.com/apple/foundationdb/bindings/go/src/fdb"
 	"github.com/apple/foundationdb/bindings/go/src/fdb/tuple"
 	"github.com/google/uuid"
-	"goodkind.io/tack/internal/audit"
-	searchdomain "goodkind.io/tack/internal/domain/search"
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// RetireIndexSessions recovers expired retirement attempt records for index,
-// then deletes bounded slices of sessions that read index and cannot serve
-// another page. It retains a continuable session until its idle or absolute
-// deadline passes. It reports whether an active attempt, more attempt records,
-// a continuable or partly deleted session, or a presence entry beyond the slice
-// limit leaves work for another call. An active attempt can delay index
-// deletion by up to retireAttemptLease.
+// RetireIndexSessions deletes expired sessions before index removal.
 func (s *SearchRebuildStore) RetireIndexSessions(
 	ctx context.Context,
 	index string,
 	limit int,
 ) (remaining bool, err error) {
 	defer telemetry.FDBOp(ctx, "store.search_rebuild.retire_sessions")(&err)
-	attemptsRemain, err := s.recoverRetireAttempts(ctx, index, limit)
-	if err != nil {
-		return true, err
-	}
-
 	var sessionIDs []uuid.UUID
 	err = transactSearch(
 		ctx,
@@ -76,7 +60,7 @@ func (s *SearchRebuildStore) RetireIndexSessions(
 
 	now := s.work.clock.Now()
 
-	remaining = attemptsRemain || len(sessionIDs) == limit
+	remaining = len(sessionIDs) == limit
 	for _, sessionID := range sessionIDs {
 		kept, retireErr := s.retireSession(ctx, index, sessionID, now)
 		if retireErr != nil {
@@ -92,9 +76,6 @@ func (s *SearchRebuildStore) RetireIndexSessions(
 // retireSession deletes one bounded slice of a session that cannot serve
 // another page. It directly removes a presence entry without a session
 // header. It reports whether the session still exists afterward.
-// When it cannot read or decode the session, it records a failed cleanup
-// event through recordSessionLoadFailure and leaves the session and its
-// presence entry in place.
 func (s *SearchRebuildStore) retireSession(
 	ctx context.Context,
 	index string,
@@ -102,21 +83,19 @@ func (s *SearchRebuildStore) retireSession(
 	now time.Time,
 ) (bool, error) {
 	var record searchSessionRecord
-	var found, headerAbsent bool
+	var found bool
 	var restoreEpoch int64
 	err := transactSearch(
 		ctx,
 		s.db,
 		func(tr fdb.Transaction) error {
 			var readErr error
-			headerAbsent = false
 			found, readErr = readSessionValue(tr, searchSessionKey(sessionID), &record)
 			if readErr != nil {
 				return readErr
 			}
 
 			if !found {
-				headerAbsent = true
 				tr.Clear(fdb.Key(searchSessionPresenceKey(index, sessionID)))
 
 				return nil
@@ -135,11 +114,8 @@ func (s *SearchRebuildStore) retireSession(
 			uuid.Nil,
 			err,
 		)
-		if headerAbsent {
-			return true, failure
-		}
 
-		return true, s.recordSessionLoadFailure(ctx, sessionID, failure)
+		return true, failure
 	}
 
 	if !found {
@@ -156,7 +132,7 @@ func (s *SearchRebuildStore) retireSession(
 			err,
 		)
 
-		return true, s.recordSessionLoadFailure(ctx, sessionID, failure)
+		return true, failure
 	}
 
 	if session.Continuable(now, restoreEpoch) {
@@ -164,80 +140,14 @@ func (s *SearchRebuildStore) retireSession(
 	}
 
 	if !record.Closing {
-		err := s.retireStep(
-			ctx,
-			index,
-			sessionID,
-			record,
-			searchdomain.CleanupClose,
-			func(stepContext context.Context, fence fdb.Key) error {
-				return s.sessions.beginCleanup(stepContext, sessionID, fence)
-			},
-		)
-		if err != nil {
+		if err := s.sessions.BeginCleanup(ctx, sessionID); err != nil {
 			return true, err
 		}
 	}
 
-	deleted := false
-	err = s.retireStep(
-		ctx,
-		index,
-		sessionID,
-		record,
-		searchdomain.CleanupDelete,
-		func(stepContext context.Context, fence fdb.Key) error {
-			var sliceErr error
-			deleted, sliceErr = s.sessions.cleanupSlice(
-				stepContext,
-				sessionID,
-				maxSessionCleanupKeys,
-				fence,
-			)
+	deleted, err := s.sessions.CleanupSlice(ctx, sessionID, maxSessionCleanupKeys)
 
-			return sliceErr
-		},
-	)
-	if err != nil {
-		return true, err
-	}
-
-	return !deleted, nil
-}
-
-// recordSessionLoadFailure calls RecordCleanupFailure with CleanupDelete,
-// the step the search sweep records for the same failure. It returns cause
-// when the event commits. When the event does not commit, it logs the
-// recording error and returns an error that matches audit.ErrEventNotRecorded
-// and contains cause and the recording error. Each call writes a new event,
-// so each retirement slice that fails on a session adds one event.
-func (s *SearchRebuildStore) recordSessionLoadFailure(
-	ctx context.Context,
-	sessionID uuid.UUID,
-	cause error,
-) error {
-	err := s.sessions.RecordCleanupFailure(ctx, sessionID, searchdomain.CleanupDelete, cause)
-	if err == nil {
-		return cause
-	}
-
-	slog.ErrorContext(
-		ctx,
-		"search.session.audit_failed",
-		slog.String("err", err.Error()),
-		slog.String("session_id", sessionID.String()),
-	)
-
-	return errors.Join(
-		audit.ErrEventNotRecorded,
-		cause,
-		fmt.Errorf(
-			"record the failed cleanup step %s of search session %s: %w",
-			searchdomain.CleanupDelete,
-			sessionID,
-			err,
-		),
-	)
+	return !deleted, err
 }
 
 // RetiredSince returns when the first page of index was retired.

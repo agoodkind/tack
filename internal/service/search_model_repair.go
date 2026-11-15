@@ -14,13 +14,11 @@ import (
 )
 
 // SearchModelRepairPorts are the engine, the repair record store, and the
-// serving index reader of the model repair. Audit supplies the outbox and
-// service actor that record each repair deploy.
+// serving index reader of the model repair.
 type SearchModelRepairPorts struct {
 	Engine  searchdomain.ModelRepairEngine
 	Records searchdomain.ModelRepairStore
 	Index   searchdomain.ServingIndexReader
-	Audit   SearchAudit
 }
 
 // SearchModelRepair deploys the serving model again when ML Commons leaves it
@@ -174,7 +172,7 @@ func (r *SearchModelRepair) attempt(
 		return nil
 	}
 
-	return r.deploy(ctx, index, claim, again.State, stuckFor)
+	return r.deploy(ctx, claim, again.State, stuckFor)
 }
 
 // deployFailed logs one failed attempt. The attempt stays counted. The last

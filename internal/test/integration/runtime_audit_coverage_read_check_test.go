@@ -4,7 +4,6 @@ package integration_test
 
 import (
 	"encoding/json"
-	"slices"
 	"strings"
 	"testing"
 
@@ -67,45 +66,6 @@ func requireReadExpectation(t *testing.T, env *coverageEnv, row audit.Row, want 
 			)
 		}
 	}
-	if want.skipItems {
-		if row.Context.Read != nil {
-			t.Fatalf(
-				"failed read event %s stores read evidence %+v, want none",
-				row.EventID,
-				row.Context.Read,
-			)
-		}
-		return
-	}
-	listed := env.ledger.manifestTargets(t, row)
-	uris := make([]string, 0, len(listed))
-	for _, listedTarget := range listed {
-		uris = append(uris, listedTarget.URI)
-	}
-	if !want.contains {
-		if !slices.Equal(uris, want.items) {
-			t.Fatalf("read event %s read targets = %v, want %v", row.EventID, uris, want.items)
-		}
-		return
-	}
-	if len(uris) == 0 {
-		t.Fatalf("read event %s lists no read targets, want at least one", row.EventID)
-	}
-	for _, uri := range uris {
-		if !strings.HasPrefix(uri, want.itemPrefix) {
-			t.Fatalf(
-				"read event %s read target %q does not start with %q",
-				row.EventID,
-				uri,
-				want.itemPrefix,
-			)
-		}
-	}
-	for _, item := range want.items {
-		if !slices.Contains(uris, item) {
-			t.Fatalf("read event %s read targets %v do not include %q", row.EventID, uris, item)
-		}
-	}
 }
 
 func withReadCheck(
@@ -118,13 +78,13 @@ func withReadCheck(
 		t.Helper()
 		for _, row := range rows {
 			if row.Action == string(verb) && row.Outcome == outcome &&
-				row.Context.OperationClass == audit.OperationRead && row.Context.Phase == audit.PhaseRead {
+				row.Context.OperationClass == audit.OperationRead && row.Context.Phase == audit.PhaseAttempt {
 				requireReadExpectation(t, env, row, expect(t, env))
 				return
 			}
 		}
 		t.Fatalf(
-			"The ledger does not contain a %s read event of class read and phase read for the operator; the events are: %s",
+			"The ledger does not contain a %s read event of class read and phase attempt for the operator; the events are: %s",
 			outcome,
 			describeRows(rows),
 		)

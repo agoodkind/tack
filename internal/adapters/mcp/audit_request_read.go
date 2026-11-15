@@ -13,6 +13,9 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
+// refusalWriteTimeout bounds the write after an access denial.
+const refusalWriteTimeout = 30 * time.Second
+
 // recordingUnavailableBody is the response body when the server cannot save a read event.
 const recordingUnavailableBody = `{"error":"audit recording unavailable"}`
 
@@ -56,15 +59,12 @@ func newRequestRead(
 	}
 }
 
-// admissions returns one read admission for each organization of the read.
-// Each admission uses the same operation ID, actor, and start time.
-// Each target identifies the route and operation. The event templates do not include
-// request headers, credentials, or the request body.
-func (read requestRead) admissions() []audit.ReadAdmission {
+// events builds one record per organization for an attempt or refusal.
+func (read requestRead) events(decision audit.OutcomeDetails) []audit.Event {
 	operation := read.operation
 	name := string(operation.verb)
 
-	admissions := make([]audit.ReadAdmission, 0, len(read.orgIDs))
+	events := make([]audit.Event, 0, len(read.orgIDs))
 	for _, orgID := range read.orgIDs {
 		eventID := uuid.Must(uuid.NewV7())
 		target := audit.Target{
@@ -78,12 +78,18 @@ func (read requestRead) admissions() []audit.ReadAdmission {
 			SourceID:     uuid.Nil,
 			TargetID:     uuid.Nil,
 		}
+		class := audit.OperationRead
+		if operation.mutation && read.actor.Type != audit.ActorUnauthenticated {
+			class = audit.OperationDatabaseChange
+			target = mutationTarget(operation.verb, operation.selection, target)
+		}
+
 		template := audit.Event{
 			Verb:    string(operation.verb),
 			EventID: eventID,
 			Actor:   read.actor,
 			Entity: audit.Entity{
-				Type:       audit.TargetKindResource,
+				Type:       target.Kind,
 				NodeType:   "",
 				ID:         uuid.Nil,
 				Identifier: "",
@@ -101,8 +107,8 @@ func (read requestRead) admissions() []audit.ReadAdmission {
 				RPC:                operation.method,
 				Reason:             "",
 				AuditFormatVersion: audit.AuditFormatComplete,
-				OperationClass:     audit.OperationRead,
-				Phase:              audit.PhaseRead,
+				OperationClass:     class,
+				Phase:              audit.PhaseAttempt,
 				OperationID:        read.operationID,
 				StartedAt:          read.startedAt,
 				Target:             &target,
@@ -111,79 +117,95 @@ func (read requestRead) admissions() []audit.ReadAdmission {
 				RequestPath:        read.requestPath,
 			},
 			Delta:          nil,
-			Outcome:        "",
+			Outcome:        audit.OutcomeAttempted,
 			Error:          nil,
 			IdempotencyKey: "",
 			OccurredAt:     read.startedAt,
 			Extra:          nil,
 		}
-		token := audit.ReadToken{
-			EventID:           eventID,
-			Owner:             audit.NewReadOwner(),
-			Generation:        0,
-			AdmissionDeadline: time.Time{},
+		if decision.Outcome != "" {
+			template.Context.Phase = audit.PhaseRead
+			template.Context.CompletedAt = clock.Now().UTC()
+			template.Outcome = decision.Outcome
+			template.Error = &audit.EventError{
+				Code:    decision.FailureCode,
+				Message: decision.FailureMessage,
+			}
 		}
-		admissions = append(admissions, audit.ReadAdmission{Token: token, Template: template})
+
+		events = append(events, template)
 	}
 
-	return admissions
+	return events
 }
 
-// serveRead buffers the response from next and saves the final read events before writing the response.
+// serveRead records the access attempt before calling the handler.
 func (recorder *RequestRecorder) serveRead(
 	writer http.ResponseWriter,
 	request *http.Request,
 	read requestRead,
 	next http.Handler,
 ) {
-	request = request.WithContext(audit.WithReadCollector(request.Context()))
-	recorder.release(
-		writer,
-		request,
-		read,
-		func(readRequest *http.Request) audit.ReadResult[*responseCapture] {
-			capture := newResponseCapture()
-			next.ServeHTTP(capture, readRequest)
-
-			return capture.readResult(readRequest.Context())
-		},
-	)
-}
-
-// release saves the read admissions, runs produce, saves the final events, and writes the captured response.
-// For one organization, it records every returned target in one event.
-// For several organizations, it records each organization's targets in a separate event.
-// If saving an admission or final event fails, or the captured response is nil,
-// release discards the captured response and returns 503.
-func (recorder *RequestRecorder) release(
-	writer http.ResponseWriter,
-	request *http.Request,
-	read requestRead,
-	produce func(*http.Request) audit.ReadResult[*responseCapture],
-) {
-	ctx := request.Context()
-	var captured *responseCapture
-	run := func(readContext context.Context) (audit.ReadResult[*responseCapture], error) {
-		result := produce(request.WithContext(readContext))
-		captured = result.Value
-
-		return result, nil
-	}
-	admissions := read.admissions()
-	var encoded audit.EncodedRead
-	var err error
-	if len(admissions) == 1 {
-		encoded, err = audit.ExecuteRead(ctx, recorder.store, admissions[0], run)
-	} else {
-		encoded, err = audit.ExecuteReadGroup(ctx, recorder.store, admissions, run)
-	}
-
-	if err != nil || captured == nil {
-		recordingUnavailable(ctx, writer, read, err)
+	if !recorder.record(writer, request, read, audit.NoOutcome()) {
 		return
 	}
 
-	captured.release(writer, encoded.Payload)
+	ctx := audit.WithReadCollector(request.Context())
+	capture := newResponseCapture()
+	next.ServeHTTP(capture, request.WithContext(ctx))
+	decision := audit.ReadDecision(ctx)
+	if decision.Outcome == "" {
+		decision = statusOutcome(capture.status)
+	}
+
+	if decision.Outcome == audit.OutcomeRefused &&
+		!recorder.record(writer, request, read, decision) {
+		return
+	}
+
+	capture.release(writer, capture.body.Bytes())
+}
+
+// respond records an access decision before returning the response.
+func (recorder *RequestRecorder) respond(
+	writer http.ResponseWriter,
+	request *http.Request,
+	read requestRead,
+	capture *responseCapture,
+	decision audit.OutcomeDetails,
+) {
+	if recorder.record(writer, request, read, decision) {
+		capture.release(writer, capture.body.Bytes())
+	}
+}
+
+func (recorder *RequestRecorder) record(
+	writer http.ResponseWriter,
+	request *http.Request,
+	read requestRead,
+	decision audit.OutcomeDetails,
+) bool {
+	events := read.events(decision)
+	for _, event := range events {
+		if err := audit.ValidateEvent(event); err != nil {
+			recordingUnavailable(request.Context(), writer, read, err)
+			return false
+		}
+	}
+
+	ctx := request.Context()
+	if decision.Outcome == audit.OutcomeRefused {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(context.WithoutCancel(ctx), refusalWriteTimeout)
+		defer cancel()
+	}
+
+	if err := recorder.store.WriteOutboxBatch(ctx, events); err != nil {
+		recordingUnavailable(request.Context(), writer, read, err)
+		return false
+	}
+
+	return true
 }
 
 // recordingUnavailable logs the recording failure and answers with 503.

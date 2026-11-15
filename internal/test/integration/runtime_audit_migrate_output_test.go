@@ -87,38 +87,19 @@ func TestRuntimeAuditMigrateOutputFailure(t *testing.T) {
 		string(audit.VerbDatabaseMigrate),
 		operator.String(),
 	)
-	intents := eventsInPhase(events, audit.PhaseIntent, uuid.Nil)
+	intents := eventsInPhase(events, audit.PhaseAttempt, uuid.Nil)
 	if len(intents) != 1 {
 		t.Fatalf("migrate recorded %d intents instead of 1", len(intents))
 	}
 
 	operationID := intents[0].Context.OperationID
-	steps := eventsInPhase(events, audit.PhaseResult, operationID)
-	if len(steps) != 1 || steps[0].Outcome != audit.OutcomeCompleted {
+	steps := eventsInPhase(events, audit.PhaseAttempt, operationID)
+	if len(steps) != 1 || steps[0].Outcome != audit.OutcomeAttempted {
 		t.Fatalf(
 			"migrate recorded %d step results; the test requires one completed step result",
 			len(steps),
 		)
 	}
 
-	results := eventsInPhase(events, audit.PhaseResult, uuid.Nil)
-	if len(results) != 1 || results[0].Context.OperationID != operationID {
-		t.Fatalf(
-			"migrate recorded %d command results; the test requires one result for operation %s",
-			len(results),
-			operationID,
-		)
-	}
-
-	result := results[0]
-	if result.Outcome != audit.OutcomePartiallyCompleted ||
-		len(result.Context.CommittedSteps) != 1 ||
-		result.Error == nil {
-		t.Fatalf(
-			"the command result is %s with committed steps %v and error %+v instead of partially_completed with one committed step",
-			result.Outcome,
-			result.Context.CommittedSteps,
-			result.Error,
-		)
-	}
+	requireCompletedResult(t, events, operationID)
 }

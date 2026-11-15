@@ -7,7 +7,6 @@ import (
 
 	"github.com/apple/foundationdb/bindings/go/src/fdb"
 	"github.com/google/uuid"
-	"goodkind.io/tack/internal/audit"
 	searchdomain "goodkind.io/tack/internal/domain/search"
 	"goodkind.io/tack/internal/telemetry"
 )
@@ -22,7 +21,6 @@ type SearchRebuildStore struct {
 	db       fdb.Database
 	work     *SearchWorkStore
 	sessions *SearchSessionStore
-	recorder audit.Recorder
 }
 
 var _ searchdomain.RebuildStore = (*SearchRebuildStore)(nil)
@@ -35,17 +33,7 @@ func NewSearchRebuildStore(
 	work *SearchWorkStore,
 	sessions *SearchSessionStore,
 ) *SearchRebuildStore {
-	return &SearchRebuildStore{db: db, work: work, sessions: sessions, recorder: nil}
-}
-
-// WithFailureRecorder returns a copy of the store that sends retirement
-// failure evidence to recorder when FoundationDB refuses the failed event and
-// the failure codes. A nil recorder disables this path.
-func (s *SearchRebuildStore) WithFailureRecorder(recorder audit.Recorder) *SearchRebuildStore {
-	withRecorder := *s
-	withRecorder.recorder = recorder
-
-	return &withRecorder
+	return &SearchRebuildStore{db: db, work: work, sessions: sessions}
 }
 
 // CurrentRebuild returns the one replacement and whether it exists.

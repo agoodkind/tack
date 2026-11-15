@@ -111,10 +111,10 @@ func (r *stepRecorder) BeginStep(ctx context.Context, step Event) error {
 func (r *stepRecorder) intentEvent(step Event, now time.Time) (Event, error) {
 	event := r.stepEvent(step, now, now)
 	event.EventID = StepIntentEventID(r.parent.Context.OperationID, *step.Context.Target)
-	event.Context.Phase = PhaseIntent
+	event.Context.Phase = r.parent.Context.Phase
 	event.Context.CompletedAt = time.Time{}
 	event.Context.CommittedSteps = nil
-	event.Outcome = OutcomePending
+	event.Outcome = r.parent.Outcome
 	event.Error = nil
 
 	return event, ValidateEvent(event)
@@ -156,6 +156,14 @@ func (r *stepRecorder) FinishStep(ctx context.Context, step Event) error {
 			r.parent.EventID,
 			fmt.Errorf("step %s did not begin in this attempt", targetLabel(*step.Context.Target)),
 		)
+	}
+
+	if r.parent.Context.Phase == PhaseAttempt {
+		r.mutex.Lock()
+		defer r.mutex.Unlock()
+		r.finished[key] = step.Outcome
+
+		return nil
 	}
 
 	event := r.stepEvent(step, startedAt, clock.Now().UTC())

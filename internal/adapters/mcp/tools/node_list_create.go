@@ -139,8 +139,6 @@ func createHandler(
 			return early, nil
 		}
 
-		scopeID := target.Scope.ID
-
 		rawProps, propsResult := parseToolProps(args["properties"])
 		if propsResult != nil {
 			return propsResult, nil
@@ -155,26 +153,23 @@ func createHandler(
 			b,
 			nt,
 			ws.OrgID,
-			scopeID,
+			target.Scope.ID,
 			rawProps,
 		)
 		if err != nil {
 			return classifyError(ctx, err), nil
 		}
 
-		parentID = target.createParentID(parentID)
-
-		toolName := fmt.Sprintf("tack_create_%s", strings.ToLower(nt.Slug))
 		idempotencyKey, idempotencyFingerprint, idempotencySource, err := createIdempotency(
 			ctx,
 			req,
 			createIdempotencyInput{
-				ToolName:       toolName,
+				ToolName:       fmt.Sprintf("tack_create_%s", strings.ToLower(nt.Slug)),
 				NodeTypeKey:    nt.TypeKey,
 				EntryPointSlug: entryPointReference,
 				Name:           name,
-				ParentID:       parentID,
-				ScopeID:        scopeID,
+				ParentID:       target.createParentID(parentID),
+				ScopeID:        target.Scope.ID,
 				UserID:         userID,
 				Props:          rawProps,
 				Args:           args,
@@ -184,17 +179,15 @@ func createHandler(
 			return unexpectedError(ctx, err), nil
 		}
 
-		// Refuse before the write, not only in the response: an unauthorized
-		// call must not commit anything.
 		if !isAuthorized(ctx) {
-			return permissionDenied(), nil
+			return permissionDenied(ctx), nil
 		}
 
 		result, err := b.NodeSvc.Create(
 			ctx,
 			service.CreateInput{
-				ParentID:               parentID,
-				ScopeID:                scopeID,
+				ParentID:               target.createParentID(parentID),
+				ScopeID:                target.Scope.ID,
 				NodeTypeKey:            nt.TypeKey,
 				Name:                   name,
 				Props:                  rawProps,
@@ -208,48 +201,47 @@ func createHandler(
 			return classifyError(ctx, err), nil
 		}
 
-		instr := ""
-		if result.Existed {
-			instr = "This create matched an existing operation. No new write was performed."
-			target := nodeTarget(result.View.NodeType, result.View.ID)
-			noteToolResult(
-				ctx,
-				audit.OutcomeDetails{
-					Outcome:        audit.OutcomeCompleted,
-					FailureCode:    "",
-					FailureMessage: "",
-					CommittedSteps: nil,
-				},
-				idempotentMatchReason,
-				&target,
-			)
-		}
+		return renderCreatedNode(ctx, b, result, name, rawProps, defs), nil
+	}
+}
 
-		rc := newRenderCtxWithTypes(ctx, b.Reader, b.Users, b.Resolver.typeIndex)
-		audit.SetAuditEntity(
-			ctx,
-			audit.Entity{
-				Type:       "node",
-				NodeType:   result.View.NodeType,
-				ID:         result.View.ID,
-				Identifier: identifierFor(result.View, rc),
-				Name:       result.View.Name,
+func renderCreatedNode(
+	ctx context.Context,
+	b NodeTypeBinding,
+	result *service.CreateResult,
+	name string,
+	rawProps map[string]json.RawMessage,
+	defs []*node.PropertyDef,
+) *mcpmcp.CallToolResult {
+	instr := ""
+	if result.Existed {
+		instr = "This create matched an existing operation. No new write was performed."
+	}
+
+	rc := newRenderCtxWithTypes(ctx, b.Reader, b.Users, b.Resolver.typeIndex)
+	audit.SetAuditEntity(
+		ctx,
+		audit.Entity{
+			Type:       "node",
+			NodeType:   result.View.NodeType,
+			ID:         result.View.ID,
+			Identifier: identifierFor(result.View, rc),
+			Name:       result.View.Name,
+		},
+	)
+	changes := fieldChanges{Shown: nil, Total: 0}
+	if !result.Existed {
+		changes = describeFieldChanges(
+			rc,
+			writeChanges{
+				Before:        nil,
+				After:         result.View,
+				Name:          &name,
+				Props:         rawProps,
+				ReferenceKeys: referenceKeysOf(defs),
 			},
 		)
-		changes := fieldChanges{Shown: nil, Total: 0}
-		if !result.Existed {
-			changes = describeFieldChanges(
-				rc,
-				writeChanges{
-					Before:        nil,
-					After:         result.View,
-					Name:          &name,
-					Props:         rawProps,
-					ReferenceKeys: referenceKeysOf(defs),
-				},
-			)
-		}
-
-		return successText(renderWriteConfirmation(rc, "Created", result.View, changes), instr), nil
 	}
+
+	return successText(renderWriteConfirmation(rc, "Created", result.View, changes), instr)
 }

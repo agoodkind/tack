@@ -132,16 +132,21 @@ func changeTx(
 		return nil
 	}
 
-	recordErr := recordFailure(ctx, pool, operation, target, err)
-	joined := errors.Join(err, recordErr)
+	_, operator := audit.OperatorPrincipalFromContext(ctx)
+	if !operator && operation.Context.Source != audit.SourceMCP &&
+		operation.Context.Source != audit.SourceRPC &&
+		operation.Context.Source != audit.SourceOperator {
+		err = errors.Join(err, recordFailure(ctx, pool, operation, target, err))
+	}
+
 	slog.ErrorContext(
 		ctx,
 		"audit.change.transaction_failed",
 		slog.String("target_id", target.ID.String()),
-		slog.String("err", joined.Error()),
+		slog.String("err", err.Error()),
 	)
 
-	return joined
+	return err
 }
 
 // recordFailure writes a failed result event for target in a separate

@@ -90,34 +90,38 @@ func backupCommand(args ...string) func(*testing.T, *coverageEnv) commandInput {
 func addBackupCommandCases(cases map[string]coverageCase) {
 	cases["command ops backup retention"] = commandCase(
 		audit.VerbOpsBackupRetention,
-		audit.OutcomeCompleted,
+		audit.OutcomeAttempted,
 		backupCommand("ops", "backup", "retention"),
 	)
 	cases["command ops backup"] = withReadCheck(
-		failingCommandCase(audit.VerbOpsBackup, audit.OutcomeFailed, fixedCommand("ops", "backup")),
+		failingCommandCase(
+			audit.VerbOpsBackup,
+			audit.OutcomeAttempted,
+			fixedCommand("ops", "backup"),
+		),
 		audit.VerbOpsBackup,
-		audit.OutcomeFailed,
+		audit.OutcomeAttempted,
 		failedReadExpectation("backup"),
 	)
 	cases["command ops backup yb-pitr-init"] = commandCase(
 		audit.VerbOpsBackupYBPITRInit,
-		audit.OutcomeCompleted,
+		audit.OutcomeAttempted,
 		backupCommand("ops", "backup", "yb-pitr-init"),
 	)
 	cases["command ops backup yb-snapshot-export"] = commandCase(
 		audit.VerbOpsBackupYBSnapshotExport,
-		audit.OutcomeCompleted,
+		audit.OutcomeAttempted,
 		backupCommand("ops", "backup", "yb-snapshot-export"),
 	)
 	cases["command ops backup restore-drill"] = commandCase(
 		audit.VerbOpsBackupRestoreDrill,
-		audit.OutcomeCompleted,
+		audit.OutcomeAttempted,
 		restoreDrillInput,
 	)
 	cases["command ops backup restore-drill"+caseVariantSeparator+"fdb-leg-skipped"] = skippedLegDrillCase()
 	cases["command ops backup restore-version"] = commandCase(
 		audit.VerbOpsBackupFDBRestoreVersion,
-		audit.OutcomeOK,
+		audit.OutcomeAttempted,
 		func(t *testing.T, env *coverageEnv) commandInput {
 			env.writeVersionLog(t)
 			return backupCommand(
@@ -134,24 +138,24 @@ func addBackupCommandCases(cases map[string]coverageCase) {
 	)
 	cases["command ops backup yb-archive-node"] = commandCase(
 		audit.VerbOpsBackupYBArchiveNode,
-		audit.OutcomeCompleted,
+		audit.OutcomeAttempted,
 		backupCommand("ops", "backup", "yb-archive-node"),
 	)
 	cases["command ops backup staleness-check"] = failingCommandCase(
 		audit.VerbOpsBackupStalenessCheck,
-		audit.OutcomeCompleted,
+		audit.OutcomeAttempted,
 		emptyBucketStalenessInput,
 	)
 	cases["command ops backup fdb-continuous-init"] = commandCase(
 		audit.VerbOpsBackupFDBContinuousInit,
-		audit.OutcomeCompleted,
+		audit.OutcomeAttempted,
 		continuousInitInput,
 	)
 }
 
 // emptyBucketStalenessInput initializes a new backup bucket that does not
 // contain any backup. The staleness check reports a stale verdict as a
-// command error and records a completed outcome.
+// command error.
 func emptyBucketStalenessInput(t *testing.T, env *coverageEnv) commandInput {
 	bucket := backupBucketConfig(testenv.ObjectStore(t))
 	root := t.TempDir()
@@ -215,17 +219,17 @@ func (env *coverageEnv) writeVersionLog(t *testing.T) {
 func addLedgerCommandCases(cases map[string]coverageCase) {
 	cases["command ops ledger node-prepare"] = commandCase(
 		audit.VerbOpsLedgerNodePrepare,
-		audit.OutcomeCompleted,
+		audit.OutcomeAttempted,
 		backupCommand("ops", "ledger", "node-prepare"),
 	)
 	cases["command ops ledger node-wait"] = commandCase(
 		audit.VerbOpsLedgerNodeWait,
-		audit.OutcomeCompleted,
+		audit.OutcomeAttempted,
 		backupCommand("ops", "ledger", "node-wait", "--stall", "3m", "--poll", "2s"),
 	)
 	cases["command ops ledger bootstrap-wait"] = commandCase(
 		audit.VerbOpsLedgerBootstrapWait,
-		audit.OutcomeOK,
+		audit.OutcomeAttempted,
 		backupCommand("ops", "ledger", "bootstrap-wait", "--masters", "1", "--tablet-servers", "1"),
 	)
 }

@@ -22,12 +22,9 @@ const (
 )
 
 // mcpMethod specifies the audit verb and organization source for one MCP method.
-// metadata marks a method with a response that the server builds from the node
-// types and property definitions of every member organization.
 type mcpMethod struct {
 	verb          audit.Verb
 	organizations orgSource
-	metadata      bool
 }
 
 // mcpMethods maps MCP methods to audit verbs for read events.
@@ -35,52 +32,42 @@ var mcpMethods = map[string]mcpMethod{
 	"initialize": {
 		verb:          audit.VerbMCPProtocolRead,
 		organizations: orgSystem,
-		metadata:      false,
 	},
 	"ping": {
 		verb:          audit.VerbMCPProtocolRead,
 		organizations: orgSystem,
-		metadata:      false,
 	},
 	"tools/list": {
 		verb:          audit.VerbMCPProtocolRead,
 		organizations: orgCaller,
-		metadata:      true,
 	},
 	"prompts/list": {
 		verb:          audit.VerbMCPProtocolRead,
 		organizations: orgSystem,
-		metadata:      false,
 	},
 	"resources/list": {
 		verb:          audit.VerbMCPProtocolRead,
 		organizations: orgSystem,
-		metadata:      false,
 	},
 	"resources/templates/list": {
 		verb:          audit.VerbMCPProtocolRead,
 		organizations: orgSystem,
-		metadata:      false,
 	},
 	"notifications/initialized": {
 		verb:          audit.VerbMCPProtocolRead,
 		organizations: orgSystem,
-		metadata:      false,
 	},
 	"notifications/cancelled": {
 		verb:          audit.VerbMCPProtocolRead,
 		organizations: orgSystem,
-		metadata:      false,
 	},
 	"prompts/get": {
 		verb:          audit.VerbMCPPromptInvoked,
 		organizations: orgCaller,
-		metadata:      true,
 	},
 	"resources/read": {
 		verb:          audit.VerbMCPResourceRead,
 		organizations: orgCaller,
-		metadata:      true,
 	},
 }
 
@@ -88,7 +75,11 @@ var mcpMethods = map[string]mcpMethod{
 // records, sorted by name.
 func RecordedMethods() []string {
 	methods := make([]string, 0, len(mcpMethods)+1)
-	for method := range mcpMethods {
+	for method, definition := range mcpMethods {
+		if definition.verb == audit.VerbMCPProtocolRead {
+			continue
+		}
+
 		methods = append(methods, method)
 	}
 
@@ -111,9 +102,9 @@ type requestOperation struct {
 	source        audit.Source
 	mutation      bool
 	organizations orgSource
-	metadata      bool
-	arguments     json.RawMessage
-	selection     *audit.ReadSelection
+
+	arguments json.RawMessage
+	selection *audit.ReadSelection
 }
 
 func routeOperation(verb audit.Verb, route string) requestOperation {
@@ -125,9 +116,9 @@ func routeOperation(verb audit.Verb, route string) requestOperation {
 		source:        audit.SourceSystem,
 		mutation:      false,
 		organizations: orgSystem,
-		metadata:      false,
-		arguments:     nil,
-		selection:     nil,
+
+		arguments: nil,
+		selection: nil,
 	}
 }
 
@@ -175,7 +166,7 @@ func mcpOperation(request *http.Request) requestOperation {
 	}
 
 	operation.verb, operation.method = method.verb, message.Method
-	operation.organizations, operation.metadata = method.organizations, method.metadata
+	operation.organizations = method.organizations
 	if method.verb == audit.VerbMCPPromptInvoked {
 		operation.tool = checkedName(message.Params.Name)
 		operation.selection = readSelection(message.Params.Arguments)
@@ -201,7 +192,9 @@ func toolOperation(
 	operation.verb = verb
 	operation.mutation = !audit.IsRead(verb)
 	operation.organizations, operation.arguments = orgArguments, arguments
-	if !operation.mutation {
+	if operation.mutation {
+		operation.selection = mutationSelection(arguments, verb, nodeIDArgument)
+	} else {
 		operation.selection = readSelection(arguments)
 	}
 

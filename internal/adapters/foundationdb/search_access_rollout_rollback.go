@@ -79,35 +79,17 @@ func (s *SearchAccessRolloutStore) Rollback(
 				return counterErr
 			}
 
-			restored = record
-			restored.ActiveVersion, restored.CandidateVersion = restoredVersion, restoredVersion
-			restored.PreviousVersion, restored.WriteVersions = record.CandidateVersion, []string{
+			var restoreErr error
+			restored, restoreErr = s.restoreRollout(
+				ctx,
+				tr,
+				record,
+				request,
 				restoredVersion,
-			}
-			restored.Phase, restored.ScanCursor, restored.VerifyCursor, restored.RetireCursor = string(
-				searchdomain.AccessVerifying,
-			), "", "", ""
-			restored.ScanComplete, restored.AffectedPass, restored.Generation = false, false, generation
-			restored.InitiatedOperationID, restored.InitiatedActorID = request.Initiation.OperationID, request.Initiation.ActorID
-			if stopErr := stopRolloutCollecting(
-				ctx,
-				tr,
-				request.AuthorityID,
-				record.Generation,
-			); stopErr != nil {
-				return stopErr
-			}
+				generation,
+			)
 
-			if writeErr := writeSearchRecord(
-				ctx,
-				tr,
-				searchRolloutKey(request.AuthorityID),
-				restored,
-			); writeErr != nil {
-				return writeErr
-			}
-
-			return scheduleRolloutWork(ctx, tr, s.work, request.AuthorityID, generation)
+			return restoreErr
 		},
 	)
 	if errors.Is(err, searchdomain.ErrNoRolloutInProgress) ||

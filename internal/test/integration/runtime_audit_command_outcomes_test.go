@@ -151,37 +151,18 @@ func testMigrateOutcomes(t *testing.T) {
 		string(audit.VerbDatabaseMigrate),
 		operator.String(),
 	)
-	intents := eventsInPhase(events, audit.PhaseIntent, uuid.Nil)
+	intents := eventsInPhase(events, audit.PhaseAttempt, uuid.Nil)
 	if len(intents) != 1 {
 		t.Fatalf("the outbox contains %d migration intents instead of 1", len(intents))
 	}
 
 	operationID := intents[0].Context.OperationID
-	stepIntents := eventsInPhase(events, audit.PhaseIntent, operationID)
-	stepResults := eventsInPhase(events, audit.PhaseResult, operationID)
-	if len(stepIntents) != 1 || len(stepResults) != 1 ||
-		stepResults[0].Outcome != audit.OutcomeCompleted {
-		t.Fatalf(
-			"migration steps have %d intents and %d results instead of 1 intent and 1 completed result",
-			len(stepIntents),
-			len(stepResults),
-		)
+	stepIntents := eventsInPhase(events, audit.PhaseAttempt, operationID)
+	if len(stepIntents) != 1 {
+		t.Fatalf("migration recorded %d step attempts, want one", len(stepIntents))
 	}
 
 	requireMigrationRange(t, stepIntents[0])
-	var applied struct {
-		AppliedVersion int64 `json:"applied_version"`
-	}
-	if err := json.Unmarshal(stepResults[0].Extra, &applied); err != nil ||
-		applied.AppliedVersion != migrateOutcomeTarget {
-		t.Fatalf(
-			"migration step result evidence is %s (decode error %v); the applied version should be %d",
-			stepResults[0].Extra,
-			err,
-			migrateOutcomeTarget,
-		)
-	}
-
 	requireCompletedResult(t, events, operationID)
 }
 
@@ -233,34 +214,22 @@ func requireMigrationRange(t *testing.T, stepIntent audit.Event) {
 
 func requireOnlyResult(t *testing.T, events []audit.Event, outcome audit.Outcome, code string) {
 	t.Helper()
-	intents := eventsInPhase(events, audit.PhaseIntent, uuid.Nil)
-	results := eventsInPhase(events, audit.PhaseResult, uuid.Nil)
-	if len(events) != 2 || len(intents) != 1 || len(results) != 1 {
+	intents := eventsInPhase(events, audit.PhaseAttempt, uuid.Nil)
+	if len(events) != 1 || len(intents) != 1 || intents[0].Outcome != audit.OutcomeAttempted ||
+		intents[0].Error != nil {
 		t.Fatalf(
-			"the outbox has %d events (%d intents, %d results) instead of one intent and one result",
+			"the outbox has %d events (%d attempts), want one attempt",
 			len(events),
 			len(intents),
-			len(results),
-		)
-	}
-
-	result := results[0]
-	if result.Outcome != outcome || result.Error == nil || result.Error.Code != code {
-		t.Fatalf(
-			"the result is %s %+v; the test requires %s with code %s",
-			result.Outcome,
-			result.Error,
-			outcome,
-			code,
 		)
 	}
 }
 
 func requireCompletedResult(t *testing.T, events []audit.Event, operationID uuid.UUID) {
 	t.Helper()
-	results := eventsInPhase(events, audit.PhaseResult, uuid.Nil)
+	results := eventsInPhase(events, audit.PhaseAttempt, uuid.Nil)
 	if len(results) != 1 || results[0].Context.OperationID != operationID ||
-		results[0].Outcome != audit.OutcomeCompleted {
+		results[0].Outcome != audit.OutcomeAttempted || results[0].Error != nil {
 		t.Fatalf(
 			"operation %s has %d results; the test requires one completed result",
 			operationID,

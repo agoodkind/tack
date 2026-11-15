@@ -2,7 +2,7 @@
 
 > Use `subagent-driven-development` to implement these tasks. Track completion with checkbox syntax.
 
-**Goal:** Every runtime operation produces complete, durable audit evidence with accurate identity, targets, changes and outcomes.
+**Goal:** Every person-callable MCP tool, public API, and operator command produces complete, durable audit evidence with accurate identity, targets, changes and outcomes.
 
 **Architecture:** Extend the existing operation definitions, transactional outboxes, relay and consumer. Mutations commit evidence with their changes. Reads save pending state and then one final event before releasing results.
 
@@ -12,7 +12,7 @@
 
 ## Global constraints
 
-- Limit changes to operations after required services exist. Preserve first-time service creation behavior.
+- Limit recording to person-callable operations after required services exist. Exclude autonomous jobs, internal service calls, indexing, retries, polling, health checks, diagnostics, and protocol discovery. Preserve first-time service creation behavior.
 - Preserve historical ledger rows, hash verification and protected actor-data references.
 - Use FoundationDB pending state for product reads and YugabyteDB pending state for operator reads.
 - Finalize read evidence durably before returning data. Ordinary requests do not wait for Kafka or ledger projection.
@@ -182,13 +182,13 @@ Define `ExecuteRead[T any](ctx context.Context, store ReadLifecycle, admission R
 - [ ] Persist admission before reading. Include validation and authorization failures. Use a 30-second detached deadline for final recording after request cancellation.
 - [ ] Persist final evidence before releasing data. Discard the response when finalization fails or recovery replaced its owner. Completed means the server prepared the result; it does not claim client receipt.
 - [ ] Record safe early-rejection metadata with the system organization and unauthenticated actor until authentication establishes identity. Exclude untrusted headers, credentials and raw errors.
-- [ ] Cover prompts, resources, protocol metadata, unknown operations, health and diagnostics through shared registration. Link authentication and business events by operation ID without duplicating atomic mutation success events.
+- [ ] Cover prompts, resource reads, and unknown operations through shared registration. Link authentication and business events by operation ID without duplicating atomic mutation success events.
 - [ ] Add `TestRuntimeAuditPublicRead`, `TestRuntimeAuditEarlyRefusal`, `TestRuntimeAuditReadRecordingFailure` and `TestRuntimeAuditProtocolCoverage`. Invoke the real HTTP/MCP server and compare permanent records with known fixture targets and returned payload digests.
 - [ ] Run public-boundary checks and commit dispatch, identity and read execution together.
 
-## Task 7: Record runtime commands and background effects
+## Task 7: Record operator commands
 
-Modify [the command gate](../../../internal/clispec/audit.go), [command outcomes](../../../internal/clispec/audit_event.go), [migrations](../../../internal/adapters/postgres/migrate.go), [provider commands](../../../provider/internal/tackprovider/command.go) and [provider refresh/apply](../../../provider/internal/tackprovider/schema_apply.go). Extend each existing backup, search-maintenance, deployment and recurring-job implementation in its current package.
+Modify [the command gate](../../../internal/clispec/audit.go), [command outcomes](../../../internal/clispec/audit_event.go), [migrations](../../../internal/adapters/postgres/migrate.go), [provider commands](../../../provider/internal/tackprovider/command.go) and [provider refresh/apply](../../../provider/internal/tackprovider/schema_apply.go). Preserve recording for operator backup, search-maintenance, and deployment commands.
 
 Add `RunExternal(ctx context.Context, outbox OutboxWriter, intent Event, run func(context.Context, StepRecorder) (OutcomeDetails, error)) error`. Require the durable outbox interface rather than the general recorder interface that permits in-memory buffering. `StepRecorder` exposes `BeginStep(context.Context, Event) error` and `FinishStep(context.Context, Event) error` using that outbox. Stable parent/step IDs identify retries. Existing engine adapters perform state reconciliation.
 
@@ -196,9 +196,9 @@ Add `RunExternal(ctx context.Context, outbox OutboxWriter, intent Event, run fun
 - [ ] Preserve first-time setup behavior. Broken runtime authentication or audit storage must not enable its exception.
 - [ ] Replace generic success after skipped, deferred or partial work with observed typed outcomes. Preserve effects committed before rendering or transport failures.
 - [ ] Record migration ranges/digests, backup manifests, index generations, role/privilege changes and completed steps. Exclude credential values.
-- [ ] Give recurring jobs stable service identity, unique run IDs and initiating identity when applicable.
+- [ ] Retain the original actor, operation, user-data changes, and final result when a job completes user-requested work. Do not record separate internal job steps.
 - [ ] Cover Tack runtime commands invoked by deployment and provider workflows. Preserve current Configs/OpenTofu ownership of container orchestration. Changes to the surrounding orchestration belong to the separately ordered deployment workstream; this audit repair must not create a replacement deployment command or imply that auditing a child command audits its parent controller.
-- [ ] Add `TestRuntimeAuditCommandOutcomes`, `TestRuntimeAuditProviderRefresh`, `TestRuntimeAuditExternalRecovery` and `TestRuntimeAuditBackgroundIdentity`. Use real temporary engines and the existing provider acceptance environment. Assert exact effects, partial progress and safe resume behavior.
+- [ ] Add `TestRuntimeAuditCommandOutcomes`, `TestRuntimeAuditProviderRefresh`, `TestRuntimeAuditExternalRecovery`. Use real temporary engines and the existing provider acceptance environment. Assert exact effects, partial progress and safe resume behavior.
 - [ ] Run affected groups and commit coherent operation families separately.
 
 ## Task 8: Prove coverage and integrate
@@ -236,8 +236,8 @@ Run provider checks from its module with its existing Makefile and acceptance co
 | One final read event, concurrent ownership and crash recovery | Task 3 persists state; Task 6 controls response release. |
 | Node, relationship, metadata and cascade changes | Task 4 enforces FoundationDB boundaries. |
 | Account, token and membership changes | Task 5 enforces SQL boundaries. |
-| Rejections, prompts, protocol and operational reads | Task 6 records public execution. |
-| Commands, jobs, provider and external effects | Task 7 records runtime work and recovery. |
+| Rejections, prompts, and public reads | Task 6 records public execution. |
+| Operator commands, provider actions, and external effects | Task 7 records runtime work and recovery. |
 | Complete coverage, scaling and deployed proof | Task 8 verifies and integrates the result. |
 
 The lead checks this map, signatures and dependencies before dispatch. Independent tasks use subagents after their prerequisites pass. The lead reviews diffs and verification before integration. Initial service creation is outside this plan.

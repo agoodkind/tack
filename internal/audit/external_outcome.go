@@ -68,7 +68,8 @@ func resolveExternalOutcome(
 		if len(committed) == 0 {
 			resolved.Outcome = OutcomeFailed
 		}
-	case OutcomeCompleted,
+	case OutcomeAttempted,
+		OutcomeCompleted,
 		OutcomeIncomplete,
 		OutcomeOK,
 		OutcomeError,

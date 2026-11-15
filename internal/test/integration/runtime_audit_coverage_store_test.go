@@ -142,19 +142,19 @@ func addStoreCommandCases(cases map[string]coverageCase) {
 	cases["command ops store status"] = withReadCheck(
 		commandCase(
 			audit.VerbOpsStoreStatus,
-			audit.OutcomeCompleted,
+			audit.OutcomeAttempted,
 			storeCommand(
 				sharedCluster,
 				func(string, *testing.T) []string { return []string{"ops", "store", "status"} },
 			),
 		),
 		audit.VerbOpsStoreStatus,
-		audit.OutcomeCompleted,
+		audit.OutcomeAttempted,
 		fixedReadExpectation("store/status"),
 	)
 	cases["command ops store set-redundancy"] = commandCase(
 		audit.VerbOpsStoreSetRedundancy,
-		audit.OutcomeOK,
+		audit.OutcomeAttempted,
 		storeCommand(
 			migratableCluster,
 			func(string, *testing.T) []string {
@@ -164,7 +164,7 @@ func addStoreCommandCases(cases map[string]coverageCase) {
 	)
 	cases["command ops store set-coordinators"] = commandCase(
 		audit.VerbOpsStoreSetCoordinators,
-		audit.OutcomeOK,
+		audit.OutcomeAttempted,
 		storeCommand(
 			freshCluster,
 			func(connection string, t *testing.T) []string {
@@ -180,7 +180,7 @@ func addStoreCommandCases(cases map[string]coverageCase) {
 	)
 	cases["command ops store exclude"] = commandCase(
 		audit.VerbOpsStoreExclude,
-		audit.OutcomeOK,
+		audit.OutcomeAttempted,
 		storeExcludeInput,
 	)
 }

@@ -3,7 +3,6 @@
 package integration_test
 
 import (
-	"bytes"
 	"encoding/json"
 	"testing"
 
@@ -92,14 +91,6 @@ func TestSearchSessionAuditRetireSliceKeepsTokenValue(t *testing.T) {
 					maximumCleanupKeys-boundaryTokenChunks-boundary.offset,
 				)
 				observations := observeSessionTransactions(t)
-				requireStaleDeleteFenced(t, stores, index, session)
-				observations.requireBounded(
-					t,
-					boundary.name+" fenced",
-					cleanupSliceOperation,
-					session.ID,
-					0,
-				)
 				remaining, err := rebuilds.RetireIndexSessions(
 					integration.WithTestOperation(t, t.Context()),
 					index,
@@ -197,21 +188,12 @@ func requireTokenRemoval(
 	session searchdomain.Session,
 ) {
 	t.Helper()
-	created, removed := sessionTokenValues(t, stores, mark, session.ID)
-	if len(created) != 1 || !bytes.Equal(created[0], session.Snapshot.QueryTokens) {
-		t.Fatalf(
-			"session %s recorded %d created token values, want 1 equal to the %d bytes Create received",
-			session.ID,
-			len(created),
-			len(session.Snapshot.QueryTokens),
-		)
+	if chunks := familyRecords(t, sessionChildFamily, session.ID, sessionTokenPart); len(
+		chunks,
+	) != 0 {
+		t.Fatalf("cleanup kept %d token chunks", len(chunks))
 	}
-	if len(removed) != 1 || !bytes.Equal(removed[0], created[0]) {
-		t.Fatalf(
-			"session %s recorded %d removed token values, want 1 equal to the %d bytes Create stored",
-			session.ID,
-			len(removed),
-			len(created[0]),
-		)
+	if records, _ := outboxRecordsAfter(t, stores, mark); records != 0 {
+		t.Fatalf("cleanup recorded %d compliance records", records)
 	}
 }

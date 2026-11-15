@@ -49,7 +49,7 @@ func TestRunAuditedInfrastructureDefersAfterAuthenticationFailureWhenBothExist(t
 		t.Fatalf("runAudited: %v", err)
 	}
 
-	if runCount != 1 || eventsDuringRun != 0 || probe.callCount != 1 || len(outbox.events) != 2 {
+	if runCount != 1 || eventsDuringRun != 0 || probe.callCount != 1 || len(outbox.events) != 1 {
 		t.Fatalf(
 			"runs = %d, events during run = %d, probes = %d, events = %d",
 			runCount,
@@ -59,9 +59,8 @@ func TestRunAuditedInfrastructureDefersAfterAuthenticationFailureWhenBothExist(t
 		)
 	}
 
-	if outbox.events[0].Outcome != audit.OutcomePending ||
-		outbox.events[1].Outcome != audit.OutcomeOK {
-		t.Fatalf("outcomes = %q, %q", outbox.events[0].Outcome, outbox.events[1].Outcome)
+	if outbox.events[0].Outcome != audit.OutcomeAttempted {
+		t.Fatalf("outcome = %q, want attempted", outbox.events[0].Outcome)
 	}
 
 	var extra operatorEventExtra

@@ -16,23 +16,15 @@ func (w *SearchWorker) rebuildCreate(
 	rebuild searchdomain.Rebuild,
 ) error {
 	if rebuild.Mode == searchdomain.ReplacementFull {
-		if err := w.recordIndexStructure(
+		if err := w.engineStep(
 			ctx,
-			"create_replacement",
-			rebuild.TargetIndex,
-			rebuild,
-			func(ctx context.Context) error {
-				return w.engineStep(
-					ctx,
-					func(operation context.Context) error {
-						return w.ports.Replacer.CreateReplacement(
-							operation,
-							rebuild.TargetIndex,
-							rebuild.PrimaryShards,
-							rebuild.RoutingShards,
-							rebuild.Replicas,
-						)
-					},
+			func(operation context.Context) error {
+				return w.ports.Replacer.CreateReplacement(
+					operation,
+					rebuild.TargetIndex,
+					rebuild.PrimaryShards,
+					rebuild.RoutingShards,
+					rebuild.Replicas,
 				)
 			},
 		); err != nil {
@@ -61,15 +53,7 @@ func (w *SearchWorker) rebuildCreate(
 		return err
 	}
 
-	splitErr := w.recordIndexStructure(
-		ctx,
-		"split",
-		rebuild.TargetIndex,
-		rebuild,
-		func(ctx context.Context) error {
-			return w.splitSource(ctx, work, rebuild)
-		},
-	)
+	splitErr := w.splitSource(ctx, work, rebuild)
 	switch err := splitErr; {
 	case errors.Is(err, searchdomain.ErrIndexNotReady):
 		return w.targetNotGreen(ctx, work, rebuild, err)

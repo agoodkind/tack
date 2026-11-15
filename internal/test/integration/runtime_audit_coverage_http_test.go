@@ -67,7 +67,7 @@ func addHTTPCases(cases map[string]coverageCase) {
 		true,
 		http.StatusOK,
 		audit.VerbWorkspaceList,
-		audit.OutcomeCompleted,
+		audit.OutcomeAttempted,
 	)
 	cases["http route /mcp/"] = routeCase(
 		http.MethodPost,
@@ -75,23 +75,7 @@ func addHTTPCases(cases map[string]coverageCase) {
 		true,
 		http.StatusOK,
 		audit.VerbWorkspaceList,
-		audit.OutcomeCompleted,
-	)
-	cases["http route /healthz"] = routeCase(
-		http.MethodGet,
-		"/healthz",
-		false,
-		http.StatusOK,
-		audit.VerbHTTPHealthRead,
-		audit.OutcomeCompleted,
-	)
-	cases["http route /debug/vars"] = routeCase(
-		http.MethodGet,
-		"/debug/vars",
-		false,
-		http.StatusOK,
-		audit.VerbHTTPDiagnosticsRead,
-		audit.OutcomeCompleted,
+		audit.OutcomeAttempted,
 	)
 	cases["http route /"] = routeCase(
 		http.MethodGet,
@@ -99,6 +83,6 @@ func addHTTPCases(cases map[string]coverageCase) {
 		false,
 		http.StatusNotFound,
 		audit.VerbHTTPRouteUnknown,
-		audit.OutcomeRefused,
+		audit.OutcomeAttempted,
 	)
 }

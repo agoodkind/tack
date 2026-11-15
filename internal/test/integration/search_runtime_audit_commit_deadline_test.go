@@ -82,15 +82,6 @@ func TestSearchRuntimeAuditCommitDeadlineReturnsUnavailable(t *testing.T) {
 			failed,
 		)
 	}
-	waitForTopicConsumed(t, fixture.audited.ledger)
-	rows = fixture.audited.ledgerRows(t, fixture.Workspaces[0].OrgID)
-	if events := writeUncertainEvents(rows, failed.Context.OperationID); len(events) != 0 {
-		t.Fatalf(
-			"stored %d incomplete session write events for operation %s; want 0",
-			len(events),
-			failed.Context.OperationID,
-		)
-	}
 }
 
 // waitForTopicConsumed waits until the ledger topic's consumer group has

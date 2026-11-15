@@ -184,7 +184,7 @@ func commandOperationID(t *testing.T, events []audit.Event) uuid.UUID {
 	var intents []audit.Event
 
 	for _, event := range events {
-		if event.Outcome == audit.OutcomePending {
+		if event.Outcome == audit.OutcomeAttempted && event.Context.ParentOperationID == uuid.Nil {
 			intents = append(intents, event)
 		}
 	}

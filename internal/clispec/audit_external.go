@@ -81,15 +81,20 @@ func RunAuditedExternal(
 		operationID,
 		deployCommit,
 		target,
-		audit.PhaseIntent,
+		audit.PhaseAttempt,
 		safeInput,
 	)
 	if err != nil {
 		return err
 	}
 
-	intent.Outcome = audit.OutcomePending
+	intent.Outcome = audit.OutcomeAttempted
 	runContext := audit.WithOperatorPrincipal(audit.WithOpID(ctx, operationID), principal)
+	runContext, err = audit.WithMutationContext(runContext, intent)
+	if err != nil {
+		return loggedAuditError(ctx, "preserve command audit context", err)
+	}
+
 	err = audit.RunExternal(
 		runContext,
 		outbox,

@@ -8,8 +8,7 @@ import (
 	searchdomain "goodkind.io/tack/internal/domain/search"
 )
 
-// readBatch reads one raw batch at position. If the snapshot is lost, it
-// closes the session and joins any closeSession error with the read failure.
+// readBatch reads one ranked batch and closes a session with a lost snapshot.
 func (s *SearchQueryService) readBatch(
 	ctx context.Context,
 	session searchdomain.Session,
@@ -18,14 +17,11 @@ func (s *SearchQueryService) readBatch(
 ) (searchdomain.RankBatch, error) {
 	raw, err := s.ports.Ranker.Read(ctx, session.Query, snapshot, position)
 	if err != nil {
-		var closeErr error
 		if errors.Is(err, searchdomain.ErrSnapshotLost) {
-			closeErr = s.closeSession(ctx, session)
+			s.closeSession(ctx, session)
 		}
 
-		failure := errors.Join(queryFailure(ctx, "read ranked batch", session.ID, err), closeErr)
-
-		return searchdomain.RankBatch{}, failure
+		return searchdomain.RankBatch{}, queryFailure(ctx, "read ranked batch", session.ID, err)
 	}
 
 	return raw, nil

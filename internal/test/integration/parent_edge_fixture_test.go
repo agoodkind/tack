@@ -177,7 +177,6 @@ func newParentEdgeWorkerWith(
 			Documents: adapter,
 			Rebuilds:  rebuilds,
 			Replacer:  adapter,
-			Audit:     appruntime.SearchWorkerAudit(stores),
 		},
 		clock.Wall{},
 		settings,

@@ -271,12 +271,7 @@ func TestSearchModelRepairStaleDeployTask(t *testing.T) {
 		)
 	}
 
-	clusterEventually(
-		t,
-		"recorded repair deploy",
-		func() error {
-			_, events := ModelRepairEvents(t, fixture.Stores, mark)
-			return CompletedModelRepair(events, modelID)
-		},
-	)
+	if _, events := ModelRepairEvents(t, fixture.Stores, mark); len(events) != 0 {
+		t.Fatalf("autonomous repair recorded %d compliance events", len(events))
+	}
 }

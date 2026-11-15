@@ -1,103 +1,48 @@
 package integration_test
 
 import (
+	"bytes"
+	"context"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
-	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-
-	"goodkind.io/tack/internal/audit"
-	appruntime "goodkind.io/tack/internal/runtime"
-	"goodkind.io/tack/internal/testenv"
+	"goodkind.io/tack/internal/telemetry"
 )
 
-const finalizeDeniedRole = "tack_test_read_finalize_denied"
-
-// TestRuntimeAuditReadRecordingFailure checks that the server returns 503 instead of a read result
-// when the store refuses to save the final event after saving the admission.
-// It checks that recovery saves exactly one incomplete event for the read.
-func TestRuntimeAuditReadRecordingFailure(t *testing.T) {
-	dsn := testenv.Ledger(t)
-	admin, err := pgxpool.New(t.Context(), dsn)
-	if err != nil {
-		t.Fatalf("pgxpool.New failed for the administrator pool: %v", err)
+// TestRuntimeAuditCancelledProductRead checks the response after cancellation.
+func TestRuntimeAuditCancelledProductRead(t *testing.T) {
+	server := startPublicServer(t, nil)
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	authenticate := func(next http.Handler) http.Handler {
+		return server.graph.AuthMiddleware(
+			http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+				cancel()
+				next.ServeHTTP(writer, request)
+			}),
+		)
 	}
-
-	t.Cleanup(admin.Close)
-	if _, err := admin.Exec(
-		t.Context(),
-		readTestSQL(t, "runtime_audit_public_finalize_denied.sql"),
-	); err != nil {
-		t.Fatalf("admin.Exec failed while creating role %s: %v", finalizeDeniedRole, err)
-	}
-
-	denied := audit.NewPoolReadLifecycle(rolePool(t, dsn, finalizeDeniedRole))
-	server := startPublicServer(t, func(*appruntime.Graph) audit.ReadLifecycle { return denied })
-	requestID := newRequestID(t, "recording-failure")
-	response := server.rpc(
+	handler := server.graph.Requests.MCP(authenticate, server.graph.MCPHandler)
+	body := rpcBody(
 		t,
-		requestID,
 		"tools/call",
 		map[string]any{"name": "tack_list_workspaces", "arguments": map[string]any{}},
 	)
-	if response.status != http.StatusServiceUnavailable ||
-		strings.Contains(string(response.body), server.workspace) {
-		t.Fatalf(
-			"response = %d %s, want 503 without workspace %s",
-			response.status,
-			response.body,
-			server.workspace,
-		)
+	request := httptest.NewRequestWithContext(ctx, http.MethodPost, "/mcp", bytes.NewReader(body))
+	request.Header.Set(telemetry.RequestIDHeader, newRequestID(t, "admission-failure"))
+	request.Header.Set("Authorization", "Bearer "+server.token)
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+	telemetry.RequestLogger(handler).ServeHTTP(response, request)
+	if response.Code != http.StatusServiceUnavailable {
+		t.Fatalf("response status = %d, want 503", response.Code)
 	}
 
-	rows, err := admin.Query(
-		t.Context(),
-		readTestSQL(t, "runtime_audit_public_expire_request.sql"),
-		requestID,
-	)
-	if err != nil {
-		t.Fatalf("expiring the pending read for request %s failed: %v", requestID, err)
-	}
-
-	eventIDs, err := pgx.CollectRows(rows, pgx.RowTo[uuid.UUID])
-	if err != nil || len(eventIDs) != 1 {
-		t.Fatalf(
-			"pending read IDs for request %s = %v, error = %v, want one ID and a nil error",
-			requestID,
-			eventIDs,
-			err,
-		)
-	}
-
-	eventID := eventIDs[0]
-	recovery := audit.NewPoolReadLifecycle(applicationRolePool(t, dsn))
-	recovered, err := recovery.RecoverExpired(
-		t.Context(),
-		audit.ReadBucket(eventID),
-		audit.ReadRecoveryScanLimit,
-	)
-	if err != nil || recovered < 1 {
-		t.Fatalf(
-			"read %s recovery count = %d, error = %v, want at least 1 recovery and a nil error",
-			eventID,
-			recovered,
-			err,
-		)
-	}
-
-	event := requireTerminal(t, yugabyteReadBackend(t), eventID, audit.OutcomeIncomplete)
-	if event.Actor.ID != server.userID || event.Context.RequestID != requestID {
-		t.Fatalf(
-			"recovered event %s actor = %s, request = %q, want %s %q",
-			eventID,
-			event.Actor.ID,
-			event.Context.RequestID,
-			server.userID,
-			requestID,
-		)
+	if strings.Contains(response.Body.String(), `"result"`) {
+		t.Fatalf("cancelled read returned a result: %s", response.Body.String())
 	}
 }
 

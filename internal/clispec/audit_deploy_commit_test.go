@@ -45,8 +45,8 @@ func TestRunAuditedMutationCarriesDeployCommit(t *testing.T) {
 		t.Fatalf("runAudited: %v", err)
 	}
 
-	if len(outbox.events) != 2 {
-		t.Fatalf("outbox events = %d, want 2", len(outbox.events))
+	if len(outbox.events) != 1 {
+		t.Fatalf("outbox events = %d, want 1", len(outbox.events))
 	}
 
 	for _, event := range outbox.events {
@@ -73,8 +73,8 @@ func TestRunAuditedMutationOmitsEmptyDeployCommit(t *testing.T) {
 		t.Fatalf("runAudited: %v", err)
 	}
 
-	if len(outbox.events) != 2 {
-		t.Fatalf("outbox events = %d, want 2", len(outbox.events))
+	if len(outbox.events) != 1 {
+		t.Fatalf("outbox events = %d, want 1", len(outbox.events))
 	}
 
 	for _, event := range outbox.events {

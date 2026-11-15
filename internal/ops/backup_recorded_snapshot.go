@@ -2,7 +2,6 @@ package ops
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -27,13 +26,8 @@ const (
 )
 
 type snapshotExportEvidence struct {
-	Bucket      string   `json:"bucket"`
-	Filter      string   `json:"filter"`
-	NewRunIDs   []string `json:"new_run_ids,omitempty"`
-	ManifestKey string   `json:"manifest_key,omitempty"`
-	SnapshotID  string   `json:"snapshot_id,omitempty"`
-	Nodes       []string `json:"nodes,omitempty"`
-	Artifacts   []string `json:"artifacts,omitempty"`
+	Bucket string `json:"bucket"`
+	Filter string `json:"filter"`
 }
 
 func (snapshotExportEvidence) isStepEvidence() {}
@@ -69,13 +63,8 @@ func runBackupYBSnapshotExportRecorded(
 	}
 
 	planned := snapshotExportEvidence{
-		Bucket:      bucket,
-		Filter:      "ysql." + cfg.YugabyteDB,
-		NewRunIDs:   nil,
-		ManifestKey: "",
-		SnapshotID:  "",
-		Nodes:       nil,
-		Artifacts:   nil,
+		Bucket: bucket,
+		Filter: "ysql." + cfg.YugabyteDB,
 	}
 	plannedJSON, err := encodeEvidence(ctx, planned)
 	if err != nil {
@@ -87,9 +76,12 @@ func runBackupYBSnapshotExportRecorded(
 		ctx,
 		steps,
 		step,
-		func(ctx context.Context) error { return RunBackupYBSnapshotExport(ctx, cfg) },
-		func(ctx context.Context) (json.RawMessage, error) {
-			return observeSnapshotExport(ctx, client, planned, before)
+		func(ctx context.Context) error {
+			if err := RunBackupYBSnapshotExport(ctx, cfg); err != nil {
+				return err
+			}
+
+			return verifySnapshotExport(ctx, client, planned, before)
 		},
 	)
 	if runErr == nil {
@@ -142,15 +134,15 @@ func newSnapshotRuns(
 	return created, nil
 }
 
-func observeSnapshotExport(
+func verifySnapshotExport(
 	ctx context.Context,
 	client *s3.Client,
 	planned snapshotExportEvidence,
 	before []string,
-) (json.RawMessage, error) {
+) error {
 	created, err := newSnapshotRuns(ctx, client, planned.Bucket, before)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
 	if len(created) != 1 {
@@ -161,25 +153,12 @@ func observeSnapshotExport(
 		)
 		slog.ErrorContext(ctx, "backup.yb_snapshot.observe_failed", slog.String("err", err.Error()))
 
-		return nil, err
+		return err
 	}
 
-	manifest, err := fetchYBSnapshotManifest(ctx, client, planned.Bucket, created[0])
-	if err != nil {
-		return nil, err
-	}
+	_, err = fetchYBSnapshotManifest(ctx, client, planned.Bucket, created[0])
 
-	observed := planned
-	observed.NewRunIDs = created
-	observed.ManifestKey = ybSnapshotKeyPrefix(created[0]) + ybSnapshotManifestObject
-	observed.SnapshotID = manifest.SnapshotID
-
-	observed.Artifacts = manifest.Artifacts
-	for _, node := range manifest.Nodes {
-		observed.Nodes = append(observed.Nodes, node.Name)
-	}
-
-	return encodeEvidence(ctx, observed)
+	return err
 }
 
 // runBackupRestoreDrillRecorded runs restore-drill as one step. A drill that
@@ -219,7 +198,6 @@ func runBackupRestoreDrillRecorded(
 		steps,
 		step,
 		func(ctx context.Context) error { return RunBackupRestoreDrill(ctx, cfg, opts) },
-		func(context.Context) (json.RawMessage, error) { return evidence, nil },
 	)
 	if runErr != nil || cfg.BackupFDBContinuous {
 		return details, runErr

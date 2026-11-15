@@ -39,30 +39,6 @@ func rangeTarget(fromVersion, toVersion int64) audit.Target {
 	}
 }
 
-// MigrationTargets returns one external target per migration, in the order of
-// migrations.
-func MigrationTargets(migrations []Migration) []audit.Target {
-	targets := make([]audit.Target, 0, len(migrations))
-	for _, migration := range migrations {
-		targets = append(
-			targets,
-			audit.Target{
-				Kind:         audit.TargetKindExternal,
-				NodeType:     "",
-				Name:         "",
-				URI:          "",
-				RelationType: "",
-				Reference:    migrationsReference + "/" + migration.Name,
-				ID:           uuid.Nil,
-				SourceID:     uuid.Nil,
-				TargetID:     uuid.Nil,
-			},
-		)
-	}
-
-	return targets
-}
-
 // observedOutcome returns the run outcome based on the final applied version.
 // CommittedSteps lists the file names of planned migrations at or below that
 // version.

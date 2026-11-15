@@ -2,7 +2,6 @@ package integration_test
 
 import (
 	"bytes"
-	"context"
 	"errors"
 	"log/slog"
 	"strings"
@@ -99,6 +98,11 @@ func requireManifestFailures(
 			t.Fatalf("%s = %+v, want an error and no result", current.name, run)
 		}
 
+		if current.messageContains != "" &&
+			!strings.Contains(run.err.Error(), current.messageContains) {
+			t.Fatalf("%s error = %v, want %q", current.name, run.err, current.messageContains)
+		}
+
 		for _, forbidden := range current.forbidden {
 			if strings.Contains(run.stdout+run.stderr+run.err.Error()+logs.String(), forbidden) {
 				t.Fatalf(
@@ -130,7 +134,7 @@ func requireManifestFailures(
 	return runs
 }
 
-// requireManifestRecordingRefusals checks refused admission and finalization. Neither run prints a result. Refused admission does not create a row. Recovery saves an incomplete row for refused finalization.
+// requireManifestRecordingRefusals checks that an outbox refusal prevents the read.
 func requireManifestRecordingRefusals(
 	t *testing.T,
 	ledger *nodeAuditLedger,
@@ -142,23 +146,7 @@ func requireManifestRecordingRefusals(
 	t.Helper()
 	admission := operator
 	admission.operatorID = uuid.Must(uuid.NewV7())
-	allowAdmission := readTestSQL(t, "search_read_allow_admission.sql")
-	if _, err := ledger.admin.Exec(
-		t.Context(),
-		readTestSQL(t, "search_read_deny_admission.sql"),
-	); err != nil {
-		t.Fatalf("deny the operator read admission: %v", err)
-	}
-
-	t.Cleanup(func() {
-		if _, err := ledger.admin.Exec(
-			context.WithoutCancel(t.Context()),
-			allowAdmission,
-		); err != nil {
-			t.Errorf("restore the operator read admission: %v", err)
-		}
-	})
-	admission.lifecycle = rolePool(t, testenv.Ledger(t), "audit_operator")
+	admission.outbox = rolePool(t, testenv.Ledger(t), lastChangeAppRole)
 	refused := runManifestParts(
 		t,
 		ledger,
@@ -169,61 +157,11 @@ func requireManifestRecordingRefusals(
 			append([]string{"--execute"}, extra...)...,
 		)...,
 	)
-	if _, err := ledger.admin.Exec(t.Context(), allowAdmission); err != nil {
-		t.Fatalf("restore the operator read admission: %v", err)
-	}
-
 	if !errors.Is(refused.err, audit.ErrReadNotAdmitted) ||
-		!strings.Contains(refused.err.Error(), "ops_read_begin") ||
 		refused.stdout != "" {
 		t.Fatalf("admission refusal = %+v, want a refused admission and no result", refused)
 	}
 
-	if _, err := ledger.admin.Exec(
-		t.Context(),
-		readTestSQL(t, "runtime_audit_public_finalize_denied.sql"),
-	); err != nil {
-		t.Fatalf("configure the finalization-denied role: %v", err)
-	}
-
-	finalization := operator
-	finalization.operatorID = uuid.Must(uuid.NewV7())
-	finalization.lifecycle = rolePool(t, testenv.Ledger(t), finalizeDeniedRole)
-	withheld := runManifestParts(
-		t,
-		ledger,
-		finalization,
-		manifestArgs(
-			orgID.String(),
-			eventID.String(),
-			append([]string{"--execute"}, extra...)...,
-		)...,
-	)
-	if withheld.err == nil || !strings.Contains(withheld.err.Error(), "finalize audit read") ||
-		withheld.stdout != "" {
-		t.Fatalf("finalization refusal = %+v, want a finalization error and no result", withheld)
-	}
-
-	recoverSearchRead(t, ledger.admin, finalization.operatorID)
-	requireStoredAuditReads(
-		t,
-		ledger,
-		finalization.operatorID,
-		[]manifestReadRun{
-			{
-				orgInput:        orgID.String(),
-				eventInput:      eventID.String(),
-				targetURI:       "tack:audit-event/" + eventID.String(),
-				outcome:         audit.OutcomeIncomplete,
-				errorCode:       "",
-				messageContains: "",
-				forbidden:       nil,
-				payloadSHA256:   "",
-				partURIs:        nil,
-				verifyPayloads:  len(extra) > 0,
-			},
-		},
-	)
 	lagLedger := *ledger
 	lagLedger.admin = ledgerAdminPool(t)
 	lagLedger.waitForNoLag(t)

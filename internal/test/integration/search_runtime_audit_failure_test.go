@@ -3,9 +3,6 @@
 package integration_test
 
 import (
-	"encoding/json"
-	"errors"
-	"strings"
 	"testing"
 	"time"
 
@@ -83,161 +80,42 @@ func (f failureFixture) openExpired(
 	return session
 }
 
-// TestSearchRuntimeAuditCleanupFailureRecorded opens a session and waits past
-// its expiry minute. A new search then runs under an operation that fails
-// event validation. The new session create must commit nothing, and the search
-// must delete its point in time under an audited step. The sweep of the expired
-// session must fail, leave the session unchanged, and record one failed result
-// event for each of the close and delete steps.
-func TestSearchRuntimeAuditCleanupFailureRecorded(t *testing.T) {
+// TestSearchRuntimeAuditScope checks that public searches record reads without internal session events.
+func TestSearchRuntimeAuditScope(t *testing.T) {
 	fixture := newFailureFixture(t)
-	searcher := integration.QueryService(
-		t,
-		fixture.QueryFixture,
-		failureAuditResponseBytes,
-		failureAuditIdle,
-		failureAuditAbsolute,
-	)
-	request := integration.ServiceRequest(t, fixture.QueryFixture, failureAuditQuery)
-	expired := fixture.openExpired(t, searcher, request)
-
-	operation := futureOperation(t)
-	failing, err := audit.WithMutationContext(t.Context(), operation)
-	if err != nil {
-		t.Fatalf("attach the failing operation: %v", err)
+	page := integration.CallSearch(t, fixture.Harness, failureAuditQuery, "")
+	if len(page.IDs) == 0 {
+		t.Fatal("public search did not return results")
 	}
-	_, err = searcher.Search(failing, request)
-	requireChangeEventFailure(t, "Search under the failing operation", err)
-	if !errors.Is(err, audit.ErrEventNotRecorded) {
-		t.Fatalf("Search returned error %v; want a match for %v", err, audit.ErrEventNotRecorded)
+	if page.Cursor != "" {
+		integration.CallSearch(t, fixture.Harness, failureAuditQuery, page.Cursor)
 	}
-
-	store := fixture.Stores.SearchSessions(clock.Wall{}, failureAuditIdle)
-	after, err := store.Load(integration.WithTestOperation(t, t.Context()), expired.ID)
-	if err != nil || after.Closing || after.Version != expired.Version {
-		t.Fatalf(
-			"session %s after the failed sweep = %+v, %v, want the open session at version %d",
-			expired.ID,
-			after,
-			err,
-			expired.Version,
-		)
-	}
-	operationID := operation.Context.OperationID
-	rows := fixture.audited.waitForRows(
+	fixture.audited.waitForRows(
 		t,
 		fixture.Workspaces[0].OrgID,
-		func(current []audit.Row) bool {
-			return len(cleanupFailures(current, expired.ID, searchdomain.CleanupClose)) == 1 &&
-				len(cleanupFailures(current, expired.ID, searchdomain.CleanupDelete)) == 1 &&
-				len(failedCreateDeletes(current, operationID, expired.ID)) == 1
+		func(rows []audit.Row) bool {
+			return len(cleanupLossReads(rows, audit.OutcomeCompleted)) > 0
 		},
 	)
-	closeFailure := onlyRow(
-		t,
-		cleanupFailures(rows, expired.ID, searchdomain.CleanupClose),
-		"the close failure",
-	)
-	requireCleanupFailureRow(
-		t,
-		closeFailure,
-		audit.VerbSearchSessionUpdate,
-		expired.PrincipalID,
-		operationID,
-	)
-	deleteFailure := onlyRow(
-		t,
-		cleanupFailures(rows, expired.ID, searchdomain.CleanupDelete),
-		"the delete failure",
-	)
-	requireCleanupFailureRow(
-		t,
-		deleteFailure,
-		audit.VerbSearchSessionDelete,
-		expired.PrincipalID,
-		operationID,
-	)
-	requireNoChangeRows(t, rows, operationID)
-	step := onlyRow(
-		t,
-		failedCreateDeletes(rows, operationID, expired.ID),
-		"the delete after the failed Create",
-	)
-	var observed struct {
-		PITID string `json:"pit_id"`
-	}
-	if err := json.Unmarshal(step.Extra, &observed); err != nil || observed.PITID == "" ||
-		step.Outcome != audit.OutcomeCompleted {
-		t.Fatalf(
-			"delete step = %s with outcome %s: %v, want a completed step with a point in time ID",
-			step.Extra,
-			step.Outcome,
-			err,
-		)
+	waitForTopicConsumed(t, fixture.audited.ledger)
+	for _, row := range fixture.audited.ledgerRows(t, fixture.Workspaces[0].OrgID) {
+		switch audit.Verb(row.Action) {
+		case audit.VerbSearchSessionCreate, audit.VerbSearchSessionUpdate,
+			audit.VerbSearchSessionDelete, audit.VerbSearchPointInTimeCreate,
+			audit.VerbSearchPointInTimeDelete:
+			t.Fatalf("public search recorded internal operation %s", row.Action)
+		}
 	}
 }
 
-func failedCreateDeletes(rows []audit.Row, operationID, expiredID uuid.UUID) []audit.Row {
-	selected := []audit.Row{}
+const searchUnavailableCode = "search_unavailable"
+
+func cleanupLossReads(rows []audit.Row, outcome audit.Outcome) []audit.Row {
+	var selected []audit.Row
 	for _, row := range rows {
-		target := row.Context.Target
-		if row.Action == string(
-			audit.VerbSearchPointInTimeDelete,
-		) && row.Context.ParentOperationID == operationID &&
-			row.Context.Phase == audit.PhaseResult && target != nil &&
-			target.Kind == audit.TargetKindExternal &&
-			!strings.Contains(target.Reference, expiredID.String()) {
+		if row.Action == string(audit.VerbNodeSearch) && row.Outcome == outcome {
 			selected = append(selected, row)
 		}
 	}
 	return selected
-}
-
-func cleanupFailures(
-	rows []audit.Row,
-	sessionID uuid.UUID,
-	step searchdomain.CleanupStep,
-) []audit.Row {
-	selected := []audit.Row{}
-	for _, row := range rows {
-		if row.EntityID == sessionID && row.Error != nil && row.Error.Code == string(step) {
-			selected = append(selected, row)
-		}
-	}
-	return selected
-}
-
-func requireCleanupFailureRow(
-	t *testing.T,
-	row audit.Row,
-	verb audit.Verb,
-	ownerID uuid.UUID,
-	operationID uuid.UUID,
-) {
-	t.Helper()
-	eventContext := row.Context
-	if row.Outcome != audit.OutcomeFailed ||
-		eventContext.OperationClass != audit.OperationDatabaseChange ||
-		eventContext.Phase != audit.PhaseResult ||
-		eventContext.OperationID != operationID ||
-		eventContext.Target.OwnerID != ownerID ||
-		row.Action != string(verb) {
-		t.Fatalf("cleanup failure row = %+v, context %+v", row, eventContext)
-	}
-	if strings.Contains(row.Error.Message, changeEventFailure) {
-		t.Fatalf("cleanup failure message %q stores the raw error", row.Error.Message)
-	}
-}
-
-func requireNoChangeRows(t *testing.T, rows []audit.Row, operationID uuid.UUID) {
-	t.Helper()
-	for _, row := range rows {
-		if row.Context.OperationID == operationID && row.Context.Phase == audit.PhaseChange {
-			t.Fatalf(
-				"the operation must not commit changes, but it recorded change %s on %+v",
-				row.Action,
-				row.Context.Target,
-			)
-		}
-	}
 }

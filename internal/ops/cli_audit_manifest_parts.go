@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"strconv"
 
 	"github.com/google/uuid"
 
@@ -16,8 +15,6 @@ import (
 const (
 	// auditManifestPartsCommand identifies the command in errors and logs.
 	auditManifestPartsCommand = "ops audit manifest-parts"
-	// auditEventPartURISegment is the URI segment before a part index.
-	auditEventPartURISegment = "/part/"
 )
 
 // auditManifestPartsInput stores the flag values that the audit event records as safe input.
@@ -38,31 +35,10 @@ type auditManifestPartsResult struct {
 	Parts     []auditManifestPartEntry `json:"parts"`
 }
 
-var _ clispec.ReadResult = (*auditManifestPartsResult)(nil)
-
 // auditManifestPartEntry represents one part index and digest in the JSON result.
 type auditManifestPartEntry struct {
 	Index  uint32 `json:"index"`
 	Digest string `json:"digest"`
-}
-
-// AuditReadTargets returns one read target for each returned part.
-//
-// Each resource target URI combines EventID and the part's Index. The
-// method returns targets in the order of Parts and returns a nil error.
-//
-//	targets, err := r.AuditReadTargets()
-func (r auditManifestPartsResult) AuditReadTargets() ([]audit.Target, error) {
-	targets := make([]audit.Target, 0, len(r.Parts))
-	for _, part := range r.Parts {
-		uri := audit.EventURIPrefix + r.EventID.String() + auditEventPartURISegment + strconv.FormatUint(
-			uint64(part.Index),
-			10,
-		)
-		targets = append(targets, audit.ResourceTarget(uri))
-	}
-
-	return targets, nil
 }
 
 type auditManifestVerificationResult struct {
@@ -71,10 +47,6 @@ type auditManifestVerificationResult struct {
 	OrgID        uuid.UUID                  `json:"org_id"`
 	EventID      uuid.UUID                  `json:"event_id"`
 	Verification audit.ManifestVerification `json:"verification"`
-}
-
-func (r auditManifestVerificationResult) AuditReadTargets() ([]audit.Target, error) {
-	return []audit.Target{audit.EventTarget(r.EventID)}, nil
 }
 
 // auditManifestPartsOp declares the command in the ops audit group.

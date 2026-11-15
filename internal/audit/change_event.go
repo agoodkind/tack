@@ -4,10 +4,6 @@ import (
 	"fmt"
 	"log/slog"
 	"time"
-
-	"github.com/google/uuid"
-
-	"goodkind.io/tack/internal/clock"
 )
 
 const (
@@ -28,26 +24,6 @@ const (
 	// target for one search session visited record.
 	TargetSearchSessionVisited = "search_session_visited"
 )
-
-const searchSessionURIPrefix = "tack:search-session/"
-
-// SearchSessionTarget returns the resource target of one search session record.
-// Target.ID contains sessionID. ownerID identifies the person who owns the protected
-// values of the session. [uuid.Nil] does not set an owner.
-func SearchSessionTarget(sessionID, ownerID uuid.UUID) Target {
-	return Target{
-		Kind:         TargetKindResource,
-		NodeType:     TargetSearchSession,
-		Reference:    "",
-		Name:         "",
-		URI:          searchSessionURIPrefix + sessionID.String(),
-		RelationType: "",
-		ID:           sessionID,
-		SourceID:     uuid.Nil,
-		TargetID:     uuid.Nil,
-		OwnerID:      ownerID,
-	}
-}
 
 // ChangeEvent builds one format 2 change event for change as part of operation.
 // It copies the actor, context, and extra fields from operation.
@@ -91,59 +67,6 @@ func ChangeEvent(operation Event, change Change, completedAt time.Time) (Event, 
 	}
 	if err := ValidateEvent(event); err != nil {
 		return Event{}, changeEventFailure(change, err)
-	}
-
-	return event, nil
-}
-
-// ChangeFailureEvent builds one format 2 database change result event for an
-// operation on target that did not commit its change. The event uses the
-// system organization when operation does not state an organization.
-//
-// ChangeFailureEvent returns an error if the event fails validation.
-func ChangeFailureEvent(
-	operation Event,
-	target Target,
-	verb Verb,
-	details OutcomeDetails,
-) (Event, error) {
-	completedAt := clock.Now().UTC()
-	if completedAt.Before(operation.Context.StartedAt) {
-		completedAt = operation.Context.StartedAt
-	}
-
-	eventTarget := target
-	event := operation
-	event.Verb, event.EventID, event.OccurredAt = string(verb), uuid.Must(uuid.NewV7()), completedAt
-	event.Entity = Entity{
-		Type:       target.Kind,
-		NodeType:   target.NodeType,
-		ID:         target.ID,
-		Identifier: target.Reference,
-		Name:       target.Name,
-	}
-	if event.Context.OrgID == uuid.Nil {
-		event.Context.OrgID = systemOrgID
-	}
-
-	event.Context.AuditFormatVersion = AuditFormatComplete
-	event.Context.OperationClass, event.Context.Phase = OperationDatabaseChange, PhaseResult
-	event.Context.CompletedAt, event.Context.Target = completedAt, &eventTarget
-	event.Context.Read, event.Context.CommitVersion = nil, ""
-	event.Context.CommittedSteps = details.CommittedSteps
-	event.Delta, event.Outcome, event.Error = nil, details.Outcome, nil
-	if details.Outcome != OutcomeCompleted {
-		event.Error = &EventError{Code: details.FailureCode, Message: details.FailureMessage}
-	}
-
-	if err := ValidateEvent(event); err != nil {
-		slog.Error(
-			"audit.change_failure_event_failed",
-			slog.String("event_id", event.EventID.String()),
-			slog.String("err", err.Error()),
-		)
-
-		return Event{}, fmt.Errorf("build the change failure event %s: %w", event.EventID, err)
 	}
 
 	return event, nil

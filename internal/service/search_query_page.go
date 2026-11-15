@@ -8,7 +8,6 @@ import (
 	"slices"
 
 	"github.com/google/uuid"
-	"goodkind.io/tack/internal/audit"
 	"goodkind.io/tack/internal/domain/node"
 	searchdomain "goodkind.io/tack/internal/domain/search"
 	"goodkind.io/tack/internal/telemetry"
@@ -48,14 +47,6 @@ func ResultBytes(summary node.Summary) int {
 // An empty batch completes the session without a cursor; closeSnapshot deletes the PIT after commit.
 // If the extra batch has hits, page.position stays at the last consumed hit's sort, and the next page
 // returns those hits once in order. advance skips the extra read when pending is true.
-// If closeSnapshot returns an error matching audit.ErrEventNotRecorded, advance
-// returns an empty page and an error wrapping searchdomain.ErrEngineUnavailable
-// and the close error. The page commit remains saved. When the search continued
-// a session, a retry with the same cursor replays the committed page. The final
-// page of a new search does not have a cursor for a retry.
-// If the CommitPage error matches audit.ErrEventNotRecorded, advance returns
-// an empty page and that error without replaying, even if the error also
-// matches searchdomain.ErrSessionChanged.
 func (s *SearchQueryService) advance(
 	ctx context.Context,
 	session searchdomain.Session,
@@ -110,8 +101,7 @@ func (s *SearchQueryService) advance(
 		Complete:  complete,
 	}
 	committed, err := s.ports.Sessions.CommitPage(ctx, session.ID, session.Version, commit)
-	if errors.Is(err, searchdomain.ErrSessionChanged) &&
-		!errors.Is(err, audit.ErrEventNotRecorded) {
+	if errors.Is(err, searchdomain.ErrSessionChanged) {
 		return s.replay(ctx, session, session.Version, filter)
 	}
 
@@ -120,23 +110,13 @@ func (s *SearchQueryService) advance(
 	}
 
 	if complete {
-		if closeErr := s.closeSnapshot(ctx, session, snapshot); closeErr != nil {
+		if closeErr := s.closeSnapshot(ctx, snapshot); closeErr != nil {
 			telemetry.L(ctx).ErrorContext(
 				ctx,
 				"search.snapshot.close_failed",
 				slog.String("err", closeErr.Error()),
 				slog.String("session_id", session.ID.String()),
 			)
-			if errors.Is(closeErr, audit.ErrEventNotRecorded) {
-				failure := queryFailure(
-					ctx,
-					"close search snapshot",
-					session.ID,
-					errors.Join(searchdomain.ErrEngineUnavailable, closeErr),
-				)
-
-				return SearchPage{}, failure
-			}
 		}
 	}
 

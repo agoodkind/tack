@@ -100,14 +100,7 @@ func TestRuntimeAuditOrganizationLookupFailure(t *testing.T) {
 
 	ledger := startPublicLedger(t, server)
 	row := ledger.row(t, audit.SystemOrgID(), requestID)
-	requireReadRow(
-		t,
-		row,
-		audit.VerbWorkspaceList,
-		audit.OutcomeFailed,
-		"organization_unavailable",
-		response.body,
-	)
+	requireReadRow(t, row, audit.VerbWorkspaceList, audit.OutcomeAttempted, "", response.body)
 	if row.ActorID != server.userID || row.Context.Tool != "tack_list_workspaces" {
 		t.Fatalf(
 			"event %s actor = %s, tool = %q, want the verified user %s and tack_list_workspaces",

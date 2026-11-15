@@ -53,12 +53,10 @@ func (s *NodeService) DeleteStatus(ctx context.Context, jobID uuid.UUID) (Delete
 // step in the last staleAfter, and returns the number of jobs it finished. A
 // running job without a recent step has no runner: its request used up
 // deleteRequestBudget, stopped, or crashed. The pass also clears the records
-// of jobs that finished more than finishedDeleteRetention ago. Each resumed
-// job runs as one service step that recording stores.
+// of jobs that finished more than finishedDeleteRetention ago.
 func (s *NodeService) ResumeSubtreeDeletes(
 	ctx context.Context,
 	staleAfter time.Duration,
-	recording JobAudit,
 ) (int, error) {
 	now := clock.Now()
 	after := uuid.Nil
@@ -78,7 +76,7 @@ func (s *NodeService) ResumeSubtreeDeletes(
 
 		for _, job := range jobs {
 			after = job.ID
-			resumed, err := s.resumeJob(ctx, recording, job, now, staleAfter)
+			resumed, err := s.resumeJob(ctx, job, now, staleAfter)
 			if err != nil {
 				return finished, err
 			}
@@ -98,7 +96,6 @@ func (s *NodeService) ResumeSubtreeDeletes(
 // It reports whether it finished a running job.
 func (s *NodeService) resumeJob(
 	ctx context.Context,
-	recording JobAudit,
 	job *node.SubtreeDeleteJob,
 	now time.Time,
 	staleAfter time.Duration,
@@ -126,7 +123,7 @@ func (s *NodeService) resumeJob(
 		return false, nil
 	}
 
-	result, err := s.recordResume(ctx, recording, job)
+	result, err := s.runSubtreeDelete(ctx, job.ID, 0)
 	if err != nil {
 		return false, err
 	}

@@ -21,7 +21,6 @@ import (
 	"goodkind.io/tack/internal/adapters/search"
 	"goodkind.io/tack/internal/clock"
 	"goodkind.io/tack/internal/config"
-	appruntime "goodkind.io/tack/internal/runtime"
 	"goodkind.io/tack/internal/service"
 	"goodkind.io/tack/internal/test/integration"
 	"goodkind.io/tack/internal/testenv"
@@ -204,7 +203,6 @@ func newFairnessWorker(
 			Documents: env.Adapter,
 			Rebuilds:  env.Stores.SearchRebuilds(clock.Wall{}),
 			Replacer:  env.Adapter,
-			Audit:     appruntime.SearchWorkerAudit(env.Stores),
 		},
 		clock.Wall{},
 		settings,

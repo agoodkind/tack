@@ -95,7 +95,7 @@ func validateCommittedSteps(outcome Outcome, steps []string) error {
 		}
 
 		return nil
-	case OutcomeCompleted, OutcomeRefused, OutcomeFailed:
+	case OutcomeCompleted, OutcomeRefused, OutcomeFailed, OutcomeAttempted:
 		if len(steps) != 0 {
 			return fmt.Errorf("format 2 outcome %q does not allow CommittedSteps", outcome)
 		}

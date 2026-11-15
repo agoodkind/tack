@@ -110,17 +110,13 @@ func TestDBBreakGlassRefusesWrites(t *testing.T) {
 	}
 
 	rows := breakGlassRows(t, pool, reason)
-	wantRows := 2 * (len(refused) + len(turnsReadOnlyOff))
+	wantRows := 2*len(refused) + len(turnsReadOnlyOff)
 	if len(rows) != wantRows {
-		t.Fatalf(
-			"ledger rows = %d, want a pending row and an error row per attempt (%d)",
-			len(rows),
-			wantRows,
-		)
+		t.Fatalf("ledger rows = %d, want attempts and access denials (%d)", len(rows), wantRows)
 	}
 
-	for i := 1; i < len(rows); i += 2 {
-		if rows[i].Outcome != audit.OutcomeError || rows[i].Error == nil {
+	for i := 1; i < 2*len(refused); i += 2 {
+		if rows[i].Outcome != audit.OutcomeRefused || rows[i].Error == nil {
 			t.Fatalf(
 				"ledger row %d = %+v, want the error outcome of a refused statement",
 				i,

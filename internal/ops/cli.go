@@ -133,7 +133,10 @@ func RegisterCommands(reg *clispec.Registry, f *cli.Factory) {
 		Group: searchGroup,
 		Build: searchRolloutCommand,
 	})
-	clispec.Register(reg, searchRollbackOp(f))
+	reg.AddHandwritten(clispec.HandwrittenCommand{
+		Group: searchGroup,
+		Build: searchRollbackCommand,
+	})
 	reg.AddHandwritten(clispec.HandwrittenCommand{
 		Group: searchGroup,
 		Build: searchReindexCommand,

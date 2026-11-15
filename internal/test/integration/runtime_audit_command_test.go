@@ -5,6 +5,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -46,7 +48,9 @@ func backupBucketConfig(bucket testenv.ObjectStoreBucket) *config.Config {
 // records that the bucket already exists.
 func TestRuntimeAuditBackgroundIdentity(t *testing.T) {
 	pool := ledgerAdminPool(t)
-	cfg := backupBucketConfig(testenv.ObjectStore(t))
+	bucket := testenv.ObjectStore(t)
+	cfg := backupBucketConfig(bucket)
+	client := objectStoreClient(bucket)
 	service := "tack-backup-timer-" + uuid.NewString()[:8]
 	operatorID := uuid.Must(uuid.NewV7())
 	session := "session-" + uuid.NewString()[:8]
@@ -62,6 +66,13 @@ func TestRuntimeAuditBackgroundIdentity(t *testing.T) {
 		"buckets-init",
 	); err != nil {
 		t.Fatalf("the first buckets-init run failed: %v\n%s", err, output)
+	}
+
+	if _, err := client.HeadBucket(
+		t.Context(),
+		&s3.HeadBucketInput{Bucket: aws.String(cfg.BackupS3BucketMain)},
+	); err != nil {
+		t.Fatalf("inspect bucket %s after the first run: %v", cfg.BackupS3BucketMain, err)
 	}
 
 	if output, err := runOpsCommand(
@@ -84,6 +95,13 @@ func TestRuntimeAuditBackgroundIdentity(t *testing.T) {
 		t.Fatalf("the second buckets-init run failed: %v\n%s", err, output)
 	}
 
+	if _, err := client.HeadBucket(
+		t.Context(),
+		&s3.HeadBucketInput{Bucket: aws.String(cfg.BackupS3BucketMain)},
+	); err != nil {
+		t.Fatalf("inspect bucket %s after the second run: %v", cfg.BackupS3BucketMain, err)
+	}
+
 	serviceID := cli.ServiceActorID(service)
 	events := outboxEventsByQuery(
 		t,
@@ -92,7 +110,7 @@ func TestRuntimeAuditBackgroundIdentity(t *testing.T) {
 		string(audit.VerbOpsBackupBucketsInit),
 		serviceID.String(),
 	)
-	intents := eventsInPhase(events, audit.PhaseIntent, uuid.Nil)
+	intents := eventsInPhase(events, audit.PhaseAttempt, uuid.Nil)
 	if len(intents) != 2 || intents[0].Context.OperationID == intents[1].Context.OperationID {
 		t.Fatalf(
 			"the test expects two intents with distinct operation IDs but found %d with %v",
@@ -101,9 +119,7 @@ func TestRuntimeAuditBackgroundIdentity(t *testing.T) {
 		)
 	}
 
-	wantStates := []string{"created", "already_present"}
-
-	for index, intent := range intents {
+	for _, intent := range intents {
 		if intent.Actor.Type != audit.ActorService || intent.Actor.ID != serviceID {
 			t.Fatalf(
 				"intent %s records actor %s %s instead of service %s",
@@ -124,13 +140,7 @@ func TestRuntimeAuditBackgroundIdentity(t *testing.T) {
 			)
 		}
 
-		requireBucketStep(
-			t,
-			events,
-			intent.Context.OperationID,
-			cfg.BackupS3BucketMain,
-			wantStates[index],
-		)
+		requireBucketStep(t, events, intent.Context.OperationID, cfg.BackupS3BucketMain)
 	}
 
 	if first := decodeCommandExtra(t, intents[0]); first.OnBehalfOf != nil ||
@@ -158,11 +168,10 @@ func requireBucketStep(
 	events []audit.Event,
 	operationID uuid.UUID,
 	bucket string,
-	state string,
 ) {
 	t.Helper()
-	stepResults := eventsInPhase(events, audit.PhaseResult, operationID)
-	if len(stepResults) != 1 || stepResults[0].Outcome != audit.OutcomeCompleted {
+	stepResults := eventsInPhase(events, audit.PhaseAttempt, operationID)
+	if len(stepResults) != 1 || stepResults[0].Outcome != audit.OutcomeAttempted {
 		t.Fatalf(
 			"operation %s has %d step results; the test expects one completed step result",
 			operationID,
@@ -175,23 +184,14 @@ func requireBucketStep(
 		t.Fatalf("decoding step evidence for operation %s failed: %v", operationID, err)
 	}
 
-	if evidence.Bucket != bucket || evidence.State != state {
+	if evidence.Bucket != bucket {
 		t.Fatalf(
-			"operation %s records step evidence %+v instead of bucket %s and state %s",
+			"operation %s records step evidence %+v instead of bucket %s",
 			operationID,
 			evidence,
 			bucket,
-			state,
 		)
 	}
-
-	for _, result := range eventsInPhase(events, audit.PhaseResult, uuid.Nil) {
-		if result.Context.OperationID == operationID && result.Outcome == audit.OutcomeCompleted {
-			return
-		}
-	}
-
-	t.Fatalf("operation %s does not have a completed result", operationID)
 }
 
 func decodeCommandExtra(t *testing.T, event audit.Event) commandExtra {

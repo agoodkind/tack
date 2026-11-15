@@ -9,7 +9,6 @@ import (
 	"unicode/utf8"
 
 	"github.com/google/uuid"
-	"goodkind.io/tack/internal/audit"
 	"goodkind.io/tack/internal/clock"
 	"goodkind.io/tack/internal/config"
 	"goodkind.io/tack/internal/domain/node"
@@ -41,7 +40,6 @@ type SearchQueryPorts struct {
 	Versions    searchdomain.AccessStateReader
 	Index       searchdomain.ServingIndexReader
 	Generations searchdomain.GenerationReader
-	Audit       audit.BatchOutboxWriter
 }
 
 // SearchRequest is one authenticated search call. A zero SessionID opens a
@@ -156,18 +154,7 @@ func (s *SearchQueryService) Search(
 				Generation: restoreEpoch,
 			},
 		)
-		// If sweepExpired fails, withhold the page and session created by open.
-		// The session expires later, and a later sweep removes it.
-		if sweepErr := s.sweepExpired(ctx); sweepErr != nil {
-			failure := queryFailure(
-				ctx,
-				"sweep expired search sessions",
-				uuid.Nil,
-				errors.Join(openErr, sweepErr),
-			)
-
-			return SearchPage{}, failure
-		}
+		s.sweepExpired(ctx)
 
 		return page, openErr
 	}

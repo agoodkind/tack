@@ -22,6 +22,8 @@ func RegisterReferencePropertyTools(
 	nodeTypes []*node.NodeType,
 	propertyDefs []*node.PropertyDef,
 ) {
+	b.Resolver.setterReferences = make(map[string]string)
+
 	for _, nt := range nodeTypes {
 		if nt.Features.Has(node.FeatureExcludeFromGenericTools) {
 			continue
@@ -37,11 +39,9 @@ func RegisterReferencePropertyTools(
 			}
 
 			alias := referencePropertyAlias(def.Name)
-			registerTool(
-				s,
-				referencePropertyTool(nt, def, alias, b),
-				referencePropertyHandler(nt, def, alias, b),
-			)
+			tool := referencePropertyTool(nt, def, alias, b)
+			b.Resolver.setterReferences[tool.Name] = typeReferenceParamName(nt.Slug)
+			registerTool(s, tool, referencePropertyHandler(nt, def, alias, b))
 		}
 	}
 }
@@ -211,7 +211,7 @@ func referencePropertyHandler(
 
 		// Refuse before the write, not only in the response.
 		if !isAuthorized(ctx) {
-			return permissionDenied(), nil
+			return permissionDenied(ctx), nil
 		}
 
 		view, err := b.NodeSvc.Update(

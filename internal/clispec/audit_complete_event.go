@@ -67,6 +67,10 @@ func newCompleteOperatorEvent(
 		)
 	}
 
+	if selected := recordedInput(ctx); selected != nil {
+		safeInput = selected
+	}
+
 	extra, err := json.Marshal(operatorEventExtra{
 		OpID:           operationID,
 		StartedAt:      nil,

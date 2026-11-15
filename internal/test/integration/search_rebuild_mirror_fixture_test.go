@@ -12,7 +12,6 @@ import (
 	"goodkind.io/tack/internal/clock"
 	"goodkind.io/tack/internal/config"
 	searchdomain "goodkind.io/tack/internal/domain/search"
-	appruntime "goodkind.io/tack/internal/runtime"
 	"goodkind.io/tack/internal/service"
 	"goodkind.io/tack/internal/test/integration"
 )
@@ -249,7 +248,6 @@ func newLiveFirstWorker(t *testing.T, env *migrationEnv) *service.SearchWorker {
 			Documents: env.Adapter,
 			Rebuilds:  env.Stores.SearchRebuilds(clock.Wall{}),
 			Replacer:  env.Adapter,
-			Audit:     appruntime.SearchWorkerAudit(env.Stores),
 		},
 		clock.Wall{},
 		settings,

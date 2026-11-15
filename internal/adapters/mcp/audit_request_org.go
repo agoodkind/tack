@@ -26,56 +26,7 @@ const (
 	orgArguments
 )
 
-const (
-	// nodeIDArgument is the tool argument that identifies a node.
-	nodeIDArgument = "node_id"
-	// nodeTypeTargetType and propertyDefTargetType are the node types of metadata targets.
-	nodeTypeTargetType    = "node_type"
-	propertyDefTargetType = "property_def"
-)
-
-type metadataTargetsKey struct{}
-
-// withMetadataTargets marks ctx. The MCP handler then adds the node types and
-// property definitions of the tool server that answers the request.
-func withMetadataTargets(ctx context.Context) context.Context {
-	return context.WithValue(ctx, metadataTargetsKey{}, true)
-}
-
-// addMetadataTargets adds every node type and property definition of server to
-// the read identities when the request recorder marked ctx with withMetadataTargets.
-func addMetadataTargets(ctx context.Context, server *cachedServer) {
-	if marked, _ := ctx.Value(metadataTargetsKey{}).(bool); !marked {
-		return
-	}
-
-	for _, nodeType := range server.nodeTypes {
-		audit.AddReadTargets(ctx, nodeType.OrgID, metadataTarget(nodeTypeTargetType, nodeType.ID))
-	}
-
-	for _, definition := range server.propertyDefs {
-		audit.AddReadTargets(
-			ctx,
-			definition.OrgID,
-			metadataTarget(propertyDefTargetType, definition.ID),
-		)
-	}
-}
-
-// metadataTarget returns the node target of one metadata record.
-func metadataTarget(nodeType string, id uuid.UUID) audit.Target {
-	return audit.Target{
-		Kind:         audit.TargetKindNode,
-		NodeType:     nodeType,
-		Reference:    "",
-		Name:         "",
-		URI:          "",
-		RelationType: "",
-		ID:           id,
-		SourceID:     uuid.Nil,
-		TargetID:     uuid.Nil,
-	}
-}
+const nodeIDArgument = "node_id"
 
 // requestOrganizations returns the organizations of an authenticated read before the read runs.
 // An operation that does not read tenant data uses the system organization.
@@ -85,7 +36,7 @@ func metadataTarget(nodeType string, id uuid.UUID) audit.Target {
 // that the caller can read.
 func (h *Handler) requestOrganizations(
 	ctx context.Context,
-	operation requestOperation,
+	operation *requestOperation,
 ) ([]uuid.UUID, error) {
 	if operation.organizations == orgSystem {
 		return []uuid.UUID{audit.SystemOrgID()}, nil
@@ -121,11 +72,11 @@ func (h *Handler) requestOrganizations(
 		return nil, err
 	}
 
-	orgID, err := h.argumentOrganization(
-		auth.WithOrgMembership(ctx, orgIDs),
-		server,
-		operation.arguments,
-	)
+	if parameter := server.resolver.SetterReference(operation.tool); parameter != "" {
+		operation.selection = mutationSelection(operation.arguments, operation.verb, parameter)
+	}
+
+	orgID, err := h.argumentOrganization(auth.WithOrgMembership(ctx, orgIDs), server, operation)
 	if err != nil {
 		return nil, err
 	}
@@ -139,8 +90,9 @@ func (h *Handler) requestOrganizations(
 func (h *Handler) argumentOrganization(
 	ctx context.Context,
 	server *cachedServer,
-	arguments json.RawMessage,
+	operation *requestOperation,
 ) (uuid.UUID, error) {
+	arguments := operation.arguments
 	values := map[string]json.RawMessage{}
 	if len(arguments) != 0 {
 		if err := json.Unmarshal(arguments, &values); err != nil {
@@ -148,7 +100,13 @@ func (h *Handler) argumentOrganization(
 		}
 	}
 
-	if reference := stringArgument(values, server.resolver.EntryPointParamName()); reference != "" {
+	input := stringArgument(values, nodeIDArgument)
+	if relationshipMutation(operation.verb) {
+		input = stringArgument(values, "source_id")
+	} else if reference := stringArgument(
+		values,
+		server.resolver.EntryPointParamName(),
+	); reference != "" {
 		workspace, err := server.resolver.Workspace(ctx, reference)
 		switch {
 		case err == nil && workspace != nil:
@@ -158,7 +116,6 @@ func (h *Handler) argumentOrganization(
 		}
 	}
 
-	input := stringArgument(values, nodeIDArgument)
 	if input == "" {
 		return audit.SystemOrgID(), nil
 	}

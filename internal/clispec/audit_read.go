@@ -17,10 +17,9 @@ import (
 // bytes the command prints.
 type OperatorRead func(ctx context.Context) (audit.OperatorReadOutput, error)
 
-// RunAuditedRead gives each read a new operation ID. Ordinary reads require
-// admission and a saved final event before returning the payload. Operations
-// that set CreatesAuditInfrastructure may use the first-time setup fallback
-// after admission fails and the infrastructure probe confirms it is needed.
+// RunAuditedRead saves the attempt before the command reads state.
+// First-time setup may run when its probe confirms the audit infrastructure
+// does not exist yet.
 func RunAuditedRead(
 	ctx context.Context,
 	f *cli.Factory,
@@ -63,7 +62,7 @@ func RunAuditedRead(
 		operationID,
 		f.DeployCommit(),
 		target,
-		audit.PhaseRead,
+		audit.PhaseAttempt,
 		safeInput,
 	)
 	if err != nil {
@@ -71,7 +70,8 @@ func RunAuditedRead(
 	}
 
 	runContext := audit.WithOperatorPrincipal(audit.WithOpID(ctx, operationID), principal)
-	payload, err := audit.RecordOperatorRead(runContext, f.AuditReads(), template, read)
+	template.Outcome = audit.OutcomeAttempted
+	payload, err := audit.RecordOperatorRead(runContext, f.AuditOutbox(), template, read)
 	if err == nil {
 		return payload, nil
 	}
@@ -80,7 +80,7 @@ func RunAuditedRead(
 		return nil, loggedAuditError(ctx, "record read access", err)
 	}
 
-	return readBeforeReadLifecycle(runContext, f, spec, principal, operationID, read, err)
+	return readBeforeReadLifecycle(runContext, f, spec, read, err)
 }
 
 // readBeforeReadLifecycle checks the audit infrastructure before running a
@@ -89,8 +89,6 @@ func readBeforeReadLifecycle(
 	ctx context.Context,
 	f *cli.Factory,
 	spec audit.Spec,
-	principal audit.OperatorPrincipal,
-	operationID uuid.UUID,
 	read OperatorRead,
 	admissionErr error,
 ) ([]byte, error) {
@@ -113,10 +111,6 @@ func readBeforeReadLifecycle(
 			slog.Bool("outbox_table_exists", infrastructure.OutboxTableExists),
 			slog.Bool("operator_login_exists", infrastructure.OperatorLoginExists),
 		)
-	case !infrastructure.OperatorReadsExist:
-		if err := recordFormatZeroRead(ctx, f, spec, principal, operationID); err != nil {
-			return nil, err
-		}
 	default:
 		return nil, loggedAuditError(ctx, "record read access", admissionErr)
 	}
@@ -127,35 +121,4 @@ func readBeforeReadLifecycle(
 	}
 
 	return output.Payload, nil
-}
-
-// recordFormatZeroRead saves a format 0 read event before the command reads state.
-func recordFormatZeroRead(
-	ctx context.Context,
-	f *cli.Factory,
-	spec audit.Spec,
-	principal audit.OperatorPrincipal,
-	operationID uuid.UUID,
-) error {
-	outbox := f.AuditOutbox()
-	if outbox == nil {
-		return loggedAuditError(ctx, "record read access", errors.New("audit outbox is nil"))
-	}
-
-	event, err := newOperatorEvent(
-		ctx,
-		audit.Spec{Verb: spec.Verb, Reads: true},
-		principal,
-		operationID,
-		f.DeployCommit(),
-	)
-	if err != nil {
-		return err
-	}
-
-	if err := outbox.WriteOutbox(ctx, event); err != nil {
-		return loggedAuditError(ctx, "record read access", err)
-	}
-
-	return nil
 }

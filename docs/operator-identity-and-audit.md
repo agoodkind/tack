@@ -20,10 +20,10 @@ Do not weaken or bypass it:
   the event and change in one transaction.
 - Do not add a per-command flag or environment variable that disables recording.
 
-Every mutation requires a record from day 0. A command that changes FoundationDB
-commits its event in the same transaction as the change. Every other mutation
-commits an intent row before it starts and aborts if that write fails. The design
-doc defines the operation classes and bootstrap exception.
+The command records the operator, action, target, time, and request correlation
+before execution. External commands also record the attempted action for each
+step. Tack records access denials separately. FoundationDB mutations
+record the actual changes in the transaction that commits them.
 
 ## Identity is pluggable (binding, keep it pluggable)
 
@@ -54,14 +54,12 @@ using the same interface, alongside the git and flag sources.
 
 ## Dry-run by default (binding)
 
-Every audited command defaults to dry-run. It resolves and prints the operator
-identity and proposed action without changing state or recording an event.
-The operator confirms the printed identity, then reruns with `--execute` to act.
+Every audited command defaults to a dry run. The command prints the operator
+identity and the action it would take. A preview that reads system state
+records the access attempt before reading. A dry run that only prints the
+proposed action does not access system state.
 
-Without `--execute`, commands must not mutate state or record events. With it,
-the command runs and the choke-point records one event. The operator must inspect
-the identity before explicitly authorizing each action. A wrong or shared local
-identity must not permit a silent action.
+Pass `--execute` to perform the requested action.
 
 ## Event organization
 

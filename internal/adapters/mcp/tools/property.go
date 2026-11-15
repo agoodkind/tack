@@ -81,7 +81,7 @@ func RegisterProperty(
 			}
 
 			stampAuditNodeView(ctx, view)
-			addNodeTargets(ctx, view)
+
 			rc := newRenderCtxWithTypes(ctx, resolver.reader, nil, resolver.typeIndex)
 
 			return successText(renderProperties(rc, view), ""), nil
