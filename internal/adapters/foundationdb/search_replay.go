@@ -8,7 +8,6 @@ import (
 
 	"github.com/apple/foundationdb/bindings/go/src/fdb"
 	"github.com/google/uuid"
-	"goodkind.io/tack/internal/audit"
 	searchdomain "goodkind.io/tack/internal/domain/search"
 	"goodkind.io/tack/internal/telemetry"
 )
@@ -107,15 +106,8 @@ func (s *SearchSessionStore) HasVisited(
 	return visited, nil
 }
 
-// CommitPage stores the consumed sort position, replacement point-in-time
-// ID, visited IDs, replay record, completion, and the change events of each
-// changed record in one transaction. It renews only the idle deadline. A
-// concurrent commit for the same version returns
-// [searchdomain.ErrSessionChanged].
-// If the transaction ends after a commit that may have applied, CommitPage
-// also commits an incomplete session write event, even if a retry finds a
-// changed session version. If the event cannot commit, the returned error
-// matches audit.ErrEventNotRecorded.
+// CommitPage atomically stores page progress, visited IDs, and replay results.
+// A concurrent commit for this version returns searchdomain.ErrSessionChanged.
 func (s *SearchSessionStore) CommitPage(
 	ctx context.Context,
 	sessionID uuid.UUID,
@@ -133,13 +125,7 @@ func (s *SearchSessionStore) CommitPage(
 		)
 	}
 
-	changes, err := beginSessionAudit(ctx, "commit search page", sessionID)
-	if err != nil {
-		return searchdomain.Session{}, sessionRecordingFailure(ctx, sessionID, err)
-	}
-
 	var record searchSessionRecord
-	var ownerID uuid.UUID
 	err = transactSession(
 		ctx,
 		s.db,
@@ -147,7 +133,6 @@ func (s *SearchSessionStore) CommitPage(
 		"commit search page",
 		sessionID,
 		func(tr fdb.Transaction) error {
-			changes.startAttempt()
 			// Each attempt decodes into a new record. The sort value of an earlier
 			// attempt must not replace an absent stored sort value.
 			var stored searchSessionRecord
@@ -165,16 +150,10 @@ func (s *SearchSessionStore) CommitPage(
 				return searchdomain.ErrSessionExpired
 			}
 
-			changes.bind(stored)
-			ownerID = stored.PrincipalID
 			var applyErr error
-			record, applyErr = s.applyPageCommit(ctx, tr, changes, stored, version, commit)
+			record, applyErr = s.applyPageCommit(tr, stored, version, commit)
 			if applyErr != nil {
 				return applyErr
-			}
-
-			if appendErr := changes.append(ctx, tr); appendErr != nil {
-				return sessionRecordingFailure(ctx, sessionID, appendErr)
 			}
 
 			slog.DebugContext(
@@ -187,17 +166,9 @@ func (s *SearchSessionStore) CommitPage(
 		},
 	)
 	if err != nil {
-		return searchdomain.Session{}, s.recordWriteUncertain(
-			ctx,
-			changes,
-			sessionID,
-			ownerID,
-			audit.VerbSearchSessionUpdate,
-			err,
-		)
+		return searchdomain.Session{}, err
 	}
 
-	changes.finish(ctx)
 	telemetry.L(ctx).DebugContext(
 		ctx,
 		"search.session.page_committed",
@@ -210,13 +181,11 @@ func (s *SearchSessionStore) CommitPage(
 	return record.session(nil)
 }
 
-// applyPageCommit writes one page commit in tr, records its changes, and
-// returns the new header. The caller filters commit.Visited at this session
+// applyPageCommit writes one page commit in tr and returns the new header.
+// The caller filters commit.Visited at this session
 // version. Each visited record in commit.Visited is new.
 func (s *SearchSessionStore) applyPageCommit(
-	ctx context.Context,
 	tr fdb.Transaction,
-	changes *sessionAudit,
 	stored searchSessionRecord,
 	version uint64,
 	commit searchdomain.PageCommit,
@@ -225,9 +194,6 @@ func (s *SearchSessionStore) applyPageCommit(
 
 	for _, nodeID := range commit.Visited {
 		tr.Set(fdb.Key(searchSessionVisitedKey(sessionID, nodeID)), []byte{1})
-		if err := changes.recordVisitedCreate(sessionID, nodeID); err != nil {
-			return stored, sessionRecordingFailure(ctx, sessionID, err)
-		}
 	}
 
 	replay := searchReplayRecord{ResultIDs: commit.ResultIDs, Complete: commit.Complete}
@@ -240,12 +206,8 @@ func (s *SearchSessionStore) applyPageCommit(
 		return stored, err
 	}
 
-	if err := changes.recordReplayCreate(sessionID, version, replay); err != nil {
-		return stored, sessionRecordingFailure(ctx, sessionID, err)
-	}
-
-	if err := clearPreviousReplay(ctx, tr, changes, sessionID, version); err != nil {
-		return stored, err
+	if version > 0 {
+		tr.Clear(fdb.Key(searchSessionReplayKey(sessionID, version-1)))
 	}
 
 	record := stored
@@ -270,53 +232,5 @@ func (s *SearchSessionStore) applyPageCommit(
 		return stored, err
 	}
 
-	previous, current := sessionState{
-		record: stored,
-		tokens: nil,
-	}, sessionState{
-		record: record,
-		tokens: nil,
-	}
-
-	return record, sessionRecordingFailure(
-		ctx,
-		sessionID,
-		changes.recordSessionUpdate(previous, current),
-	)
-}
-
-// clearPreviousReplay reads the replay record of the previous version, clears
-// it, and records its removal.
-func clearPreviousReplay(
-	ctx context.Context,
-	tr fdb.Transaction,
-	changes *sessionAudit,
-	sessionID uuid.UUID,
-	version uint64,
-) error {
-	if version == 0 {
-		return nil
-	}
-
-	previousVersion := version - 1
-	var previous searchReplayRecord
-	found, err := readSessionValue(
-		tr,
-		searchSessionReplayKey(sessionID, previousVersion),
-		&previous,
-	)
-	if err != nil {
-		return err
-	}
-
-	tr.Clear(fdb.Key(searchSessionReplayKey(sessionID, previousVersion)))
-	if !found {
-		return nil
-	}
-
-	return sessionRecordingFailure(
-		ctx,
-		sessionID,
-		changes.recordReplayDelete(sessionID, previousVersion, previous),
-	)
+	return record, nil
 }

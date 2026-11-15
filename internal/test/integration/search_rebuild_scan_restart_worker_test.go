@@ -7,7 +7,6 @@ import (
 	fdbadapter "goodkind.io/tack/internal/adapters/foundationdb"
 	"goodkind.io/tack/internal/clock"
 	"goodkind.io/tack/internal/config"
-	appruntime "goodkind.io/tack/internal/runtime"
 	"goodkind.io/tack/internal/service"
 )
 
@@ -49,7 +48,6 @@ func newScanRestartWorker(t *testing.T, stores *fdbadapter.Stores) *service.Sear
 			Documents: nil,
 			Rebuilds:  stores.SearchRebuilds(clock.Wall{}),
 			Replacer:  nil,
-			Audit:     appruntime.SearchWorkerAudit(stores),
 		},
 		clock.Wall{},
 		settings,

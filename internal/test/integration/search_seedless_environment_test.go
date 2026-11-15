@@ -269,7 +269,6 @@ func seedlessWorker(
 			Documents: adapter,
 			Rebuilds:  stores.SearchRebuilds(source),
 			Replacer:  adapter,
-			Audit:     appruntime.SearchWorkerAudit(stores),
 		},
 		source,
 		settings,

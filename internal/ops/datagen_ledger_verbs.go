@@ -22,11 +22,6 @@ var datagenLedgerVerbs = []string{
 	string(audit.VerbOpsLedgerNodeWait),
 	string(audit.VerbOpsLedgerBootstrapWait),
 	string(audit.VerbOpsLedgerAuditBootstrap),
-	string(audit.VerbSearchIndexStructure),
-	string(audit.VerbSearchAccessRolloutPhase),
-	string(audit.VerbSearchModelRepair),
-	string(audit.VerbAuditPartitionMaintain),
-	string(audit.VerbNodeSubtreeDeleteResume),
 }
 
 // datagenLedgerVerb is the row count and newest event time of one verb in one
@@ -61,17 +56,6 @@ var datagenSearchSettingsVerbs = []string{
 	string(audit.VerbOpsSearchSettings),
 }
 
-// datagenSearchSessionVerbs lists the audit verbs of search session records
-// and points in time. ops qa datagen search runs searches that record events
-// with these verbs in the run's tenant organization.
-var datagenSearchSessionVerbs = []string{
-	string(audit.VerbSearchSessionCreate),
-	string(audit.VerbSearchSessionUpdate),
-	string(audit.VerbSearchSessionDelete),
-	string(audit.VerbSearchPointInTimeCreate),
-	string(audit.VerbSearchPointInTimeDelete),
-}
-
 // readDatagenLedgerVerbs reads the presence of each host-only ledger verb
 // through AUDIT_READER_DSN. It records nothing of its own.
 func readDatagenLedgerVerbs(ctx context.Context, f *cli.Factory) (datagenLedgerVerbsReport, error) {
@@ -81,22 +65,6 @@ func readDatagenLedgerVerbs(ctx context.Context, f *cli.Factory) (datagenLedgerV
 		audit.SystemOrgID(),
 		"ops.qa.datagen.ledger_verbs",
 		datagenLedgerVerbs,
-	)
-}
-
-// readDatagenSearchSessionVerbs reads the presence of each search session
-// verb in orgID through AUDIT_READER_DSN. It does not record events of its
-// own.
-func readDatagenSearchSessionVerbs(ctx context.Context, f *cli.Factory, orgID uuid.UUID) (
-	datagenLedgerVerbsReport,
-	error,
-) {
-	return readDatagenVerbPresence(
-		ctx,
-		f,
-		orgID,
-		"ops.qa.datagen.search_session_verbs",
-		datagenSearchSessionVerbs,
 	)
 }
 

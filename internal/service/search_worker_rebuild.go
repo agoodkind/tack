@@ -131,18 +131,8 @@ func (w *SearchWorker) rebuildRetire(
 	work searchdomain.Work,
 	rebuild searchdomain.Rebuild,
 ) error {
-	retirement, err := w.retirementContext(ctx, rebuild)
-	if err != nil {
-		return w.settle(
-			ctx,
-			work,
-			"attach the retirement operation of index "+rebuild.SourceIndex,
-			err,
-		)
-	}
-
 	remaining, err := w.ports.Rebuilds.RetireIndexSessions(
-		retirement,
+		ctx,
 		rebuild.SourceIndex,
 		searchBatchLimit,
 	)
@@ -163,7 +153,7 @@ func (w *SearchWorker) rebuildRetire(
 		return w.settleEngine(ctx, work, "block writes to retiring index "+rebuild.SourceIndex, err)
 	}
 
-	if err := w.deleteIndex(ctx, rebuild, rebuild.SourceIndex); err != nil {
+	if err := w.deleteIndex(ctx, rebuild.SourceIndex); err != nil {
 		return w.settleEngine(ctx, work, "delete retiring index "+rebuild.SourceIndex, err)
 	}
 
@@ -190,7 +180,7 @@ func (w *SearchWorker) rebuildRecover(
 		return w.settleEngine(ctx, work, "restore writes to index "+rebuild.SourceIndex, err)
 	}
 
-	if err := w.deleteIndex(ctx, rebuild, rebuild.TargetIndex); err != nil {
+	if err := w.deleteIndex(ctx, rebuild.TargetIndex); err != nil {
 		return w.settleEngine(ctx, work, "delete failed target "+rebuild.TargetIndex, err)
 	}
 
@@ -240,21 +230,12 @@ func (w *SearchWorker) failRebuild(
 
 func (w *SearchWorker) deleteIndex(
 	ctx context.Context,
-	rebuild searchdomain.Rebuild,
 	index string,
 ) error {
-	return w.recordIndexStructure(
+	return w.engineStep(
 		ctx,
-		"delete_index",
-		index,
-		rebuild,
-		func(ctx context.Context) error {
-			return w.engineStep(
-				ctx,
-				func(operation context.Context) error {
-					return w.ports.Replacer.DeleteIndex(operation, index)
-				},
-			)
+		func(operation context.Context) error {
+			return w.ports.Replacer.DeleteIndex(operation, index)
 		},
 	)
 }

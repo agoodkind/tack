@@ -3,6 +3,7 @@ package foundationdb
 import (
 	"context"
 	"encoding/binary"
+	"encoding/json"
 	"fmt"
 	"math"
 	"slices"
@@ -31,8 +32,9 @@ type searchRolloutRecord struct {
 	// InitiatedOperationID and InitiatedActorID identify the operation that
 	// began the current rollout. A record without a rollout, or one that a
 	// release before this field wrote, stores neither.
-	InitiatedOperationID uuid.UUID `json:"initiated_operation_id,omitzero" exhaustruct:"optional"`
-	InitiatedActorID     uuid.UUID `json:"initiated_actor_id,omitzero" exhaustruct:"optional"`
+	InitiatedOperationID uuid.UUID       `json:"initiated_operation_id,omitzero" exhaustruct:"optional"`
+	InitiatedActorID     uuid.UUID       `json:"initiated_actor_id,omitzero" exhaustruct:"optional"`
+	InitiatedOperation   json.RawMessage `json:"initiated_operation,omitempty" exhaustruct:"optional"`
 }
 
 // stableRollout returns the state of an authority that never ran a rollout.
@@ -92,6 +94,7 @@ func (r searchRolloutRecord) rollout() searchdomain.AccessRollout {
 		Initiation: searchdomain.Initiation{
 			OperationID: r.InitiatedOperationID,
 			ActorID:     r.InitiatedActorID,
+			Operation:   r.InitiatedOperation,
 		},
 	}
 }

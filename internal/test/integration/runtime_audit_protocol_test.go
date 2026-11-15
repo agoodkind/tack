@@ -53,6 +53,10 @@ func TestRuntimeAuditProtocolCoverage(t *testing.T) {
 	ledger := startPublicLedger(t, server)
 
 	for index, current := range cases {
+		if current.verb == "" {
+			continue
+		}
+
 		orgID, actorID := audit.SystemOrgID(), uuid.Nil
 		if current.authenticated {
 			actorID = server.userID
@@ -209,21 +213,13 @@ func protocolCases(t *testing.T, server *publicServer) []protocolCase {
 	malformed.status = http.StatusBadRequest
 
 	return []protocolCase{
-		rpc(
-			"initialize",
-			"initialize",
-			initialize,
-			false,
-			audit.VerbMCPProtocolRead,
-			audit.OutcomeCompleted,
-			"",
-		),
+		rpc("initialize", "initialize", initialize, false, "", audit.OutcomeCompleted, ""),
 		rpc(
 			"ping",
 			"ping",
 			map[string]any{},
 			false,
-			audit.VerbMCPProtocolRead,
+			"",
 			audit.OutcomeCompleted,
 			"",
 		),
@@ -232,7 +228,7 @@ func protocolCases(t *testing.T, server *publicServer) []protocolCase {
 			"tools/list",
 			map[string]any{},
 			true,
-			audit.VerbMCPProtocolRead,
+			"",
 			audit.OutcomeCompleted,
 			"",
 		),
@@ -241,7 +237,7 @@ func protocolCases(t *testing.T, server *publicServer) []protocolCase {
 			"prompts/list",
 			map[string]any{},
 			false,
-			audit.VerbMCPProtocolRead,
+			"",
 			audit.OutcomeCompleted,
 			"",
 		),
@@ -259,7 +255,7 @@ func protocolCases(t *testing.T, server *publicServer) []protocolCase {
 			"resources/list",
 			map[string]any{},
 			false,
-			audit.VerbMCPProtocolRead,
+			"",
 			audit.OutcomeCompleted,
 			"",
 		),
@@ -296,7 +292,7 @@ func protocolCases(t *testing.T, server *publicServer) []protocolCase {
 			http.MethodGet,
 			"/healthz",
 			http.StatusOK,
-			audit.VerbHTTPHealthRead,
+			"",
 			audit.OutcomeCompleted,
 			"",
 		),
@@ -305,7 +301,7 @@ func protocolCases(t *testing.T, server *publicServer) []protocolCase {
 			http.MethodPost,
 			"/healthz",
 			http.StatusMethodNotAllowed,
-			audit.VerbHTTPHealthRead,
+			"",
 			audit.OutcomeRefused,
 			"method_not_allowed",
 		),
@@ -314,7 +310,7 @@ func protocolCases(t *testing.T, server *publicServer) []protocolCase {
 			http.MethodGet,
 			"/debug/vars",
 			http.StatusOK,
-			audit.VerbHTTPDiagnosticsRead,
+			"",
 			audit.OutcomeCompleted,
 			"",
 		),

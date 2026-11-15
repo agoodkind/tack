@@ -1,12 +1,12 @@
 # Complete audit recording
 
-Tack must record every application operation and committed change in its existing audit ledger. Records establish the actor, action, target, time and outcome. Changes preserve actual old and new values. Reads establish the request and returned result identities.
+Tack must record person-callable MCP tools, public APIs, and operator commands in its existing audit ledger. This includes calls from agents and API tokens. Records establish the actor, action, target, time and outcome. Changes preserve actual old and new values. Reads establish the request and returned result identities.
 
 This draft resolves engineering choices for the audit correction tracked by TACK-583. The source review used `d5b38f8a`.
 
 ## Scope
 
-Cover operations after the required services exist: registered HTTP and MCP operations, operator commands, database writers, background jobs, provider hooks and Tack commands invoked during deployment. Include refusals, failures, partial work and interrupted work. Creating services from an empty installation and changing the surrounding container orchestration are outside this correction. Execute the reviewed Tack runtime operation inventory during acceptance; declarations alone do not prove coverage.
+Cover person-callable operations after the required services exist, including Tack commands invoked during deployment. Record user-requested work under its original operation when a job completes it. Do not create separate compliance events for autonomous jobs, internal service calls, indexing, retries, polling, health checks, diagnostics, or protocol discovery. Use operational logs for internal failures. Include refusals, failures, partial work and interrupted work. Creating services from an empty installation and changing the surrounding container orchestration are outside this correction. Execute the reviewed Tack runtime operation inventory during acceptance; declarations alone do not prove coverage.
 
 Complete audit recording first. Implement repository-triggered QA and production deployment second, with validation before merge. Complete production access restrictions third. User-facing history remains separate. Preserve existing ledger rows and hash chains. Do not reconstruct missing historical values or create a second permanent history store. Current installation capacity affects deployment sizing rather than product architecture.
 
@@ -30,7 +30,7 @@ The executor supplies identity, operation ID, event ID, timing and outcome. Writ
 
 Terminal outcomes are completed, refused, failed, partially completed and incomplete. Failed means that the operation did not commit effects. Partial completion identifies committed steps. Incomplete means that the available evidence cannot establish a terminal result. Preserve operation failure and audit-recording failure separately.
 
-An outer recorder starts before authentication and dispatch. It covers malformed requests, unsupported methods, unknown tools, prompts, resources, health checks and diagnostics. Successful authentication supplies a verified identity. Earlier failures use an unauthenticated actor and the existing system audit organization. Record method, route, operation and safe reason fields. Exclude credentials, raw request bodies and raw database errors. Link authentication and business events by operation ID without conflating their outcomes.
+An outer recorder starts before authentication and dispatch. It covers malformed requests, unsupported methods, unknown tools, prompts, and resource reads. Successful authentication supplies a verified identity. Earlier failures use an unauthenticated actor and the existing system audit organization. Record method, route, operation and safe reason fields. Exclude credentials, raw request bodies and raw database errors. Link authentication and business events by operation ID without conflating their outcomes.
 
 After authentication, the recorder reads the caller's organization memberships and, for a tool call, the organization of the named workspace or node. This lookup runs before the read admission because it selects the organization of each admission. The lookup is an authorization step and returns no product data to the client. When the lookup fails with a backend error, the recorder records an early refusal event in the system organization with the verified actor, the failed outcome, and the `organization_unavailable` reason, then answers HTTP 503 without product data. A caller without memberships and a target in another organization do not cause a lookup failure.
 
@@ -87,7 +87,9 @@ Validate required fields by operation class. An omitted outcome must not become 
 
 Save the exact migration range and migration-file digests, backup manifest key, or engine generation and index identities before the effect. Record observed step results. Recover from migration state, backup manifests or engine state. Do not manufacture old timestamps or repeat irreversible work merely because its result event is missing.
 
-A scheduled job identifies its service and run. A job initiated by a person or agent also retains that initiating identity. Child steps retain the enclosing operation ID. Audit-delivery bookkeeping does not recursively produce application audit events.
+Work initiated by a person or agent retains the original identity, operation, user-data changes, and final outcome across job execution and retries. Internal implementation steps do not create separate user actions.
+
+Finish pending search rebuilds and access rollouts on the previous release before upgrading. Older records contain actor and operation IDs without the complete initiating event. The new completion writer refuses those records because it cannot recover the original actor kind and command evidence from IDs alone.
 
 ## First-time setup boundary
 
@@ -107,14 +109,14 @@ Use the existing Go test harness and real temporary dependencies. Execute each r
 
 1. Create, edit, replace, move and delete records. Compare audited values with actual source and committed values, including relationships.
 2. Execute seed, repair, backfill, account, token and membership operations. A required-event failure must prevent the corresponding transaction from committing.
-3. Execute gets, lists, searches, prompts, protocol, health and diagnostic reads. Verify actor, selection, targets, digest and outcome. Recording failure must prevent response release.
+3. Execute person-callable gets, lists, searches, prompts, and resource reads. Verify actor, selection, targets, digest and outcome. Recording failure must prevent response release.
 4. Exercise failed authentication, malformed input, denied access, absent targets and backend errors. Verify safe typed reasons and verified versus unauthenticated identity.
 5. Race finalization and recovery from two processes. Resume a stale owner and verify one terminal event plus refusal of its response.
 6. Interrupt delivery after Kafka acknowledgement and before queue deletion. Verify permanent deduplication after restart. Verify digest-based recovery after an uncertain finalization commit.
 7. Exercise large old/new values and identity manifests across part boundaries. Interrupt multipart delivery. Verify complete reconstruction, bounded memory and rejection of altered or absent parts.
 8. Export new and historical formats. Alter a target, delta or manifest and require verification failure. Verify protected personal-data handling.
 9. Verify that failed authentication or unavailable audit storage cannot enable the first-time setup exception for an ordinary runtime command.
-10. Run the scaling measurements and separately report installation capacity. Mapping-only tests do not satisfy these checks.
+10. Verify that autonomous jobs, indexing, internal service calls, health checks, diagnostics, and discovery do not create compliance events. Run the scaling measurements and separately report installation capacity. Mapping-only tests do not satisfy these checks.
 
 ## References
 

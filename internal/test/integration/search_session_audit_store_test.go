@@ -4,8 +4,6 @@ package integration_test
 
 import (
 	"encoding/json"
-	"errors"
-	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -13,11 +11,9 @@ import (
 	"github.com/google/uuid"
 
 	fdbadapter "goodkind.io/tack/internal/adapters/foundationdb"
-	"goodkind.io/tack/internal/audit"
 	"goodkind.io/tack/internal/clock"
 	searchdomain "goodkind.io/tack/internal/domain/search"
 	"goodkind.io/tack/internal/searchaccess"
-	"goodkind.io/tack/internal/test/integration"
 	"goodkind.io/tack/internal/testenv"
 )
 
@@ -34,13 +30,6 @@ const (
 	// sessionStoreTokenBytes is the byte count of one element of the token
 	// array that sessionTokens builds.
 	sessionStoreTokenBytes = 2
-	// minimumCreateRecords is the smallest outbox record count of an event
-	// above one event part: one part and the manifest.
-	minimumCreateRecords = 2
-	// minimumSliceRecords is the smallest outbox record count of the first
-	// cleanup slice at maximumCleanupKeys: its visited, replay, and session
-	// events, without the sixteen token chunks that form one value.
-	minimumSliceRecords = 80
 )
 
 func sessionStoreStores(t *testing.T) *fdbadapter.Stores {
@@ -112,57 +101,33 @@ func newIDs(count int) []uuid.UUID {
 	return ids
 }
 
-// TestSearchSessionAuditRefusesMissingContext calls each session writer
-// without an audit operation. Each writer must return
-// audit.ErrMissingMutationContext and leave the session and the outbox
-// unchanged.
-func TestSearchSessionAuditRefusesMissingContext(t *testing.T) {
+// TestSearchSessionWritesWithoutAudit records session state without a compliance operation.
+func TestSearchSessionWritesWithoutAudit(t *testing.T) {
 	stores := sessionStoreStores(t)
 	store := stores.SearchSessions(clock.Wall{}, sessionStoreIdle)
 	session := storedSearchSession(sessionTokens(sessionStoreTokenBytes * 16))
-	if _, err := store.Create(integration.WithTestOperation(t, t.Context()), session); err != nil {
-		t.Fatalf("create session %s: %v", session.ID, err)
-	}
-	before, err := store.Load(t.Context(), session.ID)
-	if err != nil {
-		t.Fatalf("load session %s: %v", session.ID, err)
-	}
 	mark := searchOutboxTail(t, stores)
+	if _, err := store.Create(t.Context(), session); err != nil {
+		t.Fatalf("create session: %v", err)
+	}
 	commit := searchdomain.PageCommit{
 		Sort:      json.RawMessage(`[1]`),
 		PITID:     "pit-next",
 		Visited:   newIDs(1),
 		ResultIDs: newIDs(1),
-		Complete:  false,
 	}
-	_, createErr := store.Create(
-		t.Context(),
-		storedSearchSession(sessionTokens(sessionStoreTokenBytes*16)),
-	)
-	_, commitErr := store.CommitPage(t.Context(), session.ID, 0, commit)
-	cleanupErr := store.BeginCleanup(t.Context(), session.ID)
-	_, sliceErr := store.CleanupSlice(t.Context(), session.ID, maximumCleanupKeys)
-	for name, writerErr := range map[string]error{
-		"Create":       createErr,
-		"CommitPage":   commitErr,
-		"BeginCleanup": cleanupErr,
-		"CleanupSlice": sliceErr,
-	} {
-		if !errors.Is(writerErr, audit.ErrMissingMutationContext) {
-			t.Fatalf(
-				"%s without an operation = %v, want audit.ErrMissingMutationContext",
-				name,
-				writerErr,
-			)
-		}
+	if _, err := store.CommitPage(t.Context(), session.ID, 0, commit); err != nil {
+		t.Fatalf("commit page: %v", err)
 	}
-	after, err := store.Load(t.Context(), session.ID)
-	if err != nil || !reflect.DeepEqual(before, after) {
-		t.Fatalf("session after the refused writes = %+v, %v, want %+v", after, err, before)
+	if err := store.BeginCleanup(t.Context(), session.ID); err != nil {
+		t.Fatalf("begin cleanup: %v", err)
 	}
-	if entries, err := stores.OpsOutbox.ReadOutboxFrom(t.Context(), mark, 1); err != nil ||
-		len(entries) != 0 {
-		t.Fatalf("the refused writes added outbox entries %d, %v", len(entries), err)
+	if done, err := store.CleanupSlice(t.Context(), session.ID, maximumCleanupKeys); err != nil ||
+		!done {
+		t.Fatalf("clean up session: %t, %v", done, err)
+	}
+	if records, _ := outboxRecordsAfter(t, stores, mark); records != 0 {
+		t.Fatalf("session writes recorded %d compliance records", records)
 	}
 }
 

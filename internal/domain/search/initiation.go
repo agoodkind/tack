@@ -1,12 +1,16 @@
 package search
 
-import "github.com/google/uuid"
+import (
+	"encoding/json"
+
+	"github.com/google/uuid"
+)
 
 // Initiation identifies the operator operation and actor that began an index
-// replacement or an access policy rollout. The search worker records later
-// steps of that work under this operation. The zero value means that a
-// record does not identify its initiating operation.
+// replacement or an access policy rollout. Operation preserves the original
+// command event for its final result. The zero value identifies autonomous work.
 type Initiation struct {
 	OperationID uuid.UUID
 	ActorID     uuid.UUID
+	Operation   json.RawMessage `json:"-" exhaustruct:"optional"`
 }

@@ -88,7 +88,11 @@ var mcpMethods = map[string]mcpMethod{
 // records, sorted by name.
 func RecordedMethods() []string {
 	methods := make([]string, 0, len(mcpMethods)+1)
-	for method := range mcpMethods {
+	for method, definition := range mcpMethods {
+		if definition.verb == audit.VerbMCPProtocolRead {
+			continue
+		}
+
 		methods = append(methods, method)
 	}
 

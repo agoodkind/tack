@@ -87,7 +87,6 @@ type SessionStore interface {
 	CommitPage(context.Context, uuid.UUID, uint64, PageCommit) (Session, error)
 	BeginCleanup(context.Context, uuid.UUID) error
 	CleanupSlice(context.Context, uuid.UUID, int) (bool, error)
-	RecordCleanupFailure(context.Context, uuid.UUID, CleanupStep, error) error
 }
 
 // RankingVersion identifies the scoring formula that encodeRankRequest uses

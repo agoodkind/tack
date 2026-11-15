@@ -1,6 +1,7 @@
 package foundationdb
 
 import (
+	"bytes"
 	"context"
 	"log/slog"
 
@@ -25,6 +26,7 @@ func (s *SearchRebuildStore) AdvanceRebuild(
 		work,
 		read,
 		func(tr fdb.Transaction, _ searchWorkRecord) error {
+			next.Initiation = read.Initiation
 			return writeSearchRecord(ctx, tr, searchRebuildKey(), rebuildRecordFor(next))
 		},
 	)
@@ -109,32 +111,13 @@ func (s *SearchRebuildStore) FinishRebuild(
 		deleted = read.TargetIndex
 	}
 
-	attempts, err := fdb.PrefixRange(searchRetireAttemptPrefix(deleted))
-	if err != nil {
-		return searchStorageError(
-			ctx,
-			"search.rebuild.finish_failed",
-			"create retirement attempt range of index "+deleted,
-			uuid.Nil,
-			err,
-		)
-	}
-
 	err = s.rebuildStep(
 		ctx,
 		work,
 		read,
 		func(tr fdb.Transaction, record searchWorkRecord) error {
-			remaining, readErr := tr.GetRange(
-				attempts,
-				fdb.RangeOptions{Limit: 1},
-			).GetSliceWithError()
-			if readErr != nil {
-				return searchReadFailure(ctx, "read retirement attempts of index "+deleted, readErr)
-			}
-
-			if len(remaining) != 0 {
-				return errRetireAttemptsRemain
+			if err := appendRebuildResult(ctx, tr, read, s.work.clock.Now()); err != nil {
+				return err
 			}
 
 			tr.Clear(fdb.Key(searchRebuildKey()))
@@ -201,6 +184,9 @@ func (s *SearchRebuildStore) rebuildStep(
 // sameRebuild reports whether two reads observed the same replacement step.
 func sameRebuild(left, right searchdomain.Rebuild) bool {
 	return left.ID == right.ID && left.State == right.State &&
+		left.Initiation.OperationID == right.Initiation.OperationID &&
+		left.Initiation.ActorID == right.Initiation.ActorID &&
+		bytes.Equal(left.Initiation.Operation, right.Initiation.Operation) &&
 		left.Generation == right.Generation &&
 		left.ScanCursor == right.ScanCursor &&
 		left.VerifyCursor == right.VerifyCursor &&

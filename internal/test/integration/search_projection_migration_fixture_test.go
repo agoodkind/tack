@@ -14,7 +14,6 @@ import (
 	"goodkind.io/tack/internal/clock"
 	"goodkind.io/tack/internal/config"
 	"goodkind.io/tack/internal/domain/node"
-	appruntime "goodkind.io/tack/internal/runtime"
 	"goodkind.io/tack/internal/service"
 	"goodkind.io/tack/internal/test/integration"
 	"goodkind.io/tack/internal/testenv"
@@ -211,7 +210,6 @@ func (env *migrationEnv) newWorker(t *testing.T, stores *fdbadapter.Stores) *ser
 			Documents: env.Adapter,
 			Rebuilds:  stores.SearchRebuilds(clock.Wall{}),
 			Replacer:  env.Adapter,
-			Audit:     appruntime.SearchWorkerAudit(stores),
 		},
 		clock.Wall{},
 		settings,

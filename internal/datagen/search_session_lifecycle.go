@@ -26,7 +26,7 @@ const searchSessionExpiredResponse = "#### Request could not be completed\n\n" +
 // After the abandoned session's expiry minute, it runs new searches until
 // a sweep removes the header. It requires the cursor to return the same
 // expired-session response for expired and absent sessions. It returns
-// the abandoned session ID for the caller to check the ledger.
+// the abandoned session ID.
 func (r searchRun) verifySessionLifecycle(ctx context.Context, cursors *tools.SearchCursorCodec) (
 	uuid.UUID,
 	error,

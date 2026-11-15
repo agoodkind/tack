@@ -25,29 +25,21 @@ func NewRequestRecorder(store audit.ReadLifecycle) *RequestRecorder {
 	return &RequestRecorder{store: store}
 }
 
-// Health records each request to the health check route and returns 405 for methods other than GET or HEAD.
+// Health returns 405 for methods other than GET or HEAD.
 func (recorder *RequestRecorder) Health(next http.Handler) http.Handler {
-	return recorder.route(
-		routeOperation(audit.VerbHTTPHealthRead, healthRoute),
-		http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-			if request.Method != http.MethodGet && request.Method != http.MethodHead {
-				methodNotAllowed(
-					writer,
-					http.MethodGet+", "+http.MethodHead,
-					healthMethodNotAllowedBody,
-				)
+	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.Method != http.MethodGet && request.Method != http.MethodHead {
+			methodNotAllowed(
+				writer,
+				http.MethodGet+", "+http.MethodHead,
+				healthMethodNotAllowedBody,
+			)
 
-				return
-			}
+			return
+		}
 
-			next.ServeHTTP(writer, request)
-		}),
-	)
-}
-
-// Diagnostics records each request to the diagnostics route.
-func (recorder *RequestRecorder) Diagnostics(next http.Handler) http.Handler {
-	return recorder.route(routeOperation(audit.VerbHTTPDiagnosticsRead, diagnosticsRoute), next)
+		next.ServeHTTP(writer, request)
+	})
 }
 
 // UnknownRoute records each request to a route that the server does not
@@ -121,7 +113,7 @@ func (recorder *RequestRecorder) serveAuthenticated(
 	read requestRead,
 	handler *Handler,
 ) {
-	if read.operation.mutation {
+	if read.operation.mutation || read.operation.verb == audit.VerbMCPProtocolRead {
 		handler.ServeHTTP(writer, request)
 		return
 	}

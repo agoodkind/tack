@@ -2,6 +2,7 @@ package foundationdb
 
 import (
 	"context"
+	"encoding/json"
 	"time"
 
 	"github.com/apple/foundationdb/bindings/go/src/fdb"
@@ -30,8 +31,9 @@ type searchRebuildRecord struct {
 	// InitiatedOperationID and InitiatedActorID identify the operation that
 	// began the replacement. A record that a release before this field
 	// wrote stores neither.
-	InitiatedOperationID uuid.UUID `json:"initiated_operation_id,omitzero" exhaustruct:"optional"`
-	InitiatedActorID     uuid.UUID `json:"initiated_actor_id,omitzero" exhaustruct:"optional"`
+	InitiatedOperationID uuid.UUID       `json:"initiated_operation_id,omitzero" exhaustruct:"optional"`
+	InitiatedActorID     uuid.UUID       `json:"initiated_actor_id,omitzero" exhaustruct:"optional"`
+	InitiatedOperation   json.RawMessage `json:"initiated_operation,omitempty" exhaustruct:"optional"`
 }
 
 func rebuildRecordFor(rebuild searchdomain.Rebuild) searchRebuildRecord {
@@ -54,6 +56,7 @@ func rebuildRecordFor(rebuild searchdomain.Rebuild) searchRebuildRecord {
 		Generation:           rebuild.Generation,
 		InitiatedOperationID: rebuild.Initiation.OperationID,
 		InitiatedActorID:     rebuild.Initiation.ActorID,
+		InitiatedOperation:   rebuild.Initiation.Operation,
 	}
 }
 
@@ -78,6 +81,7 @@ func (r searchRebuildRecord) rebuild() searchdomain.Rebuild {
 		Initiation: searchdomain.Initiation{
 			OperationID: r.InitiatedOperationID,
 			ActorID:     r.InitiatedActorID,
+			Operation:   r.InitiatedOperation,
 		},
 	}
 }

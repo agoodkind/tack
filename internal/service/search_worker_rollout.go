@@ -54,14 +54,7 @@ func (w *SearchWorker) rolloutScan(
 		return w.settle(ctx, work, "scan authority nodes for access rollout", err)
 	}
 
-	complete := func(ctx context.Context) error {
-		return w.ports.Rollouts.CompleteScan(ctx, work, rollout, scan)
-	}
-	if scan.Done {
-		complete = w.phaseStep(rollout, complete)
-	}
-
-	if err := complete(ctx); err != nil {
+	if err := w.ports.Rollouts.CompleteScan(ctx, work, rollout, scan); err != nil {
 		return w.settle(ctx, work, "checkpoint access rollout scan", err)
 	}
 
@@ -84,11 +77,7 @@ func (w *SearchWorker) rolloutRetire(
 		return w.waitRollout(ctx, work)
 	}
 
-	retire := w.phaseStep(
-		rollout,
-		func(ctx context.Context) error { return w.ports.Rollouts.BeginRetire(ctx, work, rollout) },
-	)
-	if err := retire(ctx); err != nil {
+	if err := w.ports.Rollouts.BeginRetire(ctx, work, rollout); err != nil {
 		return w.settle(ctx, work, "begin access version retirement", err)
 	}
 
@@ -134,28 +123,8 @@ func (w *SearchWorker) rolloutVerify(
 		}
 	}
 
-	var step searchdomain.RolloutStep
-	verify := func(ctx context.Context) error {
-		var verifyErr error
-		step, verifyErr = w.ports.Rollouts.CompleteVerify(
-			ctx,
-			work,
-			rollout,
-			documents,
-			states,
-			done,
-		)
-		if verifyErr != nil {
-			return structureFailure(ctx, "checkpoint the access rollout verification", verifyErr)
-		}
-
-		return nil
-	}
-	if done {
-		verify = w.phaseStep(rollout, verify)
-	}
-
-	if err := verify(ctx); err != nil {
+	step, err := w.ports.Rollouts.CompleteVerify(ctx, work, rollout, documents, states, done)
+	if err != nil {
 		return w.settle(ctx, work, "checkpoint access rollout verification", err)
 	}
 
@@ -175,13 +144,6 @@ func (w *SearchWorker) rolloutVerify(
 	}
 
 	return w.yield(ctx, work)
-}
-
-func (w *SearchWorker) phaseStep(
-	rollout searchdomain.AccessRollout,
-	effect func(context.Context) error,
-) func(context.Context) error {
-	return func(ctx context.Context) error { return w.recordRolloutPhase(ctx, rollout, effect) }
 }
 
 // waitRollout delays the next claim of the rollout without recording a

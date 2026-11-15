@@ -8,6 +8,7 @@ import (
 
 	"github.com/apple/foundationdb/bindings/go/src/fdb"
 	"github.com/google/uuid"
+	"goodkind.io/tack/internal/audit"
 	searchdomain "goodkind.io/tack/internal/domain/search"
 	"goodkind.io/tack/internal/telemetry"
 )
@@ -88,7 +89,31 @@ func (s *SearchAccessRolloutStore) Rollback(
 				searchdomain.AccessVerifying,
 			), "", "", ""
 			restored.ScanComplete, restored.AffectedPass, restored.Generation = false, false, generation
+			interrupted := audit.OutcomeDetails{
+				Outcome:        audit.OutcomeIncomplete,
+				FailureCode:    "access_rollout_rolled_back",
+				FailureMessage: "the operator rolled back the access policy rollout",
+				CommittedSteps: nil,
+			}
+			if record.ActiveVersion == record.CandidateVersion {
+				interrupted.Outcome = audit.OutcomePartiallyCompleted
+				interrupted.CommittedSteps = []string{
+					searchdomain.AccessRolloutTargetReference(record.AuthorityID.String()),
+				}
+			}
+
+			if err := appendRolloutResult(
+				ctx,
+				tr,
+				restored,
+				s.work.clock.Now(),
+				interrupted,
+			); err != nil {
+				return err
+			}
+
 			restored.InitiatedOperationID, restored.InitiatedActorID = request.Initiation.OperationID, request.Initiation.ActorID
+			restored.InitiatedOperation = request.Initiation.Operation
 			if stopErr := stopRolloutCollecting(
 				ctx,
 				tr,

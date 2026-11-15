@@ -9,7 +9,6 @@ import (
 	fdbadapter "goodkind.io/tack/internal/adapters/foundationdb"
 	"goodkind.io/tack/internal/adapters/mcp/tools"
 	searchadapter "goodkind.io/tack/internal/adapters/search"
-	"goodkind.io/tack/internal/audit"
 	"goodkind.io/tack/internal/clock"
 	"goodkind.io/tack/internal/config"
 	"goodkind.io/tack/internal/service"
@@ -68,7 +67,6 @@ func buildSearchQuery(
 			Versions:    stores.SearchRollouts(source, policies),
 			Index:       stores,
 			Generations: stores,
-			Audit:       audit.NewBatchAppendOutbox(stores.OpsOutbox),
 		},
 		source,
 		settings,
