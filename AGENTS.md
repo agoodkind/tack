@@ -199,9 +199,9 @@ the overlay.
 
 Use quorum replication across fault domains for disaster recovery from node or
 zone failure. Replication preserves committed data while enough replicas survive
-to form a quorum. Use point-in-time recovery and backups for corruption and
-accidental deletion; replication also copies those changes to replicas. Object
-storage stores backups and does not replace quorum replication. Preserve
+to form a quorum. Replication does not protect against corruption or accidental
+deletion. Use point-in-time recovery and backups to recover from those failures.
+Object storage stores backups and does not replace quorum replication. Preserve
 `audit.chain_heads` during audit recovery to continue the hash chain. Follow
 [the recovery procedures](docs/runbooks/recovery.md).
 

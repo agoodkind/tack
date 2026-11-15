@@ -5,8 +5,8 @@ rebuilding a store from off-host artifacts.
 
 Backup restore is the slowest recovery tier. Quorum replication across fault
 domains provides availability without data loss after node or zone failure.
-Backups recover from corruption and accidental deletion, which replication copies
-to every replica.
+Replication does not protect against corruption or accidental deletion.
+Backups provide recovery from those failures.
 
 ## Backup contents
 
@@ -329,9 +329,10 @@ same steps to the recovery YugabyteDB:
    Export a signed bundle per org over the full time range, verify each bundle,
    and inspect the chain-break count. A break occurs when a row's `prev_hash`
    does not identify the preceding row or its stored hash does not recompute.
-   Fail recovery on a break or sequence gap. A full-range export intentionally
-   omits neither rows nor sequences; a gap indicates a missing restored row and
-   prevents verification of that link. Only filtered or time-bounded exports may
+   Fail recovery on any chain break. Also fail on a sequence gap in a full-range
+   export, which does not omit rows or sequences. A gap in that export indicates
+   a missing restored row and prevents verification of that link. Only filtered
+   or time-bounded exports may
    tolerate gaps caused by their selection. Compare each bundle's row count
    with the restored ledger's count for that org. The drill checks all of these
    conditions and fails on breaks, gaps, missing exported rows, or an empty ledger.

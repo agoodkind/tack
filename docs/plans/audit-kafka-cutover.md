@@ -93,5 +93,6 @@ Require synchronous Kafka publication with `acks=all` before `Record()` returns.
 An MCP call must not report success before its event becomes durable. Verify
 that `KafkaRecorder` retains `ProduceSync` with `AllISRAcks` during implementation.
 
-The first cutover uses one consumer replica. Later stages add operational scale
-and cold archival of old ledger rows to object storage.
+The first production cutover uses one consumer replica. The two-replica QA check
+validates concurrent chain ownership before that cutover. Later stages add
+operational scale and cold archival of old ledger rows to object storage.

@@ -62,7 +62,7 @@ services:
         BUILD_TIME: ${TACK_BUILD_TIME:-unknown}
         TAG: ${TACK_TAG:-dev}
         DIRTY: ${TACK_DIRTY:-false}
-    # serve requires the audit execute gate and an identity like every command.
+    # Every audited command requires an identity. serve also requires --execute.
     # The app uses service identity tack-app, not a human operator (TACK-444).
     command: ["serve", "--execute", "--operator-service", "tack-app"]
     restart: unless-stopped
@@ -73,8 +73,8 @@ services:
       <<: *opensearch_environment
       # `ops audit seed-roles` creates the non-superuser tack_app login from
       # TACK_APP_PASSWORD with access only to the three auth tables (TACK-180).
-      # The ops sidecar uses the yugabyte superuser for migrations, seeding,
-      # and backups.
+      # tack-ops normally connects as tack_migrator. Only a from-empty rebuild
+      # uses the engine superuser.
       DATABASE_URL_FILE: /run/secrets/DATABASE_URL
       AUDIT_OPERATOR_DSN_FILE: /run/secrets/AUDIT_OPERATOR_DSN
       FDB_CLUSTER_FILE: /etc/foundationdb/fdb.cluster
@@ -257,9 +257,10 @@ services:
       FDB_CLUSTER_FILE: /etc/foundationdb/fdb.cluster
       # The deploy renders this guest's cluster identity from the inventory.
       # Peers and clients on other guests connect to its pinned address,
-      # which remains valid after container recreation. The guest name defines
-      # the replication fault domain. Empty local values announce the
-      # container's own address and hostname during `docker compose up`.
+      # which remains valid after container recreation. FDB_ZONE_ID uses the
+      # guest name as the zone identifier for the replication fault domain.
+      # Empty local values announce the container's own address and hostname
+      # during `docker compose up`.
       FDB_PUBLIC_ADDRESS: ${FDB_PUBLIC_ADDRESS:-}
       FDB_ZONE_ID: ${FDB_ZONE_ID:-}
       FDB_MACHINE_ID: ${FDB_MACHINE_ID:-}
@@ -482,9 +483,9 @@ services:
       OPENSEARCH_MAINTENANCE_PASSWORD_FILE: /run/secrets/OPENSEARCH_MAINTENANCE_PASSWORD
       DATABASE_URL_FILE: /run/secrets/TACK_OPS_DATABASE_URL
       AUDIT_OPERATOR_DSN_FILE: /run/secrets/TACK_OPS_AUDIT_OPERATOR_DSN
-      # Ledger read and redaction for the `audit query`, `audit get`,
-      # `audit export`, and `audit redact-actor` host commands. Loopback DSNs
-      # like the operator one above; empty until the host .env renders them.
+      # The mounted secrets supply loopback DSNs for ledger reads and
+      # redactions by the `audit query`, `audit get`, `audit export`, and
+      # `audit redact-actor` host commands.
       AUDIT_READER_DSN_FILE: /run/secrets/TACK_OPS_AUDIT_READER_DSN
       AUDIT_REDACTOR_DSN_FILE: /run/secrets/TACK_OPS_AUDIT_REDACTOR_DSN
       # `audit verify` checks bundle signers against the same accepted signer

@@ -40,9 +40,10 @@ Guests connect by IPv6 addresses from `service_mapping.yml`. Do not use
 per-guest public DNS names. The public wildcard resolves every name to the
 proxy, including names for guests that the proxy does not serve.
 
-Each container resolves permanent ledger node identities through its hosts file,
-not public DNS. The ledger engine persists each node's announced identity.
-An address used as that identity becomes stale after renumbering.
+Render hosts-file entries in every container that map permanent ledger node
+identities to their addresses. Do not use public DNS for those identities.
+The ledger engine persists each node's announced identity. An address used as
+that identity becomes stale after renumbering.
 
 QA mirrors the topology on the testbed. Testbed guest IDs equal production IDs
 plus 100. Validate every phase on QA before production.
@@ -219,20 +220,21 @@ Validate each phase on QA first. Complete storage placement and phase 8 before
 phases 4 and 5, which add replica writes and three copies of product-store and
 broker IO to the ledger's drive.
 
-1. Guard bare backup, delete dump machinery, set database and service memory
-   limits, add app health checks, run the signer only in audit-consumer, and
-   raise the producer budget without adding guests.
-2. Add mappings, guests, `host_vars`, deployment separation, and guest networking.
-3. Expand the ledger to three nodes, extend connection strings, rewrite export,
-   schedule follower exports, and add replication and staleness alarms.
-4. Correct cluster-file handling, expand product storage to three guests in
-   double mode, use DNS-named coordinators, add backup agents, and set timeout policy.
-5. Expand broker membership using the QA-proven method, increase topic copies,
-   require two live copies for writes, and set per-broker advertised addresses.
-6. Add the second app instance behind the health-checked proxy.
-7. Schedule rehearsals and complete alarm coverage.
-8. Make last-use updates asynchronous, cache tokens and memberships, limit
-   membership reads to one, and batch read-class events.
+1. Phase 1: Guard bare backup, delete dump machinery, set database and service
+   memory limits, add app health checks, run the signer only in audit-consumer,
+   and raise the producer budget without adding guests.
+2. Phase 2: Add mappings, guests, `host_vars`, deployment separation, and guest
+   networking.
+3. Phase 3: Expand the ledger to three nodes, extend connection strings, rewrite
+   export, schedule follower exports, and add replication and staleness alarms.
+4. Phase 8: Make last-use updates asynchronous, cache tokens and memberships,
+   limit membership reads to one, and batch read-class events.
+5. Phase 4: Correct cluster-file handling, expand product storage to three guests
+   in double mode, use DNS-named coordinators, add backup agents, and set timeout policy.
+6. Phase 5: Expand broker membership using the QA-proven method, increase topic
+   copies, require two live copies for writes, and set per-broker advertised addresses.
+7. Phase 6: Add the second app instance behind the health-checked proxy.
+8. Phase 7: Schedule rehearsals and complete alarm coverage.
 
 TACK-336 independently adds a durable dead-letter queue and longer retention,
 complementing phase 5. This work does not implement the columnar audit cold

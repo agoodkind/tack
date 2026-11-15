@@ -64,9 +64,9 @@ container, which reads `DATABASE_URL` and audit passwords from `.env`.
      --extra-var tack_image_tag=<green-SHA>
    ```
 
-   The deploy pulls images and starts Kafka and audit-consumer. Until step 3,
-   the consumer remains running and logs `audit.consumer.yugabyte_not_ready`
-   at WARN rather than repeatedly crashing.
+   The deploy pulls images and starts Kafka and audit-consumer. Until the audit
+   roles accept connections, the consumer remains running and logs
+   `audit.consumer.yugabyte_not_ready` at WARN rather than repeatedly crashing.
 2. Run `docker compose run --rm tack-ops migrate` to apply the cutover migration.
    Run migrations only through this path.
 3. Run `docker compose run --rm tack-ops ops audit seed-roles` to create or rotate

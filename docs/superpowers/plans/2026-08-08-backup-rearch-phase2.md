@@ -371,8 +371,8 @@ Co-authored-by: Claude <noreply@anthropic.com>"
 
 - [ ] Ask the operator to approve the four new vault resources, conditional on
   capacity approval or completed reclamation, and the separated production
-  deploy that changes addresses and recreates the app once. Do not change the
-  signing key canceled in Task 6.
+  deploy that changes addresses and recreates the app once. Follow Task 6 and
+  preserve per-guest signing-key creation.
 - [ ] Apply with explicit `-target` per new vault resource. Review
   `--check --diff` before `configs deploy deploy-tack --limit tack_servers`.
   Require preparation without stacks on new guests, guest 117 `/healthz` 200

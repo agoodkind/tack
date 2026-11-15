@@ -245,6 +245,10 @@ can advance concurrently. `audit.consumer_offsets` stores
 
 ## Record events at either size
 
+The cutover plan supersedes the state-change and read-class sequences below.
+After cutover, both classes publish to Kafka, and audit-consumer alone writes
+ledger rows and chain heads.
+
 The original state-change sequence is:
 
 1. An MCP wrapper or RPC handler invokes
