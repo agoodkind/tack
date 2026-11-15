@@ -10,23 +10,19 @@ import (
 	"time"
 )
 
-// TestLaunchFDBRestorePassesTheDestinationAsData is the defect this file exists
-// for. The destination is the blobstore URL, and the backup name inside it is
-// read out of whatever objects the bucket holds, so it is the attacker's half
-// of the string. Interpolated into a single-quoted shell word it only had to
-// carry one quote to close it and run the rest as shell, inside a container
-// holding the object store's credentials. Passed as a positional parameter it
-// reaches the program as one argument, whatever it contains.
+// TestLaunchFDBRestorePassesTheDestinationAsData checks that an attacker-controlled
+// backup URL remains one argument. The payload would close an interpolated
+// single-quoted shell word and create a file if the launch executed it as shell.
 func TestLaunchFDBRestorePassesTheDestinationAsData(t *testing.T) {
 	fixture := newLaunchFixture(t)
 	canary := filepath.Join(fixture.dir, "canary")
-	dest := "blobstore://key:secret@host:8333/rt20260830';touch " + canary +
+	dest := "blobstore://key:secret@host:8333/rt20260830';printf injected >" + canary +
 		";'?bucket=tack-backups&secure_connection=0"
 
 	logText, exitStatus := fixture.launch(t, []string{"printf", "[%s]\n", dest})
 
 	if _, err := os.Stat(canary); err == nil {
-		t.Fatal("the destination ran as shell: it created the canary file")
+		t.Fatal("the destination executed as shell and created the canary file")
 	}
 
 	if exitStatus != "0" {
@@ -35,16 +31,15 @@ func TestLaunchFDBRestorePassesTheDestinationAsData(t *testing.T) {
 
 	if logText != "["+dest+"]\n" {
 		t.Fatalf(
-			"the destination did not reach the command verbatim as one argument:\n got %q\nwant %q",
+			"the command did not receive the complete destination as one argument:\n got %q\nwant %q",
 			logText,
 			"["+dest+"]\n",
 		)
 	}
 }
 
-// TestLaunchFDBRestoreKeepsASpacedDestinationOneArgument proves the vector
-// survives a destination that would otherwise split into several arguments,
-// which is the same defect without the quote.
+// TestLaunchFDBRestoreKeepsASpacedDestinationOneArgument checks argument
+// boundaries for a destination containing spaces.
 func TestLaunchFDBRestoreKeepsASpacedDestinationOneArgument(t *testing.T) {
 	fixture := newLaunchFixture(t)
 	dest := "blobstore://key:secret@host:8333/rt 2026 08 30?bucket=tack-backups"
@@ -56,14 +51,12 @@ func TestLaunchFDBRestoreKeepsASpacedDestinationOneArgument(t *testing.T) {
 	}
 
 	if logText != "["+dest+"]\n" {
-		t.Fatalf("the destination was split into more than one argument: got %q", logText)
+		t.Fatalf("the command received multiple destination arguments: got %q", logText)
 	}
 }
 
-// TestLaunchFDBRestorePublishesTheCommandsExitStatus proves the shell still
-// does the one job it is there for. The restore runs in the background so the
-// exec can return and the watch can poll, and the status the watch reads has to
-// be the command's own.
+// TestLaunchFDBRestorePublishesTheCommandsExitStatus checks that the background
+// restore saves its own exit status and output for the polling operation.
 func TestLaunchFDBRestorePublishesTheCommandsExitStatus(t *testing.T) {
 	fixture := newLaunchFixture(t)
 
@@ -74,21 +67,17 @@ func TestLaunchFDBRestorePublishesTheCommandsExitStatus(t *testing.T) {
 	}
 
 	if !strings.Contains(logText, "working") {
-		t.Fatalf("the log must carry the command's output, got %q", logText)
+		t.Fatalf("the log must include the command's output, got %q", logText)
 	}
 
 	if _, err := os.Stat(fixture.files.Partial); err == nil {
-		t.Fatal("the partial status file must be moved into place, not left behind")
+		t.Fatal("the launch must rename the partial status file to the final status path")
 	}
 }
 
-// TestLaunchFDBRestoreAbortsWhenTheStaleStatusCannotBeCleared is the silent
-// success the clear's guard exists for. The watch decides a restore finished by
-// reading the status file, so a launch that could not clear the previous run's
-// status and started anyway hands the watch that run's answer as this one's,
-// which is a restore reporting an outcome it never produced. Here a directory
-// stands where the status file goes, which `rm -f` refuses; the launch must
-// exit non-zero and the restore must not start.
+// TestLaunchFDBRestoreAbortsWhenTheStaleStatusCannotBeCleared checks that a
+// failed removal prevents the restore from starting with a previous exit status.
+// A directory at the status path makes rm -f fail.
 func TestLaunchFDBRestoreAbortsWhenTheStaleStatusCannotBeCleared(t *testing.T) {
 	fixture := newLaunchFixture(t)
 	if err := os.WriteFile(
@@ -100,26 +89,25 @@ func TestLaunchFDBRestoreAbortsWhenTheStaleStatusCannotBeCleared(t *testing.T) {
 	}
 
 	if err := os.Mkdir(fixture.files.Exit, 0o755); err != nil {
-		t.Fatalf("stage an unremovable status name: %v", err)
+		t.Fatalf("stage a directory at the status path: %v", err)
 	}
 
 	canary := filepath.Join(fixture.dir, "canary")
 
-	argv := fdbRestoreLaunchArgv(fixture.files, []string{"touch", canary})
+	argv := fdbRestoreLaunchArgv(fixture.files, []string{"sh", "-c", "printf started >\"$1\"", "restore-canary", canary})
 
-	out, err := exec.CommandContext(t.Context(), argv[0], argv[1:]...).CombinedOutput()
+	output, err := exec.CommandContext(t.Context(), argv[0], argv[1:]...).CombinedOutput()
 	if err == nil {
-		t.Fatalf("a launch whose clear failed must exit non-zero, got output %q", out)
+		t.Fatalf("a launch with a failed status removal must exit nonzero, got output %q", output)
 	}
 
-	// The guard exits before the group is forked, so the restore never runs.
-	// A launch that stepped over the failed clear forks it immediately, so a
-	// short window is enough to catch one that did.
+	// The removal guard must exit before starting the background restore.
+	// Polling detects a restore that starts despite the failed removal.
 	deadline := time.Now().Add(time.Second)
 	for time.Now().Before(deadline) {
 		if _, statErr := os.Stat(canary); statErr == nil {
 			t.Fatal(
-				"the restore started even though the previous run's status could not be cleared",
+				"the restore started even though the launch could not remove the previous status",
 			)
 		}
 
@@ -127,10 +115,9 @@ func TestLaunchFDBRestoreAbortsWhenTheStaleStatusCannotBeCleared(t *testing.T) {
 	}
 }
 
-// TestFDBRestoreCommandCarriesTheDestinationUnaltered locks that the engine
-// vector hands fdbrestore the destination as one argument with no quoting of
-// its own, because the quoting is what the shell would have had to undo.
-func TestFDBRestoreCommandCarriesTheDestinationUnaltered(t *testing.T) {
+// TestFDBRestoreCommandPreservesTheDestination checks that fdbrestore receives
+// the destination as one argument without additional shell quoting.
+func TestFDBRestoreCommandPreservesTheDestination(t *testing.T) {
 	dest := "blobstore://key:secret@host:8333/rt'20260830?bucket=tack-backups"
 
 	command, err := fdbRestoreCommand(dest, nil)
@@ -140,26 +127,22 @@ func TestFDBRestoreCommandCarriesTheDestinationUnaltered(t *testing.T) {
 
 	found := false
 
-	for i, arg := range command {
-		if arg == "-r" && i+1 < len(command) {
+	for argumentIndex, argument := range command {
+		if argument == "-r" && argumentIndex+1 < len(command) {
 			found = true
-			if command[i+1] != dest {
-				t.Fatalf("-r argument = %q, want the destination unaltered %q", command[i+1], dest)
+			if command[argumentIndex+1] != dest {
+				t.Fatalf("-r argument = %q, want the destination unaltered %q", command[argumentIndex+1], dest)
 			}
 		}
 	}
 
 	if !found {
-		t.Fatalf("the restore vector names no destination: %v", command)
+		t.Fatalf("the restore command does not specify a destination: %v", command)
 	}
 }
 
-// TestLaunchArgvRunsTheBuiltRestoreVector is the seam between the two halves of
-// the FoundationDB restore. The vector is built with the operator's target and
-// checked against the backup's restorable window; the launch has to run that
-// vector. A launch that assembled its own command from the destination would
-// drop the target and restore the latest point instead, and report success
-// doing it, which is the failure the target exists to prevent.
+// TestLaunchArgvRunsTheBuiltRestoreVector checks that the launch executes the
+// validated command with the operator's target time and original cluster file.
 func TestLaunchArgvRunsTheBuiltRestoreVector(t *testing.T) {
 	target := time.Date(2026, 8, 30, 1, 5, 0, 0, time.UTC)
 	restore, err := fdbRestoreCommand(drillDestURL, &target)
@@ -170,13 +153,13 @@ func TestLaunchArgvRunsTheBuiltRestoreVector(t *testing.T) {
 	argv := fdbRestoreLaunchArgv(drillFDBRestoreFiles(), restore)
 
 	if len(argv) < len(restore) {
-		t.Fatalf("the launch dropped the restore vector: %q", argv)
+		t.Fatalf("the launch omitted restore arguments: %q", argv)
 	}
 
-	if tail := argv[len(argv)-len(restore):]; !slices.Equal(tail, restore) {
+	if restoreArguments := argv[len(argv)-len(restore):]; !slices.Equal(restoreArguments, restore) {
 		t.Fatalf(
-			"the launch does not run the vector it was given:\n got %q\nwant %q",
-			tail,
+			"the launch does not execute the supplied restore arguments:\n got %q\nwant %q",
+			restoreArguments,
 			restore,
 		)
 	}
@@ -184,7 +167,7 @@ func TestLaunchArgvRunsTheBuiltRestoreVector(t *testing.T) {
 	for _, want := range []string{"--timestamp", "2026/08/30.01:05:00+0000", "--orig-cluster-file"} {
 		if !slices.Contains(argv, want) {
 			t.Fatalf(
-				"the operator's target did not reach the launched command, %q missing: %q",
+				"the launched command omitted target argument %q: %q",
 				want,
 				argv,
 			)
