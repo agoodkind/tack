@@ -189,7 +189,6 @@ func unionBackupAlarmState(local, shared backupAlarmState) backupAlarmState {
 	return combinedState
 }
 
-// copyBackupAlarmState copies entries without modifying the original state.
 func copyBackupAlarmState(state backupAlarmState) backupAlarmState {
 	return backupAlarmState{Alarmed: maps.Clone(state.Alarmed), Generation: state.Generation}
 }

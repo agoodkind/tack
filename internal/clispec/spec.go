@@ -1,7 +1,4 @@
-// Package clispec defines typed operator commands and renders Cobra commands.
-// Each Operation defines help, arguments, flags, and a work function. The Cobra
-// adapter decodes command input and calls the work function. This package
-// renders terminal commands and does not register MCP tools.
+// Package clispec defines typed operator commands and renders terminal commands without registering MCP tools.
 package clispec
 
 import (
@@ -103,7 +100,7 @@ func NewRegistry() *Registry {
 	return &Registry{ops: nil, handwritten: nil}
 }
 
-// Register adds one operation. A Go method cannot introduce a type parameter.
+// Register adds one operation.
 func Register[OperationInput Input](r *Registry, op Operation[OperationInput]) {
 	r.ops = append(r.ops, op)
 }

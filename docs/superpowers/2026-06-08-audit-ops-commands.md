@@ -1,28 +1,27 @@
 # TACK-328: Audit ops commands
 
-This plan specifies audit recording for every `./server ops` command.
+Implement audit recording for every `./server ops` command under TACK-328.
 Follow the [operator identity and audit requirements](../operator-identity-and-audit.md).
-TACK-328 blocks TACK-327. TACK-327 restricts production data access to ops commands
-only after QA verifies command auditing.
+Complete QA verification before TACK-327 restricts production data access to ops commands.
 
 ## Record commands with transactional outboxes
 
-Each command writes an audit event into an outbox, a durable queue in a database
-the command already uses. Commands do not connect to Kafka.
+Write each command's event into an outbox, a durable queue in a database the
+command already uses. Do not connect commands to Kafka.
 
-- FoundationDB mutations write the event and the change in one transaction.
-- Other commands write events into a YugabyteDB outbox. A YugabyteDB transaction
-  commits the event with the change when the operation supports that transaction.
-- A relay reads both outboxes and produces events to Kafka. The audit-consumer
-  writes the events into `audit.events` and remains its only writer.
+- Commit FoundationDB mutations and their events in one transaction.
+- Write other commands' events into a YugabyteDB outbox. Commit the event with
+  the change when the operation supports that transaction.
+- Use a relay to read both outboxes and produce events to Kafka. Keep the
+  audit-consumer as the only writer of `audit.events`.
+- Retry relay publication until Kafka accepts each event. Deduplicate in the
+  consumer by `(event_id, event_time)`.
+- Require the command's database for auditing, but do not require Kafka access.
 
-The [transactional outbox pattern](https://developer.confluent.io/courses/microservices/the-transactional-outbox-pattern/)
-commits a change with its event and avoids the
-[dual-write problem](https://www.confluent.io/blog/dual-write-problem/).
-The relay retries until Kafka accepts each event. The consumer deduplicates by
-`(event_id, event_time)`, as in the
-[idempotent consumer pattern](https://www.morling.dev/blog/revisiting-the-outbox-pattern/).
-Auditing requires the command's database, but it does not require Kafka access.
+Apply the [transactional outbox pattern](https://developer.confluent.io/courses/microservices/the-transactional-outbox-pattern/)
+to avoid the [dual-write problem](https://www.confluent.io/blog/dual-write-problem/).
+Apply the [idempotent consumer pattern](https://www.morling.dev/blog/revisiting-the-outbox-pattern/)
+when processing repeated events.
 
 ## Enforce audit and identity requirements
 
@@ -42,12 +41,12 @@ Auditing requires the command's database, but it does not require Kafka access.
 
 ## Choose recording by operation
 
-FDB mutations, including repair apply, reindex, and backfill, commit one event in
-one transaction with the change. Migrations record intent and outcome in the YB
-outbox because goose manages per-migration transactions. `goose_db_version`
-provides evidence for reconciliation.
+Commit each FDB mutation, including repair apply, reindex, and backfill, with one
+event in the same transaction. Record migration intent and outcome in the YB
+outbox because goose manages per-migration transactions. Use `goose_db_version`
+for reconciliation.
 
-Role DDL requires intent and outcome records. A test on the production-pinned
+Record intent and outcome for role DDL. A test on the production-pinned
 2024.2.8.0-b85 image on 2026-06-09 ran `BEGIN; CREATE ROLE; INSERT; ROLLBACK`.
 Rollback removed the inserted row but did not remove the role. YugabyteDB tracks
 this behavior in [issue 1404](https://github.com/yugabyte/yugabyte-db/issues/1404).
@@ -60,28 +59,28 @@ Do not depend on this preview for the compliance ledger. During TACK-329's
 2025.2.x upgrade, repeat the rollback test with the flag enabled. Use atomic
 role recording only after the test passes and the feature leaves preview.
 
-Deploys, backups, and FDB configuration record intent and outcome because external
-registries and Docker daemons cannot join a database transaction. See
+Record intent and outcome for deploys, backups, and FDB configuration because
+external registries and Docker daemons cannot join a database transaction. Apply
 [Kafka transaction limits](https://www.confluent.io/blog/exactly-once-semantics-are-possible-heres-how-apache-kafka-does-it/)
 and [KIP-98](https://cwiki.apache.org/confluence/display/KAFKA/KIP-98+-+Exactly+Once+Delivery+and+Transactional+Messaging).
-Intent and outcome share `op_id`. The intent stores the image digest, backup
-destination, or migration range. Recovery checks that identifier against actual
-state when an outcome does not exist.
+Use one `op_id` for intent and outcome. Store the image digest, backup destination,
+or migration range in the intent. During recovery, check that identifier against
+actual state when an outcome does not exist.
 
-Reads, including repair preview, require a durable access record before reading.
-Refuse a read if its access record cannot commit. TACK-327 followed an unauthorized read.
+Require a durable access record before reads, including repair preview.
+Refuse a read if its access record cannot commit.
 
 ## Initialize audit recording during bootstrap
 
-`ops provision` and `ops ledger audit-bootstrap` defer audit writes only while
-initializing the outboxes. Provision configures FDB, runs migrations, and records
-one terminal `ops.provision` event after migration creates the outboxes.
-`ops ledger audit-bootstrap` runs only migration and audit role seeding on the
-first ledger node. It records intent and outcome after that work. Joining nodes
-require the outbox for audited ledger waits before provision runs.
-The command refuses a ledger that already contains the migration table, outbox,
-or operator login. Both commands require identity. Apply the normal recording
-requirements after first boot.
+1. Require identity for `ops provision` and `ops ledger audit-bootstrap`.
+2. Defer their audit writes only while initializing the outboxes.
+3. In provision, configure FDB and run migrations. Record one terminal
+   `ops.provision` event after migration creates the outboxes.
+4. On the first ledger node, restrict `ops ledger audit-bootstrap` to migration
+   and audit role seeding. Record intent and outcome after that work. Refuse a
+   ledger that already contains the migration table, outbox, or operator login.
+5. On joining nodes, require the outbox for audited ledger waits before provision.
+6. Apply the normal recording requirements after first boot.
 
 ## Implement shared recording
 
