@@ -118,7 +118,7 @@ func fdbRestorableVersionsFromDescribe(describe string) (fdbRestorableVersions, 
 // Without --version-timestamps, fdbbackup prints a relative value such as
 // "(maxLogEnd -0.53 days)" or "(unknown)" after the version.
 func fdbDescribeVersion(describe string, label string) (int64, error) {
-	bound := fdbVersionBound{label: label}
+	bound := fdbVersionBound{label: label, value: 0}
 	err := bound.UnmarshalText([]byte(describe))
 
 	return bound.value, err
@@ -128,7 +128,7 @@ func fdbDescribeVersion(describe string, label string) (int64, error) {
 // values and "(unknown)" from output without --version-timestamps to prevent
 // a restore with an unchecked target.
 func fdbDescribeTimestamp(describe string, label string) (time.Time, error) {
-	bound := fdbTimestampBound{label: label}
+	bound := fdbTimestampBound{label: label, value: time.Time{}}
 	err := bound.UnmarshalText([]byte(describe))
 
 	return bound.value, err

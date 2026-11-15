@@ -101,6 +101,7 @@ func TestYBPlacementAuditPreservesLedgerContentsAndLiteralPaths(t *testing.T) {
 					{layout.PlacedLedger, test.placed, test.createPlaced},
 				}
 				past := time.Unix(1, 0)
+
 				for _, ledger := range ledgers {
 					if ledger.create {
 						if err := os.WriteFile(

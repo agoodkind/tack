@@ -13,7 +13,8 @@ type fdbTimestampBound struct {
 
 // UnmarshalText decodes the first matching FoundationDB timestamp bound.
 //
-// It reads the timestamp between the first opening and last closing parenthesis.
+// It reads the timestamp between the first opening and last closing
+// parenthesis.
 // Invalid or missing bounds return an error without emitting logs.
 //
 // For example:
@@ -38,7 +39,7 @@ func (bound *fdbTimestampBound) UnmarshalText(text []byte) error {
 		}
 
 		stamp := trimmed[openIndex+1 : closeIndex]
-		at, err := time.Parse(fdbStatusTimestampLayout, stamp)
+		timestamp, err := time.Parse(fdbStatusTimestampLayout, stamp)
 		if err != nil {
 			return fmt.Errorf(
 				"fdbbackup describe line %q does not contain a valid timestamp;"+
@@ -48,7 +49,7 @@ func (bound *fdbTimestampBound) UnmarshalText(text []byte) error {
 			)
 		}
 
-		bound.value = at
+		bound.value = timestamp
 
 		return nil
 	}
