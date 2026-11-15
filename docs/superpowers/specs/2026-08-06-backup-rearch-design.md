@@ -2,8 +2,9 @@
 
 ## Terms
 
-A hypervisor is the physical Proxmox host, vault. A guest is one LXC container
-on the hypervisor with its own guest ID, IPv6 address, and Docker daemon. This
+A hypervisor is software that runs virtual machines. Proxmox runs on the
+physical host vault. A guest in this design is one LXC container on that host
+with its own guest ID, IPv6 address, and Docker daemon. This
 design protects against guest failure. A service container runs inside a guest's
 compose stack. Each database node, broker, and app instance runs in one service
 container, with one container per guest for each tier.
@@ -79,8 +80,8 @@ intervention.
   cluster cannot rename a node; restore exported rows into a fresh node to
   recover from a stale identity.
 - Declare distinct node locations for fault tolerance. Mount the existing
-  patched startup script and set explicit memory limits rather than letting
-  the database size itself from most of the guest's memory.
+  patched startup script and set explicit memory limits instead of using the
+  database's defaults based on guest memory.
 - List all three nodes in the app connection string. The existing driver
   supports this without a code change. Retain caller retries because an
   in-flight query still fails when its node dies.
@@ -152,8 +153,8 @@ Remove synchronous ledger and broker writes from authenticated reads before data
 replication expands. The ledger stores both auth and compliance records;
 requests that wait on its writes also wait on replica acknowledgments.
 
-Each authenticated read must perform zero ledger writes, at most one ledger
-read, and zero synchronous broker round trips.
+Each authenticated read must not write to the ledger or make a synchronous
+broker round trip. Limit each authenticated read to one ledger read.
 
 - Update exact token last-use times asynchronously.
 - Read membership at most once per request and cache it per principal.

@@ -1,6 +1,7 @@
 # Change the audit shard count
 
-Changing `ShardCount` requires an outage from step 2 until step 4. The app
+Changing `ShardCount` stops the app and its MCP interface from step 2 until
+the deployment in step 4 restarts the app. The app
 computes each event's shard before publishing it to Kafka. The consumer
 recomputes the shard before writing the event to the ledger. Drain Kafka before
 deploying the new count to prevent the consumer from assigning queued events

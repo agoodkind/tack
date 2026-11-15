@@ -391,7 +391,7 @@ services:
       KAFKA_DEFAULT_REPLICATION_FACTOR: "1"
       KAFKA_MIN_INSYNC_REPLICAS: "1"
       KAFKA_UNCLEAN_LEADER_ELECTION_ENABLE: "false"
-      # The empty default permits parsing when the audit profile is disabled.
+      # The empty default permits configuration parsing with or without the audit profile.
       # Set KAFKA_CLUSTER_ID in .env to a kafka-storage.sh random-uuid result
       # before enabling the audit profile.
       CLUSTER_ID: ${KAFKA_CLUSTER_ID:-}

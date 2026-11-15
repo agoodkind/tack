@@ -5,8 +5,8 @@ production data-plane access to those commands.
 
 ## The choke-point (binding, do not weaken)
 
-The `RunE` choke-point in `internal/clispec` (`cobra.go` / `audit.go`) records every
-CLI ops command. Every command, including `serve`, declares a static audit spec
+The shared `RunE` handler in `internal/clispec` (`cobra.go` / `audit.go`) records
+every CLI ops command. Every command, including `serve`, declares a static audit spec
 with a verb. An empty verb fails the gate and the coverage test fails the build.
 Commands cannot opt out.
 
@@ -65,7 +65,7 @@ Pass `--execute` to perform the requested action.
 
 Global ops (migrate, seed-roles, provision, deploy, backup, reindex, backfill)
 record on the reserved system org. Entity ops (repair apply) resolve the target
-node's real org and record the action on that customer's per-org chain.
+node's real org and record the operator action on that customer's per-org chain.
 The design doc specifies the constant and resolver.
 
 ## Additional identity source: OIDC / SSO / IdP

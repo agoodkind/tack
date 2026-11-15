@@ -158,9 +158,10 @@ at `internal/audit/notarizer.go:90`, and root construction is at line 132.
 
 ## Separate and redact personal data
 
-Keep `audit.pii` in YugabyteDB. The producer writes personal data synchronously
-before broker publication, as in `internal/audit/yugabyte.go:113-134`, at either
-size. Replication includes that table. The `audit_redactor` role updates
+Keep `audit.pii` in YugabyteDB. The producer publishes personal data in the
+event payload. After broker publication, the consumer writes that data to
+`audit.pii` in the transaction that appends the ledger event. Replication
+includes that table. The `audit_redactor` role updates
 `audit.pii.payload`; the hash chain excludes that payload and remains valid.
 At N=1, writes use one node. At N=many, writes use the primary and replicas
 support reads. Bulk erasure of a user's complete history still needs a defined

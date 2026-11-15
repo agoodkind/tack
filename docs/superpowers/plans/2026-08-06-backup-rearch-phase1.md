@@ -17,7 +17,7 @@ Use Go 1.x, cobra, franz-go, Docker Compose, Jinja2, and YugabyteDB
 - Delete callers and callees in the same commit. The deadcode check analyzes
   production calls from `cmd/`.
 - Gate integration tests on `AUDIT_CHAIN_TEST_DSN`; keep unit tests database-free.
-- Sign commits with `git commit -S`, an imperative subject, and
+- Sign commits with `git commit -S`. Use an imperative subject and include
   `Co-authored-by: Claude <noreply@anthropic.com>`.
 - Edit a linked worktree rather than the primary checkout.
 - Verify cited source lines before editing. Stop and report any disagreement
