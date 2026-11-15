@@ -10,9 +10,15 @@ func TestRuntimeAuditProductReadAttempt(t *testing.T) {
 	server := startPublicServer(t, nil)
 	ledger := startPublicLedger(t, server)
 	requestID := newRequestID(t, "attempt")
-	response := server.rpc(t, requestID, "tools/call", map[string]any{
-		"name": "tack_list_workspaces", "arguments": map[string]any{},
-	})
+	response := server.rpc(
+		t,
+		requestID,
+		"tools/call",
+		map[string]any{
+			"name":      "tack_list_workspaces",
+			"arguments": map[string]any{},
+		},
+	)
 	toolText(t, response)
 	row := ledger.row(t, server.orgID, requestID)
 	requireReadRow(t, row, audit.VerbWorkspaceList, audit.OutcomeAttempted, "", response.body)

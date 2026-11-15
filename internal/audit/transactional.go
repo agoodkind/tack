@@ -23,6 +23,10 @@ type BatchAppendOutbox struct {
 }
 
 // NewBatchAppendOutbox uses appender for each request batch.
+//
+// The request recorder writes one event per organization in the same transaction.
+//
+//	outbox := NewBatchAppendOutbox(stores.OpsOutbox)
 func NewBatchAppendOutbox(appender OutboxBatchAppender) BatchAppendOutbox {
 	return BatchAppendOutbox{appender: appender}
 }

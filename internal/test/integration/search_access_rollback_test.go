@@ -8,7 +8,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/opensearch-project/opensearch-go/v5/opensearchapi"
-	"goodkind.io/tack/internal/audit"
 	searchdomain "goodkind.io/tack/internal/domain/search"
 	"goodkind.io/tack/internal/searchaccess"
 )
@@ -29,8 +28,7 @@ const (
 // backfill to store both versions. Rollback must restore the stable
 // version at once and keep every node searchable. The rollout must finish
 // with only the stable version on every page and preserve document IDs,
-// text, and semantic fields. The command must record its intent and OK
-// outcome.
+// text, and semantic fields. The command must record its attempt.
 func TestSearchAccessRollbackDuringBackfill(t *testing.T) {
 	fixture := newRolloutFixture(t)
 	workspace := fixture.workspaces[0]
@@ -58,7 +56,7 @@ func TestSearchAccessRollbackDuringBackfill(t *testing.T) {
 		t.Fatalf("rollback failed: %v", err)
 	}
 
-	requireRollbackAudit(t, fixture, operatorID, audit.OutcomeOK)
+	requireRollbackAudit(t, fixture, operatorID, workspace.OrgID)
 	rolledBack := currentAccessRollout(t, fixture, workspace.OrgID)
 	requireAccessRollout(
 		t,
@@ -72,7 +70,7 @@ func TestSearchAccessRollbackDuringBackfill(t *testing.T) {
 		t.Fatalf("Repeating the rollback failed: %v", err)
 	}
 
-	requireRollbackAudit(t, fixture, repeatedOperatorID, audit.OutcomeOK)
+	requireRollbackAudit(t, fixture, repeatedOperatorID, workspace.OrgID)
 	if repeated := currentAccessRollout(
 		t,
 		fixture,
@@ -183,7 +181,7 @@ func TestSearchAccessRollbackAfterActivation(t *testing.T) {
 		t.Fatalf("rollback failed: %v", err)
 	}
 
-	requireRollbackAudit(t, fixture, operatorID, audit.OutcomeOK)
+	requireRollbackAudit(t, fixture, operatorID, workspace.OrgID)
 	requireAccessRollout(
 		t,
 		currentAccessRollout(t, fixture, workspace.OrgID),
@@ -236,7 +234,7 @@ func TestSearchAccessRollbackAfterActivation(t *testing.T) {
 // TestSearchAccessRollbackRefusedAfterRetirement requires rollback to
 // return [searchdomain.ErrNoRolloutInProgress] for a stable authority and
 // [searchdomain.ErrRetirementStarted] after retirement begins. The
-// refused command must record an error outcome, preserve the rollout
+// refused command must record its attempt, preserve the rollout
 // state, and allow the rollout to finish under the rotated version.
 func TestSearchAccessRollbackRefusedAfterRetirement(t *testing.T) {
 	fixture := newRolloutFixture(t)
@@ -276,7 +274,7 @@ func TestSearchAccessRollbackRefusedAfterRetirement(t *testing.T) {
 		t.Fatalf("rollback returned error %v instead of %v", err, searchdomain.ErrRetirementStarted)
 	}
 
-	requireRollbackAudit(t, fixture, operatorID, audit.OutcomeError)
+	requireRollbackAudit(t, fixture, operatorID, workspace.OrgID)
 	refused := currentAccessRollout(t, fixture, workspace.OrgID)
 	if refused.ActiveVersion != searchaccess.RotatedVersion ||
 		refused.Generation != retiring.Generation ||

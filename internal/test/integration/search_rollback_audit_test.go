@@ -1,25 +1,19 @@
 package integration_test
 
 import (
-	_ "embed"
 	"testing"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"goodkind.io/tack/internal/audit"
+	searchdomain "goodkind.io/tack/internal/domain/search"
 )
 
-//go:embed testdata/rollback_audit_outbox.sql
-var rollbackAuditOutboxQuery string
-
-// requireRollbackAudit requires one pending intent row and one outcome
-// row with outcome for the rollback verb under operatorID.
 func requireRollbackAudit(
 	t *testing.T,
 	fixture rolloutFixture,
 	operatorID uuid.UUID,
-	outcome audit.Outcome,
+	authorityID uuid.UUID,
 ) {
 	t.Helper()
 	pool, err := pgxpool.New(t.Context(), fixture.cfg.DatabaseURL)
@@ -28,32 +22,24 @@ func requireRollbackAudit(
 	}
 
 	t.Cleanup(pool.Close)
-	rows, err := pool.Query(
-		t.Context(),
-		rollbackAuditOutboxQuery,
+	events := outboxEventsByQuery(
+		t,
+		pool,
+		"runtime_audit_verb_outbox.sql",
 		string(audit.VerbOpsSearchAccessRollback),
 		operatorID.String(),
 	)
-	if err != nil {
-		t.Fatalf("cannot read operator outbox: %v", err)
+	attempts := eventsInPhase(events, audit.PhaseAttempt, uuid.Nil)
+	if len(attempts) != 1 || attempts[0].Context.Target == nil ||
+		attempts[0].Context.Target.Reference != searchdomain.AccessRolloutTargetReference(
+			authorityID.String(),
+		) {
+		t.Fatalf("rollback command attempts for authority %s = %+v", authorityID, attempts)
 	}
 
-	recorded, err := pgx.CollectRows(rows, pgx.RowTo[string])
-	if err != nil {
-		t.Fatalf("cannot read operator outbox: %v", err)
-	}
-
-	outcomes := make(map[audit.Outcome]int)
-
-	for _, value := range recorded {
-		outcomes[audit.Outcome(value)]++
-	}
-
-	if outcomes[audit.OutcomePending] != 1 || outcomes[outcome] != 1 || len(outcomes) != 2 {
-		t.Fatalf(
-			"rollback audit outcome counts %v must include one pending intent and one %s outcome",
-			outcomes,
-			outcome,
-		)
+	for _, event := range events {
+		if event.Context.Phase != audit.PhaseAttempt || event.Outcome != audit.OutcomeAttempted {
+			t.Fatalf("rollback command recorded an execution result: %+v", event)
+		}
 	}
 }
