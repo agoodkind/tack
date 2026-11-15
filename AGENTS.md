@@ -299,12 +299,12 @@ TACK-304.
 
 ## Auditability gate
 
-Follow the [audit policy](docs/audit.md). Before merging or releasing a new or
-changed operation, verify compliance through the affected public operation and
-inspect its permanent audit records. Include the evidence and relevant test
-results in the PR. Require the existing `runtime audit coverage` check and
-applicable integration checks to pass before merge. Verify the accepted behavior
-on QA before production release.
+Follow the [audit policy](docs/audit.md). Before merging or releasing a change
+that affects a public operation covered by this policy, verify compliance through
+that operation and inspect its permanent audit records. Include the evidence and
+relevant test results in the PR. Require the existing `runtime audit coverage`
+check and applicable integration checks to pass before merge. Verify the accepted
+behavior on QA before production release.
 
 ## No config files
 

@@ -24,9 +24,9 @@ caller supplies one. The identity selector prefers a service name, then an
 operator UUID, then global Git configuration. A session identifier without a
 service name causes an error.
 
-Identity comes from these sources rather than an environment variable or a field
-in server configuration. The command gate depends on the identity interface;
-source selection remains separate from command execution.
+The Git, flag, and service sources supply identity rather than environment
+variables or server configuration fields. The command gate depends on the
+identity interface. Source selection remains separate from command execution.
 
 ## Attribution
 
