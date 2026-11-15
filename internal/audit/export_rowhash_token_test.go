@@ -47,7 +47,7 @@ func contextBeforeTokenIDFrom(context EventContext) contextBeforeTokenID {
 	}
 }
 
-// chainTokenIDTestRows hashes each historical context encoding and links every
+// chainTokenIDTestRows hashes each supplied context encoding and links every
 // row to its predecessor.
 func chainTokenIDTestRows(t *testing.T, rows []Row, contexts [][]byte) []Row {
 	t.Helper()

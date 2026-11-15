@@ -72,10 +72,12 @@ type RestoreDrillOptions struct {
 	FDBTargetTime *time.Time
 }
 
-// RunBackupRestoreDrill restores both enabled engines and verifies data,
-// including the SQL audit hash chain. Each leg runs despite other leg failures;
-// the final error lists every failed leg. Targets can select one SQL export
-// and a FoundationDB moment. The run first removes abandoned resources.
+// RunBackupRestoreDrill attempts FoundationDB restoration when continuous
+// backup is enabled and always attempts YugabyteDB restoration. It verifies
+// restored data, including the SQL audit hash chain. Each leg runs despite
+// other leg failures; the final error lists every failed leg. Targets can
+// select one SQL export and a FoundationDB moment. The run first removes
+// abandoned resources.
 //
 // Passing legs require a dated rehearsal marker for staleness checks. Marker
 // writes retry independently and can fail the drill without repeating restores.

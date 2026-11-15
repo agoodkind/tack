@@ -1,5 +1,5 @@
 // Restored-ledger export creates a run-specific reader role and signs one
-// organization bundle for offline chain verification.
+// bundle per organization for offline chain verification.
 
 package ops
 

@@ -21,8 +21,6 @@ import (
 	"goodkind.io/tack/internal/audit"
 )
 
-// cleanLedgerReport creates a report with verified row hashes, links, digest,
-// and manifest signature.
 func cleanLedgerReport(dir string, rows int) *audit.VerifyReport {
 	return &audit.VerifyReport{
 		BundleDir:        dir,
@@ -485,10 +483,7 @@ func TestScratchLedgerDSNTargetsTheScratchContainer(t *testing.T) {
 	}
 
 	if parsed.Host != "[3d06:bad:b01:0:7ac::5]:5433" {
-		t.Fatalf(
-			"host = %q, want the scratch container address on the YSQL port",
-			parsed.Host,
-		)
+		t.Fatalf("host = %q, want the scratch container address on the YSQL port", parsed.Host)
 	}
 
 	if parsed.User.Username() != role {

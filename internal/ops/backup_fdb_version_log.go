@@ -18,7 +18,6 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// fdbVersionLogKey identifies stored version-time observations.
 const fdbVersionLogKey = backupStatusPrefix + "fdb-versions.json"
 
 // fdbVersionLogMaxEntries bounds stored observations and encoded record size.
@@ -35,7 +34,6 @@ const (
 	fdbVersionLogMaxBytes = fdbVersionLogMaxEntries*fdbVersionLogMaxEntryBytes + fdbVersionLogMarginBytes
 )
 
-// fdbRestorablePoint records an observed restorable version and its time.
 type fdbRestorablePoint struct {
 	Version int64     `json:"version"`
 	At      time.Time `json:"at"`
