@@ -20,9 +20,9 @@ Open ready-for-review PRs and validate QA cleanup before production activation.
 
 Require a complete recent export before deleting expired ledger exports.
 Preserve restore dependencies after native expiration refusal. Reject prefixes
-outside the selected namespace. Report partial object deletion accurately with
-its audit evidence. Prevent retention from deleting backups that a concurrent
-restore drill still reads.
+outside the selected namespace. Report partial object deletion accurately and
+record the partial outcome in its audit evidence. Prevent retention from deleting
+backups that a concurrent restore drill still reads.
 
 ## Task 1: Implement audited selection and execution
 

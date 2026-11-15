@@ -5,7 +5,7 @@
 Every person-callable MCP tool, public API, and operator command must produce
 complete, durable evidence of identity, targets, changes, and outcomes. Extend
 existing operation definitions, transactional outboxes, relay, and consumer.
-Mutations commit evidence with their changes. Reads save pending state, then
+Mutations commit evidence with their changes. Reads save durable pending state before reading, then
 finalize one event before returning results.
 
 Use Go, FoundationDB, YugabyteDB, Kafka, MCP, the existing container test runner,
