@@ -1,38 +1,37 @@
 # Audit delivery
 
-Tack delivers queued audit events from database outboxes to Apache Kafka. The
-`audit-consumer` service runs the relay and consumer. The consumer writes the
-permanent `audit.events` ledger in YugabyteDB and advances the existing hash
-chains in `audit.chain_heads`.
+Tack publishes audit events from database outboxes to Apache Kafka.
+An outbox stores events that await publication. The `audit-consumer` service
+runs the relay and consumer, writes the permanent ledger in YugabyteDB, and
+updates its hash chains.
 
 ## Outbox delivery
 
-An outbox stores events that await publication. The relay reads the FoundationDB
-and YugabyteDB outboxes and publishes their events to Kafka. It removes accepted
-entries after Kafka acknowledges publication. A publication failure leaves the
-entries available for retry. A broker acknowledgment establishes publication.
-The consumer commits the ledger record afterward.
+After Kafka acknowledges publication, the relay removes accepted entries from
+the FoundationDB and YugabyteDB outboxes. Publication failures leave entries
+available for retry. Kafka acknowledgment confirms publication. Consumers
+commit the permanent ledger record afterward.
 
-The Kafka producer waits for all in-sync replicas to acknowledge each write.
-The relay preserves event identities during retries. The consumer claims each
-event identifier in the transaction that appends its ledger row. Redelivery
-does not append a second row for that identifier.
+Tack configures its Kafka producer to wait for all in-sync replicas to
+acknowledge each write.
+Retries preserve event identifiers. Each ledger transaction claims an event
+identifier before appending its record. Redelivery does not append a duplicate.
 
 ## Chain integrity
 
-Each hash chain belongs to one organization and shard. Kafka records use that
-pair as their partition key. Consumers in the same group divide partitions
-among themselves. The consumer checks the previous chain head when appending a
-record. It retries its own batch if another writer has advanced that head.
+Each hash chain belongs to one organization and shard. Kafka uses that pair as
+the partition key. Consumers in the same group divide partitions among
+themselves. Before appending a record, each consumer checks the previous chain
+head and retries its batch if another writer has advanced that head.
 
-The consumer commits ordinary ledger records and its database delivery offset
-in one transaction. It retains rejected ordinary records in the dead-letter table
-with the reason for rejection. A connection failure stops the batch for retry.
+Ledger transactions commit ordinary event records and their database delivery
+offset together. Consumers store rejected ordinary records and their rejection
+reasons in the dead-letter table. A connection failure stops the batch for retry.
 
 ## Large events
 
 Large events use transport parts and a manifest that identifies the complete
-event. The consumer saves received parts and delivery offsets together. It
-verifies and reconstructs a complete assembly before appending the event to the
-ledger. Missing parts leave the assembly available for completion. The consumer
-removes temporary assembly data when it commits the completed event.
+event. Consumers save received parts and delivery offsets together, then verify
+and reconstruct the complete event before appending it to the ledger. Missing
+parts leave the assembly available for completion. Committing the completed
+event removes its temporary assembly data.

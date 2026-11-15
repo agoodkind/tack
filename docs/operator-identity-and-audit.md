@@ -1,41 +1,31 @@
 # Operator identity
 
-Tack resolves the person or service running an operator command through
-`audit.OperatorIdentitySource`. The shared command gate resolves identity before
-printing a dry run or executing a command. Installation commands resolve identity
-before creating audit storage.
+Operator commands resolve the person or service requesting an action before
+displaying a dry run or executing the command. Installation commands require
+identity before creating audit storage.
 
 ## Asserted identity
 
-The current identity sources trust local configuration or command-line flags.
-They do not verify the identity with an identity provider. A dry run displays the
-resolved identity and proposed action, but that display does not verify either
-a person or a service.
+Tack accepts operator identity from global Git configuration or command-line
+flags. These sources assert an identity without authenticating it with an
+identity provider. Displaying an identity during a dry run does not verify it.
 
-The Git source reads `user.name` and `user.email` from global Git configuration
-without invoking Git. It derives a stable UUIDv5 from the lowercase email
-address. The flag source reads the supplied operator UUID, email, and optional
-display name. It rejects a missing email, an invalid UUID, or an all-zero UUID.
-Both sources record the actor kind as `operator`.
+Git identity uses the configured name and email address. Explicit operator
+identity uses a UUID, email address, and optional display name. Service identity
+uses a service name and optional session identifier. Tack prefers service
+identity, then explicit operator identity, then Git identity. A session
+identifier requires a service name.
 
-The service source derives a stable UUIDv5 from the supplied service name and
-records the actor kind as `service`. It records a session identifier when the
-caller supplies one. The identity selector prefers a service name, then an
-operator UUID, then global Git configuration. A session identifier without a
-service name causes an error.
-
-The Git, flag, and service sources supply identity rather than environment
-variables or server configuration fields. The command gate depends on the
-identity interface. Source selection remains separate from command execution.
+Tack rejects explicit operator identities with a missing email address or an
+invalid or all-zero UUID.
 
 ## Attribution
 
-Operator events include the resolved actor, identity source, operation identifier,
-and request correlation. A service event can also identify an accountable human
-operator. That pairing requires the operator UUID, email, and service session
-identifier. It does not establish an authorization grant.
+Operator events record the resolved actor, identity source, operation identifier,
+and request correlation. Service events can also identify an accountable human
+operator through an operator UUID, email address, and service session identifier.
+This attribution does not grant permission to perform an action.
 
-The recorded source distinguishes Git, flag, and service assertions. A verified
-identity would require authentication evidence beyond those assertions. Tack
-does not currently implement an operator identity source that verifies an OpenID
-Connect token.
+Recorded identity sources distinguish Git, flag, and service assertions.
+Verified identity requires authentication evidence beyond these assertions.
+Tack does not currently verify operator identity through an OpenID Connect token.
