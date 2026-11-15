@@ -5,14 +5,15 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// TestRuntimeAuditReadRecordingFailure cancels the request before the outbox transaction.
-func TestRuntimeAuditReadRecordingFailure(t *testing.T) {
+// TestRuntimeAuditCancelledProductRead checks the response after cancellation.
+func TestRuntimeAuditCancelledProductRead(t *testing.T) {
 	server := startPublicServer(t, nil)
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
@@ -32,6 +33,9 @@ func TestRuntimeAuditReadRecordingFailure(t *testing.T) {
 	telemetry.RequestLogger(handler).ServeHTTP(response, request)
 	if response.Code != http.StatusServiceUnavailable {
 		t.Fatalf("response status = %d, want 503", response.Code)
+	}
+	if strings.Contains(response.Body.String(), `"result"`) {
+		t.Fatalf("cancelled read returned a result: %s", response.Body.String())
 	}
 }
 
