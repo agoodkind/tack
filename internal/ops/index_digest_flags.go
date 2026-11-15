@@ -10,16 +10,18 @@ import (
 	"strings"
 )
 
-// indexDigestPattern accepts SHA-256 index digests with lowercase hexadecimal digits.
+// indexDigestPattern accepts lowercase hexadecimal SHA-256 index digests.
 var indexDigestPattern = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
 
-// deployIndexDigests maps each service to the index digest its replicas must run.
+var errDeployDigestFlags = errors.New("invalid deployment digest flags")
+
+// deployIndexDigests maps each service to its required index digest.
 // A nil map selects the local tag comparison.
 type deployIndexDigests map[string]string
 
-// parseDeployIndexDigests validates digest flags before the command reads the daemon.
-// Empty flags select local tag comparison. Verification that includes audit-consumer
-// requires both flags. App-only verification rejects the consumer digest flag.
+// parseDeployIndexDigests validates flags before the command reads the daemon.
+// Empty flags select local tag comparison. Checks that include audit-consumer
+// require both flags. App-only checks reject the consumer digest flag.
 func parseDeployIndexDigests(
 	ctx context.Context,
 	server string,
@@ -62,7 +64,11 @@ func parseDeployIndexDigests(
 	}
 
 	if len(problems) > 0 {
-		err := errors.New("ops deploy verify: " + strings.Join(problems, "; "))
+		err := fmt.Errorf(
+			"ops deploy verify: %s: %w",
+			strings.Join(problems, "; "),
+			errDeployDigestFlags,
+		)
 		slog.ErrorContext(
 			ctx,
 			"ops.deploy.verify.digest_flags_invalid",

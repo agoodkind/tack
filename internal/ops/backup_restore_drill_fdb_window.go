@@ -1,17 +1,22 @@
-// These parsers read the restorable window from fdbbackup describe output.
-
 package ops
 
 import (
 	"errors"
 	"fmt"
+	"log/slog"
 	"strconv"
 	"strings"
 	"time"
 )
 
-// fdbRestorableWindow is the time range available for a continuous backup restore.
-// Read it before each restore because backup writes and expiration change its bounds.
+var (
+	errFDBVersion      = errors.New("fdbbackup describe line does not contain a positive version")
+	errFDBMissingBound = errors.New("fdbbackup describe does not include a bound line")
+	errFDBTimestamp    = errors.New("fdbbackup describe line does not contain a valid timestamp")
+)
+
+// fdbRestorableWindow is the time range for a continuous backup restore.
+// Read it before each restore because writes and expiration change its bounds.
 type fdbRestorableWindow struct {
 	Min time.Time `json:"min"`
 	Max time.Time `json:"max"`
@@ -29,8 +34,8 @@ const (
 
 // fdbRestorableWindowFromDescribe reads the window from
 // fdbbackup describe --version-timestamps. Invalid or missing bounds must stop
-// the restore rather than restore the latest data instead of the requested time.
-// Do not log raw output: it includes the destination URL and blobstore credentials.
+// the restore rather than restore the latest data, not the requested time.
+// Do not log raw output: it includes the URL and blobstore credentials.
 // Errors quote only window lines, which do not include credentials.
 func fdbRestorableWindowFromDescribe(describe string) (fdbRestorableWindow, error) {
 	if !describeReportsRestorable(describe) {
@@ -111,7 +116,7 @@ func fdbRestorableVersionsFromDescribe(describe string) (fdbRestorableVersions, 
 	return fdbRestorableVersions{MinVersion: minVersion, MaxVersion: maxVersion}, nil
 }
 
-// fdbDescribeVersion reads the integer before the parenthesis on a describe line.
+// fdbDescribeVersion reads the integer before the parenthesis on a line.
 // Without --version-timestamps, fdbbackup prints a relative value such as
 // "(maxLogEnd -0.53 days)" or "(unknown)" after the version.
 func fdbDescribeVersion(describe string, label string) (int64, error) {
@@ -124,16 +129,25 @@ func fdbDescribeVersion(describe string, label string) (int64, error) {
 		rawVersion, _, _ := strings.Cut(value, "(")
 		version, err := strconv.ParseInt(strings.TrimSpace(rawVersion), 10, 64)
 		if err != nil || version <= 0 {
-			return 0, fmt.Errorf(
-				"fdbbackup describe line %q does not contain a positive version",
-				strings.TrimSpace(line),
-			)
+			slog.Error("backup.fdb.version_invalid", slog.Any("err", errFDBVersion))
+
+			return 0, fmt.Errorf("%w: %q", errFDBVersion, strings.TrimSpace(line))
 		}
 
 		return version, nil
 	}
 
-	return 0, fmt.Errorf("fdbbackup describe does not include a %s line", label)
+	slog.Error(
+		"backup.fdb.bound_missing",
+		slog.Any("err", errFDBMissingBound),
+		slog.String("label", label),
+	)
+
+	return 0, fmt.Errorf(
+		"fdbbackup describe does not include a %s line: %w",
+		label,
+		errFDBMissingBound,
+	)
 }
 
 // fdbDescribeTimestamp reads a parenthesized timestamp. It rejects relative
@@ -149,9 +163,11 @@ func fdbDescribeTimestamp(describe string, label string) (time.Time, error) {
 		openIndex := strings.Index(trimmed, "(")
 		closeIndex := strings.LastIndex(trimmed, ")")
 		if openIndex < 0 || closeIndex < openIndex {
+			slog.Error("backup.fdb.timestamp_invalid", slog.Any("err", errFDBTimestamp))
+
 			return time.Time{}, fmt.Errorf(
-				"fdbbackup describe line %q does not contain a valid timestamp;"+
-					" describe needs --version-timestamps and a source cluster file",
+				"%w: %q; describe needs --version-timestamps and a source cluster file",
+				errFDBTimestamp,
 				trimmed,
 			)
 		}
@@ -170,5 +186,15 @@ func fdbDescribeTimestamp(describe string, label string) (time.Time, error) {
 		return at, nil
 	}
 
-	return time.Time{}, fmt.Errorf("fdbbackup describe does not include a %s line", label)
+	slog.Error(
+		"backup.fdb.bound_missing",
+		slog.Any("err", errFDBMissingBound),
+		slog.String("label", label),
+	)
+
+	return time.Time{}, fmt.Errorf(
+		"fdbbackup describe does not include a %s line: %w",
+		label,
+		errFDBMissingBound,
+	)
 }

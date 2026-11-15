@@ -8,7 +8,11 @@ type Arg[OperationInput Input] struct {
 }
 
 // StringArg defines a required positional string argument.
-func StringArg[OperationInput Input](name, description string, set func(*OperationInput, string)) Arg[OperationInput] {
+func StringArg[OperationInput Input](
+	name string,
+	description string,
+	set func(*OperationInput, string),
+) Arg[OperationInput] {
 	return Arg[OperationInput]{Name: name, Description: description, bind: set}
 }
 

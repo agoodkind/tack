@@ -24,11 +24,17 @@ func TestParseFDBRestoreExitRejectsUnreadableStatus(t *testing.T) {
 
 // TestParseFDBRestoreExitReadsTheProbe checks running and exited probe responses.
 func TestParseFDBRestoreExitReadsTheProbe(t *testing.T) {
-	if code, restoreFinished, err := parseFDBRestoreExit("running\n"); err != nil || restoreFinished || code != 0 {
+	if code, restoreFinished, err := parseFDBRestoreExit(
+		"running\n",
+	); err != nil || restoreFinished ||
+		code != 0 {
 		t.Fatalf("running probe = (%d, %v, %v), want (0, false, nil)", code, restoreFinished, err)
 	}
 
-	if code, restoreFinished, err := parseFDBRestoreExit("exited 3\n"); err != nil || !restoreFinished || code != 3 {
+	if code, restoreFinished, err := parseFDBRestoreExit(
+		"exited 3\n",
+	); err != nil || !restoreFinished ||
+		code != 3 {
 		t.Fatalf("exited probe = (%d, %v, %v), want (3, true, nil)", code, restoreFinished, err)
 	}
 }

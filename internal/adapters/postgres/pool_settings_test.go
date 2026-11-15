@@ -24,18 +24,27 @@ func TestPoolConfigConsumesConnectTimeoutWithoutForwardingItToTheServer(t *testi
 		},
 	}
 	for _, testCase := range testCases {
-		t.Run(testCase.name, func(t *testing.T) {
-			configuration := configuredPool(t, testCase.dsn)
-			if configuration.ConnConfig.ConnectTimeout != 2*time.Second {
-				t.Fatalf("ConnectTimeout = %s, want %s", configuration.ConnConfig.ConnectTimeout, 2*time.Second)
-			}
-			for name, value := range configuration.ConnConfig.RuntimeParams {
-				t.Errorf("driver sent DSN key %q=%q as a server startup parameter", name, value)
-			}
-			if len(configuration.ConnConfig.Fallbacks) != 2 {
-				t.Fatalf("fallback hosts = %d, want 2", len(configuration.ConnConfig.Fallbacks))
-			}
-		})
+		t.Run(
+			testCase.name,
+			func(t *testing.T) {
+				configuration := configuredPool(t, testCase.dsn)
+				if configuration.ConnConfig.ConnectTimeout != 2*time.Second {
+					t.Fatalf(
+						"ConnectTimeout = %s, want %s",
+						configuration.ConnConfig.ConnectTimeout,
+						2*time.Second,
+					)
+				}
+
+				for name, value := range configuration.ConnConfig.RuntimeParams {
+					t.Errorf("driver sent DSN key %q=%q as a server startup parameter", name, value)
+				}
+
+				if len(configuration.ConnConfig.Fallbacks) != 2 {
+					t.Fatalf("fallback hosts = %d, want 2", len(configuration.ConnConfig.Fallbacks))
+				}
+			},
+		)
 	}
 }
 
@@ -47,14 +56,27 @@ func TestPoolConfigBoundsTheFullPoolWalkUnderTheHealthDeadline(t *testing.T) {
 	if configuration.PingTimeout <= 0 {
 		t.Fatal("PingTimeout is unset; silent connections use the caller deadline")
 	}
+
 	if configuration.PingTimeout != acquirePingTimeoutFor(configuration.MaxConns) {
-		t.Fatalf("PingTimeout = %s, want %s for a pool of %d", configuration.PingTimeout,
-			acquirePingTimeoutFor(configuration.MaxConns), configuration.MaxConns)
+		t.Fatalf(
+			"PingTimeout = %s, want %s for a pool of %d",
+			configuration.PingTimeout,
+			acquirePingTimeoutFor(configuration.MaxConns),
+			configuration.MaxConns,
+		)
 	}
-	if walk := time.Duration(configuration.MaxConns) * configuration.PingTimeout; walk > acquireWalkBudget {
-		t.Fatalf("scanning all %d dead connections takes %s, past the %s scan budget",
-			configuration.MaxConns, walk, acquireWalkBudget)
+
+	if walk := time.Duration(
+		configuration.MaxConns,
+	) * configuration.PingTimeout; walk > acquireWalkBudget {
+		t.Fatalf(
+			"scanning all %d dead connections takes %s, past the %s scan budget",
+			configuration.MaxConns,
+			walk,
+			acquireWalkBudget,
+		)
 	}
+
 	// Small pools use the ceiling, larger pools divide the budget, and the
 	// largest pools use the floor.
 	for _, testCase := range []struct {
@@ -68,12 +90,23 @@ func TestPoolConfigBoundsTheFullPoolWalkUnderTheHealthDeadline(t *testing.T) {
 		{maxConns: 128, want: acquirePingFloor},
 	} {
 		if got := acquirePingTimeoutFor(testCase.maxConns); got != testCase.want {
-			t.Errorf("acquirePingTimeoutFor(%d) = %s, want %s", testCase.maxConns, got, testCase.want)
+			t.Errorf(
+				"acquirePingTimeoutFor(%d) = %s, want %s",
+				testCase.maxConns,
+				got,
+				testCase.want,
+			)
 		}
+
 		if walk := time.Duration(testCase.maxConns) * acquirePingTimeoutFor(
 			testCase.maxConns,
 		); testCase.maxConns <= 64 && walk > acquireWalkBudget {
-			t.Errorf("pool of %d scans dead connections in %s, past the %s budget", testCase.maxConns, walk, acquireWalkBudget)
+			t.Errorf(
+				"pool of %d scans dead connections in %s, past the %s budget",
+				testCase.maxConns,
+				walk,
+				acquireWalkBudget,
+			)
 		}
 	}
 }

@@ -136,7 +136,11 @@ func TestBackupStalenessAlarmInterleavedSavesPreserveBothWrites(t *testing.T) {
 
 	alarmed, found := alarmedBackupMetrics(t, cfg)
 	if !found || len(alarmed) != 1 || !alarmed[backupStalenessRehearsalName].Equal(at) {
-		t.Fatalf("the state must match the last committed save, found = %v state = %v", found, alarmed)
+		t.Fatalf(
+			"the state must match the last committed save, found = %v state = %v",
+			found,
+			alarmed,
+		)
 	}
 
 	entries, err := os.ReadDir(cfg.BackupRoot)

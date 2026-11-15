@@ -26,16 +26,19 @@ func newBlackHoleListener(t *testing.T) *blackHoleListener {
 	if err != nil {
 		t.Fatalf("listen: %v", err)
 	}
+
 	blackHole := &blackHoleListener{listener: listener}
 	go blackHole.serve()
 	t.Cleanup(func() {
 		_ = listener.Close()
 		blackHole.mu.Lock()
 		defer blackHole.mu.Unlock()
+
 		for _, connection := range blackHole.accepted {
 			_ = connection.Close()
 		}
 	})
+
 	return blackHole
 }
 
@@ -45,6 +48,7 @@ func (listener *blackHoleListener) serve() {
 		if err != nil {
 			return
 		}
+
 		listener.mu.Lock()
 		listener.accepted = append(listener.accepted, connection)
 		listener.mu.Unlock()
@@ -58,6 +62,7 @@ func (listener *blackHoleListener) addr() string {
 func (listener *blackHoleListener) acceptedCount() int {
 	listener.mu.Lock()
 	defer listener.mu.Unlock()
+
 	return len(listener.accepted)
 }
 
@@ -65,7 +70,8 @@ func (listener *blackHoleListener) acceptedCount() int {
 func deployDSN(connectTimeoutSeconds int, hosts ...string) string {
 	return fmt.Sprintf(
 		"postgres://tack@%s/tack?sslmode=disable&connect_timeout=%d",
-		strings.Join(hosts, ","), connectTimeoutSeconds,
+		strings.Join(hosts, ","),
+		connectTimeoutSeconds,
 	)
 }
 
@@ -82,7 +88,9 @@ func configuredPool(t *testing.T, dsn string) *pgxpool.Config {
 	if err != nil {
 		t.Fatalf("parse %q: %v", dsn, err)
 	}
+
 	applyPoolSettings(configuration, nil)
+
 	return configuration
 }
 
@@ -99,13 +107,16 @@ func TestNewPoolConnectsToASurvivingHostWhenTheFirstBlackHoles(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open pool across an unresponsive first host: %v", err)
 	}
+
 	defer pool.Close()
 	if elapsed > 5*time.Second {
 		t.Fatalf("pool connected to a surviving host after %s, want at most five seconds", elapsed)
 	}
+
 	if blackHole.acceptedCount() == 0 {
 		t.Fatal("pool did not dial the unresponsive host; failover did not run")
 	}
+
 	if err := pool.Ping(ctx); err != nil {
 		t.Fatalf("ping the surviving host: %v", err)
 	}
@@ -126,12 +137,18 @@ func openPoolAcrossBlackHole(
 	live := newFakeLedger(t)
 	openContext, cancelOpen := context.WithTimeout(context.Background(), 30*time.Second)
 	t.Cleanup(cancelOpen)
-	pool, err := NewPool(openContext, fakeLedgerDSN(connectTimeoutSeconds, blackHole.addr(), live.addr()), nil)
+	pool, err := NewPool(
+		openContext,
+		fakeLedgerDSN(connectTimeoutSeconds, blackHole.addr(), live.addr()),
+		nil,
+	)
 	if err != nil {
 		t.Fatalf("open pool across an unresponsive first host: %v", err)
 	}
+
 	t.Cleanup(pool.Close)
 	pool.Reset()
+
 	return pool, blackHole
 }
 
@@ -148,9 +165,15 @@ func TestPoolPingConnectsToASurvivingHostInsideTheHealthDeadline(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ping across an unresponsive first host after %s: %v", elapsed, err)
 	}
+
 	if elapsed >= healthProbeDeadline {
-		t.Fatalf("ping answered after %s, want inside the %s health deadline", elapsed, healthProbeDeadline)
+		t.Fatalf(
+			"ping answered after %s, want inside the %s health deadline",
+			elapsed,
+			healthProbeDeadline,
+		)
 	}
+
 	if blackHole.acceptedCount() == dialsBefore {
 		t.Fatal("pool did not dial the unresponsive host; the health probe dial did not run")
 	}

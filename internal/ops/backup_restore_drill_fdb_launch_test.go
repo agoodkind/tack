@@ -94,7 +94,10 @@ func TestLaunchFDBRestoreAbortsWhenTheStaleStatusCannotBeCleared(t *testing.T) {
 
 	canary := filepath.Join(fixture.dir, "canary")
 
-	argv := fdbRestoreLaunchArgv(fixture.files, []string{"sh", "-c", "printf started >\"$1\"", "restore-canary", canary})
+	argv := fdbRestoreLaunchArgv(
+		fixture.files,
+		[]string{"sh", "-c", "printf started >\"$1\"", "restore-canary", canary},
+	)
 
 	output, err := exec.CommandContext(t.Context(), argv[0], argv[1:]...).CombinedOutput()
 	if err == nil {
@@ -131,7 +134,11 @@ func TestFDBRestoreCommandPreservesTheDestination(t *testing.T) {
 		if argument == "-r" && argumentIndex+1 < len(command) {
 			found = true
 			if command[argumentIndex+1] != dest {
-				t.Fatalf("-r argument = %q, want the destination unaltered %q", command[argumentIndex+1], dest)
+				t.Fatalf(
+					"-r argument = %q, want the destination unaltered %q",
+					command[argumentIndex+1],
+					dest,
+				)
 			}
 		}
 	}
@@ -166,11 +173,7 @@ func TestLaunchArgvRunsTheBuiltRestoreVector(t *testing.T) {
 
 	for _, want := range []string{"--timestamp", "2026/08/30.01:05:00+0000", "--orig-cluster-file"} {
 		if !slices.Contains(argv, want) {
-			t.Fatalf(
-				"the launched command omitted target argument %q: %q",
-				want,
-				argv,
-			)
+			t.Fatalf("the launched command omitted target argument %q: %q", want, argv)
 		}
 	}
 }

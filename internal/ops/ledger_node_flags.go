@@ -16,7 +16,7 @@ import (
 )
 
 const (
-	// ledgerTserverFlagFile specifies the flag file path inside the ledger container.
+	// ledgerTserverFlagFile specifies the ledger container's flag file path.
 	ledgerTserverFlagFile = "/home/yugabyte/tserver.flags"
 	// ledgerTserverVarzURL specifies the tablet server's local flag endpoint.
 	// The compose service publishes the admin port on the guest. tack-ops uses
@@ -86,7 +86,8 @@ func staleLedgerNodeFlags(
 	return staleTserverFlags(parseTserverFlagFile(file.content), serverFlags), nil
 }
 
-// parseTserverFlagFile reads --name=value lines and skips blank lines and comments.
+// parseTserverFlagFile reads --name=value lines and skips blank lines
+// and comments.
 // A flag without an explicit value gets an empty string.
 func parseTserverFlagFile(content []byte) map[string]string {
 	flags := map[string]string{}
@@ -126,7 +127,8 @@ func runningTserverFlags(ctx context.Context, body []byte) (map[string]string, e
 	return flags, nil
 }
 
-// staleTserverFlags returns sorted file flags with different or missing server values.
+// staleTserverFlags returns sorted file flags that differ from server values
+// or do not exist on the server.
 func staleTserverFlags(file, serverFlags map[string]string) []string {
 	var stale []string
 

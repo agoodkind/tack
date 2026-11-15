@@ -15,7 +15,7 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// backupAlarmMemoryKey identifies the shared alarm object beside the success markers.
+// backupAlarmMemoryKey identifies the shared object for alarm state.
 const backupAlarmMemoryKey = backupStatusPrefix + "alarm-state.json"
 
 // backupAlarmMemory stores the selected state and both original copies.
@@ -194,7 +194,7 @@ func copyBackupAlarmState(state backupAlarmState) backupAlarmState {
 	return backupAlarmState{Alarmed: maps.Clone(state.Alarmed), Generation: state.Generation}
 }
 
-// sameBackupAlarms compares alarm mechanisms and acceptance times, ignoring generations.
+// sameBackupAlarms compares mechanisms and times, ignoring generations.
 func sameBackupAlarms(a, b backupAlarmState) bool {
 	return maps.EqualFunc(a.Alarmed, b.Alarmed, time.Time.Equal)
 }

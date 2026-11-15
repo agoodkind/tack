@@ -49,7 +49,12 @@ func StringParam[OperationInput Input](
 }
 
 // IntParam defines a whole-number flag.
-func IntParam[OperationInput Input](flag, description string, def int, set func(*OperationInput, int)) Param[OperationInput] {
+func IntParam[OperationInput Input](
+	flag string,
+	description string,
+	def int,
+	set func(*OperationInput, int),
+) Param[OperationInput] {
 	return Param[OperationInput]{
 		Kind:        kindInt,
 		Flag:        flag,
@@ -65,7 +70,12 @@ func IntParam[OperationInput Input](flag, description string, def int, set func(
 }
 
 // BoolParam defines a boolean flag.
-func BoolParam[OperationInput Input](flag, description string, def bool, set func(*OperationInput, bool)) Param[OperationInput] {
+func BoolParam[OperationInput Input](
+	flag string,
+	description string,
+	def bool,
+	set func(*OperationInput, bool),
+) Param[OperationInput] {
 	return Param[OperationInput]{
 		Kind:        kindBool,
 		Flag:        flag,

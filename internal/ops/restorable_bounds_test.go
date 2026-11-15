@@ -27,9 +27,13 @@ func TestFDBRestorableWindowFromDescribe(t *testing.T) {
 	wantMin := time.Date(2026, 8, 30, 1, 0, 0, 0, time.UTC)
 	wantMax := time.Date(2026, 8, 30, 1, 10, 3, 0, time.UTC)
 	if !window.Min.Equal(wantMin) || !window.Max.Equal(wantMax) {
-		t.Fatalf("window = %s .. %s, want %s .. %s",
-			formatFDBTime(window.Min), formatFDBTime(window.Max),
-			formatFDBTime(wantMin), formatFDBTime(wantMax))
+		t.Fatalf(
+			"window = %s .. %s, want %s .. %s",
+			formatFDBTime(window.Min),
+			formatFDBTime(window.Max),
+			formatFDBTime(wantMin),
+			formatFDBTime(wantMax),
+		)
 	}
 }
 
@@ -76,15 +80,19 @@ func TestFDBRestorableWindowRejectsUnusableDescribe(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			_, err := fdbRestorableWindowFromDescribe(test.describe)
-			if err == nil {
-				t.Fatal("parser accepted invalid describe output")
-			}
-			if !strings.Contains(err.Error(), test.want) {
-				t.Fatalf("error must include %q: %v", test.want, err)
-			}
-		})
+		t.Run(
+			test.name,
+			func(t *testing.T) {
+				_, err := fdbRestorableWindowFromDescribe(test.describe)
+				if err == nil {
+					t.Fatal("parser accepted invalid describe output")
+				}
+
+				if !strings.Contains(err.Error(), test.want) {
+					t.Fatalf("error must include %q: %v", test.want, err)
+				}
+			},
+		)
 	}
 }
 
@@ -95,7 +103,11 @@ func TestAssertTargetWithinWindowAcceptsTheWindowAndItsEdges(t *testing.T) {
 	}
 	for _, target := range []time.Time{window.Min, window.Max, window.Min.Add(time.Minute)} {
 		if err := assertTargetWithinWindow(target, window); err != nil {
-			t.Fatalf("target %s inside the window failed validation: %v", formatFDBTime(target), err)
+			t.Fatalf(
+				"target %s inside the window failed validation: %v",
+				formatFDBTime(target),
+				err,
+			)
 		}
 	}
 }
@@ -107,21 +119,48 @@ func TestAssertTargetWithinWindowRejectsOutsideAndReportsBounds(t *testing.T) {
 		Min: time.Date(2026, 8, 30, 1, 0, 0, 0, time.UTC),
 		Max: time.Date(2026, 8, 30, 1, 10, 3, 0, time.UTC),
 	}
+
 	tests := map[string]time.Time{
-		"validation rejects a target before the window": time.Date(2026, 8, 29, 23, 0, 0, 0, time.UTC),
-		"validation rejects a target after the window":  time.Date(2026, 8, 30, 2, 0, 0, 0, time.UTC),
+		"validation rejects a target before the window": time.Date(
+			2026,
+			8,
+			29,
+			23,
+			0,
+			0,
+			0,
+			time.UTC,
+		),
+		"validation rejects a target after the window": time.Date(
+			2026,
+			8,
+			30,
+			2,
+			0,
+			0,
+			0,
+			time.UTC,
+		),
 	}
 	for name, target := range tests {
-		t.Run(name, func(t *testing.T) {
-			err := assertTargetWithinWindow(target, window)
-			if err == nil {
-				t.Fatal("validation accepted a target outside the restorable window")
-			}
-			for _, want := range []string{formatFDBTime(target), formatFDBTime(window.Min), formatFDBTime(window.Max)} {
-				if !strings.Contains(err.Error(), want) {
-					t.Fatalf("error must include time %q: %v", want, err)
+		t.Run(
+			name,
+			func(t *testing.T) {
+				err := assertTargetWithinWindow(target, window)
+				if err == nil {
+					t.Fatal("validation accepted a target outside the restorable window")
 				}
-			}
-		})
+
+				for _, want := range []string{
+					formatFDBTime(target),
+					formatFDBTime(window.Min),
+					formatFDBTime(window.Max),
+				} {
+					if !strings.Contains(err.Error(), want) {
+						t.Fatalf("error must include time %q: %v", want, err)
+					}
+				}
+			},
+		)
 	}
 }

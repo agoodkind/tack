@@ -20,7 +20,8 @@ type ybScratchReading struct {
 	readErr  string
 }
 
-// readYBScratch checks container state, failure, readiness, and progress in order.
+// readYBScratch checks container state, failure, readiness, and progress
+// in order.
 // Container exit and permanent failure end the poll before the readiness check.
 // A successful readiness check ends the poll before the progress check.
 func readYBScratch(

@@ -1,10 +1,11 @@
 // Index verification compares each running container's image index descriptor
-// with the expected digest from the build workflow, not a daemon-derived tag value.
+// with the expected build workflow digest, not a daemon-derived tag value.
 
 package ops
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -14,17 +15,20 @@ import (
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 )
 
+var errDeployIndexMismatch = errors.New("deployment image index mismatch")
+
 const (
 	// ContainerdSnapshotterDriverType identifies the containerd image store,
 	// which records the index digest in the image descriptor.
 	ContainerdSnapshotterDriverType = "io.containerd.snapshotter.v1"
-	// ImageStoreDriverTypeKey specifies the DriverStatus key for the image store driver type.
+	// ImageStoreDriverTypeKey specifies the DriverStatus key for
+	// the image store driver type.
 	ImageStoreDriverTypeKey = "driver-type"
-	// dockerManifestListMediaType identifies the Docker multi-platform manifest list.
+	// dockerManifestListMediaType identifies Docker's manifest list format.
 	dockerManifestListMediaType = "application/vnd.docker.distribution.manifest.list.v2+json"
 )
 
-// imageStoreDriverType returns the driver-type entry or an empty string if absent.
+// imageStoreDriverType returns the driver-type entry or an empty string.
 func imageStoreDriverType(status [][2]string) string {
 	for _, entry := range status {
 		if entry[0] == ImageStoreDriverTypeKey {
@@ -35,7 +39,8 @@ func imageStoreDriverType(status [][2]string) string {
 	return ""
 }
 
-// requireContainerdImageStore rejects image stores other than the containerd snapshotter.
+// requireContainerdImageStore rejects stores other than the
+// containerd snapshotter.
 func requireContainerdImageStore(ctx context.Context, status [][2]string) error {
 	driverType := imageStoreDriverType(status)
 	if driverType == ContainerdSnapshotterDriverType {
@@ -88,7 +93,8 @@ func requireIndexDescriptor(ctx context.Context, given string, imageReading inde
 	}
 
 	err := fmt.Errorf(
-		"deploy verify: %s on %s (given=%s driver-type=%s container.Image=%s descriptor.digest=%q descriptor.mediaType=%q image.Id=%s repoDigests=%v)",
+		"deploy verify: %s on %s (given=%s driver-type=%s container.Image=%s "+
+			"descriptor.digest=%q descriptor.mediaType=%q image.Id=%s repoDigests=%v): %w",
 		reason,
 		container,
 		given,
@@ -98,6 +104,7 @@ func requireIndexDescriptor(ctx context.Context, given string, imageReading inde
 		mediaType,
 		inspected.ID,
 		inspected.RepoDigests,
+		errDeployIndexMismatch,
 	)
 	slog.ErrorContext(
 		ctx,
@@ -109,9 +116,9 @@ func requireIndexDescriptor(ctx context.Context, given string, imageReading inde
 	return err
 }
 
-// verifyIndexDigests reads the image store once and inspects each container's image
-// by its image ID. It compares each index descriptor with the expected digest and
-// returns one result line per container.
+// verifyIndexDigests reads the image store once and inspects each image by ID.
+// It compares each index descriptor with the expected digest and returns
+// one result line per container.
 func verifyIndexDigests(
 	ctx context.Context,
 	cli *client.Client,
@@ -121,6 +128,7 @@ func verifyIndexDigests(
 	info, err := cli.Info(ctx, client.InfoOptions{})
 	if err != nil {
 		slog.ErrorContext(ctx, "ops.deploy.verify.info_failed", slog.String("err", err.Error()))
+
 		return nil, fmt.Errorf("read the daemon image store: %w", err)
 	}
 

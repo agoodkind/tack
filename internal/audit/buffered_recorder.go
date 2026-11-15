@@ -13,7 +13,8 @@ import (
 	"time"
 )
 
-// BufferedConfig configures the buffered recorder's capacity and batch delivery.
+// BufferedConfig configures the buffered recorder's capacity and
+// batch delivery.
 // The constructor uses the default for each field with a nonpositive value.
 type BufferedConfig struct {
 	// Capacity limits the total queued and retained undelivered events.

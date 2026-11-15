@@ -26,6 +26,7 @@ func newFakeLedger(t *testing.T) *fakeLedger {
 	if err != nil {
 		t.Fatalf("listen: %v", err)
 	}
+
 	ledger := &fakeLedger{
 		listener: listener,
 		silent:   make(chan struct{}),
@@ -33,6 +34,7 @@ func newFakeLedger(t *testing.T) *fakeLedger {
 	}
 	go ledger.serve()
 	t.Cleanup(ledger.shutdown)
+
 	return ledger
 }
 
@@ -43,9 +45,11 @@ func (ledger *fakeLedger) shutdown() {
 	_ = ledger.listener.Close()
 	ledger.mu.Lock()
 	defer ledger.mu.Unlock()
+
 	for _, connection := range ledger.accepted {
 		_ = connection.Close()
 	}
+
 	ledger.accepted = nil
 }
 
@@ -72,6 +76,7 @@ func (ledger *fakeLedger) serve() {
 		if err != nil {
 			return
 		}
+
 		ledger.mu.Lock()
 		ledger.accepted = append(ledger.accepted, connection)
 		ledger.mu.Unlock()
@@ -85,30 +90,46 @@ func (ledger *fakeLedger) serveConnection(connection net.Conn) {
 	if _, err := backend.ReceiveStartupMessage(); err != nil {
 		return
 	}
+
 	if ledger.isSilent() {
 		<-ledger.done
+
 		return
 	}
+
 	backend.Send(&pgproto3.AuthenticationOk{})
-	backend.Send(&pgproto3.ParameterStatus{Name: "client_encoding", Value: "UTF8"})
-	backend.Send(&pgproto3.ParameterStatus{Name: "standard_conforming_strings", Value: "on"})
-	backend.Send(&pgproto3.BackendKeyData{ProcessID: 1, SecretKey: make([]byte, 4)})
+	backend.Send(&pgproto3.ParameterStatus{
+		Name:  "client_encoding",
+		Value: "UTF8",
+	})
+	backend.Send(&pgproto3.ParameterStatus{
+		Name:  "standard_conforming_strings",
+		Value: "on",
+	})
+	backend.Send(&pgproto3.BackendKeyData{
+		ProcessID: 1,
+		SecretKey: make([]byte, 4),
+	})
 	backend.Send(&pgproto3.ReadyForQuery{TxStatus: 'I'})
 	if err := backend.Flush(); err != nil {
 		return
 	}
+
 	for {
 		message, err := backend.Receive()
 		if err != nil {
 			return
 		}
+
 		switch message.(type) {
 		case *pgproto3.Query:
 			if ledger.isSilent() {
 				// Wait for shutdown without closing the socket or replying.
 				<-ledger.done
+
 				return
 			}
+
 			backend.Send(&pgproto3.RowDescription{Fields: []pgproto3.FieldDescription{}})
 			backend.Send(&pgproto3.CommandComplete{CommandTag: []byte("SELECT 0")})
 			backend.Send(&pgproto3.ReadyForQuery{TxStatus: 'I'})

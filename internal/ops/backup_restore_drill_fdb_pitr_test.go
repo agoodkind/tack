@@ -68,7 +68,10 @@ func TestFDBRestoreCommandIncludesTargetAndSourceCluster(t *testing.T) {
 	// Commands without explicit cluster-file flags use FoundationDB's default
 	// path. Mount the live source file outside that path in the temporary container.
 	if strings.Contains(fdbOrigClusterFilePath, "/etc/foundationdb/") {
-		t.Fatalf("source cluster file must not use FoundationDB's default path: %q", fdbOrigClusterFilePath)
+		t.Fatalf(
+			"source cluster file must not use FoundationDB's default path: %q",
+			fdbOrigClusterFilePath,
+		)
 	}
 }
 
@@ -87,25 +90,39 @@ func TestFDBCommandsIncludeDestinationAsSingleArgument(t *testing.T) {
 		"restore command includes destination as one argument":  restore,
 		"describe command includes destination as one argument": describe,
 	} {
-		t.Run(name, func(t *testing.T) {
-			if slices.Contains(command, "sh") || slices.Contains(command, "-c") {
-				t.Fatalf("engine command must not embed a shell program: %q", command)
-			}
+		t.Run(
+			name,
+			func(t *testing.T) {
+				if slices.Contains(command, "sh") || slices.Contains(command, "-c") {
+					t.Fatalf("engine command must not embed a shell program: %q", command)
+				}
 
-			destinationArguments := 0
-			for _, argument := range command {
-				if argument == hostileDestURL {
-					destinationArguments++
-					continue
+				destinationArguments := 0
+
+				for _, argument := range command {
+					if argument == hostileDestURL {
+						destinationArguments++
+
+						continue
+					}
+
+					if strings.Contains(argument, "printf pwned > /tmp/pwned") {
+						t.Fatalf(
+							"shell syntax appears outside the complete destination argument: %q",
+							command,
+						)
+					}
 				}
-				if strings.Contains(argument, "printf pwned > /tmp/pwned") {
-					t.Fatalf("shell syntax appears outside the complete destination argument: %q", command)
+
+				if destinationArguments != 1 {
+					t.Fatalf(
+						"destination URL appears in %d complete arguments, want 1: %q",
+						destinationArguments,
+						command,
+					)
 				}
-			}
-			if destinationArguments != 1 {
-				t.Fatalf("destination URL appears in %d complete arguments, want 1: %q", destinationArguments, command)
-			}
-		})
+			},
+		)
 	}
 }
 
@@ -113,7 +130,10 @@ func TestFDBCommandsIncludeDestinationAsSingleArgument(t *testing.T) {
 // read-only mount at the path that the restore command specifies.
 func TestFDBTargetTimeMountUsesReadOnlySourceCluster(t *testing.T) {
 	if !strings.HasSuffix(fdbOrigClusterMount, ":"+fdbOrigClusterFilePath+":ro") {
-		t.Fatalf("source cluster mount must be read-only at the specified path: %q", fdbOrigClusterMount)
+		t.Fatalf(
+			"source cluster mount must be read-only at the specified path: %q",
+			fdbOrigClusterMount,
+		)
 	}
 }
 

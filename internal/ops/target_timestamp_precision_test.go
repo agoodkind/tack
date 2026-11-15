@@ -15,9 +15,11 @@ func TestFDBRestoreCommandRejectsSubsecondTarget(t *testing.T) {
 	if err == nil {
 		t.Fatalf("restore command accepted a subsecond target: %q", got)
 	}
+
 	if got != nil {
 		t.Fatalf("refused target returned a command: %q", got)
 	}
+
 	for _, want := range []string{
 		"2026-08-30T01:05:00.9Z",
 		fdbTimestampArgForm,
@@ -33,6 +35,7 @@ func TestFDBRestoreCommandRejectsSubsecondTarget(t *testing.T) {
 // the same instant.
 func TestParseFDBTargetTime(t *testing.T) {
 	want := time.Date(2026, 8, 30, 1, 5, 0, 0, time.UTC)
+
 	tests := []struct {
 		name  string
 		input string
@@ -42,15 +45,24 @@ func TestParseFDBTargetTime(t *testing.T) {
 		{name: "parser accepts FoundationDB format", input: "2026/08/30.01:05:00+0000"},
 	}
 	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			got, err := parseFDBTargetTime(test.input)
-			if err != nil {
-				t.Fatalf("parseFDBTargetTime(%q): %v", test.input, err)
-			}
-			if !got.Equal(want) {
-				t.Fatalf("parseFDBTargetTime(%q) = %s, want %s", test.input, formatFDBTime(got), formatFDBTime(want))
-			}
-		})
+		t.Run(
+			test.name,
+			func(t *testing.T) {
+				got, err := parseFDBTargetTime(test.input)
+				if err != nil {
+					t.Fatalf("parseFDBTargetTime(%q): %v", test.input, err)
+				}
+
+				if !got.Equal(want) {
+					t.Fatalf(
+						"parseFDBTargetTime(%q) = %s, want %s",
+						test.input,
+						formatFDBTime(got),
+						formatFDBTime(want),
+					)
+				}
+			},
+		)
 	}
 }
 
@@ -73,15 +85,23 @@ func TestParseFDBTargetTimeRejectsSubsecondInput(t *testing.T) {
 		"2026-08-29T21:05:00.000000001-04:00",
 		"2026/08/30.01:05:00.9+0000",
 	} {
-		t.Run(input, func(t *testing.T) {
-			got, err := parseFDBTargetTime(input)
-			if err == nil {
-				t.Fatalf("parseFDBTargetTime(%q) = %s, want refusal of fractional seconds", input, formatFDBTime(got))
-			}
-			if !strings.Contains(err.Error(), fdbTimestampArgForm) {
-				t.Fatalf("refusal must specify the required timestamp format: %v", err)
-			}
-		})
+		t.Run(
+			input,
+			func(t *testing.T) {
+				got, err := parseFDBTargetTime(input)
+				if err == nil {
+					t.Fatalf(
+						"parseFDBTargetTime(%q) = %s, want refusal of fractional seconds",
+						input,
+						formatFDBTime(got),
+					)
+				}
+
+				if !strings.Contains(err.Error(), fdbTimestampArgForm) {
+					t.Fatalf("refusal must specify the required timestamp format: %v", err)
+				}
+			},
+		)
 	}
 }
 
@@ -92,17 +112,21 @@ func TestParseFDBTargetTimeUsesExplicitZeroTarget(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parseFDBTargetTime with an explicit zero time: %v", err)
 	}
+
 	latest, err := fdbRestoreCommand(drillDestURL, nil)
 	if err != nil {
 		t.Fatalf("fdbRestoreCommand without a target: %v", err)
 	}
+
 	explicit, err := fdbRestoreCommand(drillDestURL, &parsed)
 	if err != nil {
 		t.Fatalf("fdbRestoreCommand with an explicit zero time: %v", err)
 	}
+
 	if slices.Equal(explicit, latest) {
 		t.Fatalf("explicit zero target selected the latest-data restore: %q", explicit)
 	}
+
 	if !slices.Contains(explicit, "0001/01/01.00:00:00+0000") {
 		t.Fatalf("restore command does not include the explicit zero target: %q", explicit)
 	}

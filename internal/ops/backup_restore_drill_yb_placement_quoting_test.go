@@ -64,7 +64,11 @@ func TestYBPlacementTreatsTabletIdsAsData(t *testing.T) {
 			substitution := filepath.Join(root, "substituted")
 			backtick := filepath.Join(root, "backticked")
 			remaps := []ybTabletRemap{
-				{table: "table00", old: "old00", new: "new$(printf injected >" + substitution + ")00"},
+				{
+					table: "table00",
+					old:   "old00",
+					new:   "new$(printf injected >" + substitution + ")00",
+				},
 				{table: "table01", old: "old01", new: "new`printf injected >" + backtick + "`01"},
 			}
 

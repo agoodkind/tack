@@ -110,7 +110,8 @@ func TestOutboxReadBatchAndDelete(t *testing.T) {
 		t.Fatalf("own rows after delete = %d, want 2", len(remainingOutboxRows))
 	}
 
-	if remainingOutboxRows[0].EventID != events[0].EventID || remainingOutboxRows[1].EventID != events[2].EventID {
+	if remainingOutboxRows[0].EventID != events[0].EventID ||
+		remainingOutboxRows[1].EventID != events[2].EventID {
 		t.Fatalf(
 			"remaining event IDs = %s, %s, want %s, %s",
 			remainingOutboxRows[0].EventID,

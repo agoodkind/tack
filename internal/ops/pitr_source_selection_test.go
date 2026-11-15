@@ -29,6 +29,7 @@ func TestSelectFDBBackupSkipsTheWindowCheckByDefault(t *testing.T) {
 	if err != nil {
 		t.Fatalf("selection without a target must not check a window: %v", err)
 	}
+
 	if name != "20260830T000000Z" {
 		t.Fatalf("selection returned %q, want the newest backup's bare name", name)
 	}
@@ -68,6 +69,8 @@ func TestSelectFDBBackupChecksWindowForZeroTarget(t *testing.T) {
 		}
 	}()
 	if !windowLookupAttempted {
-		t.Fatal("selection treated the explicit zero instant as an absent target and skipped window lookup")
+		t.Fatal(
+			"selection treated the explicit zero instant as an absent target and skipped window lookup",
+		)
 	}
 }
