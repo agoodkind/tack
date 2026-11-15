@@ -15,7 +15,6 @@ import (
 	"goodkind.io/tack/internal/config"
 	"goodkind.io/tack/internal/domain/node"
 	searchdomain "goodkind.io/tack/internal/domain/search"
-	appruntime "goodkind.io/tack/internal/runtime"
 	"goodkind.io/tack/internal/service"
 )
 
@@ -95,7 +94,6 @@ func newSearchWorker(
 			Documents: adapter,
 			Rebuilds:  stores.SearchRebuilds(source),
 			Replacer:  adapter,
-			Audit:     appruntime.SearchWorkerAudit(stores),
 		},
 		source,
 		settings,

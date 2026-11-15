@@ -19,25 +19,9 @@ const maxSessionCleanupKeys = 100
 // expiry key: (family, minute, bucket, session).
 const expirySessionIDPosition = 3
 
-// BeginCleanup marks the session as closing, clears its version presence
-// entry, and records the change in one transaction. A closing session does
-// not accept a page commit. BeginCleanup returns nil for an absent or already
-// closing session and does not record changes for those sessions.
-func (s *SearchSessionStore) BeginCleanup(ctx context.Context, sessionID uuid.UUID) error {
-	return s.beginCleanup(ctx, sessionID, nil)
-}
-
-func (s *SearchSessionStore) beginCleanup(
-	ctx context.Context,
-	sessionID uuid.UUID,
-	fence fdb.Key,
-) (err error) {
+// BeginCleanup marks a session closing and removes its access-version entry.
+func (s *SearchSessionStore) BeginCleanup(ctx context.Context, sessionID uuid.UUID) (err error) {
 	defer telemetry.FDBOp(ctx, "store.search_session.begin_cleanup")(&err)
-	changes, err := beginSessionAudit(ctx, "mark search session closing", sessionID)
-	if err != nil {
-		return err
-	}
-
 	err = transactSession(
 		ctx,
 		s.db,
@@ -45,18 +29,12 @@ func (s *SearchSessionStore) beginCleanup(
 		"mark search session closing",
 		sessionID,
 		func(tr fdb.Transaction) error {
-			changes.startAttempt()
-			if fenceErr := requireRetireFence(tr, fence); fenceErr != nil {
-				return fenceErr
-			}
-
 			var stored searchSessionRecord
 			found, readErr := readSessionValue(tr, searchSessionKey(sessionID), &stored)
 			if readErr != nil || !found || stored.Closing {
 				return readErr
 			}
 
-			changes.bind(stored)
 			clearSessionVersion(tr, stored)
 			record := stored
 			record.Closing = true
@@ -67,21 +45,6 @@ func (s *SearchSessionStore) beginCleanup(
 				maxSessionHeaderBytes,
 			); writeErr != nil {
 				return writeErr
-			}
-
-			previous, current := sessionState{
-				record: stored,
-				tokens: nil,
-			}, sessionState{
-				record: record,
-				tokens: nil,
-			}
-			if recordErr := changes.recordSessionUpdate(previous, current); recordErr != nil {
-				return recordErr
-			}
-
-			if appendErr := changes.append(ctx, tr); appendErr != nil {
-				return appendErr
 			}
 
 			slog.DebugContext(
@@ -97,13 +60,11 @@ func (s *SearchSessionStore) beginCleanup(
 		return err
 	}
 
-	changes.finish(ctx)
-
 	return nil
 }
 
 // CleanupSlice deletes up to limit child records of a closing session in key
-// order and records each removed value in the same transaction. If a query
+// order in one transaction. If a query
 // token run starts within the first limit records, it also deletes the rest of
 // that run. If it deletes fewer than limit child records, it also deletes the
 // header and the expiry, presence, and version presence keys. It reports
@@ -113,15 +74,6 @@ func (s *SearchSessionStore) CleanupSlice(
 	ctx context.Context,
 	sessionID uuid.UUID,
 	limit int,
-) (bool, error) {
-	return s.cleanupSlice(ctx, sessionID, limit, nil)
-}
-
-func (s *SearchSessionStore) cleanupSlice(
-	ctx context.Context,
-	sessionID uuid.UUID,
-	limit int,
-	fence fdb.Key,
 ) (done bool, err error) {
 	defer telemetry.FDBOp(ctx, "store.search_session.cleanup")(&err)
 	if limit < 1 || limit > maxSessionCleanupKeys {
@@ -133,11 +85,6 @@ func (s *SearchSessionStore) cleanupSlice(
 		)
 	}
 
-	changes, err := beginSessionAudit(ctx, "clean up search session", sessionID)
-	if err != nil {
-		return false, err
-	}
-
 	removed := false
 	err = transactSession(
 		ctx,
@@ -147,10 +94,6 @@ func (s *SearchSessionStore) cleanupSlice(
 		sessionID,
 		func(tr fdb.Transaction) error {
 			done, removed = false, false
-			changes.startAttempt()
-			if fenceErr := requireRetireFence(tr, fence); fenceErr != nil {
-				return fenceErr
-			}
 
 			var record searchSessionRecord
 			found, readErr := readSessionValue(tr, searchSessionKey(sessionID), &record)
@@ -167,29 +110,18 @@ func (s *SearchSessionStore) cleanupSlice(
 				return errors.New("the session is not closing")
 			}
 
-			changes.bind(record)
 			children, rangeErr := readSliceChildren(tr, record, limit)
 			if rangeErr != nil {
 				return rangeErr
 			}
 
-			tokens, cleared, clearErr := changes.clearChildren(tr, record, children, limit)
+			cleared, clearErr := clearChildren(tr, record, children, limit)
 			if clearErr != nil {
 				return clearErr
 			}
 
-			state := sessionState{record: record, tokens: tokens}
 			if cleared >= limit {
-				if len(tokens) > 0 {
-					if recordErr := changes.recordSessionUpdate(
-						state,
-						sessionState{record: record, tokens: nil},
-					); recordErr != nil {
-						return recordErr
-					}
-				}
-
-				return changes.append(ctx, tr)
+				return nil
 			}
 
 			tr.Clear(fdb.Key(searchSessionExpiryKey(sessionID, record.IdleDeadline)))
@@ -197,18 +129,14 @@ func (s *SearchSessionStore) cleanupSlice(
 			clearSessionVersion(tr, record)
 			tr.Clear(fdb.Key(searchSessionKey(sessionID)))
 			done, removed = true, true
-			if recordErr := changes.recordSessionDelete(state); recordErr != nil {
-				return recordErr
-			}
 
-			return changes.append(ctx, tr)
+			return nil
 		},
 	)
 	if err != nil {
 		return false, err
 	}
 
-	changes.finish(ctx)
 	if removed {
 		telemetry.L(ctx).InfoContext(
 			ctx,

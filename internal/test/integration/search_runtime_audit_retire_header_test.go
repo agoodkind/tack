@@ -6,10 +6,17 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
 	"goodkind.io/tack/internal/clock"
 	searchdomain "goodkind.io/tack/internal/domain/search"
 	"goodkind.io/tack/internal/test/integration"
+)
+
+const (
+	invalidHeaderValue   = "{"
+	retireLoadDeadline   = time.Minute
+	retireLoadDecodeText = "decode search session value"
 )
 
 // TestSearchRuntimeAuditRetireCorruptHeaderKeepsReplacement opens a search

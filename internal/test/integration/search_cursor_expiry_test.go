@@ -9,7 +9,6 @@ import (
 
 	"github.com/google/uuid"
 	"goodkind.io/tack/internal/adapters/search"
-	"goodkind.io/tack/internal/audit"
 	"goodkind.io/tack/internal/clock"
 	"goodkind.io/tack/internal/config"
 	searchdomain "goodkind.io/tack/internal/domain/search"
@@ -75,7 +74,6 @@ func queryService(
 			),
 			Index:       fixture.Stores,
 			Generations: fixture.Stores,
-			Audit:       audit.NewBatchAppendOutbox(fixture.Stores.OpsOutbox),
 		},
 		clock.Wall{},
 		settings,

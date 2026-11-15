@@ -38,25 +38,9 @@ func TestSearchSessionAuditFitsTransactionLimits(t *testing.T) {
 		t.Fatalf("Create with %d token bytes: %v", maximumSessionTokens, err)
 	}
 	observations.requireBounded(t, "public", createSessionOperation, session.ID, 1)
-	created, mark := outboxRecordsAfter(t, stores, mark)
-	if created < minimumCreateRecords {
-		t.Fatalf(
-			"Create wrote %d outbox records, want at least %d for a multipart event",
-			created,
-			minimumCreateRecords,
-		)
-	}
 	commitWorstCasePage(t, stores, session.ID, 0)
 	commitWorstCasePage(t, stores, session.ID, 1)
 	observations.requireBounded(t, "public", commitPageOperation, session.ID, 2)
-	committed, mark := outboxRecordsAfter(t, stores, mark)
-	if committed < maximumVisitedIDs+minimumCreateRecords {
-		t.Fatalf(
-			"CommitPage wrote %d outbox records, want at least %d",
-			committed,
-			maximumVisitedIDs+minimumCreateRecords,
-		)
-	}
 	if err := store.BeginCleanup(ctx, session.ID); err != nil {
 		t.Fatalf("BeginCleanup: %v", err)
 	}
@@ -65,13 +49,6 @@ func TestSearchSessionAuditFitsTransactionLimits(t *testing.T) {
 		t.Fatalf("CleanupSlice at its bound = %t, %v, want a partly deleted session", done, err)
 	}
 	observations.requireBounded(t, "public", cleanupSliceOperation, session.ID, 1)
-	if sliced, _ := outboxRecordsAfter(t, stores, mark); sliced < minimumSliceRecords {
-		t.Fatalf(
-			"BeginCleanup and CleanupSlice wrote %d outbox records, want at least %d",
-			sliced,
-			minimumSliceRecords,
-		)
-	}
 	finishSlices(
 		t,
 		"session "+session.ID.String(),
@@ -80,7 +57,36 @@ func TestSearchSessionAuditFitsTransactionLimits(t *testing.T) {
 			return store.CleanupSlice(ctx, session.ID, maximumCleanupKeys)
 		},
 	)
+	if records, _ := outboxRecordsAfter(t, stores, mark); records != 0 {
+		t.Fatalf("session writes recorded %d compliance records", records)
+	}
 	requireWorstCaseRetirement(t, stores, observations)
+}
+
+const (
+	retiredGeneration = 1
+	retireSliceLimit  = 10
+)
+
+func beginRetiringRebuild(t *testing.T, stores *fdbadapter.Stores, index string) {
+	t.Helper()
+	ctx := integration.WithTestOperation(t, t.Context())
+	if err := stores.InitializeSearchIndex(ctx, index); err != nil {
+		t.Fatalf("record serving index %s: %v", index, err)
+	}
+	if _, err := stores.SearchRebuilds(clock.Wall{}).BeginRebuild(
+		ctx,
+		searchdomain.BeginRebuild{
+			Mode:          searchdomain.ReplacementFull,
+			PrimaryShards: 1,
+			RoutingShards: 8,
+			Replicas:      0,
+			Restored:      false,
+			Reason:        "retirement audit test",
+		},
+	); err != nil {
+		t.Fatalf("begin the replacement of index %s: %v", index, err)
+	}
 }
 
 func requireWorstCaseRetirement(

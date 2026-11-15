@@ -84,10 +84,8 @@ func (a *sessionAttempts) attributes() []slog.Attr {
 // transactSession runs apply and commits its changes, retrying retryable
 // FoundationDB errors. Each attempt uses source to measure the time
 // remaining until the context deadline and bounds its timeout by that time.
-// Expected session outcomes return without an error log. The function logs
-// at Info when recovery resolved a retirement attempt or a replacement
-// ended. A failure log reports the attempts, elapsed times, and retried
-// error codes.
+// Expected session outcomes return without an error log. A failure log
+// reports the attempts, elapsed times, and retried error codes.
 func transactSession(
 	ctx context.Context,
 	db fdb.Database,
@@ -156,15 +154,6 @@ func transactSession(
 			}
 		}
 
-		if errors.Is(err, errRetireAttemptFenced) || errors.Is(err, errRetireRebuildEnded) {
-			return retireAttemptEnded(
-				ctx,
-				operation,
-				sessionID,
-				markCommitUncertain(err, uncertain),
-			)
-		}
-
 		var databaseError fdb.Error
 		if !errors.As(err, &databaseError) {
 			return sessionFailure(
@@ -188,23 +177,6 @@ func transactSession(
 
 		attempts.retried(databaseError.Code)
 	}
-}
-
-func retireAttemptEnded(
-	ctx context.Context,
-	operation string,
-	sessionID uuid.UUID,
-	err error,
-) error {
-	slog.InfoContext(
-		ctx,
-		"search.session.retire_attempt_ended",
-		slog.String("err", err.Error()),
-		slog.String("operation", operation),
-		slog.String("session_id", sessionID.String()),
-	)
-
-	return sessionStepError{operation: operation + " for session " + sessionID.String(), err: err}
 }
 
 // commitUncertainError marks a session transaction failure after a submitted

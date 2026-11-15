@@ -27,8 +27,7 @@ func NewRoutes(requests *mcpadapter.RequestRecorder, mcpRoute, health http.Handl
 }
 
 // RouteTable returns the server's HTTP route patterns and handlers. It uses
-// mcpRoute for MCP requests and wraps health checks, diagnostics, and unmatched
-// paths with the request recorder.
+// mcpRoute for MCP requests and records requests to unmatched paths.
 func RouteTable(requests *mcpadapter.RequestRecorder, mcpRoute, health http.Handler) []Route {
 	return []Route{
 		{Pattern: "/mcp", Handler: mcpRoute},
@@ -36,7 +35,7 @@ func RouteTable(requests *mcpadapter.RequestRecorder, mcpRoute, health http.Hand
 		{Pattern: "/healthz", Handler: requests.Health(health)},
 		// Local monitoring reads the expvar counters at /debug/vars without authentication.
 		// Bind the server to localhost when the counters must remain private.
-		{Pattern: "/debug/vars", Handler: requests.Diagnostics(expvar.Handler())},
+		{Pattern: "/debug/vars", Handler: expvar.Handler()},
 		{Pattern: "/", Handler: requests.UnknownRoute()},
 	}
 }

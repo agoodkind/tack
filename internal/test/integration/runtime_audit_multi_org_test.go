@@ -49,8 +49,6 @@ func TestRuntimeAuditMultiOrganizationRead(t *testing.T) {
 		"tools/call",
 		map[string]any{"name": "tack_list_workspaces", "arguments": map[string]any{}},
 	)
-	toolsID := newRequestID(t, "multi-tools")
-	toolList := server.rpc(t, toolsID, "tools/list", map[string]any{})
 	ledger := startPublicLedger(t, server)
 	owners := identityOwners(t, server, organizations)
 
@@ -60,7 +58,6 @@ func TestRuntimeAuditMultiOrganizationRead(t *testing.T) {
 		verb      audit.Verb
 	}{
 		{workspacesID, workspaces.body, audit.VerbWorkspaceList},
-		{toolsID, toolList.body, audit.VerbMCPProtocolRead},
 	}
 	for _, current := range cases {
 		operationID := uuid.Nil

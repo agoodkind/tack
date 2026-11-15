@@ -148,11 +148,7 @@ func resumeLegacyJob(
 	}
 
 	writeLegacyJob(t, record)
-	if finished, err := env.NodeSvc.ResumeSubtreeDeletes(
-		env.Ctx,
-		0,
-		env.LedgerResumeAudit(),
-	); err != nil ||
+	if finished, err := env.NodeSvc.ResumeSubtreeDeletes(env.Ctx, 0); err != nil ||
 		finished != 1 {
 		t.Fatalf(
 			"ResumeSubtreeDeletes finished %d jobs with error %v instead of finishing one job without an error",

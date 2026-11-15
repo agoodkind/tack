@@ -1,14 +1,11 @@
 package foundationdb
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
-	"strconv"
 
 	"github.com/apple/foundationdb/bindings/go/src/fdb"
 	"github.com/apple/foundationdb/bindings/go/src/fdb/tuple"
-	"github.com/google/uuid"
 )
 
 const (
@@ -25,24 +22,24 @@ var errSessionTokensInvalid = errors.New(
 	"the stored query token chunks do not match the session header",
 )
 
-// clearChildren clears children in key order and records each removed replay and
-// visited value. After limit records, it continues only through the remaining
+// clearChildren clears children in key order. After limit records, it
+// continues only through the remaining
 // chunks of a query token run that started before that point. It clears token
 // chunks only when they match the chunk count and byte count of record. It
-// returns the cleared token bytes as one value and the number of cleared records.
-func (a *sessionAudit) clearChildren(
+// returns the number of cleared records.
+func clearChildren(
 	tr fdb.Transaction,
 	record searchSessionRecord,
 	children []fdb.KeyValue,
 	limit int,
-) (json.RawMessage, int, error) {
+) (int, error) {
 	var tokenChunks []fdb.KeyValue
 	cleared := 0
 
 	for _, child := range children {
 		unpacked, err := tuple.Unpack(stripPrefix(child.Key))
 		if err != nil || len(unpacked) <= childIdentityPosition {
-			return nil, 0, fmt.Errorf("decode child key %x of session %s", child.Key, record.ID)
+			return 0, fmt.Errorf("decode child key %x of session %s", child.Key, record.ID)
 		}
 
 		part, _ := unpacked[childPartPosition].(string)
@@ -56,32 +53,23 @@ func (a *sessionAudit) clearChildren(
 			continue
 		}
 
-		if err := a.recordChildDelete(
-			record.ID,
-			part,
-			unpacked[childIdentityPosition],
-			child.Value,
-		); err != nil {
-			return nil, 0, err
-		}
-
 		tr.Clear(child.Key)
 	}
 
 	if len(tokenChunks) == 0 {
-		return nil, cleared, nil
+		return cleared, nil
 	}
 
-	tokens, err := assembleSessionTokens(record, tokenChunks)
+	_, err := assembleSessionTokens(record, tokenChunks)
 	if err != nil {
-		return nil, 0, err
+		return 0, err
 	}
 
 	for _, chunk := range tokenChunks {
 		tr.Clear(chunk.Key)
 	}
 
-	return tokens, cleared, nil
+	return cleared, nil
 }
 
 // assembleSessionTokens joins chunks into the stored query tokens of record.
@@ -150,50 +138,4 @@ func readSliceChildren(
 	}
 
 	return children, nil
-}
-
-func (a *sessionAudit) recordChildDelete(
-	sessionID uuid.UUID,
-	part string,
-	identity tuple.TupleElement,
-	stored []byte,
-) error {
-	if part == sessionVisitedPart {
-		text, _ := identity.(string)
-		nodeID, err := uuid.Parse(text)
-		if err != nil {
-			return sessionStepError{operation: "decode visited node ID " + text, err: err}
-		}
-
-		return a.recordVisitedDelete(sessionID, nodeID)
-	}
-
-	if part != sessionReplayPart {
-		return fmt.Errorf("session %s has an unknown child part %q", sessionID, part)
-	}
-
-	version, err := replayKeyVersion(identity)
-	if err != nil {
-		return err
-	}
-
-	var replay searchReplayRecord
-	if err := json.Unmarshal(stored, &replay); err != nil {
-		return sessionStepError{
-			operation: "decode replay record of session " + sessionID.String(),
-			err:       err,
-		}
-	}
-
-	return a.recordReplayDelete(sessionID, version, replay)
-}
-
-// The tuple decoder returns int64 for a value that fits and uint64 otherwise.
-func replayKeyVersion(identity tuple.TupleElement) (uint64, error) {
-	version, err := strconv.ParseUint(fmt.Sprint(identity), 10, 64)
-	if err != nil {
-		return 0, sessionStepError{operation: "decode replay key version", err: err}
-	}
-
-	return version, nil
 }

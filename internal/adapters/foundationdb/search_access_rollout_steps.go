@@ -139,42 +139,6 @@ func (s *SearchAccessRolloutStore) BeginRetire(
 	return nil
 }
 
-// rolloutStep runs one transaction. It verifies the rollout claim and the
-// rollout step the worker read, applies step to the stored record, and
-// writes the record. step receives the verified rollout work record.
-func (s *SearchAccessRolloutStore) rolloutStep(
-	ctx context.Context,
-	work searchdomain.Work,
-	read searchdomain.AccessRollout,
-	step func(fdb.Transaction, *searchRolloutRecord, searchWorkRecord) error,
-) error {
-	return transactSearch(
-		ctx,
-		s.db,
-		func(tr fdb.Transaction) error {
-			workRecord, err := s.work.verifyClaim(ctx, tr, work)
-			if err != nil {
-				return err
-			}
-
-			record, err := readRollout(ctx, tr, work.OrgID)
-			if err != nil {
-				return err
-			}
-
-			if !record.matches(read) {
-				return searchdomain.ErrWorkChanged
-			}
-
-			if err := step(tr, &record, workRecord); err != nil {
-				return err
-			}
-
-			return writeSearchRecord(ctx, tr, searchRolloutKey(work.OrgID), record)
-		},
-	)
-}
-
 // sessionVersionPresent reads, inside tr, whether a session of authorityID
 // can still read OpenSearch under version.
 func sessionVersionPresent(

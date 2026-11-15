@@ -302,16 +302,20 @@ TACK-304.
 
 Require complete audit evidence before merging or releasing any new or changed
 operation that reads, lists, searches, exports, creates, updates, deletes, or
-otherwise processes user data. Apply this gate to public APIs, generated tools,
-operator commands, background jobs, provider hooks, and storage writers.
+otherwise processes user data. Apply this gate to person-callable public APIs, generated tools, and operator
+commands, including calls from agents and API tokens. Internal first-party code,
+autonomous jobs, internal service calls, indexing, retries, polling, health checks,
+diagnostics, and protocol discovery use operational logs instead of separate
+compliance events.
 
 Follow the [complete audit recording contract](docs/superpowers/specs/2026-10-21-audit-completeness-design.md)
 through the existing shared operation definitions, transactional outboxes, and
 permanent ledger. Apply it to custom node types and relationships.
 
 1. Record the verified actor or explicit unauthenticated identity, operation,
-   complete targets, original time, committed order, and outcome. Record the
-   initiating identity during background work, retries, and recovery. Record
+   complete targets, original time, committed order, and outcome. Retain the
+   initiating identity, operation, user-data changes, and final result when a job
+   completes user-requested work. Do not create separate internal job actions. Record
    refusals, failures, partial work, and interruptions.
 2. Record actual old and new values for every changed field and relationship,
    including removals. Commit change evidence atomically with database changes.
@@ -334,7 +338,7 @@ permanent ledger. Apply it to custom node types and relationships.
    `runtime audit coverage` check and applicable integration checks to pass before
    merge. Verify the accepted behavior on QA before production release.
 
-Do not add recording opt-outs, exclude new operations from coverage, weaken audit
+Do not add recording opt-outs, exclude person-callable operations from coverage, weaken audit
 assertions, bypass required checks, or defer recording to a follow-up ticket.
 Treat an unaudited existing implementation as a defect, not an exception to this
 gate. A healthy deployment or a passing unrelated test does not satisfy it.

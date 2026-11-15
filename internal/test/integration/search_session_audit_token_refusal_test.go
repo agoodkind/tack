@@ -11,7 +11,6 @@ import (
 	"github.com/google/uuid"
 
 	fdbadapter "goodkind.io/tack/internal/adapters/foundationdb"
-	"goodkind.io/tack/internal/audit"
 	"goodkind.io/tack/internal/clock"
 	"goodkind.io/tack/internal/test/integration"
 )
@@ -204,27 +203,7 @@ func requireChildrenKept(
 			)
 		}
 	}
-	if _, removed := sessionTokenValues(t, stores, mark, sessionID); len(removed) != 0 {
-		t.Fatalf(
-			"session %s recorded %d token removals after the refused slice, want 0",
-			sessionID,
-			len(removed),
-		)
-	}
-	for _, event := range outboxPlainEvents(t, stores, mark) {
-		target := event.Context.Target
-		if event.Verb != string(audit.VerbSearchSessionDelete) || target == nil ||
-			!strings.Contains(target.URI, sessionID.String()) {
-			continue
-		}
-		if target.NodeType == audit.TargetSearchSessionReplay ||
-			target.NodeType == audit.TargetSearchSessionVisited {
-			t.Fatalf(
-				"session %s recorded the %s delete event %s after the refused slice",
-				sessionID,
-				target.NodeType,
-				event.EventID,
-			)
-		}
+	if records, _ := outboxRecordsAfter(t, stores, mark); records != 0 {
+		t.Fatalf("refused cleanup recorded %d compliance records", records)
 	}
 }

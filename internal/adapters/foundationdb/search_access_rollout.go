@@ -144,6 +144,7 @@ func (s *SearchAccessRolloutStore) Begin(
 			), "", "", ""
 			begun.ScanComplete, begun.AffectedPass, begun.Generation, begun.PermissionEventVersion = false, false, generation, event
 			begun.InitiatedOperationID, begun.InitiatedActorID = request.Initiation.OperationID, request.Initiation.ActorID
+			begun.InitiatedOperation = request.Initiation.Operation
 			if writeErr := writeSearchRecord(
 				ctx,
 				tr,

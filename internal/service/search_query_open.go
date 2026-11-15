@@ -7,14 +7,12 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"goodkind.io/tack/internal/audit"
 	searchdomain "goodkind.io/tack/internal/domain/search"
 	"goodkind.io/tack/internal/telemetry"
 )
 
 // open creates the session of a new search and returns its first page. The
-// session ID exists before the point in time, because the audit target of the
-// point in time states that ID.
+// session ID identifies the stored query state.
 func (s *SearchQueryService) open(
 	ctx context.Context,
 	request SearchRequest,
@@ -63,72 +61,32 @@ func (s *SearchQueryService) open(
 			ctx,
 			"create search session",
 			session.ID,
-			errors.Join(err, s.closeSnapshot(ctx, session, session.Snapshot)),
+			errors.Join(err, s.closeSnapshot(ctx, session.Snapshot)),
 		)
 	}
 
 	return s.advance(ctx, created, filter)
 }
 
-// openSnapshot creates the session point in time under an audited step. It
-// deletes a partial point in time under a separate audited step. It returns
-// searchdomain.ErrEngineUnavailable for an audit write failure before Ranker.Open
-// runs or after it succeeds. If the partial point in time close error matches
-// audit.ErrEventNotRecorded, it joins the create step error,
-// searchdomain.ErrEngineUnavailable, and the close error.
 func (s *SearchQueryService) openSnapshot(
 	ctx context.Context,
 	session searchdomain.Session,
 ) (searchdomain.Snapshot, error) {
-	var none, snapshot searchdomain.Snapshot
-	var openErr error
-	planned := snapshotEvidence{SessionID: session.ID, Index: session.Query.Index, PITID: ""}
-	recordErr := s.runSnapshotStep(
-		ctx,
-		session,
-		snapshotCreate,
-		planned,
-		func(ctx context.Context) (snapshotEvidence, error) {
-			observed := planned
-			snapshot, openErr = s.ports.Ranker.Open(ctx, session.Query)
-			observed.PITID = snapshot.PITID
-			if openErr != nil {
-				return observed, snapshotStepError{err: openErr}
-			}
-
-			return observed, nil
-		},
-	)
-	if recordErr == nil {
+	snapshot, err := s.ports.Ranker.Open(ctx, session.Query)
+	if err == nil {
 		return snapshot, nil
 	}
 
-	if openErr == nil {
-		slog.ErrorContext(
-			ctx,
-			"search.snapshot.step_failed",
-			slog.String("err", recordErr.Error()),
-			slog.String("session_id", session.ID.String()),
-		)
-		closeErr := s.closeSnapshot(ctx, session, snapshot)
-
-		return none, errors.Join(searchdomain.ErrEngineUnavailable, recordErr, closeErr)
-	}
-
-	if errors.Is(openErr, searchdomain.ErrSnapshotPartial) {
-		if closeErr := s.closeSnapshot(ctx, session, snapshot); closeErr != nil {
+	if errors.Is(err, searchdomain.ErrSnapshotPartial) {
+		if closeErr := s.closeSnapshot(ctx, snapshot); closeErr != nil {
 			telemetry.L(ctx).ErrorContext(
 				ctx,
 				"search.snapshot.close_failed",
 				slog.String("err", closeErr.Error()),
 				slog.String("session_id", session.ID.String()),
 			)
-			if errors.Is(closeErr, audit.ErrEventNotRecorded) {
-				failure := errors.Join(recordErr, searchdomain.ErrEngineUnavailable, closeErr)
-				return none, failure
-			}
 		}
 	}
 
-	return none, recordErr
+	return searchdomain.Snapshot{}, queryFailure(ctx, "open search snapshot", session.ID, err)
 }

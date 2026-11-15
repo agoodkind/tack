@@ -29,7 +29,6 @@ type SearchWorkerPorts struct {
 	Documents searchdomain.DocumentAccessReader
 	Rebuilds  searchdomain.RebuildStore
 	Replacer  searchdomain.IndexReplacer
-	Audit     SearchAudit
 }
 
 // SearchWorker processes bounded durable search work of every class.
@@ -50,10 +49,6 @@ func NewSearchWorker(
 	settings config.SearchWorkerSettings,
 	offset int,
 ) (*SearchWorker, error) {
-	if ports.Audit.Outbox == nil || ports.Audit.Actor.ID == uuid.Nil {
-		return nil, errors.New("search worker: set the audit outbox and service actor")
-	}
-
 	shares, err := newClassShares(settings.ClassWeights, settings.SliceBudget, offset)
 	if err != nil {
 		return nil, err

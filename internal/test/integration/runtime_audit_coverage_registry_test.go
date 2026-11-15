@@ -39,6 +39,9 @@ func registeredOperations(t *testing.T, env *coverageEnv) []string {
 		keys = append(keys, "mcp resource "+uri)
 	}
 	for _, route := range env.server.graph.RouteTable() {
+		if route.Pattern == "/healthz" || route.Pattern == "/debug/vars" {
+			continue
+		}
 		keys = append(keys, "http route "+route.Pattern)
 	}
 	slices.Sort(keys)
