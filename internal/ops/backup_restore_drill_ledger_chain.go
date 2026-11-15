@@ -21,6 +21,8 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
+var errRestoredLedgerEmpty = errors.New("restored audit ledger does not contain rows")
+
 // drillLedgerExportFunc writes an organization's signed bundle and reports
 // exported rows. Tests can provide bundles without a restored database.
 type drillLedgerExportFunc func(ctx context.Context, orgID uuid.UUID, dir string) (int, error)
@@ -41,7 +43,10 @@ func verifyRestoredLedgerChains(
 ) error {
 	logger := telemetry.L(ctx)
 	if len(orgs) == 0 {
-		err := errors.New("restored audit ledger does not contain rows; hash-chain verification requires ledger data")
+		err := fmt.Errorf(
+			"%w; hash-chain verification requires ledger data",
+			errRestoredLedgerEmpty,
+		)
 		logger.ErrorContext(
 			ctx,
 			"backup.restore_drill.ledger_chain.failed",
