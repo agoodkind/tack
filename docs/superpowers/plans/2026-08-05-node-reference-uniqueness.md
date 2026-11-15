@@ -549,7 +549,6 @@ import (
 	"goodkind.io/tack/internal/domain/node"
 )
 
-// TestReferenceKeyRejectsASecondHolder verifies one node per template/reference.
 func TestReferenceKeyRejectsASecondHolder(t *testing.T) {
 	env := SetupTestEnv(t)
 	actor := uuid.New()
@@ -649,8 +648,6 @@ func TestReferenceKeyMovesWithTheNode(t *testing.T) {
 	}
 }
 
-// TestLookupReferenceMissReturnsNil verifies a missing claim returns nil UUID
-// without error, permitting legacy resolution fallback.
 func TestLookupReferenceMissReturnsNil(t *testing.T) {
 	env := SetupTestEnv(t)
 	holder, err := env.Stores.Nodes.LookupReference(env.Ctx, env.OrgID, "reference", "FAN-404")
@@ -673,9 +670,6 @@ undefined SetReferenceKeys before implementation.
 	// (node_reference, orgID, templateName, encodedKey) -> nodeID
 	keyNodeReference = "node_reference"
 
-	// keyNodeReferenceOwned records prior node claims for update/delete.
-	// Storage reads this reverse index without interpreting NodeType metadata.
-	// (node_reference_owned, orgID, nodeID, templateName) -> encodedKey
 	keyNodeReferenceOwned = "node_reference_owned"
 ```
 
@@ -791,7 +785,6 @@ func clearReferenceKeys(tr fdb.Transaction, orgID, nodeID uuid.UUID) error {
 	return nil
 }
 
-// SetReferenceKeys replaces every reference claim for the node.
 func (s *NodeStore) SetReferenceKeys(ctx context.Context, orgID, nodeID uuid.UUID, keys []node.ReferenceKey) (err error) {
 	defer telemetry.FDBOp(ctx, "store.node.set_reference_keys")(&err)
 	_, err = s.db.Transact(func(tr fdb.Transaction) (any, error) {
@@ -800,7 +793,6 @@ func (s *NodeStore) SetReferenceKeys(ctx context.Context, orgID, nodeID uuid.UUI
 	return
 }
 
-// LookupReference resolves one template/reference claim to its node ID.
 func (s *NodeStore) LookupReference(ctx context.Context, orgID uuid.UUID, templateName, encoded string) (id uuid.UUID, err error) {
 	defer telemetry.FDBOp(ctx, "store.node.lookup_reference")(&err)
 	value, err := s.db.ReadTransact(func(tr fdb.ReadTransaction) (any, error) {
@@ -950,7 +942,6 @@ func TestCreateAtomicRejectsADuplicateReference(t *testing.T) {
 	}
 }
 
-// TestDeleteReleasesTheReference verifies reference reuse after node deletion.
 func TestDeleteReleasesTheReference(t *testing.T) {
 	env := SetupTestEnv(t)
 	keys := []node.ReferenceKey{{TemplateName: "reference", Encoded: "FAN-55"}}

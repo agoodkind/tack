@@ -554,7 +554,6 @@ const (
 	maxListLimit     = 100
 )
 
-// pageSchemaFields declares list paging inputs.
 func pageSchemaFields() []schemaField {
 	return []schemaField{
 		{Name: "limit", Type: schemaInteger, Desc: fmt.Sprintf("Return 1 to %d rows per page. The default is %d.", maxListLimit, defaultListLimit)},
