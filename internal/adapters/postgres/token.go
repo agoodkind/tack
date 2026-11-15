@@ -24,7 +24,8 @@ func NewTokenRepo(db *pgxpool.Pool) *TokenRepo {
 }
 
 // Validate reads a raw bearer token without updating the token table.
-// The audit-consumer projects last use from the request's auth event (TACK-502).
+// The audit-consumer projects last use from the request's auth event
+// (TACK-502).
 // Missing or expired tokens return domain.ErrUnauthenticated.
 func (r *TokenRepo) Validate(ctx context.Context, raw string) (*token.Token, error) {
 	const q = `

@@ -24,7 +24,8 @@ func withAuthorization(ctx context.Context) context.Context {
 	return context.WithValue(ctx, authorizationKey{}, &authorization{granted: false})
 }
 
-// markAuthorized records a successful membership check for the returned data's org.
+// markAuthorized records a successful membership check for the returned
+// data's org.
 func markAuthorized(ctx context.Context) {
 	state, ok := ctx.Value(authorizationKey{}).(*authorization)
 	if ok {

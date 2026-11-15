@@ -76,7 +76,8 @@ func newObjectStoreBucket(ctx context.Context, containerName string) (ObjectStor
 }
 
 // createObjectStoreBucket creates bucket unless this identity already owns it.
-// The caller logs failures, including expected failures during readiness probes.
+// The caller logs failures, including expected failures during readiness
+// probes.
 func createObjectStoreBucket(ctx context.Context, s3Client *s3.Client, bucket string) error {
 	_, err := s3Client.CreateBucket(ctx, &s3.CreateBucketInput{Bucket: aws.String(bucket)})
 	var owned *s3types.BucketAlreadyOwnedByYou

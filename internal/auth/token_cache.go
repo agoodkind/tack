@@ -40,7 +40,8 @@ func (c *CachedTokenValidator) PrimeMembers(members *CachedMembers) {
 	c.members = members
 }
 
-// NewCachedTokenValidator wraps inner. A lifetime of zero or less disables caching.
+// NewCachedTokenValidator wraps inner. A lifetime of zero or less disables
+// caching.
 func NewCachedTokenValidator(
 	inner TokenValidator,
 	lifetime time.Duration,

@@ -13,7 +13,8 @@ import (
 )
 
 const (
-	// foundationDBService identifies the stack service that specifies the cluster image.
+	// foundationDBService identifies the stack service that specifies the
+	// cluster image.
 	foundationDBService = "fdb"
 	// containerClusterFile specifies where the image's entrypoint writes the
 	// server address on the engines' network.
@@ -26,6 +27,10 @@ const (
 	// fdbServerKnobPrefix starts each environment variable that fdbserver
 	// reads as a knob at startup.
 	fdbServerKnobPrefix = "FDB_KNOB_"
+)
+
+var errClusterFileDeadline = errors.New(
+	"the FoundationDB container did not write a cluster file before the deadline",
 )
 
 // provisionFoundationDB starts this process's cluster, configures it, and
@@ -96,9 +101,7 @@ func waitForClusterFile(
 		}
 
 		if !sleepOrDone(ctx) {
-			return nil, errors.New(
-				"the FoundationDB container did not write a cluster file before the deadline",
-			)
+			return nil, errClusterFileDeadline
 		}
 	}
 }

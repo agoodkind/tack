@@ -142,7 +142,8 @@ func recordResourceRead(ctx context.Context, uri string, resolver *Resolver) err
 }
 
 // readerSoleOrg returns the caller's org when membership identifies exactly
-// one. Missing dependencies, lookup errors, and other membership counts return nil.
+// one. Missing dependencies, lookup errors, and other membership counts
+// return nil.
 func readerSoleOrg(ctx context.Context, resolver *Resolver) uuid.UUID {
 	if resolver == nil || resolver.members == nil {
 		return uuid.Nil

@@ -19,7 +19,8 @@ const (
 	maxChangeLines       = 4
 )
 
-// renderWriteConfirmation renders node identity and changes within the byte limit.
+// renderWriteConfirmation renders node identity and changes within the byte
+// limit.
 // A More line reports omitted changes and the tool for reading the full node.
 // Nodes without distinct references use a shortened name in the heading.
 func renderWriteConfirmation(

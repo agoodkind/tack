@@ -59,7 +59,8 @@ type ReferenceRenderInput struct {
 
 // Render produces the template's string. It rejects missing part values to
 // prevent collisions from partially rendered references. Errors include
-// template and part context. The service logs each error with the request context.
+// template and part context. The service logs each error with the request
+// context.
 func (t ReferenceTemplate) Render(in ReferenceRenderInput) (string, error) {
 	var output strings.Builder
 

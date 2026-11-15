@@ -162,7 +162,8 @@ func waitForLedger(ctx context.Context, dsn string) error {
 }
 
 // probeLedger attempts a connection and query within a timeout. Startup
-// failures produce debug logs and return error text for the final deadline error.
+// failures produce debug logs and return error text for the final deadline
+// error.
 func probeLedger(ctx context.Context, dsn string) error {
 	probeCtx, cancel := context.WithTimeout(ctx, ledgerProbeTimeout)
 	defer cancel()
