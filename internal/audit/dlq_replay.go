@@ -105,7 +105,8 @@ func (r *Reader) SummarizeDeadLetters(ctx context.Context) ([]DeadLetterSummary,
 	return out, nil
 }
 
-// Replay republishes exact payload bytes with their original dead-letter key.
+// Replay republishes exact payload bytes with the original dead-letter row key
+// in the replay header.
 // The consumer deletes successful replays or counts failed attempts. Do not
 // validate here: the consumer must count even a still-undecodable replay.
 // Decodable payloads use the original producer's chain partition key to avoid

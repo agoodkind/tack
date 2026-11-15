@@ -17,7 +17,7 @@ const noRoleSetting = "none"
 // conflict can leave current_user as ops_outbox_owner. Later application
 // queries then fail with an insufficient-privilege error (SQLSTATE 42501,
 // TACK-583). A role mismatch or failed role check logs an error and closes
-// the connection. The pool destroys it on release. This cleanup preserves
+// the connection. The pool destroys it on release. onCheckedConnection returns
 // the call's original error and does not report a committed call as failed.
 func (l *PoolReadLifecycle) onCheckedConnection(
 	ctx context.Context,

@@ -21,7 +21,6 @@ import (
 // cancellation of a contended lock attempt.
 const beaconContendedDeadline = 3 * exportActivityRetry
 
-// descriptorGuardExports sets the repeat count for detecting descriptor growth.
 const descriptorGuardExports = 16
 
 // openDescriptorCount counts descriptor entries under the platform's fd directory.
