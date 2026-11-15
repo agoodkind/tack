@@ -192,7 +192,7 @@ Run these end-to-end checks after implementing the remediation:
 
 ## Sequencing
 
-Complete the current deploy separately: commit the YUGABYTE compose change, mirror to CT 117, retry backup, verify, and test restore. The smoke-test infrastructure does not block that deploy.
+Deploy the YUGABYTE Compose change separately from the smoke-test infrastructure. Commit the change, mirror it to CT 117, retry the backup, verify it, and test restore.
 
 Follow this sequence:
 

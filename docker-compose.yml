@@ -1,7 +1,6 @@
-# The yugabyte service and tack-ops use this ledger engine image. tack-ops
-# reads it as TACK_BACKUP_YB_IMAGE for backup tools and the restore drill's
-# temporary engine. Both use the cluster's engine version. Read the yugabyte
-# service's pin comment before changing the tag.
+# The yugabyte service uses this image. tack-ops reads the same image tag as
+# TACK_BACKUP_YB_IMAGE for backup tools and the restore drill's temporary
+# engine. Read the yugabyte service's pin comment before changing the tag.
 x-yugabyte-image: &yugabyte_image yugabytedb/yugabyte:2024.2.8.0-b85
 
 # The search client environment of the app service. Compose interpolates
@@ -391,7 +390,7 @@ services:
       KAFKA_DEFAULT_REPLICATION_FACTOR: "1"
       KAFKA_MIN_INSYNC_REPLICAS: "1"
       KAFKA_UNCLEAN_LEADER_ELECTION_ENABLE: "false"
-      # The empty default permits configuration parsing with or without the audit profile.
+      # The empty default permits Compose to parse the configuration without KAFKA_CLUSTER_ID.
       # Set KAFKA_CLUSTER_ID in .env to a kafka-storage.sh random-uuid result
       # before enabling the audit profile.
       CLUSTER_ID: ${KAFKA_CLUSTER_ID:-}

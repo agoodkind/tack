@@ -37,8 +37,8 @@ otherwise select `YBRecorder`. Delete parity tooling in
 
 TACK-295 already replaced the shell role-seeding script with
 `./server ops audit seed-roles`. It creates the LOGIN roles
-`tack_audit_writer`, `tack_audit_reader`, and `tack_audit_redactor` that configs
-uses in its DSNs.
+`tack_audit_writer`, `tack_audit_reader`, and `tack_audit_redactor` that the
+configuration files use in their DSNs.
 
 ## Assign each chain to one consumer
 
