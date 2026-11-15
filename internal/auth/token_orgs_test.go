@@ -74,8 +74,6 @@ func TestColdRequestCostsOneLedgerRead(t *testing.T) {
 	}
 }
 
-// TestColdRefusalPreservesEmptyMembershipCache checks that rejecting an unknown token
-// does not add entries to the membership cache.
 func TestColdRefusalPreservesEmptyMembershipCache(t *testing.T) {
 	store := &tokenOrgsStore{record: liveToken(nil), orgIDs: nil}
 	members := &countingMembers{orgs: map[uuid.UUID][]uuid.UUID{}}

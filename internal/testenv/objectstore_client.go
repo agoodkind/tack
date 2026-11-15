@@ -123,8 +123,9 @@ func waitForObjectStore(
 	}
 }
 
-// probeObjectStore attempts one write within a timeout. Startup failures
-// produce debug logs and return error text for the final deadline error.
+// probeObjectStore attempts one write within a timeout and logs startup
+// failures at debug level. waitForObjectStore wraps the last probe error
+// when its context ends.
 func probeObjectStore(ctx context.Context, s3Client *s3.Client) error {
 	probeCtx, cancel := context.WithTimeout(ctx, objectStoreProbeTimeout)
 	defer cancel()
