@@ -1,8 +1,30 @@
-# Operator identity
+# Operator identity and audit choke point
 
 Operator commands resolve the person or service requesting an action before
 displaying a dry run or executing the command. Installation commands require
 identity before creating audit storage.
+
+## Shared audit choke point
+
+Operator commands use one shared audit gate, or choke point, before executing
+their work. For ordinary commands, the gate determines which identity to record
+and saves the required attempt record before execution. A missing identity or a failure to save
+the required record prevents ordinary command execution.
+
+Commands declare their audited action through the shared command registry.
+Individual commands do not bypass the gate or disable recording. Commands write
+audit events to database outboxes, which store events awaiting delivery, rather
+than writing the permanent audit ledger directly.
+
+Identity lookup uses the shared `audit.OperatorIdentitySource` interface. Adding
+an identity source does not require each command to implement its own lookup.
+
+## Dry runs
+
+Without `--execute`, an audited command displays the operator identity and
+previews its action. A preview that reads system state records the access
+attempt before reading. A dry run that only prints the proposed action does not
+access system state. Both preview and execution require operator identity.
 
 ## Asserted identity
 

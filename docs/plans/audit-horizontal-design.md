@@ -966,13 +966,6 @@ investigate. Mitigation: dual-write parity gate at every wave.
 
 ---
 
-## 12. Migration path: today to N=1
-
-The Kafka cutover is complete. The [audit delivery explanation](../audit-delivery.md)
-explains the current outbox, relay, consumer, and hash-chain behavior.
-
----
-
 ## 13. Migration path: N=1 to N=many
 
 ### 13.1 Configuration changes (no code)
@@ -1133,11 +1126,3 @@ This is operations work; no code deploy required.
   section 1A: prior backups were silently empty. The same class of
   defect can recur with the broker or SeaweedFS. Each backup must have
   a restore test.
-
----
-
-## 16. Critical files
-
-The completed cutover supersedes the earlier wave-based file inventory.
-The consumer is
-`cmd/audit-consumer`, there is no shadow recorder, and there is no `events_v2`.

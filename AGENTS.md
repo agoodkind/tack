@@ -271,8 +271,9 @@ TACK-304.
    Do not create or use non-Go scripts, including temporary and standalone
    helpers, without explicit operator approval. Go implementations must pass
    this repository's canonical lint and quality checks.
-3. **Operator identity.** Keep identity pluggable through
-   `audit.OperatorIdentitySource` and preserve the shared `clispec` command gate.
+3. Keep operator identity pluggable through `audit.OperatorIdentitySource`.
+   Require every `./server ops` command to use the shared `clispec` audit gate.
+   Do not add per-command bypasses or recording opt-outs.
    Read the [operator identity explanation](docs/operator-identity-and-audit.md)
    for the current sources and attribution.
 4. **QA data-generator coverage.** Any new node type, property type,
