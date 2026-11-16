@@ -15,12 +15,9 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// The repair changes references a person may have written down, seeds the
-// counters that decide future references, and claims the keys that make a
-// reference resolvable. Each of those is a mutation the ledger has to name,
-// and the chokepoint alone names only that the command ran. Without these
-// rows a query for a repaired ticket's history returns nothing, which is the
-// hole the 2026-08-07 production repair left (TACK-448).
+// Each reference rename, counter seed, and key claim requires a ledger event.
+// The command audit records execution but does not identify these mutations
+// for queries of a repaired node's history (TACK-448).
 const (
 	referenceRepairRenameKeyPrefix  = "tack-448-rename:"
 	referenceRepairCounterKeyPrefix = "tack-448-counter:"
@@ -29,14 +26,12 @@ const (
 	referenceRepairNodeEntity       = "node"
 )
 
-// referenceRepairAuditNamespace derives one event identity per repaired fact.
-// It is distinct from the reconstruction's namespace, so a live row and a
-// reconstructed row for the same rename never collide.
+// referenceRepairAuditNamespace derives event identities independently of
+// reconstruction events to prevent collisions for the same rename.
 var referenceRepairAuditNamespace = uuid.MustParse("2b3d9a41-6c8e-5f77-9a02-7d1c4be8f5a3")
 
-// referenceRepairExtra is the payload each repair row carries. It has no
-// reconstruction flag on purpose: these rows are contemporaneous, and a
-// reader tells them from reconstructed history by that absence.
+// referenceRepairExtra records repair details. It does not include a
+// reconstruction flag; these events record changes at the time of execution.
 type referenceRepairExtra struct {
 	Class        string `json:"class"`
 	From         string `json:"from,omitempty"`
@@ -46,7 +41,7 @@ type referenceRepairExtra struct {
 	TemplateName string `json:"template,omitempty"`
 }
 
-// referenceRepairEvents builds every event the run owes the ledger.
+// referenceRepairEvents builds an event for each change in the report.
 func referenceRepairEvents(
 	ctx context.Context,
 	principal audit.OperatorPrincipal,
@@ -93,9 +88,7 @@ func referenceRepairRenameEvent(
 	occurredAt time.Time,
 ) (audit.Event, error) {
 	key := referenceRepairRenameKeyPrefix + rename.NodeID.String() + ":" + rename.From + ":" + rename.To
-	// The verb matches the one reconstructed renames carry, so a history query
-	// for a ticket answers the same way whether the rename was recorded when
-	// it happened or reconstructed afterwards.
+	// Live and reconstructed rename events use the same verb for history queries.
 	return referenceRepairEvent(
 		ctx,
 		audit.VerbNodeReferenceRename,
@@ -190,9 +183,8 @@ func referenceRepairKeyEvent(
 	)
 }
 
-// referenceRepairEvent assembles one event with an identity derived from the
-// fact it records, so a rerun over unchanged state produces the same id and
-// the ledger keeps one row.
+// referenceRepairEvent derives its event ID from the recorded change.
+// Repeating an unchanged report uses the same ID and preserves one ledger row.
 func referenceRepairEvent(
 	ctx context.Context,
 	verb audit.Verb,

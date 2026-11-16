@@ -2,7 +2,7 @@ package ops
 
 import "github.com/google/uuid"
 
-// RepairRelationshipAction names one generic relationship mutation.
+// RepairRelationshipAction specifies a relationship mutation.
 type RepairRelationshipAction string
 
 const (
@@ -12,7 +12,7 @@ const (
 	RepairRelationshipRemove RepairRelationshipAction = "remove"
 )
 
-// RepairRelationshipChange describes one relationship edge mutation in a preview.
+// RepairRelationshipChange specifies a relationship edge mutation in a preview.
 type RepairRelationshipChange struct {
 	Action       RepairRelationshipAction `json:"action"`
 	SourceID     uuid.UUID                `json:"source_id"`
@@ -20,7 +20,7 @@ type RepairRelationshipChange struct {
 	TargetID     uuid.UUID                `json:"target_id"`
 }
 
-// RepairRenameField describes one generic property rename operation.
+// RepairRenameField specifies a property rename operation.
 type RepairRenameField struct {
 	From      string `json:"from"`
 	To        string `json:"to"`

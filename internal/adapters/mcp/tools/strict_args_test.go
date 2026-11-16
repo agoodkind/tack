@@ -13,9 +13,8 @@ import (
 	"goodkind.io/tack/internal/domain/node"
 )
 
-// TestSchemaToMCPClosesAdditionalProperties pins the wire contract: every
-// tool schema produced via schema.toMCP() declares AdditionalProperties:false
-// so clients that validate locally see a closed schema.
+// TestSchemaToMCPClosesAdditionalProperties checks that tool schemas reject
+// undeclared properties by setting AdditionalProperties to false.
 func TestSchemaToMCPClosesAdditionalProperties(t *testing.T) {
 	cases := []struct {
 		name string
@@ -46,8 +45,8 @@ func TestSchemaToMCPClosesAdditionalProperties(t *testing.T) {
 	}
 }
 
-// TestUpdateToolSchemaClosesAdditionalProperties confirms a representative
-// generated tool inherits the closed-schema contract end-to-end.
+// TestUpdateToolSchemaClosesAdditionalProperties checks that a generated
+// update tool also rejects undeclared properties in its schema.
 func TestUpdateToolSchemaClosesAdditionalProperties(t *testing.T) {
 	issueType := &node.NodeType{TypeKey: "issue", Slug: "issue", Name: "Issue"}
 	resolver := &Resolver{entryPointSlug: "workspace"}
@@ -60,8 +59,8 @@ func TestUpdateToolSchemaClosesAdditionalProperties(t *testing.T) {
 	}
 }
 
-// TestRejectUnknownArgsAcceptsDeclaredKeys returns nil for arguments whose
-// keys are all in the allowlist.
+// TestRejectUnknownArgsAcceptsDeclaredKeys checks arguments that use only
+// allowed top-level keys.
 func TestRejectUnknownArgsAcceptsDeclaredKeys(t *testing.T) {
 	req := callToolReq(
 		"tack_update_issue",
@@ -82,8 +81,7 @@ func TestRejectUnknownArgsAcceptsDeclaredKeys(t *testing.T) {
 	}
 }
 
-// TestRejectUnknownArgsAcceptsEmptyArguments returns nil when no arguments
-// are present at all.
+// TestRejectUnknownArgsAcceptsEmptyArguments checks requests without arguments.
 func TestRejectUnknownArgsAcceptsEmptyArguments(t *testing.T) {
 	req := callToolReq("tack_list_workspaces", nil)
 	allowed := map[string]struct{}{}
@@ -92,10 +90,9 @@ func TestRejectUnknownArgsAcceptsEmptyArguments(t *testing.T) {
 	}
 }
 
-// TestRejectUnknownArgsRejectsUndeclaredKey produces an error that names
-// the offending key, the tool, and the allowed key list in sorted order.
-// This is the regression test for the silent-drop bug: a top-level
-// description on tack_update_issue must surface as an error, not pass.
+// TestRejectUnknownArgsRejectsUndeclaredKey checks that an error identifies
+// the unknown key, tool, and sorted list of allowed keys. A top-level
+// description on tack_update_issue must fail instead of silently omitting it.
 func TestRejectUnknownArgsRejectsUndeclaredKey(t *testing.T) {
 	req := callToolReq(
 		"tack_update_issue",
@@ -128,9 +125,8 @@ func TestRejectUnknownArgsRejectsUndeclaredKey(t *testing.T) {
 	}
 }
 
-// TestRejectUnknownArgsListsAllUnknownKeysSorted reports every unknown
-// key in one error, sorted, so callers see the full diagnosis in one round
-// trip rather than playing whack-a-mole.
+// TestRejectUnknownArgsListsAllUnknownKeysSorted checks that one error lists
+// every unknown key in sorted order.
 func TestRejectUnknownArgsListsAllUnknownKeysSorted(t *testing.T) {
 	req := callToolReq(
 		"tack_update_issue",
@@ -153,10 +149,8 @@ func TestRejectUnknownArgsListsAllUnknownKeysSorted(t *testing.T) {
 	}
 }
 
-// TestNormalizeUpdatePropsRejectsUnknownProperty pins the nested-level
-// check on the update path. The create path already covers this in
-// TestNormalizeCreatePropsRejectsUnknownProperty; this is its mirror so
-// a typo'd property name on update cannot silently land either.
+// TestNormalizeUpdatePropsRejectsUnknownProperty checks that the update path
+// rejects undeclared nested property keys, like the create path.
 func TestNormalizeUpdatePropsRejectsUnknownProperty(t *testing.T) {
 	orgID := uuid.New()
 	projectID := uuid.New()

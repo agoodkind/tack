@@ -1,5 +1,5 @@
-// buffered_recorder.go queues read-class audit events for a flusher to deliver
-// in batches (TACK-506). The recorder stores auth.token_used before returning.
+// BufferedRecorder queues read-class audit events for batch delivery
+// (TACK-506). The recorder stores auth.token_used before returning.
 // It also records state-change events synchronously before the request returns.
 
 package audit
@@ -13,15 +13,15 @@ import (
 	"time"
 )
 
-// BufferedConfig sizes the buffered recorder. A zero field takes its default.
+// BufferedConfig configures the buffered recorder's capacity and
+// batch delivery.
+// The constructor uses the default for each field with a nonpositive value.
 type BufferedConfig struct {
-	// Capacity is how many read-class events the queue and the retained
-	// undelivered events can contain together before an arriving event
-	// overflows.
+	// Capacity limits the total queued and retained undelivered events.
 	Capacity int
-	// BatchSize is the most events one flush delivers.
+	// BatchSize limits the number of events in each delivery batch.
 	BatchSize int
-	// FlushInterval is the longest a queued event waits before a flush.
+	// FlushInterval limits the time between scheduled flushes.
 	FlushInterval time.Duration
 }
 
@@ -29,8 +29,7 @@ const (
 	defaultBufferedCapacity      = 8192
 	defaultBufferedBatchSize     = 256
 	defaultBufferedFlushInterval = 200 * time.Millisecond
-	// batchFlushTimeout bounds one flush, produce and spill together, so a
-	// stuck backend cannot hold the flusher forever.
+	// batchFlushTimeout limits the duration of a batch delivery attempt.
 	batchFlushTimeout = 30 * time.Second
 )
 
@@ -45,18 +44,18 @@ type BufferedRecorder struct {
 	batchSize     int
 	flushInterval time.Duration
 
-	// The flusher goroutine is the only reader and writer of retained,
-	// attempts, and retryAt.
-	retained []Event
-	attempts int
-	retryAt  time.Time
+	// Only the flusher goroutine reads and writes retained, attempts,
+	// and nextAttemptAt.
+	retained      []Event
+	attempts      int
+	nextAttemptAt time.Time
 
-	stopping    sync.RWMutex
-	closed      bool
-	done        chan struct{}
-	drained     chan struct{}
-	closeOnce   sync.Once
-	overflowing atomic.Bool
+	shutdownMutex sync.RWMutex
+	closed        bool
+	done          chan struct{}
+	drained       chan struct{}
+	closeOnce     sync.Once
+	overflowing   atomic.Bool
 }
 
 // NewBufferedRecorder creates a buffered recorder and starts its flusher.
@@ -101,8 +100,8 @@ func NewBufferedRecorder(
 		flushInterval: cfg.FlushInterval,
 		retained:      nil,
 		attempts:      0,
-		retryAt:       time.Time{},
-		stopping:      sync.RWMutex{},
+		nextAttemptAt: time.Time{},
+		shutdownMutex: sync.RWMutex{},
 		closed:        false,
 		done:          make(chan struct{}),
 		drained:       make(chan struct{}),
@@ -146,22 +145,22 @@ func (b *BufferedRecorder) Record(ctx context.Context, event Event) error {
 		return b.recordDurably(ctx, event)
 	}
 
-	b.stopping.RLock()
+	b.shutdownMutex.RLock()
 
 	if b.closed {
-		b.stopping.RUnlock()
+		b.shutdownMutex.RUnlock()
 
 		return b.recordThrough(ctx, event)
 	}
 
 	if b.room.tryAdmit(event) {
-		b.stopping.RUnlock()
+		b.shutdownMutex.RUnlock()
 		b.noteRoom(ctx)
 
 		return nil
 	}
 
-	b.stopping.RUnlock()
+	b.shutdownMutex.RUnlock()
 
 	if b.overflow == nil {
 		return b.waitForRoom(ctx, event)
@@ -170,7 +169,6 @@ func (b *BufferedRecorder) Record(ctx context.Context, event Event) error {
 	return b.overflowed(ctx, event)
 }
 
-// recordThrough hands one event to inner on the caller's own path.
 func (b *BufferedRecorder) recordThrough(ctx context.Context, ev Event) error {
 	if err := b.inner.Record(ctx, ev); err != nil {
 		slog.ErrorContext(

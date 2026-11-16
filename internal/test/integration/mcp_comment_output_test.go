@@ -17,11 +17,10 @@ func longCommentBody(index int) string {
 	return prefix + strings.Repeat("z", longCommentBytes-len(prefix))
 }
 
-// TestListCommentsReachesEveryLongCommentThroughCursor creates comments whose
-// bodies together exceed the 32 KB response cap and lists them at limit 100.
-// Every comment must be reached by following the cursor, and no page may be
-// cut by the response cap.
-func TestListCommentsReachesEveryLongCommentThroughCursor(t *testing.T) {
+// TestListCommentsReturnsEveryLongCommentAcrossPages creates comments that
+// together exceed the response cap and lists them at limit 100. Following
+// cursors must return every comment without truncating a page.
+func TestListCommentsReturnsEveryLongCommentAcrossPages(t *testing.T) {
 	harness := NewMCPHarness(t)
 	issue := harness.CreateIssue(t, "long comments issue")
 
@@ -60,7 +59,7 @@ func TestListCommentsReachesEveryLongCommentThroughCursor(t *testing.T) {
 	}
 
 	if len(seen) != longCommentCount {
-		t.Fatalf("reached %d comments, want %d", len(seen), longCommentCount)
+		t.Fatalf("listed %d comments, want %d", len(seen), longCommentCount)
 	}
 
 	if pageCount < 2 {

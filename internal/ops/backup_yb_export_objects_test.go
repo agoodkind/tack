@@ -5,12 +5,9 @@ import (
 	"testing"
 )
 
-// ybExportRunObjects is the object set a finished export run leaves under
-// one run prefix: the manifest the walk reads, every run-root artifact the
-// manifest declares, and, per node the manifest lists, every artifact that
-// node's archive run publishes, which is what the completeness gate probes for.
-// The manifest is placed under prefixRunID whatever run it declares, so a
-// manifest that names a run other than its own prefix can be exercised.
+// ybExportRunObjects builds a finished export's manifest, root artifacts, and
+// per-node artifacts. It stores the manifest under prefixRunID independently
+// of the manifest's run ID to test mismatched prefixes.
 func ybExportRunObjects(
 	t *testing.T,
 	prefixRunID string,
@@ -38,10 +35,8 @@ func ybExportRunObjects(
 	return objects
 }
 
-// ybNodeArtifactBody is the body of one node artifact in a test store. The
-// inventory is rendered through the production writer for the manifest's own
-// run and node, recording no files, so the drill's staging step reads it back
-// the way it reads a real one; every other node artifact is opaque bytes.
+// ybNodeArtifactBody uses the production inventory writer for an empty file
+// list with the manifest's run and node IDs. Other artifacts use opaque bytes.
 func ybNodeArtifactBody(
 	manifest ybSnapshotManifest,
 	node ybSnapshotManifestNode,

@@ -21,11 +21,8 @@ const (
 // AllOps is the default set of allowed operations for a new node type.
 var AllOps = []Op{OpCreate, OpRead, OpList, OpUpdate, OpDelete}
 
-// Feature strings are capability declarations on a NodeType. Features drive
-// runtime behavior: which properties apply, which relationships are allowed,
-// which MCP tools get registered. Features are extensible.
-//
-// Built-in features shipped by seed:
+// Feature strings declare extensible capabilities on a NodeType. Runtime code
+// uses features to select properties, relationships, and MCP tools.
 const (
 	FeatureHasWorkflowStates       = "has_workflow_states"        // supports a workflow-state property
 	FeatureHasAssignees            = "has_assignees"              // supports assigned_to relationships
@@ -108,9 +105,8 @@ func (f *Features) UnmarshalJSON(b []byte) error {
 	return nil
 }
 
-// ReferenceStrategy names how human-readable refs are derived for a NodeType.
-// UUID remains canonical for every node; this strategy only controls display
-// and MCP input ergonomics.
+// ReferenceStrategy selects how a NodeType derives human-readable references
+// for display and MCP input. UUID remains the canonical node identity.
 type ReferenceStrategy string
 
 const (
@@ -119,8 +115,8 @@ const (
 	ReferenceScopedProperty ReferenceStrategy = "scoped_property"
 )
 
-// ReferenceConfig declares the human-readable ref contract for a NodeType.
-// Property names the canonical prop when Strategy uses property lookup.
+// ReferenceConfig defines a NodeType's human-readable reference contract.
+// Property specifies the canonical property when Strategy uses property lookup.
 type ReferenceConfig struct {
 	Strategy ReferenceStrategy `json:"strategy"`
 	Property string            `json:"property,omitempty"`
@@ -139,10 +135,10 @@ type NodeType struct {
 	AllowedOps     []Op        `json:"allowed_ops"`
 	PropertyDefIDs []uuid.UUID `json:"property_def_ids"`
 	PluralSlug     string      `json:"plural_slug,omitempty"`
-	// IsBuiltin marks seeded built-in types. Built-in types cannot be deleted via MCP.
+	// IsBuiltin marks seeded types that MCP tools cannot delete.
 	IsBuiltin bool `json:"is_builtin,omitempty"`
-	// TypeKey is the stable internal dispatch key. Slug and PluralSlug are
-	// user-mutable display/tool naming fields; TypeKey is not.
+	// TypeKey is the stable internal dispatch key. Users can edit Slug and
+	// PluralSlug for display and tool names, but cannot edit TypeKey.
 	TypeKey      string   `json:"type_key,omitempty"`
 	Features     Features `json:"features,omitempty"`
 	CanContain   []string `json:"can_contain,omitempty"`
@@ -153,16 +149,14 @@ type NodeType struct {
 	Reference ReferenceConfig `json:"reference,omitempty"`
 	// ReferenceTemplates declare the rendered references this type owns.
 	ReferenceTemplates []ReferenceTemplate `json:"reference_templates,omitempty"`
-	// DefaultChildren lists nodes that should be auto-created under any new
-	// instance of this type. Empty by default: no NodeType implies any
-	// automatic child creation unless the seed (or a later edit) declares
-	// it explicitly. Used so a freshly created project gets a starter set
-	// of states without baking those state names into Go code.
+	// DefaultChildren specifies nodes to create automatically under new instances.
+	// An empty list disables automatic child creation. Seed metadata can supply
+	// starter states for projects without hardcoded state names in runtime code.
 	DefaultChildren []DefaultChild `json:"default_children,omitempty"`
 }
 
-// DefaultChild names a child node to auto-create. Props is a JSON object that
-// is merged into the child's Props before create.
+// DefaultChild specifies a child to create automatically. Creation merges
+// its Props into the child's properties.
 type DefaultChild struct {
 	TypeKey string                     `json:"type_key"`
 	Name    string                     `json:"name"`
@@ -192,15 +186,10 @@ func (n *NodeType) PrimaryReferenceTemplate() *ReferenceTemplate {
 	return nil
 }
 
-// Node is the single primary record for every entity in the system. Every
-// concept-specific value (workspace, project, state, assignees, labels,
-// priority, due dates, description, etc.) lives in Props as JSON-encoded
-// property values keyed by PropertyDef name. Everything that connects nodes
-// together lives in Relationship records, not on the node itself.
-//
-// The universal-fields rule for Node: a field earns a spot on the struct only
-// if it would exist on a node in a completely different product (CMS, CRM,
-// game engine) built on the same architecture.
+// Node stores the primary record for every entity. Props stores product-specific
+// values as JSON keyed by PropertyDef name. Relationship records connect nodes.
+// Universal struct fields must also apply to nodes in other products using
+// this architecture, such as a CMS, CRM, or game engine.
 type Node struct {
 	ID        uuid.UUID                  `json:"id"`
 	OrgID     uuid.UUID                  `json:"org_id"`
@@ -213,14 +202,10 @@ type Node struct {
 	UpdatedAt time.Time                  `json:"updated_at"`
 }
 
-// Relationship is a generic directed edge between two nodes. The RelationType
-// string carries the semantics: "assigned_to", "labeled_with", "child_of",
-// "watches", "mentioned_in", "reacted_to", "comment_of", etc.
-//
-// Relationships replace all dedicated concept-specific join records: assignments,
-// labels-on-nodes, parent-child containment, watchers, mentions, reactions.
-// New relation types are user-extensible; nothing in the storage layer privileges
-// one RelationType over another.
+// Relationship is a directed edge between nodes. RelationType specifies its
+// meaning, such as assigned_to, labeled_with, or child_of. Relationships replace
+// dedicated join records for assignments, labels, hierarchy, and reactions.
+// Users can define relation types without storage-layer special cases.
 type Relationship struct {
 	OrgID        uuid.UUID                  `json:"org_id"`
 	SourceID     uuid.UUID                  `json:"source_id"`
@@ -231,8 +216,7 @@ type Relationship struct {
 	Props        map[string]json.RawMessage `json:"props,omitempty"`
 }
 
-// Well-known relation types seeded by default. Nothing stops callers from
-// defining their own; these exist so built-in features wire to consistent strings.
+// Built-in features use these seeded relation types. Callers can define others.
 const (
 	RelAssignedTo  = "assigned_to"
 	RelLabeledWith = "labeled_with"
@@ -268,17 +252,16 @@ type EnumOption struct {
 	SortRank int32  `json:"sort_rank"`
 }
 
-// PropertyDef defines a property that can be attached to one or more node types.
-// A PropertyDef applies to a NodeType when AppliesToFeatures is empty (applies
-// to all) or when the NodeType declares any of the listed features. PropertyDefs
-// are never scoped by hardcoded NodeType name lists.
+// PropertyDef defines a property for node types. It applies to all types when
+// AppliesToFeatures is empty and otherwise to types with any listed feature.
+// Property definitions do not depend on hardcoded type-name lists.
 type PropertyDef struct {
 	ID    uuid.UUID    `json:"id"`
 	OrgID uuid.UUID    `json:"org_id"`
 	Name  string       `json:"name"`
 	Type  PropertyType `json:"type"`
-	// AppliesToFeatures scopes this PropertyDef to NodeTypes that declare any
-	// of these features. Empty means applies to every NodeType.
+	// AppliesToFeatures selects NodeTypes declaring any listed feature.
+	// An empty list applies to every NodeType.
 	AppliesToFeatures []string `json:"applies_to_features,omitempty"`
 	// Indexed controls whether FDB maintains a secondary sort index on this property.
 	Indexed  bool         `json:"indexed"`
@@ -289,28 +272,23 @@ type PropertyDef struct {
 	// DefaultReference stores a human-reference default resolved through the
 	// target NodeType Reference contract for UUID-valued properties.
 	DefaultReference *PropertyDefaultReference `json:"default_reference,omitempty"`
-	// ReferenceTargetTypeKey names the NodeType whose human reference should be
-	// accepted for UUID-valued properties. Empty means the UUID is opaque.
+	// ReferenceTargetTypeKey specifies the NodeType that resolves human references
+	// for UUID-valued properties. An empty value treats UUIDs as opaque.
 	ReferenceTargetTypeKey string `json:"reference_target_type_key,omitempty"`
 	// Search declares the explicit text projection for this property. A nil
 	// value is incomplete metadata and blocks the initial search rebuild.
 	Search *SearchProjection `json:"search"`
 }
 
-// Deterministic-ID namespaces for workspace and system-property IDs.
-// These remain deterministic because WorkspaceID and SystemPropID are called
-// with stable inputs (orgID + slug or orgID + propName) and the callers rely
-// on reproducibility across wipes. orgNamespace was removed with TACK-230.
+// These namespaces make workspace and system-property IDs reproducible from
+// stable org and property or address inputs across resets.
 var (
 	workspaceNamespace = uuid.MustParse("0a6f7572-cafe-dead-beef-000000000002")
 	systemPropNS       = uuid.MustParse("7ac0face-dead-beef-cafe-000000000000")
 )
 
-// NewOrgID returns a fresh UUIDv7 for a newly created org. The slug or address
-// has no relationship to the orgID; orgIDs are random and opaque. Two tenants
-// with the same slug get different orgIDs and live under different FDB key
-// prefixes. TACK-230 replaced the old SHA-1 derivation that caused the
-// 2026-05-09 parallel-org outage.
+// NewOrgID returns a fresh UUIDv7 independently of the org's slug or address.
+// Tenants sharing a slug receive different IDs and FDB key prefixes (TACK-230).
 func NewOrgID() uuid.UUID {
 	return uuid.Must(uuid.NewV7())
 }
@@ -321,9 +299,8 @@ func WorkspaceID(orgID uuid.UUID, address string) uuid.UUID {
 	return uuid.NewSHA1(workspaceNamespace, []byte(orgID.String()+":"+address))
 }
 
-// SystemPropID returns a deterministic UUID for a built-in property definition
-// scoped to an org. Used by seed and migration scripts to compute stable IDs
-// without FDB reads.
+// SystemPropID derives an org-specific UUID for a built-in property definition.
+// Seed and migrations use it to compute stable IDs without FDB reads.
 func SystemPropID(orgID uuid.UUID, propName string) uuid.UUID {
 	return uuid.NewSHA1(systemPropNS, []byte(orgID.String()+":"+propName))
 }

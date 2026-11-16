@@ -1,6 +1,5 @@
-// backup_staleness_follower_test.go proves the cluster health probe passes
-// over follower masters quietly and still reads the leader's answer, over real
-// HTTP on the IPv6 loopback.
+// Master-health tests use real IPv6-loopback HTTP to distinguish follower
+// pages, usable leader payloads, and malformed responses.
 
 package ops
 
@@ -18,12 +17,12 @@ import (
 	"goodkind.io/tack/internal/config"
 )
 
-// ybFollowerHealthPage is the body a follower master served on production for
-// the health check on 2026-09-13, cut after the leader's link.
+// ybFollowerHealthPage preserves a production follower response from
+// 2026-09-13, including its leader URL and client diagnostic.
 const ybFollowerHealthPage = `Error retrieving leader master URL: <a href="http://yb1:7000/api/v1/health-check?raw">http://yb1:7000/api/v1/health-check?raw</a><br> Error: Network error (yb/util/curl_util.cc:57): curl error: Could not resolve hostname.<br>`
 
-// captureOpsLogs routes the default logger into a buffer for the test, at
-// debug level, so a test can count the warnings a run emits.
+// captureOpsLogs captures default logger output at debug level for warning
+// and follower-event assertions.
 func captureOpsLogs(t *testing.T) *bytes.Buffer {
 	t.Helper()
 	var buffer bytes.Buffer
@@ -45,15 +44,13 @@ func captureOpsLogs(t *testing.T) *bytes.Buffer {
 	return &buffer
 }
 
-// startYBMasterHealthServer serves the health path on the IPv6 loopback, with
-// each request answered by the next body in bodies (the last body repeats).
-// The probe's admin port is pointed at the listener for the test's duration,
-// so every configured master address reaches this server.
+// startYBMasterHealthServer serves ordered responses, repeating the last, on
+// IPv6 loopback. A substituted admin port directs configured masters to it.
 func startYBMasterHealthServer(t *testing.T, bodies ...string) {
 	t.Helper()
 	listener, err := net.Listen("tcp6", "[::1]:0")
 	if err != nil {
-		t.Skipf("no IPv6 loopback listener: %v", err)
+		t.Skipf("IPv6 loopback listener is unavailable: %v", err)
 	}
 
 	var served atomic.Int64
@@ -81,29 +78,27 @@ func startYBMasterHealthServer(t *testing.T, bodies ...string) {
 	t.Cleanup(func() { ybMasterHealthPort = previousPort })
 }
 
-// TestYBMasterAnswersAsFollower pins the page a follower serves against the
-// answers that must still count as payloads to read.
+// TestYBMasterAnswersAsFollower checks exact production follower recognition
+// without misclassifying payloads, malformed JSON, or empty responses.
 func TestYBMasterAnswersAsFollower(t *testing.T) {
 	if !ybMasterAnswersAsFollower([]byte(ybFollowerHealthPage)) {
-		t.Fatal("the production follower page must read as a follower answer")
+		t.Fatal("the production follower page must classify as a follower response")
 	}
 
 	if !ybMasterAnswersAsFollower([]byte("\n  " + ybFollowerHealthPage)) {
-		t.Fatal("leading whitespace must not hide a follower page")
+		t.Fatal("leading whitespace must not prevent follower recognition")
 	}
 
 	for _, body := range []string{ybHealthAllGood, "not json", `{"dead_nodes":[]}`, ""} {
 		if ybMasterAnswersAsFollower([]byte(body)) {
-			t.Errorf("%q must not read as a follower page", body)
+			t.Errorf("%q must not classify as a follower page", body)
 		}
 	}
 }
 
-// TestProbeYBClusterHealthPassesOverFollowersQuietly is the production shape:
-// two followers answer with the page before the leader answers with the
-// payload. The probe must read the leader's counts and log the followers at
-// debug, with no warning.
-func TestProbeYBClusterHealthPassesOverFollowersQuietly(t *testing.T) {
+// TestProbeYBClusterHealthLogsFollowersAtDebug checks the leader's healthy
+// counts after two follower responses, with debug events instead of warnings.
+func TestProbeYBClusterHealthLogsFollowersAtDebug(t *testing.T) {
 	logs := captureOpsLogs(t)
 	startYBMasterHealthServer(t, ybFollowerHealthPage, ybFollowerHealthPage, ybHealthAllGood)
 	cfg := &config.Config{BackupYBMasterAddresses: "[::1]:7100,[::1]:7100,[::1]:7100"}
@@ -112,7 +107,7 @@ func TestProbeYBClusterHealthPassesOverFollowersQuietly(t *testing.T) {
 
 	if observation != ybClusterHealthy {
 		t.Fatalf(
-			"observation = %d, detail %q; the leader's payload must be read",
+			"observation = %d, detail %q; expected the leader's healthy payload",
 			observation,
 			detail,
 		)
@@ -123,18 +118,16 @@ func TestProbeYBClusterHealthPassesOverFollowersQuietly(t *testing.T) {
 	}
 
 	if strings.Contains(logs.String(), `"level":"WARN"`) {
-		t.Fatalf("a follower's page must not warn:\n%s", logs.String())
+		t.Fatalf("follower responses must not produce warnings:\n%s", logs.String())
 	}
 
 	if strings.Count(logs.String(), "backup.staleness.master_follower") != 2 {
-		t.Fatalf("each follower must be logged once at debug:\n%s", logs.String())
+		t.Fatalf("each follower must produce one debug event:\n%s", logs.String())
 	}
 }
 
-// TestProbeYBClusterHealthReportsWhenEveryMasterIsAFollower proves a cluster
-// with no reachable leader still fails the probe with a reason that names it.
-// Each master's answer goes to the journal; the detail, which the report and
-// the mail carry, names no master address.
+// TestProbeYBClusterHealthReportsWhenEveryMasterIsAFollower checks unavailable
+// leader health with per-master logs and address-free public detail.
 func TestProbeYBClusterHealthReportsWhenEveryMasterIsAFollower(t *testing.T) {
 	logs := captureOpsLogs(t)
 	startYBMasterHealthServer(t, ybFollowerHealthPage)
@@ -143,7 +136,7 @@ func TestProbeYBClusterHealthReportsWhenEveryMasterIsAFollower(t *testing.T) {
 	observation, detail := probeYBClusterHealth(context.Background(), cfg)
 
 	if observation != ybClusterUnseen {
-		t.Fatalf("no leader answered, so this guest saw nothing, got observation %d", observation)
+		t.Fatalf("unusable follower responses must classify as unseen, got %d", observation)
 	}
 
 	if detail != "no master answered the health check" {
@@ -152,13 +145,13 @@ func TestProbeYBClusterHealthReportsWhenEveryMasterIsAFollower(t *testing.T) {
 
 	if !strings.Contains(logs.String(), "backup.staleness.masters_unanswered") ||
 		!strings.Contains(logs.String(), "answered as a follower") {
-		t.Fatalf("each master's answer must be logged:\n%s", logs.String())
+		t.Fatalf("logs must record each master response:\n%s", logs.String())
 	}
 }
 
-// TestProbeYBClusterHealthStillWarnsOnAnUnreadablePayload keeps the warning
-// for a body that is neither the payload nor a follower's page.
-func TestProbeYBClusterHealthStillWarnsOnAnUnreadablePayload(t *testing.T) {
+// TestProbeYBClusterHealthWarnsOnMalformedPayload checks warning behavior for
+// an unreadable body distinct from a recognized follower response.
+func TestProbeYBClusterHealthWarnsOnMalformedPayload(t *testing.T) {
 	logs := captureOpsLogs(t)
 	startYBMasterHealthServer(t, "<html>maintenance</html>")
 	cfg := &config.Config{BackupYBMasterAddresses: "[::1]:7100"}
@@ -166,10 +159,10 @@ func TestProbeYBClusterHealthStillWarnsOnAnUnreadablePayload(t *testing.T) {
 	observation, _ := probeYBClusterHealth(context.Background(), cfg)
 
 	if observation != ybClusterUnseen {
-		t.Fatalf("an unreadable payload establishes nothing, got observation %d", observation)
+		t.Fatalf("a malformed payload cannot establish health, got observation %d", observation)
 	}
 
 	if !strings.Contains(logs.String(), "backup.staleness.health_unparseable") {
-		t.Fatalf("an unreadable payload must still warn:\n%s", logs.String())
+		t.Fatalf("malformed health payloads must produce warnings:\n%s", logs.String())
 	}
 }

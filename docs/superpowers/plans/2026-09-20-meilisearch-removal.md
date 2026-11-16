@@ -29,7 +29,7 @@ Change these files:
 - Modify `internal/adapters/mcp/server.go`.
 - Test with `internal/test/integration/mcp_search_test.go`.
 
-Keep `tack_search` and its current schema. Every valid or invalid call returns exactly `Search is temporarily unavailable.` as a recoverable tool error. The response contains no engine name, implementation status, or availability estimate.
+Keep `tack_search` and its current schema. Every valid or invalid call returns exactly `Search is temporarily unavailable.` as a recoverable tool error. The response does not include an engine name, implementation status, or availability estimate.
 
 - [ ] Add an integration test that calls `tack_search` with an ordinary query, an exact node reference, filters, an invalid reference, and omitted arguments. Require the exact message in every response.
 - [ ] Replace the existing handler body with an immediate recoverable error. Remove exact-reference lookup, scope resolution, indexed-result loading, rendering, and the `Searcher` argument.
@@ -78,7 +78,7 @@ Change these files:
 
 - [ ] Remove the old reindex operation. Remove search adapters from the repair console and act-as factories while preserving their source-data behavior.
 - [ ] Remove the Meilisearch test environment, CLI subcommand, harness fields, search-only generated checks, and assertions that require successful search.
-- [ ] Add one real integration scenario for every registered non-search MCP tool. Assert that the scenario list exactly matches the non-search tool registry. A newly registered tool without a scenario then fails the test. Reuse the normal MCP harness with no search container or search credentials.
+- [ ] Add one real integration scenario for every registered non-search MCP tool. Assert that the scenario list exactly matches the non-search tool registry. A newly registered tool without a scenario then fails the test. Reuse the normal MCP harness without a search container or search credentials.
 - [ ] Update backup and recovery comments so they state only current source-system behavior.
 
 ### Task 4: Remove local service configuration and documentation
@@ -94,7 +94,7 @@ Change these files:
 - Modify or delete the stale Meilisearch references outside `docs/superpowers`.
 
 - [ ] Remove Meilisearch environment fields, validation, examples, container, health checks, dependencies, ports, and named-volume declarations.
-- [ ] Do not run `docker volume rm` or any equivalent command. An orphaned existing volume is allowed.
+- [ ] Preserve the existing volume, even after service removal leaves it unused. Do not run `docker volume rm` or an equivalent command.
 - [ ] Delete instructions that operate or restore Meilisearch. Keep source-data recovery instructions accurate.
 - [ ] Run `rg -n -i 'meili|meilisearch' --glob '!docs/superpowers/**' .`. Every remaining match must explain the deliberate absence of Meilisearch rather than configure, call, test, or operate it.
 
@@ -102,7 +102,7 @@ Change these files:
 
 - [ ] Run the focused behavior tests from Tasks 1 through 4.
 - [ ] Run `make build` once. Fix every failure without editing a lint baseline or accepting new findings.
-- [ ] Run the MCP integration test with no search service. Require every search request to return the exact unavailable message. Require node writes and every registered non-search tool to succeed.
+- [ ] Run the MCP integration test without a search service. Require every search request to return the exact unavailable message. Require node writes and every registered non-search tool to succeed.
 - [ ] Review `git diff --check` and the complete Tack diff.
 - [ ] Create one signed Tack commit.
 
@@ -118,7 +118,7 @@ Find the exact files this task owns with `rg -n -i 'meili|meilisearch' .` before
 - [ ] Remove configuration that injects Meilisearch values into Tack. Do not add OpenSearch values yet.
 - [ ] Preserve any existing Meilisearch data volume or disk. Do not declare its deletion in OpenTofu, Ansible, shell, or Docker cleanup.
 - [ ] Run the Configs repository's focused unit checks for the edited roles and `tofu validate` for each edited stack.
-- [ ] Review the planned infrastructure changes. Require no data-volume deletion and no unrelated resource replacement.
+- [ ] Review the planned infrastructure changes. Require the plan to preserve data volumes and unrelated resources.
 - [ ] Create one signed Configs commit with the Codex coauthor trailer.
 
 Publish `[TACK-541] Remove the deployed Meilisearch service` through the normal `pr` workflow. This independent release does not use Graphite.

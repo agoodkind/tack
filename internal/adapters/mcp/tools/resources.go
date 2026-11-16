@@ -17,9 +17,8 @@ import (
 // gettingStartedURI is the one resource this server exposes.
 const gettingStartedURI = "tack://getting-started"
 
-// RegisterResources registers MCP resources. Content is generated from the
-// current metadata set so that custom types surface automatically without
-// editing string literals.
+// RegisterResources registers MCP resources and generates their content from
+// current metadata, including custom types.
 func RegisterResources(
 	s *mcpserver.MCPServer,
 	reader node.NodeReader,
@@ -38,12 +37,8 @@ func RegisterResources(
 	)
 }
 
-// gettingStartedHandler builds the handler AddResource registers.
-//
-// It is a named function rather than a literal so a test can drive the same
-// handler the server serves. A test that called the recording helper directly
-// would pass even if the handler stopped calling it, which is the shape that
-// let this verb go unemitted in the first place.
+// gettingStartedHandler builds the handler that AddResource registers.
+// Tests invoke this handler to verify that resource reads record audit events.
 func gettingStartedHandler(
 	resolver *Resolver,
 	nodeTypes []*node.NodeType,
@@ -53,10 +48,7 @@ func gettingStartedHandler(
 		[]mcpmcp.ResourceContents,
 		error,
 	) {
-		// Reading a resource is a product action by an identified caller, so it
-		// is recorded like any other. This handler took the context and ignored
-		// it, which is why mcp.resource_read was declared and never emitted
-		// (TACK-340).
+		// Record the caller's resource read before returning content (TACK-340).
 		if err := recordResourceRead(ctx, gettingStartedURI, resolver); err != nil {
 			return nil, err
 		}
@@ -71,19 +63,12 @@ func gettingStartedHandler(
 	}
 }
 
-// recordResourceRead writes the ledger row for one resource read.
-//
-// A failure to record is logged rather than returned, matching the tool
-// wrapper: the read has already happened, and refusing the response afterwards
-// would neither unmake it nor record it. It returns an error when the request
-// context does not have an audit recorder, and the handler then refuses the
-// read.
-//
-// A resource read resolves no workspace, so nothing stamps a scope and the
-// row would carry the nil org, which no per-tenant query, redaction, or chain
-// reaches (TACK-477). The row therefore carries the reader's sole org when
-// their membership admits exactly one, and nil when it admits zero or
-// several, the same honesty rule the auth events follow (TACK-461).
+// recordResourceRead defers evidence to an existing read collector, or writes
+// an event directly. A missing recorder returns an error. Recorder failures
+// produce warnings without returning errors.
+// Resource reads do not resolve a workspace. Without an existing audit scope,
+// the event uses the caller's sole org when membership identifies exactly one
+// (TACK-477, TACK-461). Otherwise the org remains nil.
 func recordResourceRead(ctx context.Context, uri string, resolver *Resolver) error {
 	if audit.HasReadCollector(ctx) {
 		return nil
@@ -156,9 +141,9 @@ func recordResourceRead(ctx context.Context, uri string, resolver *Resolver) err
 	return nil
 }
 
-// readerSoleOrg returns the org the reader belongs to when the membership
-// admits exactly one, and nil otherwise. A lookup failure also returns nil:
-// enriching the row must never cost the read it describes.
+// readerSoleOrg returns the caller's org when membership identifies exactly
+// one. Missing dependencies, lookup errors, and other membership counts
+// return nil.
 func readerSoleOrg(ctx context.Context, resolver *Resolver) uuid.UUID {
 	if resolver == nil || resolver.members == nil {
 		return uuid.Nil

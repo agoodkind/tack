@@ -8,13 +8,9 @@ import (
 	"goodkind.io/tack/internal/clispec"
 )
 
-// An environment past its first seed had no way to issue a credential: the
-// seed refuses to run again once an org exists, and tokens are stored only as
-// hashes, so no raw value is recoverable. Production could therefore never
-// leave development auth, where the bearer is the raw user id (TACK-472).
-// These commands are the missing half of the token lifecycle: issue, list, and
-// revoke, each recorded through the operator choke-point like every other
-// command, with the issued value printed exactly once and never logged.
+// Token commands issue, list, and revoke credentials after the initial seed
+// (TACK-472). Each command records the operator through the shared audit
+// mechanism. Creation prints the raw token once and never logs it.
 
 type authTokenCreateInput struct {
 	clispec.InputMarker
@@ -40,24 +36,24 @@ func authTokenCreateOp(f *cli.Factory) clispec.Operation[authTokenCreateInput] {
 		Group:    authOpsGroup,
 		Aliases:  nil,
 		Hidden:   false,
-		Short:    "Mint an API token for an existing user and print it once",
-		Long: "Creates one bearer token for the user named by --email, stores only " +
-			"its hash, records the issue in the ledger, and prints the raw value " +
-			"exactly once. Nothing writes without --execute; without it the command " +
-			"reports the user it would issue for.",
+		Short:    "Create an API token for an existing user and print it once",
+		Long: "Create one bearer token for the user specified by --email. " +
+			"The command stores only its hash, records issuance in the ledger, " +
+			"and prints the raw value exactly once. The command requires --execute " +
+			"to write. Without it, the command reports the intended user.",
 		Examples: nil,
 		Args:     nil,
 		Params: []clispec.Param[authTokenCreateInput]{
 			clispec.StringParam(
 				"email",
-				"email of the existing user the token is issued to",
+				"email of the existing user to issue the token to",
 				"",
 				true,
 				func(input *authTokenCreateInput, value string) { input.Email = value },
 			),
 			clispec.StringParam(
 				"label",
-				"label stored with the token, naming the client that will hold it",
+				"label for the client that will use the token",
 				"",
 				true,
 				func(input *authTokenCreateInput, value string) { input.Label = value },
@@ -84,14 +80,15 @@ func authTokenListOp(f *cli.Factory) clispec.Operation[authTokenListInput] {
 		Aliases:  nil,
 		Hidden:   false,
 		Short:    "List a user's API tokens by id, label, and last use",
-		Long: "Reads every token issued to the user named by --email. Raw values " +
-			"are never stored, so none is shown; use token-create for a new one.",
+		Long: "Read every token issued to the user specified by --email. " +
+			"The database does not store raw values, and the command does not " +
+			"show them. Use token-create to create a token.",
 		Examples: nil,
 		Args:     nil,
 		Params: []clispec.Param[authTokenListInput]{
 			clispec.StringParam(
 				"email",
-				"email of the user whose tokens to list",
+				"email of the user to list tokens for",
 				"",
 				true,
 				func(input *authTokenListInput, value string) { input.Email = value },
@@ -115,10 +112,10 @@ func authTokenRevokeOp(f *cli.Factory) clispec.Operation[authTokenRevokeInput] {
 		Aliases:  nil,
 		Hidden:   false,
 		Short:    "Revoke one API token by id",
-		Long: "Deletes the token row named by --id, so the bearer it hashed to is " +
-			"refused from the next request on, and records the revocation. Nothing " +
-			"writes without --execute; without it the command reports the token it " +
-			"would revoke.",
+		Long: "Delete the token row specified by --id and record the revocation. " +
+			"Authentication rejects its bearer value on subsequent requests. " +
+			"The command requires --execute to write. Without it, the command " +
+			"reports the token it would revoke.",
 		Examples: nil,
 		Args:     nil,
 		Params: []clispec.Param[authTokenRevokeInput]{

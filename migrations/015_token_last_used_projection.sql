@@ -1,11 +1,10 @@
--- The token's last use is projected by the audit-consumer from the
--- auth.token_used event that recorded it (TACK-502). The application no
--- longer writes the token table on the request path, so its role loses
--- UPDATE there. The ledger writer gains the one column it sets and the two
--- columns that update reads: the id it matches on and the stored value it
--- keeps when the event is older.
+-- The audit-consumer projects each token's last use from auth.token_used
+-- events (TACK-502). The application does not update tokens during requests.
+-- Revoke its token UPDATE privilege. Grant the ledger writer UPDATE on
+-- last_used and SELECT on id and last_used. The writer matches the id and
+-- preserves the stored last_used when an older event arrives.
 --
--- Every statement is idempotent, so a retry after a partial run reconciles.
+-- Every statement supports retries after a partial run.
 
 -- +goose Up
 REVOKE UPDATE ON public.api_tokens FROM app_auth;

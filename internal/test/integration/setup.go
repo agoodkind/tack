@@ -1,14 +1,9 @@
-// Package integration holds end-to-end tests that exercise the real FDB
-// cluster, the generic NodeService, the resolver, and the seed.
-//
-// Tests in this package run against the single-node FoundationDB cluster and
-// the migrated YugabyteDB ledger that internal/testenv starts through the
-// Docker SDK; they skip only under go test -short.
-//
-// Each test gets its own per-test FDB key prefix, set via
-// foundationdb.SetTestPrefix at SetupTestEnv. After the test finishes a
-// t.Cleanup hook range-clears every key under that prefix, so parallel tests
-// on the same FDB cluster cannot collide.
+// Package integration tests the real FDB cluster, generic NodeService,
+// resolver, and seed. internal/testenv starts a single-node FoundationDB
+// cluster and migrated YugabyteDB ledger through the Docker SDK.
+// Tests skip only under go test -short.
+// Each test uses a separate FDB key prefix. A cleanup hook deletes keys
+// under that prefix after the test finishes.
 package integration
 
 import (
@@ -30,13 +25,11 @@ import (
 	"goodkind.io/tack/internal/testenv"
 )
 
-// testTransactionTimeout bounds every product-store transaction these tests
-// run, retries included. It matches the deployed default, so a test that stops
-// making progress against the store fails on the same bound the app runs
-// under.
+// testTransactionTimeout bounds product-store transactions and retries using
+// the deployment's timeout for stalled store operations.
 const testTransactionTimeout = 5 * time.Second
 
-// TestEnv holds isolated test dependencies.
+// TestEnv supplies isolated test dependencies.
 type TestEnv struct {
 	Stores  *fdbadapter.Stores
 	Ops     *ops.Env
@@ -47,9 +40,8 @@ type TestEnv struct {
 	Ctx     context.Context
 }
 
-// writeOrgNode writes the org Node, NodeView, NodeResolve, and slug index
-// directly via the stores. It mirrors cmd/server/seed.go ensureNode for the
-// root case, where ParentID is [uuid.Nil] and OrgID == ID.
+// writeOrgNode writes the root org and its read records directly through
+// stores. The root uses [uuid.Nil] for ParentID and sets OrgID equal to ID.
 func writeOrgNode(
 	ctx context.Context,
 	stores *fdbadapter.Stores,
@@ -78,8 +70,7 @@ func writeOrgNode(
 		CreatedAt: now,
 		UpdatedAt: now,
 	}
-	// CreateAtomic writes the node_by_property index for "slug" in the same
-	// transaction, so no separate address write is needed.
+	// CreateAtomic writes the slug's node_by_property index in this transaction.
 	if err := stores.Nodes.CreateAtomic(ctx, n, view, nil, []string{"slug"}, nil, nil); err != nil {
 		slog.ErrorContext(ctx, "node.seed.create_failed", slog.String("err", err.Error()))
 		return fmt.Errorf("create org node %s: %w", orgID, err)
@@ -97,9 +88,8 @@ func mustJSON(v any) json.RawMessage {
 	return b
 }
 
-// clearPrefix range-clears every key under a test prefix in one FDB
-// transaction. It opens its own database handle so the cleanup remains
-// independent of the test's stores.
+// clearPrefix deletes every key under a test prefix in one FDB transaction.
+// It opens an independent database handle for cleanup after stores close.
 func clearPrefix(t *testing.T, clusterFile string, prefix []byte) {
 	t.Helper()
 	db, err := fdbadapter.Open(clusterFile, testTransactionTimeout)
@@ -146,13 +136,10 @@ func SetupTestEnv(t *testing.T) *TestEnv {
 		t.Fatalf("open postgres: %v", err)
 	}
 
-	// Close the pool with the test, including on early t.Fatalf paths, so
-	// repeated tests cannot exhaust the database connection limit.
+	// Close the pool even when setup fails to avoid exhausting connection limits.
 	t.Cleanup(pool.Close)
 
-	// Pin the org UUID to a known constant so integration tests produce stable,
-	// repeatable IDs across runs. Different per-test FDB key prefixes keep
-	// tests isolated even though they share the same orgID value.
+	// Use a stable org UUID within each test's separate FDB key prefix.
 	const seedSlug = "test-org"
 	orgID := uuid.MustParse("019e6b4a-0000-7000-8000-000000000001")
 
@@ -161,11 +148,8 @@ func SetupTestEnv(t *testing.T) *TestEnv {
 		t.Fatalf("seed org: %v", err)
 	}
 
-	// Service.Create resolves a node's org by reading the parent's resolve
-	// record. The seed only writes NodeTypes and PropertyDefs, so we also
-	// need an org Node so child Create calls (workspace, project, etc.) can
-	// resolve their parent. Mirrors cmd/server/seed.go ensureNode for the
-	// root case.
+	// SeedOrg writes types and property definitions, not the org node.
+	// Child creates require that node to resolve their parent's org.
 	if err := writeOrgNode(ctx, stores, orgID, seedSlug); err != nil {
 		fdbadapter.SetTestPrefix(nil)
 		t.Fatalf("write org node: %v", err)

@@ -2,10 +2,10 @@ package ops_test
 
 import "testing"
 
-// TestDeployVerifyIsReachableFromTheCommandLine pins that the digest check
-// still renders under ops deploy after the laptop deploy family was removed,
-// with its one flag and nothing shadowing the global --execute.
-func TestDeployVerifyIsReachableFromTheCommandLine(t *testing.T) {
+// TestDeployVerifyRegistersWithoutImageMutationCommands checks the verify
+// command, tag default, and global execution flag. The deploy group must not
+// register image build, push, pull, or up commands.
+func TestDeployVerifyRegistersWithoutImageMutationCommands(t *testing.T) {
 	verify := findCommand(t, "ops", "deploy", "verify")
 	if verify.LocalNonPersistentFlags().Lookup("execute") != nil {
 		t.Fatal("deploy verify declares its own --execute, which shadows the audit gate")

@@ -1,7 +1,5 @@
-// backup_restore_drill_ledger_export.go is the ledger half of the yugabyte
-// drill leg: it creates the run-scoped reader role in the restored database,
-// finds the orgs holding rows, and exports one signed bundle per org for the
-// chain verdict to read.
+// Restored-ledger export creates a run-specific reader role and signs one
+// bundle per organization for offline chain verification.
 
 package ops
 
@@ -22,40 +20,25 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// drillLedgerSigningKeyID labels the throwaway signing key in the bundle
-// manifest. The drill signs with a key it generates per run and discards, so
-// the production signing key never enters the drill and the signature check
-// proves only that the bundle is the one the export just wrote. The row-hash
-// and chain-link checks, which are what this leg exists for, cover the ledger's
-// own integrity and involve no key at all.
+// drillLedgerSigningKeyID identifies an ephemeral per-run signing key. The
+// drill never uses the production signing key. Signatures establish bundle
+// identity; independent row hashes and chain links establish ledger integrity.
 const drillLedgerSigningKeyID = "ed25519:restore-drill"
 
-// drillLedgerExportUnlimited is the row limit the drill asks the export for:
-// none. The export streams, writing and releasing each row as it reads it, so
-// its cost does not grow with the org and the drill inside the 512 MiB
-// tack-ops sidecar reaches a verdict on a ledger of any size. A cap here would
-// have to rise every time the ledger grows, and an operator who has not raised
-// it yet gets no verdict at all.
+// drillLedgerExportUnlimited removes the row cap. Streaming bounds memory use
+// independently of organization size without operator-adjusted export limits.
 const drillLedgerExportUnlimited = 0
 
-// drillLedgerOldest and drillLedgerLatest bound the export by nothing. The
-// reader requires both bounds, so the full range is stated with sentinels no
-// stored row can fall outside. Bounding by a time window instead would leave
-// rows out mid-chain, and every omission raises the report's chain-gap count.
-// Over a windowed export that count is an artifact of the window and says
-// nothing about the ledger, which is why the shared verifier counts a gap
-// rather than calling it a break. Asking for the whole range is what makes the
-// count mean something here: nothing was left out on purpose, so a gap is a
-// row the restore did not bring back, and the chain verdict fails on it.
+// Full-range sentinels prevent intentional mid-chain omissions. Filtered
+// bundles can contain legitimate sequence gaps; this full-range export treats
+// gaps as incomplete restored data instead.
 var (
 	drillLedgerOldest = time.Unix(0, 0).UTC()
 	drillLedgerLatest = time.Date(9999, time.January, 1, 0, 0, 0, 0, time.UTC)
 )
 
-// assertRestoredLedgerChain verifies the hash chain of the ledger the yugabyte
-// leg restored. It creates a run-scoped reader role in the throwaway database,
-// lists the orgs holding rows, exports a signed bundle per org, and fails the
-// drill on any chain break the verifier reports.
+// assertRestoredLedgerChain creates a scratch reader, lists restored orgs, and
+// exports signed bundles for complete chain verification.
 func assertRestoredLedgerChain(
 	ctx context.Context,
 	r *restoreDrillCtx,
@@ -117,10 +100,8 @@ func assertRestoredLedgerChain(
 	return verifyRestoredLedgerChains(ctx, orgs, bundleRoot, export, verify)
 }
 
-// drillLedgerRoleName derives the run-scoped login role the drill reads the
-// restored ledger as. The run id carries a timestamp and a pid, so it is
-// folded to the lower-case letters, digits, and underscores an unquoted SQL
-// identifier accepts.
+// drillLedgerRoleName normalizes timestamp-and-PID run IDs to lowercase
+// letters, digits, and underscores for an unquoted SQL login role.
 func drillLedgerRoleName(runID string) string {
 	safe := strings.Map(
 		func(r rune) rune {
@@ -139,12 +120,9 @@ func drillLedgerRoleName(runID string) string {
 	return "tack_drill_reader_" + safe
 }
 
-// createDrillLedgerReader creates the run-scoped login role and grants it the
-// ledger's read base role. The drill reads through the same base role the
-// product reads through rather than through the scratch database's bootstrap
-// user, because audit.events forces row-level security: only a member of
-// audit_reader is covered by a select policy, so any other identity either
-// sees nothing or depends on happening to hold a superuser bypass.
+// createDrillLedgerReader grants audit_reader to a run-specific login role.
+// Reads exercise the product's base-role policy rather than bootstrap superuser
+// bypass. FORCE ROW LEVEL SECURITY requires audit_reader membership for SELECT.
 func createDrillLedgerReader(
 	ctx context.Context,
 	r *restoreDrillCtx,
@@ -193,20 +171,10 @@ func createDrillLedgerReader(
 	return nil
 }
 
-// exportRestoredOrgBundle writes one org's signed bundle with the same export
-// the operator `audit export` command runs, so the drill rehearses the
-// documented procedure rather than a private imitation of it.
-//
-// It takes the ledger read as an interface rather than the concrete reader so a
-// test can assert what the drill asks the export for. What it asks for is the
-// whole thing, and a drill that quietly asked for less would still write a
-// bundle and still verify it.
-//
-// The org list comes from the rows themselves, and a ledger holding rows
-// recorded before every event carried an org lists the nil org among them.
-// Those rows chain per (org, shard) like any other org's, so the drill names
-// the nil org on purpose rather than leaving the one chain the reader refuses
-// by default unverified.
+// exportRestoredOrgBundle uses the operator audit export implementation with
+// unlimited rows and full time bounds. Historical nil-org rows use the same
+// per-(org, shard) chain and require explicit NilOrg permission to override
+// the reader's default missing-org refusal.
 func exportRestoredOrgBundle(
 	ctx context.Context,
 	reader audit.RowSource,

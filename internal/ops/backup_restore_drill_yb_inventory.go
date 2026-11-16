@@ -1,10 +1,6 @@
-// backup_restore_drill_yb_inventory.go compares one node's extracted archive
-// against the inventory the export recorded for it, and reports every file the
-// record names that the extraction does not hold at its recorded size. This is
-// what replaced asking whether a tablet's directory looked plausible: a
-// directory holding one non-empty file passed that question while missing most
-// of its contents, and no question asked of the extraction alone can tell the
-// difference. The inventory can, because it says what this backup captured.
+// Extraction checks compare each node's files and sizes with its archived
+// inventory. Directory presence or a single nonempty file cannot establish
+// that a tablet's complete backup exists.
 
 package ops
 
@@ -19,54 +15,33 @@ import (
 )
 
 const (
-	// ybDrillWorkDir is where the comparison writes its working lists inside
-	// the scratch container. The staged artifacts are mounted read-only, so
-	// they cannot be sorted in place.
+	// ybDrillWorkDir stores comparison lists outside read-only artifact mounts.
 	ybDrillWorkDir = "/tmp"
-	// The comparison's working file names. Each is truncated by the
-	// redirection that writes it, so one node's run cannot read another's
-	// leftovers.
+	// Each comparison truncates these files before reading them to prevent
+	// reuse of another node's results.
 	ybInventorySizeList = "tack-drill-sizes"
 	ybInventoryHaveList = "tack-drill-extracted"
 	ybInventoryWantList = "tack-drill-archived"
 	ybInventoryGoneList = "tack-drill-missing"
-	// ybInventoryMissingLimit bounds how many missing files one check reports.
-	// The count it prints is always exact, and a check that finds more than
-	// this fails the drill rather than reporting a subset: each missing file is
-	// attributed to the tablet it belongs to, and files left unreported would
-	// leave their tablets looking whole.
+	// ybInventoryMissingLimit bounds reported files. Counts remain exact;
+	// exceeding the limit fails rather than returning a partial list that
+	// could incorrectly indicate complete tablets.
 	ybInventoryMissingLimit = 4096
 )
 
-// ybInventorySizeFilter turns `wc -c` output into the inventory's own
-// "path<TAB>size" lines: optional padding, the size, one space, then the "./"
-// find prefixes every path with, which the inventory records without. Lines
-// that do not match, which is `wc`'s per-batch total, print nothing, because
-// -n prints only what the substitution matched.
+// ybInventorySizeFilter converts padded wc counts and ./-prefixed paths to
+// "path<TAB>size" records. Nonmatching per-batch totals do not produce output.
 const ybInventorySizeFilter = "sed -n 's/^ *\\([0-9][0-9]*\\) \\.\\/\\(.*\\)$/\\2\t\\1/p'"
 
-// ybInventoryCheckScript builds the program that lists what one node's
-// extraction holds and reports every archived file that is not there at its
-// archived size. Both sides are sorted the same way and differenced with comm,
-// so a corpus-sized comparison answers with one count and, on a healthy
-// restore, nothing else.
+// ybInventoryCheckScript compares sorted extracted and archived path-size
+// lists with comm. It reports an exact count and bounded missing-file list.
+// Portable wc -c avoids incompatible GNU and BSD find/stat formats.
 //
-// Only tools every POSIX shell image carries are used, and the size listing
-// goes through `wc -c` rather than a `find -printf` or `stat` format, because
-// those spellings differ between the GNU tools the yugabyted image ships and
-// the BSD tools the tests run against, and a check that cannot run locally is a
-// check nobody proves.
-//
-// No step is a pipeline. `set -e` sees only a pipeline's last command, so an
-// inventory that could not be read, piped into sort, was a sort of nothing
-// that succeeded: the check then wanted no files, found none missing, and
-// passed a tablet it had verified against nothing. Each step instead writes a
-// file and the next reads it, so every command is one the shell's error mode
-// observes, and a read that fails ends the check with its own error. This
-// holds under any POSIX sh; `set -o pipefail` would not, because the dash the
-// unit suite runs the scripts under rejects it. The count is taken in an
-// assignment for the same reason: a substitution inside printf's arguments
-// would fail without printf failing.
+// Separate files replace pipelines to let POSIX set -e detect every failed
+// read. A pipeline could hide an unreadable inventory behind sort's success
+// and incorrectly accept an empty expected list. dash does not support
+// pipefail. The count assignment also exposes substitution failure that a
+// substitution inside printf arguments could hide.
 func ybInventoryCheckScript(nodeRoot, inventoryPath, workDir string) string {
 	sizes, have := shellQuote(workDir+"/"+ybInventorySizeList), shellQuote(
 		workDir+"/"+ybInventoryHaveList,
@@ -87,11 +62,9 @@ func ybInventoryCheckScript(nodeRoot, inventoryPath, workDir string) string {
 		"head -n " + strconv.Itoa(ybInventoryMissingLimit) + " " + gone
 }
 
-// parseYBInventoryCheck reads the check's answer: the exact number of archived
-// files the extraction is short of, then one line per file up to the report
-// limit. A count that disagrees with the lines, or that exceeds what the check
-// reports, is an error rather than a smaller list, because a partial list would
-// leave the tablets it did not name looking whole.
+// parseYBInventoryCheck requires a complete missing-file list. Counts above
+// the report limit or inconsistent with the list fail rather than allowing
+// unreported files to make their tablets appear complete.
 func parseYBInventoryCheck(node, out string) ([]ybArchivedFile, error) {
 	header, rest, _ := strings.Cut(strings.TrimLeft(out, "\n"), "\n")
 	count, err := parseYBPlacementCount(strings.TrimSpace(header), "missing")
@@ -104,12 +77,11 @@ func parseYBInventoryCheck(node, out string) ([]ybArchivedFile, error) {
 	}
 
 	if count > ybInventoryMissingLimit {
-		return nil, fmt.Errorf(
-			"node %s's extraction is missing %d of the files its archive carried, more than the %d the check reports",
-			node,
-			count,
-			ybInventoryMissingLimit,
-		)
+		return nil, extractionMissingFilesOverflowError{
+			Node:  node,
+			Count: count,
+			Limit: ybInventoryMissingLimit,
+		}
 	}
 
 	var missing []ybArchivedFile
@@ -128,19 +100,14 @@ func parseYBInventoryCheck(node, out string) ([]ybArchivedFile, error) {
 	}
 
 	if len(missing) != count {
-		return nil, fmt.Errorf(
-			"the extraction check for node %s counted %d missing files and named %d",
-			node,
-			count,
-			len(missing),
-		)
+		return nil, extractionCountMismatchError{Node: node, Count: count, Listed: len(missing)}
 	}
 
 	return missing, nil
 }
 
-// checkYBNodeExtraction runs the comparison for one node inside the scratch
-// container and returns what its extraction owes the inventory.
+// checkYBNodeExtraction compares one node inside the scratch container and
+// returns the archived files missing from its extraction.
 func checkYBNodeExtraction(
 	ctx context.Context,
 	r *restoreDrillCtx,
@@ -187,4 +154,34 @@ func checkYBNodeExtraction(
 	)
 
 	return missing, nil
+}
+
+type extractionCountMismatchError struct {
+	Node   string
+	Count  int
+	Listed int
+}
+
+func (failure extractionCountMismatchError) Error() string {
+	return fmt.Sprintf(
+		"the extraction check for node %s counted %d missing files and listed %d",
+		failure.Node,
+		failure.Count,
+		failure.Listed,
+	)
+}
+
+type extractionMissingFilesOverflowError struct {
+	Node  string
+	Count int
+	Limit int
+}
+
+func (failure extractionMissingFilesOverflowError) Error() string {
+	return fmt.Sprintf(
+		"node %s's extraction is missing %d archived files, more than the %d the check reports",
+		failure.Node,
+		failure.Count,
+		failure.Limit,
+	)
 }

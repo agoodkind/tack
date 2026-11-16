@@ -1,41 +1,42 @@
-# Audit events partition-manager Implementation Plan
+# Implement audit partition maintenance
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+Use `superpowers:subagent-driven-development` or `superpowers:executing-plans`
+to implement each task. Track completion with checkboxes. Register pg_partman
+on `audit.events` with a 12-week forward buffer and disabled retention. Run
+`PartitionManager` in audit-consumer at startup and daily, using a
+`SECURITY DEFINER` wrapper and the existing worker lifecycle.
 
-**Goal:** Guarantee `audit.events` always has a weekly partition covering `now()` plus a forward buffer, maintained by an owned, self-healing in-process worker, so audit writes never fail from partition exhaustion again.
+Use Go, YugabyteDB `2024.2.8.0` (PostgreSQL 11.2), pg_partman 4.7.4, goose,
+pgx v5, and expvar telemetry.
 
-**Architecture:** pg_partman is the partition engine, registered on `audit.events` via `create_parent` with a 12-week premake and retention off. A `PartitionManager` goroutine in the audit-consumer process calls a `SECURITY DEFINER` maintenance wrapper on boot and on a daily tick, mirroring the existing `Notarizer` and `Reconciler` workers. Boot catch-up re-establishes headroom on every deploy.
+## Constraints
 
-**Tech Stack:** Go, YugabyteDB (PostgreSQL 11.2-based, build 2024.2.8.0), pg_partman 4.7.4, goose SQL migrations, pgx v5, expvar telemetry.
+- Build with `make build`, including baseline checks for vet, golangci,
+  staticcheck-extra, and govulncheck. Do not invoke `go build` directly.
+- Run migrations only through `./server migrate`, not HTTP startup.
+- Use pgx SQL rather than `os/exec` or CLI subprocesses in Go.
+- Preserve the append-only compliance ledger and disable pg_partman retention.
+- Use `audit_writer` with INSERT/SELECT/UPDATE, without CREATE on `audit`.
+  Run DDL only through the wrapper with a pinned `search_path`.
+- Keep implementation files at most 200 lines and split by responsibility.
+- Use slog attributes and `noun.verb` messages. Use Info for normal work,
+  Debug for detail, and Error for failure. Include identifiers and wrapped
+  context in errors, as in `fmt.Errorf("...%s: %w", id, err)`.
+- Gate real YugabyteDB integration tests on `AUDIT_CHAIN_TEST_DSN` and skip
+  when absent, matching `chain_append_integration_test.go`.
+- Require gpt-subagent, review-bugbot, and code-review approval and passing CI
+  before merge. Validate production changes on disposable QA first.
 
-## Global Constraints
+## Task 1: Register existing partitions
 
-- Build with `make build` (runs vet, golangci, staticcheck-extra, govulncheck baseline-gated). Never call `go build` directly.
-- Migrations run via `./server migrate` only, never on HTTP startup.
-- No shell-outs in tack Go: no `os/exec` of CLIs. Engine work happens in SQL through pgx.
-- The audit ledger is append-only and compliance-critical: never auto-drop audit data. pg_partman retention stays off.
-- The audit-consumer connects as `audit_writer` (INSERT/SELECT/UPDATE only, no CREATE on schema `audit`). DDL runs through a `SECURITY DEFINER` wrapper with a pinned `search_path`.
-- No file exceeds 200 lines; split by concern.
-- Use `log/slog` with named attributes; message names use `noun.verb`. Levels: Info normal, Debug trace, Error failure.
-- Every error wraps context: `fmt.Errorf("...%s: %w", id, err)`.
-- Integration tests against real YugabyteDB are gated by an env DSN and skip when unset, matching `chain_append_integration_test.go` (`AUDIT_CHAIN_TEST_DSN`).
-- Each implementation PR passes gpt-subagent, review-bugbot, and code-review, iterating until approved, then CI green, then merge. Validate prod-affecting steps on QA first.
+Create `migrations/004_audit_partman.sql` and
+`internal/audit/partition_adopt_integration_test.go`. Preserve existing weekly
+`events_YYYY_MM_DD` children. Set `p_start_partition` after current coverage to
+avoid overlap; new children may use pg_partman's convention without renaming
+old children. Register `premake = 12`, disable retention, and grant
+`audit_writer` EXECUTE on `audit.run_partition_maintenance()`.
 
----
-
-### Task 1: Migration 004, install pg_partman, adopt audit.events, add the maintenance wrapper
-
-**Files:**
-- Create: `migrations/004_audit_partman.sql`
-- Test: `internal/audit/partition_adopt_integration_test.go`
-
-**Interfaces:**
-- Consumes: existing `audit.events` (`PARTITION BY RANGE (event_time)`, weekly children named `events_YYYY_MM_DD`), role `audit_writer`.
-- Produces: SQL function `audit.run_partition_maintenance()` (returns void, `SECURITY DEFINER`, EXECUTE granted to `audit_writer`) that runs pg_partman maintenance for `audit.events`; pg_partman registration of `audit.events` in `partman.part_config` with `premake = 12` and retention off.
-
-The migration is adopted onto a table that already has children. pg_partman must not premake a week an existing child already covers, or the overlapping-range operation fails. The migration sets `p_start_partition` to the week after the latest existing child, so pg_partman only creates partitions beyond existing coverage. This needs no knowledge of pg_partman's internal child-naming and does not rename existing children. The existing children stay attached under their names, and pg_partman manages future weeks under its own names. Both are valid partitions; queries route by range.
-
-- [ ] **Step 1: Write the failing integration test**
+- [ ] Add the failing integration test:
 
 ```go
 //go:build integration
@@ -51,8 +52,8 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// partmanTestDSN names a migrated audit database (post-004) reachable for the
-// adoption test. Skips when unset, mirroring chainTestDSNEnv.
+// partmanTestDSN selects a post-004 database for adoption tests.
+// Tests skip when the environment does not supply it.
 const partmanTestDSN = "AUDIT_CHAIN_TEST_DSN"
 
 func partmanTestPool(t *testing.T) *pgxpool.Pool {
@@ -69,10 +70,8 @@ func partmanTestPool(t *testing.T) *pgxpool.Pool {
 	return pool
 }
 
-// TestPartmanAdoptionCreatesFutureWeek verifies migration 004 registered
-// audit.events with pg_partman, that the maintenance wrapper is callable, and
-// that after maintenance a partition exists whose range covers a future week,
-// with no overlap error. This is the adoption regression.
+// TestPartmanAdoptionCreatesFutureWeek verifies registration, disabled
+// retention, executable maintenance, and exactly one future partition.
 func TestPartmanAdoptionCreatesFutureWeek(t *testing.T) {
 	pool := partmanTestPool(t)
 	ctx := context.Background()
@@ -120,32 +119,27 @@ func TestPartmanAdoptionCreatesFutureWeek(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run the test to verify it fails**
+- [ ] Start the test database with migrations through 003 only:
 
-Bring up the test database and apply migrations through 003 only (004 not yet written):
-
-Run:
 ```bash
 make test-fdb-down 2>/dev/null || true
 docker compose -f docker-compose.test.yml up -d yugabyte
-# wait for health, then migrate to 003, then:
+# Wait for health and apply migrations through 003 before testing.
 AUDIT_CHAIN_TEST_DSN="postgres://yugabyte@127.0.0.1:5433/tack?sslmode=disable" \
   go test -tags integration ./internal/audit/ -run TestPartmanAdoptionCreatesFutureWeek -v
 ```
-Expected: FAIL (part_config has no `audit.events` row; `audit.run_partition_maintenance()` does not exist).
 
-- [ ] **Step 3: Write migration 004**
+Require failure because registration and the wrapper do not exist.
 
-Explanatory comments use block-comment form. The `-- +goose` lines are goose directives and must stay exactly as shown.
+- [ ] Add the migration below. Preserve every goose directive exactly and use
+  block comments for explanatory text:
 
 ```sql
 -- +goose Up
 -- +goose StatementBegin
-/* Install pg_partman and register audit.events for native weekly partition
-   management. Existing hand-named children (events_YYYY_MM_DD) remain attached.
-   p_start_partition is set to the week after the latest existing child so
-   pg_partman only creates partitions beyond existing coverage and never builds
-   an overlapping range. Retention stays off: the audit ledger never auto-drops. */
+/* Register native weekly management without renaming existing
+   events_YYYY_MM_DD children. Start after existing coverage to avoid
+   overlapping ranges. Disable automatic deletion of audit data. */
 CREATE SCHEMA IF NOT EXISTS partman;
 -- +goose StatementEnd
 
@@ -159,7 +153,7 @@ DECLARE
     max_upper DATE;
     start_part DATE;
 BEGIN
-    /* Highest existing partition upper bound, parsed from the partition bound. */
+    /* Read the highest existing partition upper bound. */
     SELECT max((regexp_match(pg_get_expr(c.relpartbound, c.oid),
                              'TO \(''([0-9-]+)'''))[1]::date)
       INTO max_upper
@@ -169,8 +163,8 @@ BEGIN
       JOIN pg_namespace n ON n.oid = p.relnamespace
      WHERE n.nspname = 'audit' AND p.relname = 'events';
 
-    /* Start pg_partman at the later of the week after existing coverage and the
-       current week, so a fresh database with no children also works. */
+    /* Start at the later of existing coverage and the current week.
+       An empty database also starts at the current week. */
     start_part := greatest(coalesce(max_upper, date_trunc('week', now())::date),
                            date_trunc('week', now())::date);
 
@@ -194,10 +188,9 @@ UPDATE partman.part_config
 -- +goose StatementEnd
 
 -- +goose StatementBegin
-/* SECURITY DEFINER wrapper so the audit_writer role (INSERT only) can drive
-   partition maintenance without holding CREATE on schema audit. The pinned
-   search_path closes the definer-escalation risk. The wrapper targets only
-   audit.events. */
+/* Permit audit_writer maintenance without CREATE privileges.
+   Pin search_path to prevent object substitution and restrict the
+   wrapper to audit.events. */
 CREATE OR REPLACE FUNCTION audit.run_partition_maintenance()
 RETURNS void
 LANGUAGE plpgsql
@@ -219,45 +212,34 @@ DROP FUNCTION IF EXISTS audit.run_partition_maintenance();
 -- +goose StatementEnd
 
 -- +goose StatementBegin
-/* Unregister audit.events from pg_partman. Leaves existing partitions in place. */
+/* Remove registration and preserve all existing partitions. */
 DELETE FROM partman.part_config WHERE parent_table = 'audit.events';
 -- +goose StatementEnd
 ```
 
-Note on the function owner: the migration runs as the database owner (`yugabyte`), which has CREATE on schema `audit` and owns the wrapper, so `SECURITY DEFINER` executes with sufficient privilege. If a QA run shows `run_maintenance` needs schema `partman` USAGE or EXECUTE that the owner lacks, add `GRANT USAGE ON SCHEMA partman TO <owner>` and `GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA partman TO <owner>` before the wrapper.
+The migration owner `yugabyte` owns the wrapper and has CREATE on `audit`.
+If QA reports missing partman privileges, grant
+`GRANT USAGE ON SCHEMA partman TO <owner>` and
+`GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA partman TO <owner>` before the wrapper.
 
-- [ ] **Step 4: Run the test to verify it passes**
-
-Apply migration 004, then:
-
-Run:
-```bash
-AUDIT_CHAIN_TEST_DSN="postgres://yugabyte@127.0.0.1:5433/tack?sslmode=disable" \
-  go test -tags integration ./internal/audit/ -run TestPartmanAdoptionCreatesFutureWeek -v
-```
-Expected: PASS.
-
-Contingency (only if the test shows pg_partman 4.7.4 rejects a parent with foreign-named children even with `p_start_partition` ahead): rename existing children to pg_partman's native weekly name before `create_parent`. Determine the exact name by inspecting `partman.show_partitions('audit.events')` on a fresh registration, then add `ALTER TABLE audit.events_YYYY_MM_DD RENAME TO <partman_name>` statements. Keep the behavior assertion above unchanged.
-
-- [ ] **Step 5: Commit**
+- [ ] Apply 004 and repeat the exact adoption test command. Require success.
+  If 4.7.4 rejects foreign-named children despite a later start partition,
+  inspect `partman.show_partitions('audit.events')` on fresh registration and
+  rename existing children with
+  `ALTER TABLE audit.events_YYYY_MM_DD RENAME TO <partman_name>` before
+  registration. Preserve the test assertions.
+- [ ] Commit:
 
 ```bash
 git add migrations/004_audit_partman.sql internal/audit/partition_adopt_integration_test.go
 git commit -S -m "Register audit.events with pg_partman and add maintenance wrapper (TACK-333)"
 ```
 
----
+## Task 2: Publish headroom and maintenance results
 
-### Task 2: Telemetry, partition headroom gauge and maintenance counter
+Modify `internal/telemetry/metrics.go` and add or extend `metrics_test.go`.
 
-**Files:**
-- Modify: `internal/telemetry/metrics.go`
-- Test: `internal/telemetry/metrics_test.go` (create if absent)
-
-**Interfaces:**
-- Produces: `telemetry.SetAuditPartitionHeadroomWeeks(weeks int64)` and `telemetry.IncAuditPartitionMaintenance(result string)` where result is `"ok"` or `"error"`.
-
-- [ ] **Step 1: Write the failing test**
+- [ ] Add the failing metrics test:
 
 ```go
 package telemetry
@@ -285,63 +267,39 @@ func TestAuditPartitionMetrics(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run the test to verify it fails**
-
-Run: `go test ./internal/telemetry/ -run TestAuditPartitionMetrics -v`
-Expected: FAIL (`auditPartitionHeadroomWeeks` undefined).
-
-- [ ] **Step 3: Add the metrics**
-
-In `internal/telemetry/metrics.go`, add to the audit metrics `var (...)` block:
+- [ ] Run `go test ./internal/telemetry/ -run TestAuditPartitionMetrics -v`
+  and require undefined-metric failure. Add these declarations to the audit
+  metrics block and these functions:
 
 ```go
-	// audit_partition_headroom_weeks gauge: count of future weekly partitions
-	// beyond the one covering now(). A stalled partition-manager shows up here
-	// before audit.events runs out of partitions.
+	// auditPartitionHeadroomWeeks counts future partitions beyond the current week.
 	auditPartitionHeadroomWeeks = expvar.NewInt("tack_audit_partition_headroom_weeks")
-	// audit_partition_maintenance_total{result="ok|error"}.
+	// auditPartitionMaintenanceTotal counts runs by ok or error result.
 	auditPartitionMaintenanceTotal = expvar.NewMap("tack_audit_partition_maintenance_total")
 ```
 
-And the helpers:
-
 ```go
-// SetAuditPartitionHeadroomWeeks publishes the current count of future weekly
-// partitions available beyond now().
+// SetAuditPartitionHeadroomWeeks publishes the future weekly partition count.
 func SetAuditPartitionHeadroomWeeks(weeks int64) { auditPartitionHeadroomWeeks.Set(weeks) }
 
-// IncAuditPartitionMaintenance records one maintenance run outcome (result is
-// "ok" or "error").
+// IncAuditPartitionMaintenance records one ok or error maintenance result.
 func IncAuditPartitionMaintenance(result string) { auditPartitionMaintenanceTotal.Add(result, 1) }
 ```
 
-- [ ] **Step 4: Run the test to verify it passes**
-
-Run: `go test ./internal/telemetry/ -run TestAuditPartitionMetrics -v`
-Expected: PASS.
-
-- [ ] **Step 5: Commit**
+- [ ] Repeat the test and require success. Commit:
 
 ```bash
 git add internal/telemetry/metrics.go internal/telemetry/metrics_test.go
 git commit -S -m "Add audit partition headroom gauge and maintenance counter (TACK-333)"
 ```
 
----
+## Task 3: Implement the worker
 
-### Task 3: PartitionManager worker
+Create `internal/audit/partition_manager.go` and its unit test. Use
+`partitionStore` for injected database-free tests and pgx in production.
+Reuse the consumer pool without closing it from the worker.
 
-**Files:**
-- Create: `internal/audit/partition_manager.go`
-- Test: `internal/audit/partition_manager_test.go`
-
-**Interfaces:**
-- Consumes: `telemetry.SetAuditPartitionHeadroomWeeks`, `telemetry.IncAuditPartitionMaintenance` (Task 2).
-- Produces: `partitionStore` interface (`RunMaintenance(ctx) error`, `HeadroomWeeks(ctx, now time.Time) (int, error)`); `NewPartitionManager(store partitionStore, period time.Duration) *PartitionManager`; `NewPGPartitionStore(pool *pgxpool.Pool) partitionStore`; methods `Start(ctx)`, `Close() error`. Constant `partitionHeadroomAlertFloor = 4`.
-
-The manager takes a `partitionStore` interface so unit tests inject a fake with no database. The production store is pgx-backed. The manager reuses the consumer's pool through the store, and its `Close` does not close the pool, mirroring `Reconciler`.
-
-- [ ] **Step 1: Write the failing test**
+- [ ] Add the failing lifecycle tests:
 
 ```go
 package audit
@@ -381,8 +339,7 @@ func (f *fakeStore) runCount() int {
 	return f.runs
 }
 
-// TestPartitionManagerRunsOnceOnStart verifies boot catch-up: Start triggers one
-// maintenance run before any tick fires.
+// TestPartitionManagerRunsOnceOnStart verifies maintenance before the first tick.
 func TestPartitionManagerRunsOnceOnStart(t *testing.T) {
 	store := &fakeStore{headroom: 12}
 	pm := NewPartitionManager(store, time.Hour)
@@ -401,7 +358,7 @@ func TestPartitionManagerRunsOnceOnStart(t *testing.T) {
 	}
 }
 
-// TestPartitionManagerCloseIdempotent verifies Close can be called twice safely.
+// TestPartitionManagerCloseIdempotent verifies repeated Close calls.
 func TestPartitionManagerCloseIdempotent(t *testing.T) {
 	pm := NewPartitionManager(&fakeStore{headroom: 12}, time.Hour)
 	pm.Start(context.Background())
@@ -413,8 +370,7 @@ func TestPartitionManagerCloseIdempotent(t *testing.T) {
 	}
 }
 
-// TestPartitionManagerRunErrorDoesNotPanic verifies a maintenance failure is
-// swallowed (logged) and the worker keeps running.
+// TestPartitionManagerRunErrorDoesNotPanic verifies survival after failed maintenance.
 func TestPartitionManagerRunErrorDoesNotPanic(t *testing.T) {
 	store := &fakeStore{runErr: errors.New("boom"), headroom: 0}
 	pm := NewPartitionManager(store, time.Hour)
@@ -433,12 +389,8 @@ func TestPartitionManagerRunErrorDoesNotPanic(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run the test to verify it fails**
-
-Run: `go test ./internal/audit/ -run TestPartitionManager -v`
-Expected: FAIL (`NewPartitionManager` undefined).
-
-- [ ] **Step 3: Write the worker**
+- [ ] Run `go test ./internal/audit/ -run TestPartitionManager -v` and require
+  undefined `NewPartitionManager`. Implement the worker:
 
 ```go
 package audit
@@ -454,25 +406,20 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// partitionHeadroomAlertFloor is the number of future weekly partitions below
-// which the manager logs an alert. Twelve are premade; four weeks of warning is
-// ample lead time to react before audit.events runs out.
+// partitionHeadroomAlertFloor requires an alert below four future weeks.
+// Maintenance normally creates twelve future weekly partitions.
 const partitionHeadroomAlertFloor = 4
 
-// partitionStore is the data-access seam for the partition-manager, so the loop
-// is unit-testable without a database.
+// partitionStore defines maintenance and headroom queries for the worker.
 type partitionStore interface {
-	// RunMaintenance premakes forward partitions for audit.events.
+	// RunMaintenance creates future audit.events partitions.
 	RunMaintenance(ctx context.Context) error
-	// HeadroomWeeks returns the count of weekly partitions whose range starts
-	// after now, i.e. the forward buffer remaining.
+	// HeadroomWeeks counts weekly partitions that start after now.
 	HeadroomWeeks(ctx context.Context, now time.Time) (int, error)
 }
 
-// PartitionManager keeps audit.events supplied with future weekly partitions.
-// It mirrors Notarizer and Reconciler: a recovered goroutine that runs once at
-// boot (catch-up) and then on a fixed period. It reuses the consumer's pool
-// through the store, so Close does not close the pool.
+// PartitionManager maintains future partitions at startup and each period.
+// It shares the consumer pool and does not close that pool.
 type PartitionManager struct {
 	store  partitionStore
 	period time.Duration
@@ -481,8 +428,7 @@ type PartitionManager struct {
 	stopped chan struct{}
 }
 
-// NewPartitionManager builds a manager over the given store. A non-positive
-// period falls back to 24h.
+// NewPartitionManager uses 24h when period is non-positive.
 func NewPartitionManager(store partitionStore, period time.Duration) *PartitionManager {
 	if period <= 0 {
 		period = 24 * time.Hour
@@ -495,7 +441,7 @@ func NewPartitionManager(store partitionStore, period time.Duration) *PartitionM
 	}
 }
 
-// Start launches the maintenance loop in a recovered goroutine.
+// Start runs the maintenance loop with goroutine panic recovery.
 func (m *PartitionManager) Start(ctx context.Context) {
 	go func() {
 		defer func() {
@@ -512,8 +458,7 @@ func (m *PartitionManager) loop(ctx context.Context) {
 	defer close(m.stopped)
 	t := time.NewTicker(m.period)
 	defer t.Stop()
-	/* Run once at boot so a freshly deployed or restarted consumer establishes
-	   headroom and catches up missed weeks before the first tick. */
+	/* Restore future coverage immediately before waiting for the first tick. */
 	m.runOnce(ctx)
 	for {
 		select {
@@ -551,7 +496,7 @@ func (m *PartitionManager) runOnce(ctx context.Context) {
 	telemetry.L(ctx).Debug("audit.partition.maintained", slog.Int("headroom_weeks", headroom))
 }
 
-// Close stops the loop. Idempotent. Does not close the shared pool.
+// Close stops the loop, permits repeated calls, and preserves the shared pool.
 func (m *PartitionManager) Close() error {
 	select {
 	case <-m.stop:
@@ -562,14 +507,12 @@ func (m *PartitionManager) Close() error {
 	return nil
 }
 
-// pgPartitionStore is the production partitionStore backed by the consumer's
-// Yugabyte pool (audit_writer role). Maintenance goes through the SECURITY
-// DEFINER wrapper installed by migration 004.
+// pgPartitionStore uses the consumer's audit_writer pool and migration 004 wrapper.
 type pgPartitionStore struct {
 	pool *pgxpool.Pool
 }
 
-// NewPGPartitionStore builds the production store.
+// NewPGPartitionStore constructs the production store.
 func NewPGPartitionStore(pool *pgxpool.Pool) partitionStore {
 	return &pgPartitionStore{pool: pool}
 }
@@ -598,32 +541,20 @@ func (s *pgPartitionStore) HeadroomWeeks(ctx context.Context, now time.Time) (in
 }
 ```
 
-- [ ] **Step 4: Run the tests to verify they pass**
-
-Run: `go test ./internal/audit/ -run TestPartitionManager -v`
-Expected: PASS (all three).
-
-- [ ] **Step 5: Commit**
+- [ ] Repeat the lifecycle test command and require all three tests to pass.
+  Commit:
 
 ```bash
 git add internal/audit/partition_manager.go internal/audit/partition_manager_test.go
 git commit -S -m "Add PartitionManager worker with headroom metric and alert (TACK-333)"
 ```
 
----
+## Task 4: Configure and start the consumer worker
 
-### Task 4: Config and consumer wiring
+Modify `internal/audit/consumer.go`, `cmd/audit-consumer/main.go`, and
+`internal/audit/consumer_config_test.go`.
 
-**Files:**
-- Modify: `internal/audit/consumer.go` (`ConsumerConfig`, `applyConsumerDefaults`, `Consumer` struct, `NewConsumer`, `Start`, `Close`)
-- Modify: `cmd/audit-consumer/main.go` (`consumerEnv`, `NewConsumer` call)
-- Test: `internal/audit/consumer_config_test.go`
-
-**Interfaces:**
-- Consumes: `NewPartitionManager`, `NewPGPartitionStore` (Task 3).
-- Produces: `ConsumerConfig.PartitionPeriod time.Duration`; env `AUDIT_CONSUMER_PARTITION_PERIOD` (default `24h`).
-
-- [ ] **Step 1: Write the failing test**
+- [ ] Add the failing default/override test:
 
 ```go
 package audit
@@ -633,8 +564,7 @@ import (
 	"time"
 )
 
-// TestApplyConsumerDefaultsPartitionPeriod pins the 24h default and that an
-// explicit value is preserved.
+// TestApplyConsumerDefaultsPartitionPeriod checks the default and explicit period.
 func TestApplyConsumerDefaultsPartitionPeriod(t *testing.T) {
 	got := applyConsumerDefaults(ConsumerConfig{}).PartitionPeriod
 	if got != 24*time.Hour {
@@ -647,24 +577,15 @@ func TestApplyConsumerDefaultsPartitionPeriod(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run the test to verify it fails**
-
-Run: `go test ./internal/audit/ -run TestApplyConsumerDefaultsPartitionPeriod -v`
-Expected: FAIL (`PartitionPeriod` field does not exist).
-
-- [ ] **Step 3: Wire the config and the worker**
-
-In `internal/audit/consumer.go`:
-
-Add to `ConsumerConfig` (after `SummaryEvery`):
+- [ ] Run `go test ./internal/audit/ -run TestApplyConsumerDefaultsPartitionPeriod -v`
+  and require missing-field failure. Add after `SummaryEvery` in `ConsumerConfig`:
 
 ```go
-	// PartitionPeriod is how often the partition-manager runs pg_partman
-	// maintenance for audit.events. Zero falls back to 24h.
+	// PartitionPeriod controls maintenance frequency; zero uses 24h.
 	PartitionPeriod time.Duration
 ```
 
-Add to `applyConsumerDefaults` (before `return cfg`):
+Before `return cfg` in `applyConsumerDefaults`, add:
 
 ```go
 	if cfg.PartitionPeriod <= 0 {
@@ -672,19 +593,19 @@ Add to `applyConsumerDefaults` (before `return cfg`):
 	}
 ```
 
-Add to the `Consumer` struct (after `reconciler *Reconciler`):
+After `reconciler *Reconciler` in `Consumer`, add:
 
 ```go
 	partitions *PartitionManager
 ```
 
-In `NewConsumer`, after the reconciler is constructed and before `return c, nil`:
+After reconciler construction and before `return c, nil` in `NewConsumer`, add:
 
 ```go
 	c.partitions = NewPartitionManager(NewPGPartitionStore(ybpool), cfg.PartitionPeriod)
 ```
 
-In `Consumer.Start`, after the reconciler start block:
+After reconciler startup in `Consumer.Start`, add:
 
 ```go
 	if c.partitions != nil {
@@ -692,7 +613,7 @@ In `Consumer.Start`, after the reconciler start block:
 	}
 ```
 
-In `Consumer.Close`, after the reconciler close block:
+After reconciler shutdown in `Consumer.Close`, add:
 
 ```go
 	if c.partitions != nil {
@@ -700,48 +621,33 @@ In `Consumer.Close`, after the reconciler close block:
 	}
 ```
 
-In `cmd/audit-consumer/main.go`, add to `consumerEnv`:
+Add the environment declaration to `consumerEnv`:
 
 ```go
 	PartitionPeriod time.Duration `env:"AUDIT_CONSUMER_PARTITION_PERIOD" envDefault:"24h"`
 ```
 
-And to the `audit.ConsumerConfig{...}` literal in `run`:
+Add the configuration value to `audit.ConsumerConfig{...}` in `run`:
 
 ```go
 		PartitionPeriod: cfg.PartitionPeriod,
 ```
 
-- [ ] **Step 4: Run the test to verify it passes**
-
-Run: `go test ./internal/audit/ -run TestApplyConsumerDefaultsPartitionPeriod -v`
-Expected: PASS.
-
-- [ ] **Step 5: Build to confirm wiring compiles**
-
-Run: `make build`
-Expected: success (vet, golangci, staticcheck, govulncheck clean).
-
-- [ ] **Step 6: Commit**
+- [ ] Repeat the config test and require success. Run `make build` and require
+  vet, golangci, staticcheck, and govulncheck success. Commit:
 
 ```bash
 git add internal/audit/consumer.go cmd/audit-consumer/main.go internal/audit/consumer_config_test.go
 git commit -S -m "Wire PartitionManager into the audit-consumer (TACK-333)"
 ```
 
----
+## Task 5: Reproduce missing-partition recovery
 
-### Task 5: Integration regression, insert at now() succeeds after boot
+Create `internal/audit/partition_manager_integration_test.go` using Task 1's
+pool and Task 3's production store. A manager run must recreate coverage for a
+future insert when its partition does not exist.
 
-**Files:**
-- Test: `internal/audit/partition_manager_integration_test.go`
-
-**Interfaces:**
-- Consumes: `NewPGPartitionStore`, `NewPartitionManager` (Task 3); `audit.run_partition_maintenance()` (Task 1); `partmanTestPool` (Task 1).
-
-This is the direct regression for the incident: with no future partition, one manager run must create one, and an insert dated in that future week must succeed.
-
-- [ ] **Step 1: Write the failing test**
+- [ ] Add the regression:
 
 ```go
 //go:build integration
@@ -756,16 +662,15 @@ import (
 	"github.com/google/uuid"
 )
 
-// TestPartitionManagerHealsFutureWeek drops future partitions, runs the manager
-// once, and asserts an insert at a future week succeeds. Regression for the
-// 2026-07-06 partition-exhaustion incident (TACK-333).
-func TestPartitionManagerHealsFutureWeek(t *testing.T) {
+// TestPartitionManagerRestoresMissingFuturePartition verifies a future insert after maintenance.
+// It reproduces the 2026-07-06 exhaustion incident tracked by TACK-333.
+func TestPartitionManagerRestoresMissingFuturePartition(t *testing.T) {
 	pool := partmanTestPool(t)
 	ctx := context.Background()
 
-	target := time.Now().UTC().AddDate(0, 0, 7*20) // 20 weeks out
+	target := time.Now().UTC().AddDate(0, 0, 7*20) // Select twenty weeks ahead.
 
-	/* Drop any partition covering the target week to create the failure state. */
+	/* Remove the target week's partition to reproduce missing coverage. */
 	if _, err := pool.Exec(ctx, `
 		DO $$
 		DECLARE r record;
@@ -817,79 +722,45 @@ func TestPartitionManagerHealsFutureWeek(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run the test to verify it passes and is meaningful**
+- [ ] Against a post-004 test database, require this command to pass:
 
-Against a database migrated through 004:
-
-Run:
 ```bash
 AUDIT_CHAIN_TEST_DSN="postgres://yugabyte@127.0.0.1:5433/tack?sslmode=disable" \
-  go test -tags integration ./internal/audit/ -run TestPartitionManagerHealsFutureWeek -v
+  go test -tags integration ./internal/audit/ -run TestPartitionManagerRestoresMissingFuturePartition -v
 ```
-Expected: PASS. To confirm the test is meaningful, temporarily comment out the `pm.Start` line and re-run; expected FAIL (the insert keeps erroring because nothing creates the partition). Restore the line.
 
-- [ ] **Step 3: Commit**
+Temporarily omit `pm.Start` and require failure from continued insert errors.
+Restore the invocation before committing.
+
+- [ ] Commit:
 
 ```bash
 git add internal/audit/partition_manager_integration_test.go
 git commit -S -m "Add partition-manager heal-future-week integration regression (TACK-333)"
 ```
 
----
+## Task 6: Validate QA and release
 
-### Task 6: QA validation, then prod rollout
+- [ ] Run `make test-unit`, then `make test-integration`, including both real
+  adoption and future-week regressions.
+- [ ] Require gpt-subagent, review-bugbot, and code-review approval and passing
+  CI before merging to main.
+- [ ] Deploy the merged ref to `tack_qa`, applying 004 through `./server migrate`.
+  Require `SELECT count(*) FROM partman.part_config WHERE parent_table='audit.events'`
+  to return 1 and `SELECT retention FROM partman.part_config WHERE parent_table='audit.events'`
+  to return NULL. Require startup `audit.partition.maintained` and at least 12
+  weeks in `/debug/vars` gauge `tack_audit_partition_headroom_weeks`.
+  Recreate QA and repeat the partition and gauge checks.
+- [ ] Deploy to `tack_servers` and verify CT 117 preserves stopgap partitions
+  through 2026-09-14, registers pg_partman with NULL retention, runs startup
+  maintenance, reports at least 12 weeks, and creates a partition beyond that
+  date. Require the absence of `no partition of relation "events"` errors.
+- [ ] Attach QA and production part_config state, gauge values, and new partition
+  evidence to TACK-333 before closing it. Automated maintenance replaces the
+  temporary partition extension.
 
-**Files:** none (operational).
-
-This task validates the change on QA (disposable) before prod, per the production change protocol.
-
-- [ ] **Step 1: Run the full test suite locally**
-
-Run: `make test-unit` then `make test-integration`
-Expected: all pass, including the new adoption and heal-future-week integration tests.
-
-- [ ] **Step 2: Merge after review gates**
-
-Confirm gpt-subagent, review-bugbot, and code-review approve, and CI is green, then merge the PR to `main`.
-
-- [ ] **Step 3: Deploy to QA and validate adoption and boot heal**
-
-Deploy the tack stack to `tack_qa` at the merged ref (this runs `./server migrate`, applying 004). Then verify on the QA database:
-- `SELECT count(*) FROM partman.part_config WHERE parent_table='audit.events'` returns 1.
-- `SELECT retention FROM partman.part_config WHERE parent_table='audit.events'` is NULL.
-- The audit-consumer log shows the partition worker ran on boot (`audit.partition.maintained`).
-- `tack_audit_partition_headroom_weeks` in `/debug/vars` is at least 12.
-- Recreate QA once and confirm a fresh environment self-heals (partitions present, headroom gauge populated after boot).
-
-- [ ] **Step 4: Deploy to prod and verify**
-
-Deploy the tack stack to `tack_servers`. On prod (CT 117), verify:
-- pg_partman adopted `audit.events` (part_config row present, retention NULL) without disturbing the stopgap partitions through 2026-09-14.
-- The audit-consumer boot run logged `audit.partition.maintained` and `tack_audit_partition_headroom_weeks` is at least 12.
-- A future-week partition beyond 2026-09-14 now exists (pg_partman premade forward).
-- No `no partition of relation "events"` errors appear after the deploy.
-
-- [ ] **Step 5: Close the ticket**
-
-Update TACK-333 with the QA and prod validation evidence (part_config state, headroom gauge value, the premade future partitions), and note that the stopgap is now superseded by automated maintenance.
-
----
-
-## Self-review
-
-**Spec coverage:**
-- pg_partman engine, create_parent, 12-week premake, retention off: Task 1.
-- SECURITY DEFINER wrapper and audit_writer EXECUTE grant: Task 1.
-- Adoption of existing hand-named partitions without overlap: Task 1 (p_start_partition) plus adoption integration test, with a rename contingency.
-- In-process scheduler goroutine (boot plus daily tick), mirrors Notarizer and Reconciler: Task 3.
-- Reuses consumer pool, Close does not close pool: Task 3 (store holds pool) plus Task 4 (wiring).
-- Headroom gauge, low-headroom alert, maintenance failure counter: Task 2 (metrics) plus Task 3 (usage).
-- Config `AUDIT_CONSUMER_PARTITION_PERIOD` default 24h: Task 4.
-- Unit tests (loop runs on boot, ticks, idempotent Close, error path): Task 3.
-- Integration test (insert at now() succeeds after boot on a DB with no future partition): Task 5.
-- QA-first rollout: Task 6.
-- Non-goals (no pg_cron, no retention, no DLQ) respected across all tasks.
-
-**Placeholder scan:** No TBD or TODO. The one version-specific unknown (pg_partman 4.7.4 adoption behavior) is resolved by the Task 1 integration test with a concrete contingency, not deferred.
-
-**Type consistency:** `partitionStore` (`RunMaintenance`, `HeadroomWeeks`) is defined in Task 3 and consumed by Tasks 3 and 5. `NewPartitionManager`, `NewPGPartitionStore`, `Start`, `Close` names match across Tasks 3, 4, 5. `SetAuditPartitionHeadroomWeeks` and `IncAuditPartitionMaintenance` names match between Task 2 and Task 3. `ConsumerConfig.PartitionPeriod` and env `AUDIT_CONSUMER_PARTITION_PERIOD` match between Task 4's config test, consumer, and main. `partmanTestPool` is defined in Task 1 and reused in Task 5.
+Task 1's adoption test resolves pg_partman 4.7.4 compatibility with an explicit
+rename contingency. Tasks 3 and 5 share the same production store, worker,
+wrapper, and test pool. Task 4 uses identical `PartitionPeriod` declarations
+in defaults, environment parsing, tests, and construction. Do not add pg_cron,
+automatic retention, or the separate dead-letter queue in this work.

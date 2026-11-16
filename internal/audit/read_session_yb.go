@@ -11,18 +11,14 @@ import (
 // noRoleSetting is the value of the role setting when the session has not run SET ROLE.
 const noRoleSetting = "none"
 
-// onCheckedConnection runs call on one pooled connection and then reads the
-// session role on that connection. Every read lifecycle function runs as
-// SECURITY DEFINER with the privileges of ops_outbox_owner. After YugabyteDB
-// retries such a call internally, for example after a deadlock or a write
-// conflict, the session can keep ops_outbox_owner as current_user. An
-// application query on that connection then fails with SQLSTATE 42501
-// (TACK-583). When current_user differs from the session role, or the role
-// read fails, onCheckedConnection logs the problem and closes the connection.
-// The pool destroys a closed connection on release. The changed role belongs
-// to the connection and not to the call, so onCheckedConnection always
-// returns the call error unchanged, and a committed call stays reported as
-// committed.
+// onCheckedConnection runs call on one pooled connection and checks its
+// session role afterward. Read lifecycle functions use SECURITY DEFINER with
+// ops_outbox_owner privileges. A YugabyteDB retry after a deadlock or write
+// conflict can leave current_user as ops_outbox_owner. Later application
+// queries then fail with an insufficient-privilege error (SQLSTATE 42501,
+// TACK-583). A role mismatch or failed role check logs an error and closes
+// the connection. The pool destroys it on release. onCheckedConnection returns
+// the call's original error and does not report a committed call as failed.
 func (l *PoolReadLifecycle) onCheckedConnection(
 	ctx context.Context,
 	call func(connection *pgx.Conn) error,

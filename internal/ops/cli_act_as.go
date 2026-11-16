@@ -12,11 +12,9 @@ import (
 	"goodkind.io/tack/internal/service"
 )
 
-// actAsGroup holds the sanctioned way for an operator to make a product
-// write as a named user. The write lands owned by the user, and its ledger
-// row carries the operator, a recorded grant, and the reason, so nobody has
-// to choose between recording the change as the user (losing the operator)
-// or as the operator (losing the user) (TACK-424).
+// actAsGroup defines recorded product writes as a named user. The ledger
+// records the user as the actor, plus the operator, grant, and reason
+// (TACK-424).
 var actAsGroup = &clispec.Group{
 	Use:    "act-as",
 	Short:  "Make a recorded product write as a named user",
@@ -41,12 +39,12 @@ func actAsCreateOp(f *cli.Factory) clispec.Operation[actAsCreateInput] {
 		Group:    actAsGroup,
 		Aliases:  nil,
 		Hidden:   false,
-		Short:    "Create one node as a named user, with the operator on the row",
-		Long: "Creates one node under --parent as the user named by --user, who " +
-			"must be an active user and a member of the org that holds the parent. " +
-			"A grant row names the user, the org, and the reason; the node's own " +
-			"ledger row keeps the user as its actor and carries the operator and " +
-			"the grant id. Nothing writes without --execute; without it the command " +
+		Short:    "Create one node as a named user and record the operator",
+		Long: "Create one node under --parent as the user specified by --user. " +
+			"The user must be active and a member of the parent's org. " +
+			"A grant row records the user, org, and reason. The node's ledger row " +
+			"records the user as its actor, plus the operator and grant id. " +
+			"The command requires --execute to write. Without it, the command " +
 			"reports the user and org it would write for.",
 		Examples: nil,
 		Args:     nil,

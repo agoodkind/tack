@@ -7,12 +7,9 @@ import (
 	"github.com/google/uuid"
 )
 
-// TestLegacyEventCarriesTheDeleteShape pins the row shape production actually
-// holds for the deletion that blocks the reference-key reconstruction: the
-// node.delete verb, the tool that performed it, and the mcp_tool entity kind
-// the pre-fix build stamped, which is why the row names no node. A testbed
-// cannot reproduce the production case without all three.
-func TestLegacyEventCarriesTheDeleteShape(t *testing.T) {
+// Reference-key reconstruction must reproduce the historical deletion record,
+// including its missing node ID.
+func TestLegacyEventUsesHistoricalDeleteFields(t *testing.T) {
 	t.Parallel()
 	in := LegacyRowInput{
 		OrgID:    uuid.New(),
@@ -39,13 +36,12 @@ func TestLegacyEventCarriesTheDeleteShape(t *testing.T) {
 	}
 
 	if event.Entity.ID != uuid.Nil {
-		t.Fatalf("entity id = %s, want the zero id production's rows carry", event.Entity.ID)
+		t.Fatalf("entity id = %s, want the zero id in historical production rows", event.Entity.ID)
 	}
 }
 
-// TestLegacyEventKeepsTheToolInvocationDefault pins that the original TACK-435
-// shape is unchanged when the new fields are absent, so the pre-column outcome
-// proof still writes the row it always wrote.
+// TestLegacyEventKeepsTheToolInvocationDefault checks the original TACK-435
+// event shape when Action and Tool are absent.
 func TestLegacyEventKeepsTheToolInvocationDefault(t *testing.T) {
 	t.Parallel()
 	entityID := uuid.New()

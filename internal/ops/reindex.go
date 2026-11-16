@@ -105,8 +105,8 @@ func runReindex(ctx context.Context, env *Env) error {
 	return nil
 }
 
-// listOrgIDs reads every distinct org_id from postgres org_members. FDB has
-// no scan-all-orgs path because every entity store keys on orgID.
+// listOrgIDs reads distinct org_id values from Postgres org_members.
+// FDB entity stores require orgID and do not provide an all-org scan.
 func listOrgIDs(ctx context.Context, env *Env) (map[uuid.UUID]struct{}, error) {
 	rows, err := env.Pool.Query(ctx, "SELECT DISTINCT org_id FROM org_members")
 	if err != nil {
@@ -128,9 +128,9 @@ func listOrgIDs(ctx context.Context, env *Env) (map[uuid.UUID]struct{}, error) {
 	return orgIDs, nil
 }
 
-// indexedPropsFor returns the names of indexed PropertyDefs that apply to nt.
-// Mirrors the same predicate the service layer uses at create time so the
-// backfill writes exactly the indexes a fresh create would.
+// indexedPropsFor selects indexed PropertyDefs that apply to nt using the
+// service layer's create-time predicate. Backfills and new nodes require
+// the same indexes.
 func indexedPropsFor(nt *node.NodeType, defs []*node.PropertyDef) []string {
 	out := make([]string, 0, len(defs))
 	for _, d := range defs {

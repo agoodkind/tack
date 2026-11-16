@@ -82,7 +82,7 @@ Add `Search *SearchProjection` to `PropertyDef`. Validate known modes, item rule
 
 - [ ] **Step 4: Decode and validate the manifest incrementally.**
 
-Read a sorted JSON array through `json.Decoder`. Reject malformed entries, duplicate property-definition IDs, unknown IDs, organization mismatches, invalid rules, and omitted definitions that were nil when the manifest was prepared. Do not load all organizations or definitions into memory.
+Read a sorted JSON array through `json.Decoder`. Reject malformed entries, duplicate property-definition IDs, unknown IDs, organization mismatches, invalid rules, and omissions of definitions that had nil declarations at manifest preparation. Do not load all organizations or definitions into memory.
 
 ```json
 [{"org_id":"018f...","property_def_id":"0190...","search":{"include":true,"order":10,"rule":{"mode":"scalar"}}}]
@@ -98,7 +98,7 @@ Register `ops backfill once-search-projections` through the existing execute gat
 
 - [ ] **Step 6: Implement a nonmutating dry run.**
 
-Read definitions in bounded ID order. Require one manifest entry for each nil declaration. Report planned identities and bounded totals. Write no projection, epoch, scan event, or audit record.
+Read definitions in bounded ID order. Require one manifest entry for each nil declaration. Report planned identities and bounded totals. Do not write projections, epochs, scan events, or audit records.
 
 - [ ] **Step 7: Apply retry-safe bounded batches.**
 
@@ -106,7 +106,7 @@ Set a projection only when stored `Search` is nil. Accept an already equal value
 
 - [ ] **Step 8: Add the permanent readiness gate.**
 
-`RequireSearchProjections` scans definitions in bounded order, reports bounded missing identities, and refuses success until every definition has a declaration. Call it from the registered provision and verify operations in this task. The later rebuild operation also calls it before target creation.
+`RequireSearchProjections` scans definitions in bounded order, reports bounded missing identities, and refuses success until every definition has a declaration. Invoke `RequireSearchProjections` from the registered provision and verify operations in this task. The later rebuild operation must invoke `RequireSearchProjections` before target creation.
 
 - [ ] **Step 9: Add failure coverage.**
 

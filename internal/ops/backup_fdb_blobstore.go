@@ -10,46 +10,30 @@ import (
 	"goodkind.io/tack/internal/config"
 )
 
-// fdbBlobstoreSyntheticHost is the fixed hostname substituted into the
-// blobstore URL when the configured endpoint is an IPv6 literal. fdbbackup's
-// blobstore connector cannot resolve an IPv6 literal host (it returns "DNS
-// lookup failed" for describe and hangs on start), but it resolves a plain
-// hostname fine when the container has an /etc/hosts entry mapping that name
-// to the literal address. The Docker ExtraHosts entry that carries that
-// mapping uses this same name. Proven on QA 2026-05-28: with an /etc/hosts
-// mapping fdbbackup connected instantly and used path-style addressing.
+// fdbBlobstoreSyntheticHost replaces IPv6 literal hosts in blobstore URLs.
+// fdbbackup fails DNS lookup for describe and hangs on start with IPv6
+// literals. Docker ExtraHosts maps this hostname to the literal address.
+// QA verified the connection and path-style addressing on 2026-05-28.
 const fdbBlobstoreSyntheticHost = "fdb-blobstore-host"
 
-// fdbBlobstoreURL builds the `blobstore://` destination URL that
-// `fdbbackup start` writes to when continuous backup streams straight to the
-// SeaweedFS object store. The URL form is documented at
-// https://apple.github.io/foundationdb/backups.html under the Blob Store URLs
-// section:
+// fdbBlobstoreURL builds a destination for continuous backups in SeaweedFS.
+// FoundationDB documents the URL in the Blob Store URLs section:
+// https://apple.github.io/foundationdb/backups.html
 //
 //	blobstore://<key>:<secret>@<host>:<port>/<name>?bucket=<bucket>&region=<region>&secure_connection=0
 //
-// The host:port pair is derived from cfg.BackupS3Endpoint by stripping the
-// http:// or https:// scheme. When the endpoint is an IPv6 literal in brackets
-// (for example http://[3d06:bad:b01:204::410]:8333) the bracketed authority is
-// replaced with the synthetic hostname fdb-blobstore-host because fdbbackup
-// cannot resolve an IPv6 literal; the caller pairs this with a matching Docker
-// ExtraHosts entry so the container's /etc/hosts resolves the name back to the
-// literal. secure_connection=0 selects plain HTTP because the SeaweedFS S3
-// endpoint is non-TLS on the IPv6-only bridge.
+// blobstoreHostMapping removes the endpoint scheme and replaces IPv6 literals
+// with fdbBlobstoreSyntheticHost. The caller supplies the corresponding Docker
+// ExtraHosts mapping. secure_connection=0 selects HTTP for the SeaweedFS S3
+// endpoint on the IPv6-only bridge.
 //
-// name is the backup name FoundationDB uses to namespace this run's data
-// inside the bucket; callers pass the run ID so each run is independently
-// addressable.
-//
-// fdbBlobstoreURL is a pure encoder: it touches no I/O and logs nothing, so
-// the caller is responsible for logging when it returns an error. The returned
-// error already carries the endpoint or credential context the caller needs.
+// Callers use the run ID as name to address each backup independently.
+// This function only encodes the URL; it does not access external resources or
+// log messages. Callers log errors, which include endpoint or credential
+// context.
 func fdbBlobstoreURL(cfg *config.Config, name string) (string, error) {
 	hostForURL, _, err := blobstoreHostMapping(cfg.BackupS3Endpoint)
 	if err != nil {
-		// blobstoreHostMapping already includes the endpoint in its message, so
-		// the error is returned directly rather than re-wrapped; this keeps the
-		// pure-encoder shape free of a logging obligation.
 		return "", err
 	}
 
@@ -74,17 +58,10 @@ func fdbBlobstoreURL(cfg *config.Config, name string) (string, error) {
 	return dest, nil
 }
 
-// blobstoreHostMapping resolves the configured S3 endpoint into the host the
-// blobstore URL must use and, when needed, the Docker ExtraHosts entry that
-// makes that host resolvable inside the backup containers.
-//
-// It strips a leading http:// or https:// from endpoint, then inspects the
-// authority. When the authority is an IPv6 literal in brackets ([ipv6]:port),
-// hostForURL becomes "fdb-blobstore-host:port" and extraHost becomes
-// "fdb-blobstore-host:ipv6" (the Docker ExtraHosts "hostname:ip" form, with
-// the IPv6 address bare and without brackets). When the authority is already a
-// plain hostname (no brackets), hostForURL is the authority unchanged and
-// extraHost is "" because no /etc/hosts mapping is needed.
+// blobstoreHostMapping returns the blobstore host and an optional ExtraHosts
+// mapping. For [ipv6]:port, it returns fdb-blobstore-host:port and
+// fdb-blobstore-host:ipv6, with an unbracketed address in the Docker mapping.
+// A plain hostname retains its authority and does not require a mapping.
 func blobstoreHostMapping(endpoint string) (hostForURL string, extraHost string, err error) {
 	authority, err := stripScheme(endpoint)
 	if err != nil {
@@ -92,17 +69,13 @@ func blobstoreHostMapping(endpoint string) (hostForURL string, extraHost string,
 	}
 
 	if !strings.HasPrefix(authority, "[") {
-		// Plain hostname (optionally host:port). fdbbackup resolves it directly,
-		// so no synthetic name and no ExtraHosts mapping are required.
+		// fdbbackup resolves plain hostnames directly, with an optional port.
 		return authority, "", nil
 	}
 
 	closeIdx := strings.LastIndex(authority, "]")
 	if closeIdx < 0 {
-		return "", "", fmt.Errorf(
-			"endpoint %q has an opening bracket but no closing bracket",
-			endpoint,
-		)
+		return "", "", endpointBracketUnclosedError{Endpoint: endpoint}
 	}
 
 	ipv6 := authority[1:closeIdx]
@@ -110,9 +83,8 @@ func blobstoreHostMapping(endpoint string) (hostForURL string, extraHost string,
 		return "", "", fmt.Errorf("endpoint %q has empty IPv6 literal", endpoint)
 	}
 
-	// Everything after the closing bracket is the optional :port. Split on the
-	// first ":" after "]" so the port stays attached to the synthetic host and
-	// the IPv6 literal (which itself contains colons) is not mis-split.
+	// The optional port follows the closing bracket. Separating it here
+	// preserves the colons inside the IPv6 address.
 	rest := authority[closeIdx+1:]
 	port := ""
 	if strings.HasPrefix(rest, ":") {
@@ -131,9 +103,8 @@ func blobstoreHostMapping(endpoint string) (hostForURL string, extraHost string,
 	return hostForURL, extraHost, nil
 }
 
-// stripScheme removes a leading http:// or https:// from endpoint and returns
-// the bare authority. The IPv6 literal stays bracketed because the brackets
-// are part of the authority, not the scheme.
+// stripScheme removes a leading http:// or https:// and returns the authority,
+// including brackets around IPv6 literals.
 func stripScheme(endpoint string) (string, error) {
 	if endpoint == "" {
 		return "", fmt.Errorf("endpoint is empty")
@@ -142,25 +113,19 @@ func stripScheme(endpoint string) (string, error) {
 	trimmed := strings.TrimPrefix(endpoint, "https://")
 	trimmed = strings.TrimPrefix(trimmed, "http://")
 	if trimmed == "" {
-		return "", fmt.Errorf("endpoint %q has no host after scheme", endpoint)
+		return "", endpointHostMissingError{Endpoint: endpoint}
 	}
 
 	return trimmed, nil
 }
 
-// fdbBackupStartArgs builds the continuous fdbbackup start command, host binds,
-// and Docker ExtraHosts for the run. The blobstore path binds only the cluster
-// file and returns one ExtraHosts entry when the fdbbackup container needs a
-// synthetic hostname for an IPv6 object-store endpoint. The blobstore secret is
-// embedded in the destination URL and never logged; only the endpoint and bucket
-// are logged at the call site. See
-// https://apple.github.io/foundationdb/backups.html
+// fdbBackupStartArgs builds the command, cluster-file bind, and optional
+// ExtraHosts mapping for continuous backup. The destination URL includes the
+// secret. The caller logs only the endpoint and bucket, never the URL.
 func fdbBackupStartArgs(
 	b *backupCtx,
 ) (cmd []string, binds []string, extraHosts []string, err error) {
-	// The run ID is the bare backup name. The FoundationDB blobstore layer stores
-	// every backup under its own backups/ folder in the bucket, so the object keys
-	// land at backups/<run-id>/ without a backups/ prefix here.
+	// FoundationDB adds backups/ to the bare run ID when storing object keys.
 	dest, err := fdbBlobstoreURL(b.Cfg, b.RunID)
 	if err != nil {
 		wrapped := fmt.Errorf("build blobstore destination: %w", err)
@@ -188,10 +153,9 @@ func fdbBackupStartArgs(
 	}
 
 	binds = []string{fdbClusterReadOnlyBind(b.Cfg)}
-	// -z (--no-stop-when-done) keeps the backup running after it becomes
-	// restorable, so it streams a continuously-advancing restore window instead
-	// of stopping at the first snapshot. Without it fdbbackup stops once the
-	// backup is restorable.
+	// -z (--no-stop-when-done) continues backup after the first restorable
+	// snapshot and advances the restore window. Without it fdbbackup stops
+	// once the backup becomes restorable.
 	cmd = []string{
 		"start",
 		"-d",
@@ -204,12 +168,9 @@ func fdbBackupStartArgs(
 	return cmd, binds, extraHosts, nil
 }
 
-// blobstoreExtraHosts returns the Docker ExtraHosts entries the backup
-// containers need to resolve the blobstore host derived from endpoint. It
-// returns nil when the endpoint is a plain hostname (no mapping required) and a
-// single-element slice with the synthetic hostname-to-IPv6 mapping when the
-// endpoint is an IPv6 literal. The empty-vs-populated split keeps the Docker
-// HostConfig field nil when there is nothing to map.
+// blobstoreExtraHosts returns one mapping for an IPv6 literal endpoint or
+// nil for a plain hostname. Docker HostConfig uses nil when a mapping is
+// unnecessary.
 func blobstoreExtraHosts(endpoint string) ([]string, error) {
 	_, extraHost, err := blobstoreHostMapping(endpoint)
 	if err != nil {
@@ -221,4 +182,20 @@ func blobstoreExtraHosts(endpoint string) ([]string, error) {
 	}
 
 	return []string{extraHost}, nil
+}
+
+type endpointBracketUnclosedError struct {
+	Endpoint string
+}
+
+func (failure endpointBracketUnclosedError) Error() string {
+	return fmt.Sprintf("endpoint %q opens an IPv6 bracket but does not close it", failure.Endpoint)
+}
+
+type endpointHostMissingError struct {
+	Endpoint string
+}
+
+func (failure endpointHostMissingError) Error() string {
+	return fmt.Sprintf("endpoint %q does not include a host after the scheme", failure.Endpoint)
 }

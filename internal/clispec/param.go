@@ -1,6 +1,5 @@
 package clispec
 
-// paramKind names the value kinds a flag can carry.
 type paramKind uint8
 
 const (
@@ -9,10 +8,8 @@ const (
 	kindBool
 )
 
-// Param declares one flag and the closure that copies the parsed value into
-// the input struct after cobra parses the command line. The bind closures are
-// typed per kind, so no reflection or any-typed plumbing is needed.
-type Param[I Input] struct {
+// Param binds string, integer, or boolean flags without reflection.
+type Param[OperationInput Input] struct {
 	Kind        paramKind
 	Flag        string
 	Description string
@@ -22,20 +19,20 @@ type Param[I Input] struct {
 	DefaultInt  int    `exhaustruct:"optional"`
 	DefaultBool bool   `exhaustruct:"optional"`
 
-	bindString func(*I, string) `exhaustruct:"optional"`
-	bindInt    func(*I, int)    `exhaustruct:"optional"`
-	bindBool   func(*I, bool)   `exhaustruct:"optional"`
+	bindString func(*OperationInput, string) `exhaustruct:"optional"`
+	bindInt    func(*OperationInput, int)    `exhaustruct:"optional"`
+	bindBool   func(*OperationInput, bool)   `exhaustruct:"optional"`
 }
 
-// StringParam declares a free-text flag.
-func StringParam[I Input](
+// StringParam defines a free-text flag.
+func StringParam[OperationInput Input](
 	flag string,
 	description string,
 	def string,
 	required bool,
-	set func(*I, string),
-) Param[I] {
-	return Param[I]{
+	set func(*OperationInput, string),
+) Param[OperationInput] {
+	return Param[OperationInput]{
 		Kind:        kindString,
 		Flag:        flag,
 		Description: description,
@@ -49,9 +46,14 @@ func StringParam[I Input](
 	}
 }
 
-// IntParam declares a whole-number flag.
-func IntParam[I Input](flag, description string, def int, set func(*I, int)) Param[I] {
-	return Param[I]{
+// IntParam defines a whole-number flag.
+func IntParam[OperationInput Input](
+	flag string,
+	description string,
+	def int,
+	set func(*OperationInput, int),
+) Param[OperationInput] {
+	return Param[OperationInput]{
 		Kind:        kindInt,
 		Flag:        flag,
 		Description: description,
@@ -65,9 +67,14 @@ func IntParam[I Input](flag, description string, def int, set func(*I, int)) Par
 	}
 }
 
-// BoolParam declares an on/off flag.
-func BoolParam[I Input](flag, description string, def bool, set func(*I, bool)) Param[I] {
-	return Param[I]{
+// BoolParam defines a boolean flag.
+func BoolParam[OperationInput Input](
+	flag string,
+	description string,
+	def bool,
+	set func(*OperationInput, bool),
+) Param[OperationInput] {
+	return Param[OperationInput]{
 		Kind:        kindBool,
 		Flag:        flag,
 		Description: description,

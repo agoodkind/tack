@@ -1,7 +1,6 @@
-# The ledger's engine image, declared once. The yugabyte service runs it, and
-# tack-ops receives it as TACK_BACKUP_YB_IMAGE so the backup tooling and the
-# restore drill's throwaway engine run the same version the cluster runs. See
-# the pin comment on the yugabyte service before changing the tag.
+# The yugabyte service uses this image. tack-ops reads the same image tag as
+# TACK_BACKUP_YB_IMAGE for backup tools and the restore drill's temporary
+# engine. Read the yugabyte service's pin comment before changing the tag.
 x-yugabyte-image: &yugabyte_image yugabytedb/yugabyte:2024.2.8.0-b85
 
 # The search client environment of the app service. Compose interpolates
@@ -9,8 +8,8 @@ x-yugabyte-image: &yugabyte_image yugabytedb/yugabyte:2024.2.8.0-b85
 # from the .env file that the configs deploy renders. A shell variable takes
 # precedence over the .env file. A variable that neither source sets is
 # empty. An empty value selects the compiled default where one exists. An
-# empty OPENSEARCH_ENDPOINT builds no search runtime and schedules no search
-# work. OPENSEARCH_CA is a fixed path. The app reads that CA file from its
+# empty OPENSEARCH_ENDPOINT disables the search runtime and search work.
+# OPENSEARCH_CA is a fixed path. The app reads that CA file from its
 # /etc/tack mount. The app service runs the search operator commands, and
 # those commands read FoundationDB.
 x-opensearch-environment: &opensearch_environment
@@ -62,9 +61,8 @@ services:
         BUILD_TIME: ${TACK_BUILD_TIME:-unknown}
         TAG: ${TACK_TAG:-dev}
         DIRTY: ${TACK_DIRTY:-false}
-    # serve is audited like every command: it needs the execute gate and an
-    # identity. The app runs as the service identity tack-app, because a
-    # long-running daemon is not a human operator (TACK-444).
+    # Every audited command requires an identity. serve also requires --execute.
+    # The app uses service identity tack-app, not a human operator (TACK-444).
     command: ["serve", "--execute", "--operator-service", "tack-app"]
     restart: unless-stopped
     mem_limit: 1g
@@ -72,10 +70,10 @@ services:
       - "${PORT:-8000}:8000"
     environment:
       <<: *opensearch_environment
-      # The application's own non-superuser login (TACK-180). tack_app is
-      # created by `ops audit seed-roles` from TACK_APP_PASSWORD and holds the
-      # three auth tables and nothing else; the yugabyte superuser stays with
-      # the ops sidecar for migrations, seeding, and backups.
+      # `ops audit seed-roles` creates the non-superuser tack_app login from
+      # TACK_APP_PASSWORD with access only to the three auth tables (TACK-180).
+      # tack-ops normally connects as tack_migrator. Only a from-empty rebuild
+      # uses the engine superuser.
       DATABASE_URL_FILE: /run/secrets/DATABASE_URL
       AUDIT_OPERATOR_DSN_FILE: /run/secrets/AUDIT_OPERATOR_DSN
       FDB_CLUSTER_FILE: /etc/foundationdb/fdb.cluster
@@ -84,42 +82,39 @@ services:
       # caller sets. This value bounds it, retries included (TACK-408).
       FDB_TRANSACTION_TIMEOUT: ${FDB_TRANSACTION_TIMEOUT:-5s}
       PORT: 8000
-      # ENV selects the auth mode: development accepts a raw user UUID as the
-      # bearer with no token lookup, production requires an API token. It is
-      # required rather than defaulted so no environment can start with an
-      # auth mode nobody declared; the deploy renders it into .env (TACK-261).
+      # ENV selects the auth mode: development accepts a raw user UUID without
+      # a token lookup; production requires an API token. Compose requires
+      # an explicit ENV value in .env (TACK-261).
       ENV: ${ENV:?ENV is required, set it in .env}
-      # Dev policy: noisiest level on, every rotated log kept forever.
-      # Logs are append-only history we can grep against post-incident.
+      # Development defaults enable debug logging and retain every rotated log.
+      # Append-only logs support incident investigation.
       LOG_LEVEL: ${LOG_LEVEL:-debug}
       LOG_MAX_BACKUPS: ${LOG_MAX_BACKUPS:-0}
       LOG_MAX_AGE_DAYS: ${LOG_MAX_AGE_DAYS:-0}
       LOG_MAX_SIZE_MB: ${LOG_MAX_SIZE_MB:-100}
-      # On-disk paths inside the container. The /var/log/tack volume below
-      # binds the host path for cross-restart persistence.
+      # The /var/log/tack volume preserves these container paths across restarts.
       LOG_JSON_FILE: ${LOG_JSON_FILE:-/var/log/tack/app.jsonl}
       LOG_TEXT_FILE: ${LOG_TEXT_FILE:-/var/log/tack/app.log}
       LOG_COMMAND_DIR: ${LOG_COMMAND_DIR:-/var/log/tack/commands}
-      # Valid audit signer set (TACK-437): the key identifiers this environment
-      # accepts, rendered per environment by the configs deploy. `audit
-      # signers` refuses to run without it; `audit verify` rejects a manifest
-      # signed outside it and reports the signer unjudged when it is empty.
+      # The configs deploy renders accepted audit signer identifiers per
+      # environment (TACK-437). `audit signers` requires this set. `audit verify`
+      # rejects manifests signed outside it and reports an unjudged signer
+      # when the set is empty.
       AUDIT_VALID_SIGNERS: ${AUDIT_VALID_SIGNERS:-}
-      # Audit producer. When AUDIT_KAFKA_BROKERS is set, Record publishes to
-      # Kafka and the audit-consumer becomes the only writer of audit.events.
-      # Empty uses the synchronous Yugabyte recorder.
+      # When AUDIT_KAFKA_BROKERS is set, Record publishes to Kafka and the
+      # audit-consumer becomes the only writer of audit.events. An empty value
+      # selects the synchronous Yugabyte recorder.
       AUDIT_KAFKA_BROKERS: ${AUDIT_KAFKA_BROKERS:-}
       AUDIT_KAFKA_TOPIC: ${AUDIT_KAFKA_TOPIC:-audit.events.v1}
       AUDIT_KAFKA_CLIENT_ID: ${AUDIT_KAFKA_CLIENT_ID:-tack-audit-producer}
-      # Matches the application default. A hard broker loss costs up to 9s of
-      # broker lease expiry plus up to 5s of client metadata refresh, so a
-      # smaller budget expires while delivery would still have succeeded.
+      # This timeout matches the application default. After a hard broker loss,
+      # lease expiry takes up to 9s and client metadata refresh takes up to 5s.
+      # A smaller budget can expire before delivery completes.
       AUDIT_KAFKA_PRODUCE_TIMEOUT: ${AUDIT_KAFKA_PRODUCE_TIMEOUT:-15s}
-      # QA data generator write marker, read only by `ops qa datagen`. The
-      # generator refuses to write unless this is exactly qa or local, so the
-      # value is set on tack-qa and left empty on production. The app service
-      # carries it because the generator needs FoundationDB reachability and the
-      # audit DSNs, which the host-networked tack-ops container does not have.
+      # `ops qa datagen` permits writes only when this marker is qa or local.
+      # tack-qa sets it; production leaves it empty. The app service provides
+      # the generator's FoundationDB connection and audit DSNs, which the
+      # host-networked tack-ops container lacks.
       TACK_DATAGEN_ALLOW_TARGET: ${TACK_DATAGEN_ALLOW_TARGET:-}
       # TACK_REPAIR_DIR sets the repair directory that the volume below mounts.
       # The repair command refuses request, manifest, and export file paths
@@ -131,10 +126,9 @@ services:
       - OPENSEARCH_PASSWORD
       - OPENSEARCH_CURSOR_KEY
     volumes:
-      # Writable, because the FoundationDB client writes the new coordinator
-      # list into this file when the cluster changes coordinators. Mounted
-      # read-only, the client keeps the coordinators it started with and stops
-      # finding the cluster once every one of them is gone (TACK-408).
+      # The FoundationDB client must write coordinator changes to this file.
+      # A read-only mount prevents updates, and the client cannot find the
+      # cluster after all original coordinators stop serving it (TACK-408).
       - /etc/foundationdb:/etc/foundationdb
       - tack-logs:/var/log/tack
       # The repair command reads requests and manifests from this host
@@ -143,16 +137,15 @@ services:
       # Docker creates the host directory on the first start if it does not
       # exist.
       - /var/lib/tack/repair:/var/lib/tack/repair
-    # No yugabyte dependency: deployed guests reach the ledger on the data
-    # guests through the rendered override's multi-host URL, and the deploy
-    # starts the app only after provision. This base file alone still dials
-    # the local single node above and relies on restart for ordering.
+    # The app does not depend on the local yugabyte service. Deployed guests
+    # connect to the ledger on data guests using the rendered override's
+    # multi-host URL. The deploy starts the app after provision. Locally the
+    # app connects to the single node and restarts until it accepts connections.
     #
-    # No fdb dependency either. Deployed guests reach the product store on the
-    # data guests through the coordinator list in the cluster file, and the
-    # owner guest runs no store process after phase 4, so a dependency here
-    # would start one (TACK-408). Locally the app restarts until the store
-    # answers, the same ordering the ledger relies on.
+    # The app does not depend on the local fdb service either. Deployed guests
+    # connect to data guests using the cluster file's coordinator list. The
+    # owner guest does not run a store after phase 4; a dependency would start
+    # one (TACK-408). Locally the app restarts until the store answers.
 
   yugabyte:
     # Pinned to 2024.2.8.0-b85 to match the running production engine. The audit
@@ -161,48 +154,40 @@ services:
     # major-version upgrade of the auth+audit database (TACK-330). The deliberate
     # 2024.2.8.0 -> 2025.2.3.0 upgrade is the separate, QA-validated TACK-329.
     #
-    # Identity is a permanent name, never an address. The engine writes the
-    # announced identity into its own catalog, so an address written there goes
-    # stale when the address moves and the engine can no longer assemble itself
-    # to serve rows that are intact on disk. Replaceable container addresses
-    # persisted into that catalog caused an incident.
+    # Use a permanent name as the engine identity, not a container address.
+    # The engine persists that identity in its catalog. Container address
+    # changes invalidate persisted addresses and prevent the engine from
+    # serving intact disk data. This caused a previous incident.
     #
-    # The deploy renders a docker-compose.override.yml beside this file;
-    # compose merges it automatically. The override replaces hostname with
-    # the guest's node name, adds extra_hosts mapping the peer names to the
-    # peer guests' pinned addresses (reached on the published node ports),
-    # and replaces this whole command list, because compose only replaces a
-    # command wholesale: the replacement changes only the advertise and
-    # listen name and must keep the flagfile argument verbatim, or the
-    # tserver silently reverts to self-sizing (the 2026-08-05 S0). A node
-    # binds exactly what it announces, because yugabyted refuses to start
-    # when the two differ, so a node's own name must resolve inside its own
-    # container to an address it can bind; hostname is what maps it there.
+    # The deploy renders docker-compose.override.yml; Compose merges it
+    # automatically. The override replaces hostname with the guest's node
+    # name and maps peer names to pinned guest addresses with extra_hosts.
+    # Peers connect on the published node ports. Compose replaces the complete
+    # command list. Change only the advertise and listen name; preserve the
+    # flagfile argument verbatim. Omitting it makes the tserver size its own
+    # resources (the 2026-08-05 S0). yugabyted requires matching listen and
+    # advertised addresses. hostname must resolve the node's name to an
+    # address the container can bind.
     #
-    # The :ro bind-mount below patches yugabyted's is_port_available. The
-    # upstream version (on every release through 2025.2.3.0, including this one)
-    # builds an AF_INET socket for any non-literal-v6 advertise_address, which
-    # raises gaierror on this v6-only bridge before yugabyted ever binds.
-    # Upstream PR #23158 fixes it with AF_UNSPEC getaddrinfo + iterate; it has
-    # been open since 2024-07 with no movement. We apply the same patch via
-    # the overlay in yugabyte-overlay/yugabyted until upstream lands a fix.
-    # See AGENTS.md "YugabyteDB identity and data contract" for the full story
-    # and the refresh procedure on image bump. The tag itself is the
-    # x-yugabyte-image anchor at the top of this file.
+    # The :ro bind-mount patches yugabyted's is_port_available. The upstream
+    # implementation through 2025.2.3.0 creates an AF_INET socket for a
+    # non-literal-v6 advertise_address and raises gaierror on this v6-only
+    # bridge before binding. yugabyte-overlay/yugabyted applies the AF_UNSPEC
+    # getaddrinfo iteration fix from upstream PR #23158.
+    # Follow AGENTS.md "YugabyteDB on the IPv6-only bridge" when refreshing
+    # the overlay for an image bump. x-yugabyte-image defines the tag.
     image: *yugabyte_image
     entrypoint: ["/sbin/tini", "--", "/usr/bin/env", "bash", "/opt/tack/yugabyte-entrypoint.sh"]
     restart: unless-stopped
     mem_limit: 10g
-    # The container answers to the name this node announces, which is what maps
-    # that name to this container's own address. This is the dev value; the
-    # deploy's rendered override replaces it with the guest's node name.
+    # hostname resolves the announced node name to this container's address.
+    # The deploy replaces this development value with the guest's node name.
     hostname: yugabyte
-    # --base_dir aims yugabyted at the persisted volume mount below. Without
-    # it, yugabyted defaults to ~/var, which is the container overlay and is
-    # lost on every recreate: a docker compose down then wipes the SQL side
-    # (2026-04-28 incident).
-    # The tserver resource bounds live in yugabyte-overlay/tserver.flags,
-    # mounted below; flagfile hands them to the tserver one flag per line.
+    # --base_dir selects the persistent volume below. Without it, yugabyted
+    # uses ~/var in the container overlay, and recreating the container deletes
+    # that data (2026-04-28 incident).
+    # flagfile passes tserver resource limits from yugabyte-overlay/tserver.flags
+    # to the tserver, one flag per line.
     command:
       - /home/yugabyte/bin/yugabyted
       - start
@@ -228,7 +213,7 @@ services:
       - "5433:5433" # YSQL (Postgres-compatible)
       - "7000:7000" # YugabyteDB master UI
       - "9000:9000" # YugabyteDB tserver UI
-      # Peer nodes reach this one on the guest's pinned address at these ports.
+      # Peer nodes connect on these ports at the guest's pinned address.
       - "7100:7100" # master peer traffic
       - "9100:9100" # tserver peer traffic
     volumes:
@@ -246,19 +231,16 @@ services:
       interval: 10s
       timeout: 10s
       retries: 10
-      # This status is informational: the deploy's rolling wait is keyed on
-      # the node's tablet bootstrap progress, not on this check (TACK-488).
-      # The engine has no graceful stop, so every restart replays each
-      # tablet's open log segments before the SQL layer answers; the start
-      # period covers a small node's replay so its status does not flap to
-      # unhealthy on an ordinary restart. A full node takes longer and shows
-      # unhealthy until its replay ends, then healthy again on the next
-      # passing check.
+      # The deploy waits for tablet bootstrap progress, not this informational
+      # status (TACK-488). The engine cannot stop gracefully. Every restart
+      # replays each tablet's open log segments before accepting SQL connections.
+      # This start period covers replay on a small node. A full node takes
+      # longer and reports unhealthy until replay ends and the next check passes.
       start_period: 180s
 
   fdb:
-    # Version is set by tack's Makefile FDB_VERSION variable, also baked
-    # into the Dockerfile build args and the Go bindings pin in go.mod.
+    # Tack's Makefile FDB_VERSION variable sets the engine version; the
+    # Dockerfile build args and go.mod bindings pin must match it.
     # Bump all three together via make update-fdb VERSION=...
     image: foundationdb/foundationdb:${FDB_VERSION:-7.4.6}
     restart: unless-stopped
@@ -267,17 +249,17 @@ services:
       FDB_NETWORKING_MODE: container
       FDB_PORT: "4500"
       FDB_PROCESS_CLASS: unset
-      # One cluster file for the server process and for every client on this
-      # guest. The image defaults the server to /var/fdb/fdb.cluster, a second
-      # file the clients never read, so a coordinator change the server wrote
-      # there reached nobody (TACK-408).
+      # The server and every client on this guest share one cluster file.
+      # The image's default /var/fdb/fdb.cluster is a separate file that
+      # clients do not read. Clients could not read coordinator changes
+      # the server wrote there (TACK-408).
       FDB_CLUSTER_FILE: /etc/foundationdb/fdb.cluster
-      # This guest's identity in the cluster, rendered by the deploy from the
-      # service inventory. The address is the guest's pinned address, which
-      # peers and clients on other guests reach and which survives a container
-      # recreate; the zone is the guest name, which is the fault domain the
-      # replication counts. Empty here so a local `docker compose up` keeps
-      # announcing the container's own address and hostname.
+      # The deploy renders this guest's cluster identity from the inventory.
+      # Peers and clients on other guests connect to its pinned address,
+      # which remains valid after container recreation. FDB_ZONE_ID uses the
+      # guest name as the zone identifier for the replication fault domain.
+      # Empty local values announce the container's own address and hostname
+      # during `docker compose up`.
       FDB_PUBLIC_ADDRESS: ${FDB_PUBLIC_ADDRESS:-}
       FDB_ZONE_ID: ${FDB_ZONE_ID:-}
       FDB_MACHINE_ID: ${FDB_MACHINE_ID:-}
@@ -302,24 +284,21 @@ services:
       retries: 10
       start_period: 30s
 
-  # Long-lived backup_agent that streams FoundationDB continuous backups to the
-  # object store. The fdbbackup session is started by `ops provision` on a host
-  # whose TACK_BACKUP_FDB_CONTINUOUS is true, and by `ops backup
-  # fdb-continuous-init` for a deliberate out-of-band start; both are idempotent,
-  # so an already-streaming session is left alone. This agent drains the
-  # session's snapshots. The backup
-  # profile keeps it off for a plain `docker compose up` without an object store,
-  # and the deploy enables the profile. fdbbackup cannot resolve an IPv6 literal,
-  # so it reaches the blobstore through the synthetic name fdb-blobstore-host
-  # mapped to TACK_BACKUP_S3_HOST, the bare object-store address configs renders
-  # alongside the full TACK_BACKUP_S3_ENDPOINT.
+  # backup_agent writes continuous FoundationDB backups to the object store.
+  # `ops provision` starts the fdbbackup session when TACK_BACKUP_FDB_CONTINUOUS
+  # is true. `ops backup fdb-continuous-init` starts it outside provisioning.
+  # Both commands preserve an existing session. This agent processes the
+  # session's snapshots. The deploy enables the backup profile; a plain
+  # `docker compose up` without that profile does not start this service.
+  # fdbbackup cannot resolve IPv6 literals. It connects to the blobstore using
+  # fdb-blobstore-host, mapped to TACK_BACKUP_S3_HOST. configs renders this bare
+  # object-store address alongside TACK_BACKUP_S3_ENDPOINT.
   #
-  # One agent runs per data guest. Agents divide the session's work between
-  # themselves, so the count is a throughput and survival choice rather than a
-  # configuration the session records: the session keeps streaming while any
-  # one agent runs (TACK-408). It declares no fdb dependency, because the agent
-  # retries its own connection and because a dependency would start the store
-  # process on the owner guest, which runs none.
+  # One agent runs per data guest. Agents divide the session's work, and the
+  # session continues while any agent runs (TACK-408). Agent count controls
+  # throughput and fault tolerance; the session does not record it.
+  # The service does not depend on local fdb: it retries connections, and a
+  # dependency would start a store on the owner guest, which does not run one.
   fdb-backup-agent:
     image: foundationdb/foundationdb:${FDB_VERSION:-7.4.6}
     profiles: [backup]
@@ -330,16 +309,14 @@ services:
     extra_hosts:
       - "fdb-blobstore-host:${TACK_BACKUP_S3_HOST}"
     volumes:
-      # Writable for the same reason the app's mount is: the agent is a
-      # FoundationDB client, and its client library records a coordinator
-      # change in this file.
+      # The agent's FoundationDB client library must write coordinator changes
+      # to this file, just as the app's client does.
       - /etc/foundationdb:/etc/foundationdb
 
-  # OpenSearch, one member per search guest. Every member takes the
-  # cluster_manager, data, ingest, and ml roles, and a later member joins the
-  # running cluster with no Tack change. Compose starts this service only
-  # when the search profile is enabled. The deploy enables the search profile
-  # on the search guests and on no other guest.
+  # OpenSearch runs one member per search guest. Every member uses the
+  # cluster_manager, data, ingest, and ml roles. Additional members can join
+  # without Tack changes. Compose starts this service only with the search
+  # profile, which the deploy enables only on search guests.
   #
   # Compose interpolates node.name and the three discovery settings from the
   # TACK_SEARCH_* values in the shell environment or the rendered .env file.
@@ -353,9 +330,9 @@ services:
   # override also configures TLS, credentials, and the address a member
   # announces to its peers.
   #
-  # The search guests have no IPv4 route. java.net.preferIPv6Addresses makes
-  # the JVM connect to the IPv6 address of a dual-stack host, such as the
-  # model artifact host that ML Commons downloads the pinned model from.
+  # The search guests do not have an IPv4 route. java.net.preferIPv6Addresses
+  # selects IPv6 for dual-stack hosts, including the host ML Commons uses to
+  # download the pinned model.
   #
   # The ML Commons memory breaker rejects predictions when used heap is at or
   # above 85 percent.
@@ -363,7 +340,7 @@ services:
     image: opensearchproject/opensearch:3.8.0
     profiles: [search]
     restart: unless-stopped
-    # No measurement establishes the stop duration under indexing load.
+    # Measurements do not establish the stop duration under indexing load.
     stop_grace_period: 2m
     environment:
       OPENSEARCH_JAVA_OPTS: -Xms3g -Xmx3g -XX:G1PeriodicGCInterval=5000 -Djava.net.preferIPv6Addresses=true
@@ -388,9 +365,9 @@ services:
   #   docker run --rm apache/kafka:4.2.0 \
   #     /opt/kafka/bin/kafka-storage.sh random-uuid
   #
-  # Persist the result into KAFKA_CLUSTER_ID in .env so a recreate does
-  # not stamp a fresh metadata directory and orphan the existing logs.
-  # No external port is exposed: traffic stays inside the IPv6 bridge.
+  # Set KAFKA_CLUSTER_ID in .env to this result. A new ID on recreation creates
+  # new metadata that cannot reference the existing logs.
+  # Kafka does not expose an external port; traffic uses the IPv6 bridge.
   kafka:
     image: apache/kafka:4.2.0
     profiles: [audit]
@@ -413,9 +390,9 @@ services:
       KAFKA_DEFAULT_REPLICATION_FACTOR: "1"
       KAFKA_MIN_INSYNC_REPLICAS: "1"
       KAFKA_UNCLEAN_LEADER_ELECTION_ENABLE: "false"
-      # Empty default so the core stack parses while kafka is profile-gated off.
-      # The audit-profile deploy must set KAFKA_CLUSTER_ID (a kafka-storage.sh
-      # random-uuid) in .env before enabling the audit profile.
+      # The empty default permits Compose to parse the configuration without KAFKA_CLUSTER_ID.
+      # Set KAFKA_CLUSTER_ID in .env to a kafka-storage.sh random-uuid result
+      # before enabling the audit profile.
       CLUSTER_ID: ${KAFKA_CLUSTER_ID:-}
     volumes:
       - kafka-data:/var/lib/kafka/data
@@ -428,10 +405,9 @@ services:
       retries: 10
       start_period: 30s
 
-  # Wave 1 audit-consumer. Uses the same image as the app container; the
-  # entrypoint is overridden to /usr/local/bin/audit-consumer so the
-  # binary built by the Dockerfile is invoked directly. Mounts the
-  # signing key for the embedded notarizer.
+  # The audit-consumer uses its own image from Dockerfile.audit-consumer.
+  # The image and service both set /usr/local/bin/audit-consumer as the
+  # entrypoint. The service mounts the signing key for the embedded notarizer.
   audit-consumer:
     image: ghcr.io/agoodkind/tack-audit-consumer:${TACK_IMAGE_TAG:-latest}
     profiles: [audit]
@@ -454,18 +430,17 @@ services:
       AUDIT_CONSUMER_POLL_INTERVAL: ${AUDIT_CONSUMER_POLL_INTERVAL:-250ms}
       AUDIT_CONSUMER_YUGABYTE_DSN_FILE: /run/secrets/AUDIT_CONSUMER_YUGABYTE_DSN
       AUDIT_CONSUMER_SIGNING_KEY_PATH: ${AUDIT_CONSUMER_SIGNING_KEY_PATH:-/etc/tack/audit-signing.pem}
-      # The guest whose key signs, stamped on every notarization as its
-      # claimed origin (TACK-437). The configs deploy renders the guest's
-      # inventory name; empty falls back to the container's hostname.
+      # Each notarization records the signing guest as its claimed origin
+      # (TACK-437). The configs deploy renders the guest's inventory name;
+      # an empty value selects the container hostname.
       AUDIT_CONSUMER_SIGNING_HOST: ${AUDIT_CONSUMER_SIGNING_HOST:-}
-      # Set this to enable the FoundationDB half of the operator relay. It is
-      # deliberately not hardcoded: a set-but-unreadable cluster file makes the
-      # consumer refuse to start, which would also stop the YugabyteDB relay
-      # and halt every operator event, not just the FoundationDB ones. Leaving
-      # it unset on a host without that mount runs the YugabyteDB half alone.
+      # Set this to enable the FoundationDB operator relay. An unreadable
+      # configured cluster file prevents consumer startup and stops both the
+      # FoundationDB and YugabyteDB relays. Leave it unset on hosts without
+      # that mount to run only the YugabyteDB relay.
       FDB_CLUSTER_FILE: ${AUDIT_CONSUMER_FDB_CLUSTER_FILE:-}
-      # The same ENV the app requires, read the same way, so every consumer
-      # log line names its environment (TACK-263).
+      # The consumer requires ENV just as the app does and includes it in every
+      # log line (TACK-263).
       ENV: ${ENV:?ENV is required, set it in .env}
       LOG_LEVEL: ${LOG_LEVEL:-debug}
       LOG_JSON_FILE: /var/log/tack/audit-consumer.jsonl
@@ -481,9 +456,9 @@ services:
       # Writable: this process is a FoundationDB client too, and the client
       # library records a coordinator change in this file (TACK-408).
       - /etc/foundationdb:/etc/foundationdb
-    # No yugabyte dependency: deployed guests reach the ledger on the data
-    # guests through the rendered env's multi-host DSN; the startup ping
-    # retries until the ledger answers, so ordering is not load-bearing.
+    # The consumer does not depend on local yugabyte. Deployed guests connect
+    # to ledger data guests using the rendered multi-host DSN. The startup
+    # ping retries until the ledger answers, regardless of service start order.
     depends_on:
       kafka:
         condition: service_started
@@ -499,44 +474,41 @@ services:
     entrypoint: ["/server"]
     network_mode: host
     environment:
-      # tack-ops uses network_mode: host so all services are reachable by
-      # loopback. DATABASE_URL must be set in the host .env as a full DSN
-      # pointing at 127.0.0.1:5433; the app service's DSN targets yugabyte
-      # and cannot be reused here.
+      # tack-ops uses host networking to connect to services over loopback.
+      # Set DATABASE_URL in the host .env to a full DSN for 127.0.0.1:5433.
+      # The app's DSN targets yugabyte and cannot serve this container.
       <<: *opensearch_environment
       OPENSEARCH_MAINTENANCE_USERNAME: ${OPENSEARCH_MAINTENANCE_USERNAME:-}
       OPENSEARCH_MAINTENANCE_PASSWORD_FILE: /run/secrets/OPENSEARCH_MAINTENANCE_PASSWORD
       DATABASE_URL_FILE: /run/secrets/TACK_OPS_DATABASE_URL
       AUDIT_OPERATOR_DSN_FILE: /run/secrets/TACK_OPS_AUDIT_OPERATOR_DSN
-      # Ledger read and redaction for the `audit query`, `audit get`,
-      # `audit export`, and `audit redact-actor` host commands. Loopback DSNs
-      # like the operator one above; empty until the host .env renders them.
+      # The mounted secrets supply loopback DSNs for ledger reads and
+      # redactions by the `audit query`, `audit get`, `audit export`, and
+      # `audit redact-actor` host commands.
       AUDIT_READER_DSN_FILE: /run/secrets/TACK_OPS_AUDIT_READER_DSN
       AUDIT_REDACTOR_DSN_FILE: /run/secrets/TACK_OPS_AUDIT_REDACTOR_DSN
-      # The valid signer set (TACK-437), the same value the app carries, so
-      # `audit verify` here judges a bundle's signer. `audit signers` still
-      # runs through the app service: this container mounts no signing key.
+      # `audit verify` checks bundle signers against the same accepted signer
+      # set as the app (TACK-437). Run `audit signers` in the app service;
+      # tack-ops does not mount a signing key.
       AUDIT_VALID_SIGNERS: ${AUDIT_VALID_SIGNERS:-}
       FDB_CLUSTER_FILE: /etc/foundationdb/fdb.cluster
       FDB_TRANSACTION_TIMEOUT: ${FDB_TRANSACTION_TIMEOUT:-5s}
-      # The redundancy mode `ops provision` configures on a store that has
-      # never been configured. single is the local and single-guest value;
-      # an environment running one process per data guest renders double, so
-      # a rebuilt environment comes back with the replication it had rather
-      # than with one copy of every key (TACK-408).
+      # `ops provision` uses this redundancy mode when configuring a new store.
+      # Local and single-guest environments use single. Environments with one
+      # process per data guest render double to restore the previous replication
+      # level after a rebuild (TACK-408).
       TACK_OPS_FDB_REDUNDANCY_MODE: ${TACK_OPS_FDB_REDUNDANCY_MODE:-single}
       LOG_LEVEL: ${LOG_LEVEL:-info}
-      # Same ENV the app requires, read the same way. A default here would
-      # make one variable name mean two things in one stack file, so a host
-      # whose .env said development would still run this container as
-      # production (TACK-261).
+      # Require the same ENV as the app. A production default here would ignore
+      # a host's development setting and select inconsistent auth modes
+      # within the stack (TACK-261).
       ENV: ${ENV:?ENV is required, set it in .env}
       # The database that the backup dumps read. The dumps connect as
       # tack_migrator with TACK_MIGRATOR_PASSWORD below.
       YUGABYTE_DB: ${YUGABYTE_DB:?YUGABYTE_DB is required, set it in .env}
-      # Audit role passwords for `ops audit seed-roles`, which creates or rotates
-      # the LOGIN audit roles. Empty default so other ops (backup) run without
-      # them; the seed-roles command errors loudly when they are unset.
+      # `ops audit seed-roles` creates or rotates LOGIN audit roles and requires
+      # these passwords. Empty defaults permit unrelated commands, such as
+      # backup, to run without them.
       AUDIT_WRITER_PASSWORD_FILE: /run/secrets/AUDIT_WRITER_PASSWORD
       AUDIT_READER_PASSWORD_FILE: /run/secrets/AUDIT_READER_PASSWORD
       AUDIT_REDACTOR_PASSWORD_FILE: /run/secrets/AUDIT_REDACTOR_PASSWORD
@@ -556,26 +528,22 @@ services:
       # the value from the ledger topology; the fallback is the dev single
       # node, matching the compiled default.
       TACK_BACKUP_YB_MASTER_ADDRESSES: ${TACK_BACKUP_YB_MASTER_ADDRESSES:-yugabyte:7100}
-      # Ledger node names paired with their guests' addresses (TACK-460), so
-      # the SQL dumpers can dial an encrypted node by the name its
-      # certificate carries. The deploy renders it; empty in the clear.
+      # The deploy maps ledger node names to guest addresses (TACK-460).
+      # SQL dumpers use the certificate's node name for encrypted connections.
+      # Unencrypted deployments leave this empty.
       TACK_LEDGER_NODE_HOSTS: ${TACK_LEDGER_NODE_HOSTS:-}
-      # The ledger's own image, from the anchor the yugabyte service uses. The
-      # backup tooling (yb-admin, ysql_dump, ysql_dumpall) and the restore
-      # drill's throwaway engine run it, so a rehearsal restores into the
-      # version the cluster runs and the dumper matches the server. There is
-      # no compiled default: a default in the binary drifted to 2025.2 against
-      # this 2024.2 cluster, and the drill's schema apply failed on it.
+      # Backup tools (yb-admin, ysql_dump, ysql_dumpall) and the restore drill's
+      # temporary engine use the yugabyte service's image. The binary must not
+      # default this value: a 2025.2 default failed schema restoration against
+      # the 2024.2 cluster.
       TACK_BACKUP_YB_IMAGE: *yugabyte_image
-      # Snapshot-export paths. Deliberately no fallback: the commands that
-      # need them error loudly when unset, per the config contract, rather
-      # than tar or restore against a wrong location.
+      # Snapshot-export commands require these paths and fail when they are
+      # unset. Do not default them to another archive or restore location.
       TACK_BACKUP_YB_ROCKSDB_DIR: ${TACK_BACKUP_YB_ROCKSDB_DIR:-}
       TACK_BACKUP_YB_OVERLAY_PATH: ${TACK_BACKUP_YB_OVERLAY_PATH:-}
-      # Backup staleness alarm mail. A staleness-check run that first finds a
-      # mechanism past its threshold mails a plain-words account of the fault.
-      # Empty recipient mails nothing, which is the local default; the deploy
-      # renders the address.
+      # The first staleness-check run that detects an expired threshold emails
+      # a plain explanation of the fault. An empty recipient disables mail
+      # locally; the deploy renders the recipient address.
       TACK_BACKUP_ALARM_EMAIL: ${TACK_BACKUP_ALARM_EMAIL:-}
       TACK_BACKUP_ALARM_MSMTPRC: ${TACK_BACKUP_ALARM_MSMTPRC:-/etc/msmtprc}
       # Deputy staleness alarm (TACK-481): the primary checker's service name,
@@ -586,25 +554,22 @@ services:
       TACK_BACKUP_ALARM_PRIMARY_SERVICE: ${TACK_BACKUP_ALARM_PRIMARY_SERVICE:-}
       TACK_BACKUP_ALARM_PRIMARY_WINDOW_SECONDS: ${TACK_BACKUP_ALARM_PRIMARY_WINDOW_SECONDS:-1500}
       TACK_BACKUP_ALARM_PRIMARY_GRACE_SECONDS: ${TACK_BACKUP_ALARM_PRIMARY_GRACE_SECONDS:-90}
-      # FoundationDB continuous backup. Without this pass-through the container
-      # falls back to the compiled default false, so `ops provision` leaves the
-      # stream off and the restore drill and staleness check skip their FDB legs
-      # on a host whose .env says true. The overlay path is the patched fdb.bash
-      # the deploy places on the guest, which the restore drill bind-mounts into
-      # its throwaway cluster; deliberately no fallback, so the drill errors
-      # loudly when it is unset rather than mounting a wrong file.
+      # Forward the host's continuous-backup setting. Without it, the compiled
+      # false default prevents `ops provision` from starting continuous backups
+      # and skips FDB restore and staleness checks even when the host .env
+      # enables them. The deploy installs the
+      # patched fdb.bash overlay; the drill mounts it in its temporary cluster.
+      # The overlay path must not default: an unset path must fail the drill,
+      # not mount an unrelated file.
       TACK_BACKUP_FDB_CONTINUOUS: ${TACK_BACKUP_FDB_CONTINUOUS:-false}
       TACK_BACKUP_FDB_OVERLAY_PATH: ${TACK_BACKUP_FDB_OVERLAY_PATH:-}
-      # Ledger transport encryption (TACK-460). The ledger DSNs above already
-      # carry sslmode and the authority's path; these two are for the engine's
-      # administration tool, which the backup and snapshot commands run in
-      # one-shot containers and which takes its certificate directory as a
-      # flag. Without the pass-through those commands dial an encrypted
-      # cluster with no certificates and fail to connect.
+      # Ledger DSNs specify sslmode and the certificate authority path
+      # (TACK-460). Backup and snapshot commands pass these settings to the
+      # engine administration tool in one-shot containers. The tool requires
+      # its certificate directory flag to connect to an encrypted cluster.
       TACK_LEDGER_TLS_ENABLED: ${TACK_LEDGER_TLS_ENABLED:-false}
       TACK_LEDGER_CERTS_DIR: ${TACK_LEDGER_CERTS_DIR:-}
-      # The tag this stack pins the app images at, so `ops deploy verify`
-      # checks the running containers against the image the deploy named.
+      # `ops deploy verify` checks running containers against this image tag.
       TACK_IMAGE_TAG: ${TACK_IMAGE_TAG:-latest}
     secrets:
       - TACK_OPS_DATABASE_URL
@@ -629,28 +594,24 @@ services:
       # FoundationDB clients, and the client library records a coordinator
       # change in this file (TACK-408).
       - /etc/foundationdb:/etc/foundationdb
-      # The staleness alarm reads the guest's SMTP account out of this file and
-      # then speaks SMTP itself, so the file is all it needs: no msmtp binary
-      # lives in this image, and nothing here execs one.
+      # The staleness alarm reads this SMTP account file and sends SMTP itself.
+      # The image does not include or execute msmtp.
       - /etc/msmtprc:/etc/msmtprc:ro
-      # The ledger's certificate authority, for the DSNs above and for the
-      # one-shots this container starts. Only the certificate directory, not
-      # the whole of /etc/tack: the audit signing key lives beside it and this
-      # container deliberately holds no signing key.
+      # Mount only the ledger's certificate directory for DSNs and one-shot
+      # containers, not all of /etc/tack. The adjacent audit signing key must
+      # remain unavailable to this container.
       - ${TACK_LEDGER_CERTS_DIR:-/etc/tack/ledger-certs}:${TACK_LEDGER_CERTS_DIR:-/etc/tack/ledger-certs}:ro
-      # Docker socket mount is intentional for this short-lived ops container:
-      # the backup binary orchestrates scratch containers on the local daemon.
-      # This exception is explicitly scoped to tack-ops and must not be added
-      # to the long-running app service. See the sibling-container architecture
-      # decision in CLAUDE.md under the Deployment section.
+      # The backup binary uses the Docker socket to manage temporary containers
+      # on the local daemon. This exception applies only to short-lived
+      # tack-ops; do not add it to the long-running app service.
       - /var/run/docker.sock:/var/run/docker.sock
 
-  # Short-lived operator container for the audit queue commands
+  # This short-lived operator container runs audit queue commands
   # (`ops audit consumer-offsets`, `ops audit dlq inspect`, `ops audit dlq
-  # replay`). Each one opens the ledger reader and the Kafka broker together.
-  # tack-ops uses host networking and cannot resolve the broker. The app
-  # service mounts no ledger reader login. This service runs on the bridge
-  # network with both (TACK-610). Invoke via:
+  # replay`). They require both the ledger reader and Kafka broker. tack-ops
+  # cannot resolve the broker on host networking; the app does not mount a
+  # ledger reader login. This service provides both on the bridge (TACK-610).
+  # Invoke via:
   #   docker compose run --rm audit-ops ops audit [subcommand] [args]
   audit-ops:
     image: ghcr.io/agoodkind/tack-server:${TACK_IMAGE_TAG:-latest}
@@ -658,8 +619,8 @@ services:
     mem_limit: 256m
     entrypoint: ["/server"]
     environment:
-      # The application login. Every command loads it; these commands read
-      # no auth table through it.
+      # Every command loads the application login; these commands do not use
+      # it to read auth tables.
       DATABASE_URL_FILE: /run/secrets/DATABASE_URL
       AUDIT_OPERATOR_DSN_FILE: /run/secrets/AUDIT_OPERATOR_DSN
       AUDIT_READER_DSN_FILE: /run/secrets/AUDIT_READER_DSN
@@ -733,13 +694,13 @@ volumes:
   kafka-data:
   opensearch-data:
 
-# IPv6-only bridge. The per-host /96 is carved from the host's on-link /64 and
-# NDP-proxied back onto eth0 by ndppd, so containers source out as real GUAs
-# (gateway_mode_v6 is routed, no masquerade). Inter-container DNS returns AAAA
-# only because enable_ipv4 is false. Do not flip back to dual-stack: that defeats
-# the forced-v6 contract. The subnet and gateway are per host and come from the
-# configs render (tack_docker_v6_subnet / tack_docker_v6_gateway); the defaults
-# are the production prefix so an unrendered env still parses.
+# IPv6-only bridge. ndppd proxies NDP on eth0 for the per-host /96 from the
+# host's on-link /64. Containers use globally routable IPv6 source addresses
+# without masquerading (gateway_mode_v6 is routed). Inter-container DNS returns
+# only AAAA records because enable_ipv4 is false. Do not enable dual-stack;
+# it violates the IPv6-only requirement. configs renders each host's subnet
+# and gateway (tack_docker_v6_subnet / tack_docker_v6_gateway). The production
+# prefix defaults permit parsing without a rendered environment.
 networks:
   default:
     enable_ipv6: true

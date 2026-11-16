@@ -11,8 +11,8 @@ import (
 	"goodkind.io/tack/internal/domain/node"
 )
 
-// PropertyCommand carries canonical property data plus any command-level
-// controls that should not persist directly on the node.
+// PropertyCommand separates canonical property data from command controls
+// that the node must not store directly.
 type PropertyCommand struct {
 	ParentID uuid.UUID
 	Props    map[string]json.RawMessage
@@ -85,10 +85,10 @@ func CompileCreatePropertyCommand(
 	return &PropertyCommand{ParentID: parentID, Props: compiled}, nil
 }
 
-// CompileUpdatePropertyCommand canonicalizes user-facing property input for
-// update. A parent_id entry is resolved the same way create resolves it and
-// is kept in Props as the canonical id, so the write never stores a printed
-// reference as text (TACK-523). ParentID is set only when parent_id was given.
+// CompileUpdatePropertyCommand canonicalizes property input for update.
+// It resolves parent_id like create and stores the canonical UUID in Props
+// instead of the printed reference (TACK-523). It sets ParentID only when
+// input includes parent_id.
 func CompileUpdatePropertyCommand(
 	ctx context.Context,
 	defs []*node.PropertyDef,

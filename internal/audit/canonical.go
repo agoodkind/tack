@@ -12,11 +12,8 @@ import (
 	"github.com/google/uuid"
 )
 
-// canonicalJSON returns a deterministic byte representation of v suitable
-// for hashing. Object keys are sorted; numbers, strings, bools, null are
-// emitted via encoding/json's default rules. This is a minimal, dependency-
-// free approximation of RFC 8785 (JCS) sufficient for our hash chain: two
-// callers with the same logical value always produce the same bytes.
+// canonicalJSON sorts object keys and uses encoding/json for scalar values.
+// It approximates RFC 8785 canonical JSON for the hash chain.
 func canonicalJSON(v any) ([]byte, error) {
 	raw, err := json.Marshal(v)
 	if err != nil {
@@ -95,17 +92,14 @@ func writeCanonical(buf *bytes.Buffer, v any) error {
 	return nil
 }
 
-// ShardCount is the number of load-distribution shards an org's ledger writes
-// spread across. Each (org, shard) pair is its own hash chain in
-// audit.chain_heads, so the count sets how many parallel chains an org can
-// carry. It is tunable, not a permanent lock: the shard is stored on every
-// audit.events row and verification enumerates the existing (org, shard) heads,
-// so old chains stay closed and valid after a change. The shard column is
-// int16 and the Kafka key encodes two bytes, both well past this value, and
-// the Kafka partition count is decoupled because the consumer recomputes the
-// shard from the payload. The count must be a power of two, because shardOf
-// masks a checksum with ShardCount - 1. Changing it is forward-only and
-// follows docs/runbooks/audit/shards.md (TACK-306).
+// ShardCount sets the number of parallel (org, shard) hash chains for new
+// ledger writes. Each audit.events row stores its shard. Verification reads
+// existing chain heads, including closed chains from an earlier shard count.
+// The int16 column and two-byte Kafka key can represent this count. Kafka's
+// partition count remains independent; the consumer derives the shard from
+// the payload. shardOf requires a power of two for its checksum mask.
+// Count changes apply only to future writes. Follow the forward-only procedure
+// in docs/runbooks/audit/shards.md (TACK-306).
 const ShardCount = 256
 
 // shardMask turns a checksum into a shard in [0, ShardCount).

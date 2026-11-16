@@ -32,10 +32,10 @@ const closeDeliveryTimeout = 30 * time.Second
 //	err := b.Close()
 func (b *BufferedRecorder) Close() error {
 	b.closeOnce.Do(func() {
-		b.stopping.Lock()
+		b.shutdownMutex.Lock()
 		b.closed = true
 		close(b.done)
-		b.stopping.Unlock()
+		b.shutdownMutex.Unlock()
 	})
 	<-b.drained
 

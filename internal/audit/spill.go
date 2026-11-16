@@ -17,29 +17,21 @@ import (
 // cannot keep the request open.
 const SpillTimeout = 10 * time.Second
 
-// OutboxAppender is a durable landing zone for an event the primary recorder
-// could not take. The FoundationDB operator outbox is the production
-// implementation; the audit-consumer's relay drains it to Kafka.
+// OutboxAppender durably stores events the primary recorder refuses. The
+// FoundationDB operator outbox implements it in production. The
+// audit-consumer's relay publishes the stored events to Kafka.
 type OutboxAppender interface {
 	Append(ctx context.Context, event json.RawMessage) error
 }
 
-// SpillRecorder records through Primary and, when Primary fails, appends the
-// event to Spill so it survives the outage and lands afterwards.
+// SpillRecorder records through Primary and appends events to Spill when
+// Primary fails. The outbox retains the events during a broker outage, and
+// the relay publishes them after the broker recovers (TACK-336).
 //
-// The 2026-07-06 gap is why this exists: the producer dropped every event its
-// broker refused, and eight issue creations reached the store with no ledger
-// row (TACK-335). With a spill in place the same outage leaves the events in
-// FoundationDB, which the product write already reached, and the relay
-// delivers them once the broker returns (TACK-336).
-//
-// Logging is per outage rather than per event (TACK-320). The first spill logs
-// at Error with the failure that caused it; later spills in the same outage
-// log at Debug with a running count; the first success afterwards logs at Info
-// with the total. A broker down for an hour therefore costs two lines an
-// operator reads, not one per write. A spill that itself fails is a real loss
-// and logs at Error every time, since there is no longer anywhere to put the
-// event.
+// The first spill logs at Error with the primary failure. Later spills in the
+// outage log at Debug with a running count. The first primary success logs at
+// Info with the total (TACK-320). Each failed spill logs at Error because
+// neither recorder stored the event.
 type SpillRecorder struct {
 	Primary  Recorder
 	Spill    OutboxAppender
@@ -47,12 +39,8 @@ type SpillRecorder struct {
 	spilled  atomic.Int64
 }
 
-// Record delivers through Primary, and spills on failure.
-//
-// A successful spill returns nil: the event is durable and the caller has
-// nothing further to do for it. Returning the primary error would make the
-// MCP wrapper and the canonical recorder each log a failure for an event that
-// was not lost, which is the flood this replaces.
+// Record records through Primary and appends to the outbox on failure.
+// A successful append returns nil because the outbox durably stores the event.
 func (s *SpillRecorder) Record(ctx context.Context, ev Event) error {
 	primaryErr := s.Primary.Record(ctx, ev)
 	if primaryErr == nil {
@@ -63,12 +51,11 @@ func (s *SpillRecorder) Record(ctx context.Context, ev Event) error {
 	return s.spill(ctx, ev, primaryErr)
 }
 
-// errBrokerRefused stands for the per-event refusal a batch produce reports,
-// which names no error of its own.
+// errBrokerRefused reports a batch produce refusal without a specific error.
 var errBrokerRefused = errors.New("broker refused the produce")
 
 // spill appends one event the primary refused to the outbox, logging once per
-// outage. A successful spill returns nil: the event is durable.
+// outage. A successful spill returns nil because the outbox durably stores it.
 func (s *SpillRecorder) spill(ctx context.Context, ev Event, primaryErr error) error {
 	payload, marshalErr := MarshalEvent(ev)
 	if marshalErr != nil {
@@ -76,12 +63,9 @@ func (s *SpillRecorder) spill(ctx context.Context, ev Event, primaryErr error) e
 		return errors.Join(primaryErr, marshalErr)
 	}
 
-	// The spill runs detached from the request's cancellation with a deadline
-	// of its own. The primary may have failed precisely because the request
-	// context expired, and a spill that inherits that expiry fails the same
-	// way, after the product write it describes has already committed. The
-	// request's values stay attached so the trace and request ids still
-	// reach the logs.
+	// The primary can fail after request cancellation and a committed product
+	// write. The spill uses its own deadline without the request's cancellation.
+	// It retains context values for trace and request identifiers in logs.
 	spillCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), SpillTimeout)
 	defer cancel()
 	if spillErr := s.Spill.Append(spillCtx, payload); spillErr != nil {
@@ -126,8 +110,8 @@ func (s *SpillRecorder) spill(ctx context.Context, ev Event, primaryErr error) e
 	return nil
 }
 
-// noteRecovered closes an outage on the first primary success after it, and
-// says how many events the relay now owes the ledger.
+// noteRecovered logs the first primary success after an outage with the count
+// of events awaiting publication by the relay.
 func (s *SpillRecorder) noteRecovered(ctx context.Context) {
 	if !s.inOutage.CompareAndSwap(true, false) {
 		return

@@ -1,8 +1,6 @@
-// backup_restore_drill_yb_wait_failure.go reads the two signs that a scratch
-// yugabyted step can never succeed: yugabyted restarting a master or tablet
-// server that crashed, and the master marking a snapshot restoration failed.
-// Each ends the wait at once, because a crash loop keeps writing bytes that
-// the progress counters would otherwise read as movement.
+// Scratch failure probes detect engine crash restarts and failed snapshot
+// restorations. Both stop monitoring immediately; crash-loop writes must not
+// count as successful engine progress.
 
 package ops
 
@@ -17,38 +15,29 @@ import (
 )
 
 const (
-	// ybScratchLogPath is yugabyted's own log under the --base_dir the drill
-	// starts it with.
+	// ybScratchLogPath specifies yugabyted's log under the scratch base directory.
 	ybScratchLogPath = "/home/yugabyte/var/logs/yugabyted.log"
-	// ybScratchRestartMarker matches the line yugabyted logs when it restarts
-	// a master or tablet server that stopped running. yugabyted logs the same
-	// sentence for its own web server, which the drill never uses, so the
-	// pattern names the two processes the restore depends on.
+	// ybScratchRestartMarker selects master and tablet-server restart messages,
+	// excluding the unused web server's matching message format.
 	ybScratchRestartMarker = "(master|tserver) died unexpectedly"
 )
 
-// ybRestorationFailedState is the state a restoration never leaves, quoted as
-// the listing prints it. yb-admin renders the restoration's state enum into a
-// three-field JSON object (id, snapshot_id, state), so this cannot match a
-// field name.
+// ybRestorationFailedState matches the terminal enum value in yb-admin's
+// id, snapshot_id, state JSON output rather than a field name.
 const ybRestorationFailedState = `"FAILED"`
 
-// ybScratchRestartCountCommand counts the restart lines, and answers 0 when
-// the log does not exist yet: a scratch yugabyted that has not written its
-// first line has restarted nothing, which is a reading rather than a blind
-// poll. Every drill's first poll runs before that first line (TACK-499), and
-// three blind polls in a row fail the drill. grep's own exit codes are kept
-// for a log that exists: 1 with "0" when nothing matched, 2 when it cannot be
-// read.
+// ybScratchRestartCountCommand returns zero before the log exists (TACK-499).
+// Later reads preserve grep status: exit 1 with zero matches indicates a valid
+// zero count; exit 2 indicates a failed read. Initial absent logs must not
+// accumulate unanswered polls that would incorrectly fail startup.
 var ybScratchRestartCountCommand = []string{
 	"sh",
 	"-c",
 	"if [ -e " + ybScratchLogPath + " ]; then grep -cE '" + ybScratchRestartMarker + "' " + ybScratchLogPath + "; else echo 0; fi",
 }
 
-// newYBScratchFailureProbe builds the failure check for one step. master is
-// the scratch master address whose restorations are checked, or "" for a step
-// that runs no restoration.
+// newYBScratchFailureProbe checks restart counts and, when master is nonempty,
+// that master's snapshot restoration states.
 func newYBScratchFailureProbe(
 	r *restoreDrillCtx,
 	container string,
@@ -119,9 +108,8 @@ func newYBScratchFailureProbe(
 	}
 }
 
-// parseYBScratchRestarts reads the count from one run of the count command:
-// 0 with a count, 1 with "0" when grep matched nothing, 2 when a log that
-// exists could not be read.
+// parseYBScratchRestarts accepts a count with exit 0 or grep's zero-match
+// exit 1. An empty result or a higher exit status fails the read.
 func parseYBScratchRestarts(ctx context.Context, exitCode int, stdout string) (int64, error) {
 	fields := strings.Fields(stdout)
 	if exitCode > 1 || len(fields) == 0 {
@@ -155,8 +143,8 @@ func parseYBScratchRestarts(ctx context.Context, exitCode int, stdout string) (i
 	return restarts, nil
 }
 
-// ybRestorationFailure returns why a restoration listing shows a restoration
-// that will never reach RESTORED, or "" when none does.
+// ybRestorationFailure reports a terminal restoration failure or an empty
+// string when the listing does not indicate failure.
 func ybRestorationFailure(listing string) string {
 	if strings.Contains(listing, ybRestorationFailedState) {
 		return "the master marked the snapshot restoration " + strings.Trim(

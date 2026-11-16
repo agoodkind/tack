@@ -11,18 +11,13 @@ import (
 	"goodkind.io/tack/internal/ops"
 )
 
-// TestReferenceRepairIsReachableFromTheCommandLine pins that an operator can
-// actually run the reference repair. Registering the operation is not enough on
-// its own: the batch renderer skips every name beginning with "repair.", so the
-// operation existed with no command able to invoke it and the production repair
-// could not be run at all.
-func TestReferenceRepairIsReachableFromTheCommandLine(t *testing.T) {
+// TestReferenceRepairCommandRegistersExecutionAndKeepFlags checks that the rendered
+// command tree exposes the repair. The batch renderer skips repair.* operations.
+func TestReferenceRepairCommandRegistersExecutionAndKeepFlags(t *testing.T) {
 	command := findCommand(t, "ops", "repair", "reference-uniqueness")
 
-	// The repair applies through the global --execute the audit choke-point
-	// reads. Declaring a flag of that name here would take the name over and
-	// leave the choke-point reading false forever, which is what
-	// TestExecuteReachesTheAuditGate covers.
+	// The audit mechanism reads the global --execute flag. A local flag
+	// would override it and leave the global value false.
 	if command.LocalNonPersistentFlags().Lookup("execute") != nil {
 		t.Fatal("the repair declares its own --execute, which shadows the audit gate")
 	}
@@ -30,7 +25,7 @@ func TestReferenceRepairIsReachableFromTheCommandLine(t *testing.T) {
 	keep := command.Flags().Lookup("keep")
 	if keep == nil {
 		t.Fatal(
-			"the repair has no --keep flag, so an operator could not choose which node keeps a contested reference",
+			"the repair does not provide --keep for selecting the node that retains a contested reference",
 		)
 	}
 
@@ -39,8 +34,8 @@ func TestReferenceRepairIsReachableFromTheCommandLine(t *testing.T) {
 	}
 }
 
-// findCommand walks the rendered command tree the server builds, so the test
-// fails if the operation is dropped from RegisterCommands or renamed.
+// findCommand searches the server's rendered command tree. It fails if
+// RegisterCommands omits the operation or changes its name.
 func findCommand(t *testing.T, path ...string) *cobra.Command {
 	t.Helper()
 	registry := clispec.NewRegistry()

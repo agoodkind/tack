@@ -6,9 +6,9 @@ import (
 	"testing"
 )
 
-// TestActAsCreateDryRunRecordsNothing requires the dry run to report the user
+// TestActAsCreateDryRunReportsTargetWithoutWriting requires the dry run to report the user
 // and the org without recording a grant row or making a write.
-func TestActAsCreateDryRunRecordsNothing(t *testing.T) {
+func TestActAsCreateDryRunReportsTargetWithoutWriting(t *testing.T) {
 	f := newActAsFixture(t, humanOperatorFlags())
 	sink := &bufferSink{buf: &bytes.Buffer{}}
 	if err := runActAsCreate(

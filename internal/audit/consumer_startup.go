@@ -14,23 +14,18 @@ import (
 	"github.com/twmb/franz-go/pkg/kmsg"
 )
 
-// auditTopicPartitions is the partition count the consumer ensures for the audit
-// topic on a fresh broker. It matches the shardOf width so each (org, shard)
-// chain maps to its own partition for parallelism. Correctness does not depend
-// on the count because the consumer recomputes the shard from the payload (see
-// shardOf); the count is a throughput knob. TACK-305.
+// auditTopicPartitions sets the fresh topic's partition count for parallel
+// processing. The consumer derives chain shards from payloads independently
+// of this throughput setting (TACK-305).
 const auditTopicPartitions = 256
 
 // pingYugabyteReadyCapWait caps the backoff between Yugabyte readiness pings.
 const pingYugabyteReadyCapWait = 5 * time.Second
 
-// pingYugabyteUntilReady retries the Yugabyte ping until it succeeds or ctx is
-// canceled, backing off linearly to a cap. A fresh environment starts the
-// audit-consumer before `ops audit seed-roles` creates the audit LOGIN roles,
-// so the first pings fail SASL auth; waiting for the role to appear beats the
-// exit-1 docker crash-loop the consumer used to fall into (TACK-301). Each
-// failed attempt logs at Warn, not Error, so a real outage does not flood the
-// error stream.
+// pingYugabyteUntilReady retries with capped linear backoff until connection
+// succeeds or ctx ends. Fresh deployments may start before ops audit seed-roles
+// creates logins. The retry loop permits role initialization without crash
+// loops; failed attempts log at Warn (TACK-301).
 func pingYugabyteUntilReady(ctx context.Context, pool *pgxpool.Pool) error {
 	attempts := 0
 
@@ -78,18 +73,14 @@ func pingYugabyteUntilReady(ctx context.Context, pool *pgxpool.Pool) error {
 	return nil
 }
 
-// retentionConfigKey is the topic setting that decides how long the broker
-// keeps a record nobody has consumed.
+// retentionConfigKey controls how long the broker retains records, including
+// records the consumer has not committed.
 const retentionConfigKey = "retention.ms"
 
-// ensureAuditTopic creates the audit topic with auditTopicPartitions partitions
-// when it does not already exist, so a fresh broker does not leave the consumer
-// fetching a topic that nothing has created (TACK-305). The replication factor
-// is left to the broker default (-1) so the same call works at one broker or
-// many. An existing topic keeps its partitions and has its retention brought
-// to the configured value, because the topic is the buffer that holds every
-// event the consumer has not yet committed: the broker default of seven days
-// discarded the 2026-07-06 to 07-21 events during a consumer outage (TACK-336).
+// ensureAuditTopic creates a missing topic with auditTopicPartitions and the
+// broker's default replication factor. Existing topics preserve partitions
+// while applying configured retention. Retention must cover consumer outage
+// recovery rather than expiring pending audit events (TACK-305, TACK-336).
 func ensureAuditTopic(
 	ctx context.Context,
 	client *kgo.Client,
@@ -127,10 +118,8 @@ func ensureAuditTopic(
 
 		codeErr := kerr.ErrorForCode(respTopic.ErrorCode)
 		if errors.Is(codeErr, kerr.TopicAlreadyExists) {
-			// A broker that refuses the alter (an ACL, an older version)
-			// leaves the topic at its current retention; that is a
-			// shorter buffer, not a stopped consumer, so it is logged and
-			// the consumer keeps projecting.
+			// Log a refused retention update while continuing projection with
+			// the existing broker setting. Do not claim the update succeeded.
 			if err := setTopicRetention(ctx, client, topic, retentionMs); err != nil {
 				slog.ErrorContext(
 					ctx,
@@ -164,8 +153,8 @@ func ensureAuditTopic(
 	return nil
 }
 
-// setTopicRetention sets retention.ms on an existing topic. It is one
-// incremental alter of one key, so every other topic setting is untouched.
+// setTopicRetention changes only retention.ms using an incremental config
+// update.
 func setTopicRetention(
 	ctx context.Context,
 	client *kgo.Client,

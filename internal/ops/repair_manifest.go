@@ -73,7 +73,7 @@ func readRepairManifest(ctx context.Context, path string) (*RepairManifest, erro
 	}
 
 	if len(manifest.Nodes) == 0 {
-		return nil, fmt.Errorf("repair manifest %q has no nodes", path)
+		return nil, repairManifestEmptyError{Path: path}
 	}
 
 	return &manifest, nil
@@ -93,4 +93,12 @@ func readRepairProfile(ctx context.Context, path string) (*RepairReferenceProfil
 	}
 
 	return &profile, nil
+}
+
+type repairManifestEmptyError struct {
+	Path string
+}
+
+func (failure repairManifestEmptyError) Error() string {
+	return fmt.Sprintf("repair manifest %q does not contain any nodes", failure.Path)
 }

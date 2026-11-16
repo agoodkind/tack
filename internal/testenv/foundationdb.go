@@ -13,21 +13,24 @@ import (
 )
 
 const (
-	// foundationDBService is the stack file service whose image the cluster
-	// runs.
+	// foundationDBService identifies the stack service that specifies the
+	// cluster image.
 	foundationDBService = "fdb"
-	// containerClusterFile is where the image's entrypoint writes the cluster
-	// file, naming the server by its address on the engines' network.
+	// containerClusterFile specifies where the image's entrypoint writes the
+	// server address on the engines' network.
 	containerClusterFile = "/var/fdb/fdb.cluster"
-	// databaseAvailable is what `status minimal` prints once the database
-	// serves reads and writes.
+	// databaseAvailable matches the status output when reads and writes work.
 	databaseAvailable = "The database is available"
-	// databaseExists is what `configure new` prints when the cluster already
-	// holds a database, which makes a second configure harmless.
+	// databaseExists matches configure new output for an existing database.
+	// FoundationDB rejects the command without replacing that database.
 	databaseExists = "Database already exists"
 	// fdbServerKnobPrefix starts each environment variable that fdbserver
 	// reads as a knob at startup.
 	fdbServerKnobPrefix = "FDB_KNOB_"
+)
+
+var errClusterFileDeadline = errors.New(
+	"the FoundationDB container did not write a cluster file before the deadline",
 )
 
 // provisionFoundationDB starts this process's cluster, configures it, and
@@ -98,18 +101,14 @@ func waitForClusterFile(
 		}
 
 		if !sleepOrDone(ctx) {
-			return nil, errors.New(
-				"the FoundationDB container wrote no cluster file before the deadline",
-			)
+			return nil, errClusterFileDeadline
 		}
 	}
 }
 
-// ensureConfigured waits until the database is available, creating it the
-// first time the cluster reports none. `configure new` runs only while status
-// says the database is unavailable, on a cluster this process just started,
-// and FoundationDB refuses it on a cluster that already holds a database, so
-// it never replaces one.
+// ensureConfigured waits for the new test cluster to become available.
+// It runs configure new only after status reports an unavailable database.
+// FoundationDB rejects configure new if a database already exists.
 func ensureConfigured(ctx context.Context, cli *client.Client, containerName string) error {
 	configured := false
 
@@ -147,8 +146,8 @@ func ensureConfigured(ctx context.Context, cli *client.Client, containerName str
 	}
 }
 
-// fdbcli runs one fdbcli command inside the cluster's container, bounded by
-// fdbcli's own timeout so an unreachable cluster cannot hang the exec.
+// fdbcli runs one command inside the cluster's container. The CLI timeout
+// bounds execution when the cluster cannot respond.
 func fdbcli(
 	ctx context.Context,
 	cli *client.Client,
@@ -171,10 +170,9 @@ func fdbcli(
 	)
 }
 
-// writeClusterFile stores the cluster file in a directory of its own under
-// the user cache directory, named after the container, and records the
-// directory for Release. It lives beyond the process only for cmd/testenv,
-// whose operator reads it after the command exits.
+// writeClusterFile stores the cluster file under the user cache directory
+// in a container-specific directory and records it for Release. cmd/testenv
+// preserves the directory for operators to use after the command exits.
 func writeClusterFile(ctx context.Context, containerName string, contents []byte) (string, error) {
 	cacheRoot, err := os.UserCacheDir()
 	if err != nil {

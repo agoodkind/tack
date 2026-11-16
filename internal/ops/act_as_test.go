@@ -11,9 +11,8 @@ import (
 	"goodkind.io/tack/internal/audit"
 )
 
-// TestActAsCreateWritesAsTheUserWithTheOperatorOnTheRow requires the node to
-// be created by the user, and the user's row in the FoundationDB outbox to
-// store the operator and the grant id of the grant row.
+// TestActAsCreateWritesAsTheUserWithTheOperatorOnTheRow checks the user as
+// creator and requires the FDB audit row to record the operator and grant ID.
 func TestActAsCreateWritesAsTheUserWithTheOperatorOnTheRow(t *testing.T) {
 	f := newActAsFixture(t, humanOperatorFlags())
 	sink := &bufferSink{buf: &bytes.Buffer{}}
@@ -73,10 +72,10 @@ func TestActAsCreateWritesAsTheUserWithTheOperatorOnTheRow(t *testing.T) {
 	}
 }
 
-// TestActAsCreateRefusesBeforeRecordingAnything requires a missing reason, an
+// TestActAsCreateRejectsInvalidInputBeforeWriting requires a missing reason, an
 // unknown user, and a parent in an org the user is not a member of each to
 // refuse before the command records a grant row or makes a write.
-func TestActAsCreateRefusesBeforeRecordingAnything(t *testing.T) {
+func TestActAsCreateRejectsInvalidInputBeforeWriting(t *testing.T) {
 	cases := []struct {
 		name    string
 		email   func(actAsFixture) string
@@ -85,7 +84,7 @@ func TestActAsCreateRefusesBeforeRecordingAnything(t *testing.T) {
 		want    string
 	}{
 		{
-			name:    "no reason",
+			name:    "rejects missing reason",
 			email:   func(f actAsFixture) string { return f.user.Email },
 			reason:  "   ",
 			outside: false,

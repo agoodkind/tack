@@ -38,9 +38,9 @@ func parentProperties(reference string) datagen.NodeProperties {
 	return datagen.NodeProperties{"parent_id": json.RawMessage(strconv.Quote(reference))}
 }
 
-// TestUpdateIssueReparentsByPrintedReference pins TACK-523: an update whose
-// parent_id is a printed epic reference must resolve it to the epic's id and
-// move the child_of edge, and the issue must still resolve afterwards.
+// TestUpdateIssueReparentsByPrintedReference checks that an update resolves
+// a printed epic parent_id to the epic UUID and updates the child_of edge.
+// The issue must still resolve after the update (TACK-523).
 func TestUpdateIssueReparentsByPrintedReference(t *testing.T) {
 	harness := NewMCPHarness(t)
 	epic := harness.createEpic(t, "reparent target epic")

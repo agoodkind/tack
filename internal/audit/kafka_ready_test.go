@@ -9,11 +9,8 @@ import (
 	"github.com/twmb/franz-go/pkg/kmsg"
 )
 
-// TestReadyRefusesWhenAnyPartitionHasNoLeader answers the review finding that
-// one healthy partition is not enough. The producer key hashes an (org, shard)
-// pair across the whole partition space, so an event that lands on a
-// leaderless partition fails while the topic looks healthy from partition 0.
-func TestReadyRefusesWhenAnyPartitionHasNoLeader(t *testing.T) {
+// TestReadyRejectsLeaderlessPartition checks every partition, not only partition zero.
+func TestReadyRejectsLeaderlessPartition(t *testing.T) {
 	t.Parallel()
 	cluster := newFakeCluster(t)
 	serveMetadata(cluster, metadataPartition(0, 1), metadataPartition(1, -1))
@@ -33,8 +30,7 @@ func TestReadyRefusesWhenAnyPartitionHasNoLeader(t *testing.T) {
 	}
 }
 
-// TestReadyRefusesAPartitionlessTopic covers the empty list, which reports no
-// error code and no leader problem yet accepts nothing.
+// TestReadyRefusesAPartitionlessTopic checks rejection of an empty partition list.
 func TestReadyRefusesAPartitionlessTopic(t *testing.T) {
 	t.Parallel()
 	cluster := newFakeCluster(t)
@@ -45,16 +41,16 @@ func TestReadyRefusesAPartitionlessTopic(t *testing.T) {
 
 	err := recorder.Ready(ctx)
 	if err == nil {
-		t.Fatal("a topic reporting no partitions must refuse")
+		t.Fatal("a topic without partitions must refuse readiness")
 	}
 
-	if !strings.Contains(err.Error(), "no partitions") {
-		t.Fatalf("err = %v, want it to say the topic reports no partitions", err)
+	if !strings.Contains(err.Error(), "does not report any partitions") {
+		t.Fatalf("err = %v, want rejection of the empty partition list", err)
 	}
 }
 
-// TestReadyAcceptsAFullyLedTopic pins the positive case, so the refusals above
-// are proven to come from the partition state and not from the fake itself.
+// TestReadyAcceptsAFullyLedTopic checks successful readiness with a leader on
+// each partition as a control for the rejection cases.
 func TestReadyAcceptsAFullyLedTopic(t *testing.T) {
 	t.Parallel()
 	cluster := newFakeCluster(t)
@@ -64,13 +60,12 @@ func TestReadyAcceptsAFullyLedTopic(t *testing.T) {
 	defer cancel()
 
 	if err := recorder.Ready(ctx); err != nil {
-		t.Fatalf("a topic whose partitions all have leaders must be ready: %v", err)
+		t.Fatalf("a topic with leaders on all partitions must be ready: %v", err)
 	}
 }
 
-// serveMetadata makes the fake cluster answer every metadata request with the
-// given partition state for the audit topic. The broker itself cannot be told
-// to strand a partition, so the state under test is injected at the wire.
+// serveMetadata supplies the requested partition metadata directly because
+// kfake does not create leaderless partitions through its normal broker operations.
 func serveMetadata(cluster *kfake.Cluster, partitions ...kmsg.MetadataResponseTopicPartition) {
 	cluster.ControlKey(
 		kmsg.Metadata.Int16(),
@@ -105,11 +100,9 @@ func metadataPartition(id int32, leader int32) kmsg.MetadataResponseTopicPartiti
 	return partition
 }
 
-// TestReadyRefusesAPartitionWithNoInSyncReplica covers the produce
-// prerequisite a leader alone does not carry. This producer asks for acks from
-// every in-sync replica, so a partition whose in-sync set is empty rejects each
-// produce while still naming a leader.
-func TestReadyRefusesAPartitionWithNoInSyncReplica(t *testing.T) {
+// TestReadyRejectsEmptyInSyncReplicaSet checks that a leader alone does not
+// satisfy the producer's acks=all requirements.
+func TestReadyRejectsEmptyInSyncReplicaSet(t *testing.T) {
 	t.Parallel()
 	cluster := newFakeCluster(t)
 	led := metadataPartition(0, 1)
@@ -122,9 +115,7 @@ func TestReadyRefusesAPartitionWithNoInSyncReplica(t *testing.T) {
 
 	err := recorder.Ready(ctx)
 	if err == nil {
-		t.Fatal(
-			"a partition with no in-sync replica must refuse: acks=all rejects every produce to it",
-		)
+		t.Fatal("a partition without in-sync replicas must refuse acks=all writes")
 	}
 
 	if !strings.Contains(err.Error(), "0 in-sync replicas") {
@@ -132,11 +123,8 @@ func TestReadyRefusesAPartitionWithNoInSyncReplica(t *testing.T) {
 	}
 }
 
-// TestReadyRefusesAPartitionBelowMinInSyncReplicas covers the produce
-// prerequisite that leader and in-sync counts alone do not carry. This
-// producer asks for acks from every in-sync replica, so a partition whose
-// in-sync set is smaller than the topic's own minimum has each produce
-// rejected with NOT_ENOUGH_REPLICAS while metadata still looks healthy.
+// TestReadyRefusesAPartitionBelowMinInSyncReplicas checks rejection when the
+// topic requires more in-sync replicas than the partition reports.
 func TestReadyRefusesAPartitionBelowMinInSyncReplicas(t *testing.T) {
 	t.Parallel()
 	cluster := newFakeCluster(t)
@@ -157,9 +145,8 @@ func TestReadyRefusesAPartitionBelowMinInSyncReplicas(t *testing.T) {
 	}
 }
 
-// TestReadyRefusesAnUnreadableMinInSyncReplicas pins that a configuration the
-// check cannot read is a refusal. Assuming a default would let a server start
-// against a topic whose acks requirement was never verified.
+// TestReadyRefusesAnUnreadableMinInSyncReplicas checks refusal rather than an
+// assumed default when the effective topic minimum cannot be read.
 func TestReadyRefusesAnUnreadableMinInSyncReplicas(t *testing.T) {
 	t.Parallel()
 	cluster := newFakeCluster(t)
@@ -178,8 +165,7 @@ func TestReadyRefusesAnUnreadableMinInSyncReplicas(t *testing.T) {
 	}
 }
 
-// serveMinInSyncReplicas makes the fake cluster report the given value for the
-// audit topic, which is the one topic config this readiness check reads.
+// serveMinInSyncReplicas supplies the effective audit-topic minimum.
 func serveMinInSyncReplicas(cluster *kfake.Cluster, value string) {
 	cluster.ControlKey(
 		kmsg.DescribeConfigs.Int16(),

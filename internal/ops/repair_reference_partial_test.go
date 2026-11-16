@@ -16,11 +16,9 @@ import (
 	"goodkind.io/tack/internal/config"
 )
 
-// TestFailedRepairRecordsWhatItAppliedBeforeFailing is TACK-452's core case.
-// A run that dies partway has already written its renames to FoundationDB,
-// each in its own transaction, so returning the error without recording leaves
-// applied mutations with no ledger row naming them, and a rerun cannot recover
-// the record because a renamed node is no longer a duplicate.
+// TestFailedRepairRecordsWhatItAppliedBeforeFailing checks audit recording
+// after a partial failure (TACK-452). Each rename commits separately in FDB.
+// A rerun cannot recover renamed nodes from the duplicate plan.
 func TestFailedRepairRecordsWhatItAppliedBeforeFailing(t *testing.T) {
 	outbox, orgID := repairAuditOutbox(t)
 	report := partialRepairReport(orgID)
@@ -43,13 +41,13 @@ func TestFailedRepairRecordsWhatItAppliedBeforeFailing(t *testing.T) {
 	)
 
 	if returned == nil || !errors.Is(returned, runErr) {
-		t.Fatalf("returned = %v, want the run's own failure so the operator acts on it", returned)
+		t.Fatalf("returned = %v, want the run's own failure for operator action", returned)
 	}
 
 	events := repairAuditRecordedEvents(t, outbox, orgID)
 	if len(events) != 1 {
 		t.Fatalf(
-			"recorded events = %d, want the one rename that landed before the failure",
+			"recorded events = %d, want the one rename committed before the failure",
 			len(events),
 		)
 	}
@@ -60,10 +58,9 @@ func TestFailedRepairRecordsWhatItAppliedBeforeFailing(t *testing.T) {
 	}
 }
 
-// TestDryRunFailureRecordsNothing pins that the recording is tied to work
-// actually applied. A dry run changes nothing, so a dry run that fails owes
-// the ledger nothing and must not write rows for renames that never happened.
-func TestDryRunFailureRecordsNothing(t *testing.T) {
+// TestRepairDryRunSkipsMutationRecordsAfterFailure checks that a failed dry run does not write
+// mutation events for changes it did not apply.
+func TestRepairDryRunSkipsMutationRecordsAfterFailure(t *testing.T) {
 	outbox, orgID := repairAuditOutbox(t)
 	report := partialRepairReport(orgID)
 
@@ -87,16 +84,14 @@ func TestDryRunFailureRecordsNothing(t *testing.T) {
 	}
 
 	if events := repairAuditRecordedEvents(t, outbox, orgID); len(events) != 0 {
-		t.Fatalf("recorded events = %d, want none: a dry run applied nothing", len(events))
+		t.Fatalf("recorded events = %d, want zero after a dry run", len(events))
 	}
 }
 
-// TestBothFailuresReachTheOperator pins what happens when the run and the
-// recording both fail. Returning only the run failure would hide that applied
-// changes are still unrecorded, and a rerun cannot rediscover them; returning
-// only the recording failure would hide what the operator has to act on. Both
-// are preserved, so either can be matched.
-func TestBothFailuresReachTheOperator(t *testing.T) {
+// TestRepairRecordOutcomePreservesExecutionAndRecordingErrors requires the result to preserve both the
+// run failure and the recording failure. Operators need the run failure to
+// diagnose execution and the recording failure to identify unrecorded changes.
+func TestRepairRecordOutcomePreservesExecutionAndRecordingErrors(t *testing.T) {
 	runErr := errors.New("allocate replacement value: transaction too old")
 	recordErr := errors.New("outbox unavailable")
 
@@ -116,17 +111,15 @@ func TestBothFailuresReachTheOperator(t *testing.T) {
 
 	if !errors.Is(returned, recordErr) {
 		t.Fatalf(
-			"returned = %v, want the recording failure preserved: unrecorded changes are live in the store",
+			"returned = %v, want the recording failure preserved: unrecorded changes exist in the store",
 			returned,
 		)
 	}
 }
 
-// TestRecordingSurvivesACancelledRun pins the context split. A run that failed
-// because the command was interrupted or timed out hands back a dead context,
-// and the audit write is mandatory, so it must not inherit that cancellation:
-// the record would fail exactly when the applied work most needs one.
-func TestRecordingSurvivesACancelledRun(t *testing.T) {
+// TestRepairRecordingIgnoresCommandCancellation checks that mandatory audit writes use
+// a context independent of command cancellation after an interruption or timeout.
+func TestRepairRecordingIgnoresCommandCancellation(t *testing.T) {
 	outbox, orgID := repairAuditOutbox(t)
 	report := partialRepairReport(orgID)
 	ctx, cancel := context.WithCancel(context.Background())
@@ -158,16 +151,15 @@ func TestRecordingSurvivesACancelledRun(t *testing.T) {
 
 	if events := repairAuditRecordedEvents(t, outbox, orgID); len(events) != 1 {
 		t.Fatalf(
-			"recorded events = %d, want the applied rename recorded despite the cancelled run",
+			"recorded events = %d, want the applied rename recorded despite the canceled run",
 			len(events),
 		)
 	}
 }
 
-// TestRecordFailureSurfacesWhenTheRunSucceeded pins the other half: with no
-// run error to outrank it, a recording failure is the result, so a successful
-// repair whose ledger write failed cannot report success.
-func TestRecordFailureSurfacesWhenTheRunSucceeded(t *testing.T) {
+// TestRepairRecordingErrorPreventsSuccess checks that a recording failure
+// prevents reporting success even after the repair succeeds.
+func TestRepairRecordingErrorPreventsSuccess(t *testing.T) {
 	recordErr := errors.New("outbox unavailable")
 
 	returned := repairRecordOutcome(
@@ -185,8 +177,7 @@ func TestRecordFailureSurfacesWhenTheRunSucceeded(t *testing.T) {
 	}
 }
 
-// partialRepairReport is what a run carries when its first rename landed and
-// its second failed: one applied rename, nothing else.
+// partialRepairReport records one successful rename before a second fails.
 func partialRepairReport(orgID uuid.UUID) RepairReferenceReport {
 	nodeID := uuid.MustParse("019dc5ed-eac1-7ab4-b86b-cebc6ce06de8")
 
@@ -199,10 +190,9 @@ func partialRepairReport(orgID uuid.UUID) RepairReferenceReport {
 	}
 }
 
-// TestRenumberGroupReturnsTheRenamesItAppliedBeforeFailing covers the group
-// level, which is where the partial work was dropped first. Each rename lands
-// in its own FoundationDB transaction, so the ones before a failure are live
-// in the store and the caller owes each a ledger row.
+// TestRenumberGroupReturnsTheRenamesItAppliedBeforeFailing checks that the
+// result includes each rename committed in its own FDB transaction before a
+// later failure. The caller must record those changes in the ledger.
 func TestRenumberGroupReturnsTheRenamesItAppliedBeforeFailing(t *testing.T) {
 	first := uuid.MustParse("00000000-0000-0000-0000-000000000001")
 	second := uuid.MustParse("00000000-0000-0000-0000-000000000002")
@@ -235,14 +225,13 @@ func TestRenumberGroupReturnsTheRenamesItAppliedBeforeFailing(t *testing.T) {
 	}
 
 	if len(renamed) != 1 || renamed[0].NodeID != second {
-		t.Fatalf("renamed = %+v, want the one rename that landed before the failure", renamed)
+		t.Fatalf("renamed = %+v, want the one rename committed before the failure", renamed)
 	}
 }
 
-// TestRepairFaultIsRefusedOutsideATestbed pins the gate on the fault flag. It
-// exists to leave a repair half applied on purpose, which is a thing to do to
-// a disposable environment and never to production, so it reuses the marker
-// the QA generator gates its writes on.
+// TestRepairFaultIsRefusedOutsideATestbed checks that the fault flag requires
+// the QA generator's target marker. Partial repairs are permitted only in
+// disposable environments, never production.
 func TestRepairFaultIsRefusedOutsideATestbed(t *testing.T) {
 	for _, target := range []string{"", "prod", "production"} {
 		factory := &cli.Factory{Cfg: &config.Config{DatagenAllowTarget: target}}
@@ -258,20 +247,17 @@ func TestRepairFaultIsRefusedOutsideATestbed(t *testing.T) {
 		}
 	}
 
-	// Without the flag the marker is irrelevant, so a production repair still
-	// runs: the gate must not become a second condition on ordinary work.
+	// Ordinary repairs do not require the marker when the fault flag is absent.
 	factory := &cli.Factory{Cfg: &config.Config{DatagenAllowTarget: ""}}
 	if err := checkRepairFaultAllowed(context.Background(), factory, 0); err != nil {
 		t.Fatalf("an ordinary run was refused: %v", err)
 	}
 }
 
-// TestUnrecordedLoggingKeepsEveryIdentityInBoundedBatches pins both halves of
-// the fallback log. Every identity survives, because a renamed node cannot be
-// rediscovered by a rerun and the command returns before writing its own
-// report, so a dropped identity is gone for good. The lines stay bounded,
-// because one line per item is a log storm that outlives the command's own
-// deadline on a production-sized repair.
+// TestUnrecordedLoggingKeepsEveryIdentityInBoundedBatches checks complete
+// fallback logging with bounded line sizes. A rerun cannot rediscover renamed
+// nodes, and a recording failure prevents writing the command report. Batching
+// must preserve every identity without one log line per change.
 func TestUnrecordedLoggingKeepsEveryIdentityInBoundedBatches(t *testing.T) {
 	var recorded bytes.Buffer
 	previous := slog.Default()
@@ -306,19 +292,18 @@ func TestUnrecordedLoggingKeepsEveryIdentityInBoundedBatches(t *testing.T) {
 	logUnrecordedRepair(context.Background(), report, errors.New("outbox unavailable"))
 
 	logged := recorded.String()
-	// Every rename has to appear, first and last included: the ones a sample
-	// would have dropped are exactly the ones no rerun can recover.
+	// Check every rename, including the first and last. Sampling would omit
+	// identities that a rerun cannot recover.
 	for _, rename := range report.Renumbered {
 		if !strings.Contains(logged, rename.NodeID.String()) {
 			t.Fatalf(
-				"rename %s is missing from the log, so its change is unrecorded and unrecoverable",
+				"rename %s is missing from the log; its change is unrecorded and unrecoverable",
 				rename.NodeID,
 			)
 		}
 	}
 
-	// 500 identities at 50 per line is 10 batch lines plus the summary. The
-	// bound is on line size, so the count stays far below one line per item.
+	// Five hundred identities require ten batches of fifty and one summary.
 	lines := strings.Count(logged, "\n")
 	if lines != 11 {
 		t.Fatalf("log lines = %d, want 11: one summary plus ten batches of fifty", lines)
@@ -326,7 +311,7 @@ func TestUnrecordedLoggingKeepsEveryIdentityInBoundedBatches(t *testing.T) {
 
 	if !strings.Contains(logged, "batch=10") || !strings.Contains(logged, "batches=10") {
 		t.Fatalf(
-			"log = %s, want each line to name its position so a truncated log is visible",
+			"log = %s, want each line to identify its position for detecting truncation",
 			logged,
 		)
 	}

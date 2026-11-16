@@ -1,40 +1,25 @@
 -- +goose Up
 -- +goose StatementBegin
 
--- Audit ledger schema. Append-only at the database boundary.
+-- Database grants and row-level security protect the append-only audit ledger.
+-- NOLOGIN roles separate event insertion, ledger reads, and selected personal-data
+-- updates. This migration revokes PUBLIC privileges on the audit schema and
+-- its tables. It grants audit_archiver SELECT on audit.events without assigning
+-- the role to a login or granting partition deletion privileges.
 --
--- Roles, grants, and RLS together ensure no application code path can mutate
--- existing rows. The default tack_app role has zero privilege on this schema.
--- Three login roles inherit from three NOLOGIN base roles: writer (INSERT
--- only), reader (SELECT only), redactor (UPDATE only on pii.payload columns).
--- Logical-data deletion is impossible. Physical-data deletion is restricted to
--- a fourth role audit_archiver, granted explicitly to the partition rotation
--- job, never to the application.
+-- audit.events partitions rows by week and hashes (org_id, shard) across tablets.
+-- The writer updates audit.chain_heads atomically with each event insertion.
+-- audit.notarizations stores Ed25519-signed Merkle roots over all 256 shard heads.
+-- audit.pii stores personal data that audit_redactor can erase without changing
+-- the event hash chain. event.pii_ref references that data by UUID.
 --
--- Table layout:
---   audit.events          partitioned by week, HASH(org_id, shard) per
---                         partition for tablet distribution. Append-only.
---   audit.chain_heads     per-shard hash chain head. Updated atomically by
---                         the audit writer in the same Yugabyte transaction
---                         as the events INSERT.
---   audit.notarizations   periodic Merkle root over all 256 shard heads,
---                         signed Ed25519. Append-only.
---   audit.pii             user PII referenced by event.pii_ref UUID. Only
---                         table where audit_redactor can UPDATE selected
---                         columns, supporting GDPR right to erasure without
---                         breaking the hash chain.
---
--- Sharding: each event carries a shard SMALLINT 0..255 computed at write
--- time as crc32(actor_id || event_id) % 256. The HASH primary key on
--- (org_id, shard) distributes load across tablets without hotspotting on a
--- single high-traffic actor or org. NUM_TABLETS=8 is a dev-cluster default;
--- production will grow this to 256 when load demands and the cluster has
--- enough nodes to host them. Tablet count is fixed at table creation time
--- in YugabyteDB; revisiting it requires a new partition.
+-- Each event stores a shard SMALLINT 0..255 computed at write time as
+-- crc32(actor_id || event_id) % 256. The HASH key on (org_id, shard) distributes
+-- events from high-traffic actors and orgs across tablets.
 
 CREATE SCHEMA audit;
 
--- ── audit.events ──────────────────────────────────────────────────────────────
+-- Define audit.events.
 
 CREATE TABLE audit.events (
     org_id          UUID        NOT NULL,
@@ -56,9 +41,8 @@ CREATE TABLE audit.events (
     PRIMARY KEY ((org_id, shard) HASH, event_time ASC, seq ASC, event_id ASC)
 ) PARTITION BY RANGE (event_time);
 
--- Partition manager helper. Called once per week by a goroutine in the
--- audit package; we also call it inline below for the next 8 weeks so a
--- fresh deployment has somewhere to write immediately.
+-- This migration creates partitions through the next 8 weeks for immediate
+-- writes after deployment.
 -- +goose StatementEnd
 
 -- +goose StatementBegin
@@ -68,11 +52,9 @@ DECLARE
     week_end DATE := (week_start + 7)::DATE;
     part_name TEXT := 'events_' || to_char(week_start, 'YYYY_MM_DD');
 BEGIN
-    -- Tablet count intentionally unset: YugabyteDB picks a sensible default
-    -- (typically 1 tablet per node) for partitions of a partitioned parent.
-    -- Production scale tuning will SPLIT existing partitions when load
-    -- demands. The 256-shard logical layout in the row data is independent
-    -- of the physical tablet count and works at any tablet density.
+    -- YugabyteDB selects the partition tablet count, typically one per node.
+    -- Production can SPLIT partitions as load increases. The logical 256-shard
+    -- layout does not depend on the physical tablet count.
     EXECUTE format(
         'CREATE TABLE IF NOT EXISTS audit.%I PARTITION OF audit.events ' ||
         'FOR VALUES FROM (%L) TO (%L)',
@@ -95,9 +77,8 @@ END;
 $$;
 -- +goose StatementEnd
 
--- Indexes are LOCAL by default in PostgreSQL declarative partitioning, so
--- writes do not broadcast across partitions. Each weekly partition gets its
--- own copy. INCLUDE columns make hot-tier reads index-only with no heap hit.
+-- Each weekly partition has local indexes; writes do not update other partitions.
+-- INCLUDE columns support index-only reads without reading table rows.
 
 CREATE INDEX events_actor_time
     ON audit.events ((org_id, actor_id) HASH, event_time DESC)
@@ -146,10 +127,9 @@ CREATE TABLE audit.pii (
 );
 -- +goose StatementEnd
 
--- ── Roles ─────────────────────────────────────────────────────────────────────
--- Three NOLOGIN base roles for privilege grouping. Three LOGIN derived roles
--- for actual application connections. Login passwords get rotated by an
--- operator after migration runs; no password literal lives in this file.
+-- Group privileges in NOLOGIN roles. Application LOGIN roles inherit them.
+-- An operator rotates login passwords after migration; this file does not
+-- contain password literals.
 
 -- +goose StatementBegin
 DO $$
@@ -171,37 +151,28 @@ END$$;
 
 GRANT USAGE ON SCHEMA audit TO audit_writer, audit_reader, audit_redactor, audit_archiver;
 
--- audit_writer: INSERT only on the append-only tables, plus chain_heads
--- updates so the writer can advance per-shard heads atomically with events.
+-- audit_writer inserts append-only rows and updates per-shard chain heads
+-- atomically with events.
 GRANT INSERT ON audit.events, audit.notarizations, audit.pii TO audit_writer;
 GRANT SELECT, INSERT, UPDATE ON audit.chain_heads TO audit_writer;
 GRANT SELECT ON audit.events TO audit_writer;
 
--- audit_reader: SELECT only.
+-- audit_reader can SELECT only.
 GRANT SELECT ON audit.events, audit.notarizations, audit.chain_heads TO audit_reader;
 
--- audit_redactor: column-level UPDATE on the three redaction columns of
--- audit.pii ONLY. Cannot touch any other column. Cannot UPDATE events.
+-- audit_redactor can update only these three audit.pii columns, not events.
 GRANT UPDATE (payload, redacted, redacted_at) ON audit.pii TO audit_redactor;
 GRANT SELECT ON audit.pii TO audit_redactor;
 
--- audit_archiver: explicit DROP/DETACH on partition tables for retention. The
--- archiver job is the only path that ever removes rows from the ledger and
--- it is itself audited via verb=audit.archive_partition.
+-- Allow audit_archiver to read events for retention processing.
 GRANT SELECT ON audit.events TO audit_archiver;
 
--- The standard tack_app role gets nothing in the audit schema. It cannot
--- read, write, or even see the existence of the tables. We do not GRANT here;
--- we explicitly REVOKE inherited PUBLIC privileges below.
-
+-- Revoke PUBLIC privileges on the audit schema and its tables.
 REVOKE ALL ON SCHEMA audit FROM PUBLIC;
 REVOKE ALL ON ALL TABLES IN SCHEMA audit FROM PUBLIC;
 
--- ── Row Level Security ───────────────────────────────────────────────────────
--- Defense in depth. Even if an unauthorized role somehow has a connection,
--- the policy below blocks UPDATE and DELETE for everyone, with an explicit
--- INSERT carve-out for audit_writer. A SUPERUSER bypasses RLS by default,
--- so the deployment must run with non-superuser app credentials.
+-- Row-level security blocks UPDATE and DELETE except for the explicit policies
+-- below. Superusers bypass it; deploy non-superuser application credentials.
 
 ALTER TABLE audit.events          ENABLE ROW LEVEL SECURITY;
 ALTER TABLE audit.notarizations   ENABLE ROW LEVEL SECURITY;
@@ -213,7 +184,7 @@ ALTER TABLE audit.notarizations   FORCE ROW LEVEL SECURITY;
 ALTER TABLE audit.chain_heads     FORCE ROW LEVEL SECURITY;
 ALTER TABLE audit.pii             FORCE ROW LEVEL SECURITY;
 
--- audit.events: writer can insert; reader can select; everyone else nothing.
+-- The writer inserts events; the reader and archiver select them.
 CREATE POLICY events_writer_insert ON audit.events FOR INSERT TO audit_writer
     WITH CHECK (true);
 CREATE POLICY events_reader_select ON audit.events FOR SELECT TO audit_reader
@@ -223,20 +194,20 @@ CREATE POLICY events_writer_select ON audit.events FOR SELECT TO audit_writer
 CREATE POLICY events_archiver_select ON audit.events FOR SELECT TO audit_archiver
     USING (true);
 
--- audit.notarizations: writer inserts (notarizer goroutine), reader selects.
+-- The notarizer inserts notarizations as the writer; the reader selects them.
 CREATE POLICY notarizations_writer_insert ON audit.notarizations FOR INSERT TO audit_writer
     WITH CHECK (true);
 CREATE POLICY notarizations_reader_select ON audit.notarizations FOR SELECT TO audit_reader
     USING (true);
 
--- audit.chain_heads: writer reads + advances heads.
+-- The writer reads and updates chain heads; the reader selects them.
 CREATE POLICY chain_heads_writer_all ON audit.chain_heads FOR ALL TO audit_writer
     USING (true) WITH CHECK (true);
 CREATE POLICY chain_heads_reader_select ON audit.chain_heads FOR SELECT TO audit_reader
     USING (true);
 
--- audit.pii: writer inserts new rows; redactor updates only allowed columns;
--- reader selects.
+-- The writer inserts personal data; the redactor updates allowed columns;
+-- the reader selects rows.
 CREATE POLICY pii_writer_insert ON audit.pii FOR INSERT TO audit_writer
     WITH CHECK (true);
 CREATE POLICY pii_writer_select ON audit.pii FOR SELECT TO audit_writer

@@ -12,17 +12,15 @@ import (
 	"goodkind.io/tack/internal/config"
 )
 
-// provision is the idempotent first-boot entrypoint (TACK-303). One ordered
-// action brings a fresh environment to ready and is a safe no-op on an
-// already-provisioned prod. It runs from the host-networked tack-ops container
-// and reaches the bridge-resident fdb and app containers through the Docker
-// socket, because tack-ops cannot resolve the bridge DNS names directly.
+// Provisioning initializes a fresh environment and permits repeated runs
+// (TACK-303). The host-networked tack-ops container uses the Docker socket to
+// run commands in the fdb and app containers. It cannot resolve bridge DNS names.
 
 // fdbAvailableMarker is the substring fdbcli prints for a configured, healthy
 // database. Its absence means the cluster has never been configured.
 const fdbAvailableMarker = "The database is available"
 
-// Observed states of the provision steps.
+// These constants identify the observed states of the provision steps.
 const (
 	provisionFDBAlreadyConfigured = "already_configured"
 	provisionFDBConfigured        = "configured"
@@ -30,22 +28,19 @@ const (
 	provisionSeedDeferred         = "deferred"
 )
 
-// provisionFDB configures a fresh FoundationDB cluster exactly once. A
-// configured cluster is detected via `fdbcli status minimal` and left
-// untouched. Configuring is destructive, so it requires the explicit opt-in.
+// provisionFDB configures a fresh FoundationDB cluster exactly once and
+// returns its observed state. It uses `fdbcli status minimal` to detect a
+// configured cluster and leaves that cluster unchanged. Destructive
+// initialization requires explicit approval.
 //
-// It reads and configures through a one-shot fdbcli container against this
-// guest's cluster file, not by exec-ing into a local store container: the
-// guest that provisions runs no store process once the store is on the data
-// guests, and the cluster file names those guests' addresses (TACK-408).
+// The command runs fdbcli in a one-shot container against this guest's
+// cluster file. It does not require a local store container. Data guests run
+// the store processes, and the cluster file specifies their addresses
+// (TACK-408).
 //
-// The redundancy comes from TACK_OPS_FDB_REDUNDANCY_MODE, so a rebuilt
-// environment comes back with the replication it had. On a fresh environment
-// where the store processes are not all up yet, the configure fails here
-// rather than setting a mode the live processes cannot satisfy; provision is
-// re-runnable.
-//
-// It returns the observed state of the cluster.
+// TACK_OPS_FDB_REDUNDANCY_MODE specifies replication. Configuration fails if
+// the live processes cannot satisfy that mode. Provisioning permits repeated
+// runs after the required processes start.
 func provisionFDB(
 	ctx context.Context,
 	cli *client.Client,
@@ -58,9 +53,8 @@ func provisionFDB(
 		return "", fmt.Errorf("provision fdb redundancy: %w", err)
 	}
 
-	// fdbcli exits nonzero when the cluster it is asked about was never
-	// configured, which is the reading this step wants. The exit code is
-	// therefore data; a container that could not run at all is the error.
+	// fdbcli reports an unconfigured cluster with a nonzero exit code.
+	// Only a failure to run the container counts as an error here.
 	status, _, err := readStoreCLI(ctx, cli, cfg, "status minimal")
 	if err != nil {
 		slog.ErrorContext(ctx, "provision.fdb.status_failed", slog.String("err", err.Error()))
@@ -97,12 +91,11 @@ func provisionFDB(
 	return provisionFDBConfigured, nil
 }
 
-// provisionSeed runs `/server seed` inside the app container, which is on the
-// bridge and reaches FoundationDB. SEED_EMAIL and SEED_NAME are injected from
-// the provision config; seed is idempotent (it no-ops when an org already
-// exists). This is the stopgap until the typed FDB-ops path lands (TACK-318).
-//
-// It returns the observed state of the seed.
+// provisionSeed runs `/server seed` inside the app container, which connects
+// to FoundationDB on the bridge. The provision config supplies SEED_EMAIL and
+// SEED_NAME. Seed refuses execution when an org already exists. This command
+// substitutes for the planned typed FDB operations (TACK-318).
+// It returns the observed seed state.
 func provisionSeed(ctx context.Context, cli *client.Client, cfg *config.Config) (string, error) {
 	slog.InfoContext(ctx, "provision.seed.start", slog.String("container", cfg.OpsAppContainer))
 	env := []string{"SEED_EMAIL=" + cfg.SeedEmail, "SEED_NAME=" + cfg.SeedName}
@@ -116,10 +109,9 @@ func provisionSeed(ctx context.Context, cli *client.Client, cfg *config.Config) 
 		&out,
 	)
 	if err != nil {
-		// On a truly fresh boot the app container is created but not yet running
-		// (it waits for fdb health, which this same run just configured), so the
-		// exec cannot attach. Defer rather than fail: provision is idempotent, so
-		// re-running it once the app is up completes the seed.
+		// On first boot, the app container may still await fdb health and
+		// cannot accept exec. Defer seed until a later provisioning run
+		// after the app starts. Repeated provisioning runs are safe.
 		slog.WarnContext(
 			ctx,
 			"provision.seed.deferred",

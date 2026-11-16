@@ -71,13 +71,13 @@ func TestSearchRebuildDuringChanges(t *testing.T) {
 
 Add the same test for native split. Create, edit, delete, change metadata, move a
 subtree, update one resource grant, and start a candidate permission version
-while replacement is paused. Require current nodes only, no forbidden result,
-and both active and candidate keys on the target. The permission transition must
+while the coordinator pauses replacement. Require only current, authorized
+nodes and both active and candidate keys on the target. The permission transition must
 not start another replacement.
 
 - [ ] **Step 2: Record the deferred failure contract.**
 
-The final validation plan runs `^TestSearch(Rebuild|Split)DuringChanges$` against the completed branch. The tests must fail when replacement state, journal catch-up, validation, or atomic alias switching is broken. Do not start live dependencies during this coding task.
+The final validation plan runs `^TestSearch(Rebuild|Split)DuringChanges$` against the completed branch. The tests must fail when replacement-state handling, journal catch-up, validation, or atomic alias switching fails. Do not start live dependencies during this coding task.
 
 - [ ] **Step 3: Persist one replacement state machine.**
 

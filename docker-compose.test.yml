@@ -1,20 +1,16 @@
-# Local Go test runner.
+# The tests service builds a Go runner image with the production FoundationDB
+# client library version. `make test-unit` and `make test-integration` run
+# go test against the bind-mounted tree and set TACK_TEST_ROOT to its host path.
 #
-# One service, tests, builds a Go image that links the same FoundationDB
-# client library the production server links and runs go test against a
-# bind-mount of the working tree. `make test-unit` and `make test-integration`
-# run it, and set TACK_TEST_ROOT to the tree's host path.
+# internal/testenv starts stores with the Docker SDK over the mounted socket.
+# Each test binary starts single-node FoundationDB and YugabyteDB engines on
+# tack-testenv and attaches this container to that network. Tests connect to
+# engine network addresses directly. Docker Desktop's port forwarder drops
+# FoundationDB's connect-packet exchange on macOS.
 #
-# Tests that need a store start it themselves through internal/testenv, which
-# drives the Docker daemon through the SDK over the mounted socket: each test
-# binary starts its own single-node FoundationDB and YugabyteDB on the
-# tack-testenv network and attaches this container to that network, so the engines are
-# reached at their network addresses rather than through Docker Desktop's port
-# forwarder, which drops FoundationDB's connect-packet exchange on macOS.
-#
-# The tree is mounted at its host path, not a fixed one, because a test that
-# asks the daemon to bind-mount a file names it by this container's path, and
-# the daemon reads that path on its own host (testenv.SharedDir).
+# Bind-mount the tree at its host path. Tests pass container paths to the
+# daemon for bind mounts, and the daemon reads those paths on its host
+# (testenv.SharedDir).
 
 services:
   tests:
@@ -23,21 +19,19 @@ services:
       dockerfile: Dockerfile.test
       args:
         FDB_VERSION: ${FDB_VERSION:-7.4.6}
-    # The grace period exceeds testenv's signal release limit of two minutes,
-    # which gives `docker stop` time to let the test binary remove its engines.
+    # The grace period exceeds testenv's two-minute signal release limit.
+    # `docker stop` allows the test binary to remove its engines before exit.
     stop_grace_period: 150s
     volumes:
-      # Source bind-mount: edits on the host are visible without a rebuild.
+      # The source bind mount exposes host edits without rebuilding the image.
       - .:${TACK_TEST_ROOT:?set TACK_TEST_ROOT to the repository's host path}
-      # The daemon internal/testenv starts the test engines on.
+      # internal/testenv starts test engines on this Docker daemon.
       - /var/run/docker.sock:/var/run/docker.sock
-      # Persist Go's build and module caches across runs so the second invocation
-      # only compiles what changed.
+      # Reuse Go build and module caches between runs to compile changed inputs.
       - tack-test-go-cache:/root/.cache/go-build
       - tack-test-go-mod:/go/pkg/mod
-      # Test temporary files on a disk filesystem rather than the container's
-      # overlayfs, through which the kernel reports no page cache: the staging
-      # test reads the cache of the file it downloads.
+      # Use a disk filesystem for temporary files. overlayfs does not report
+      # the page cache that the staging test inspects for its downloaded file.
       - /tmp/tack-test
     environment:
       TMPDIR: /tmp/tack-test
@@ -49,10 +43,9 @@ services:
     working_dir: ${TACK_TEST_ROOT:?set TACK_TEST_ROOT to the repository's host path}
     profiles: ["runner"]
 
-  # The PostgreSQL provider overlay tests run here. This image builds the
-  # patched provider and installs OpenTofu, which the normal runner does not.
-  # `make test-postgresql-overlay` runs it.
-  # The tests run OpenTofu in this container through the Docker SDK.
+  # `make test-postgresql-overlay` runs the PostgreSQL provider overlay tests.
+  # This image builds the patched provider and installs OpenTofu, unlike the
+  # normal runner. Tests run OpenTofu in this container through the Docker SDK.
   pgoverlay-tests:
     build:
       context: .
@@ -65,8 +58,8 @@ services:
       - /tmp/tack-test
     environment:
       TMPDIR: /tmp/tack-test
-      # The engines of the run join the project network below, which Compose
-      # creates for this project and removes with `down`.
+      # Test engines join this project network. Compose creates it for the
+      # project and removes it with `down`.
       TACK_PG_OVERLAY_NETWORK: ${COMPOSE_PROJECT_NAME:?run this service through make test-postgresql-overlay}_pgoverlay
       TACK_PG_OVERLAY_PROJECT: ${COMPOSE_PROJECT_NAME}
     networks:
@@ -75,8 +68,8 @@ services:
     profiles: ["pgoverlay-runner"]
 
 networks:
-  # IPv4 only, like the shared testenv network: the engine images need an IPv4
-  # address, and the daemon's default network options can leave it out.
+  # Engine images require IPv4. Default daemon network options can omit it.
+  # Use IPv4 only, as the shared testenv network does.
   pgoverlay:
     enable_ipv4: true
     enable_ipv6: false
@@ -84,10 +77,10 @@ networks:
 volumes:
   tack-test-go-cache:
   tack-test-go-mod:
-  # Each overlay test run uses its own Compose project, and these caches
-  # outlive every run. They are external, so Compose neither labels them with a
-  # project nor warns about a project mismatch, and `down` never removes them.
-  # `make test-postgresql-overlay` creates them when they are missing.
+  # Each overlay test uses a separate Compose project. External caches persist
+  # between runs without project labels or project mismatch warnings.
+  # `down` does not remove them. `make test-postgresql-overlay` creates them
+  # when missing.
   pgoverlay-go-cache:
     name: tack-pgoverlay-go-cache
     external: true

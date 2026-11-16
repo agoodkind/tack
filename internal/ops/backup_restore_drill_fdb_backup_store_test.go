@@ -6,15 +6,11 @@ import (
 	"time"
 )
 
-// TestFDBBackupSelectionReadsEverySessionTheStoreHolds runs the selection from
-// the object store in, the way the drill does: the backup names come out of a
-// real S3 listing of the backups/ markers on the test SeaweedFS engine, through
-// the real client, and the target is then checked against each
-// session's window newest first. The store below holds two sessions because
-// the continuous backup was started twice, with the engine's data folders and
-// the backups/ placeholder beside the markers; the target is a moment only the
-// older session retains, and it must be restored from that session.
-func TestFDBBackupSelectionReadsEverySessionTheStoreHolds(t *testing.T) {
+// TestFDBBackupSelectionUsesOlderCoveringSession reads real SeaweedFS markers
+// through the production S3 client. Two sessions and engine data coexist with
+// the backups/ placeholder. Selection must inspect windows newest first and
+// choose the older session for a target outside the newer session's window.
+func TestFDBBackupSelectionUsesOlderCoveringSession(t *testing.T) {
 	objectStore := newBackupTestStore(
 		t,
 		map[string][]byte{
@@ -57,11 +53,11 @@ func TestFDBBackupSelectionReadsEverySessionTheStoreHolds(t *testing.T) {
 	name, _, err := chooseFDBBackupForTarget(target, names, store.describe, store.skip)
 
 	if want := []string{"20260829T000000Z", "20260830T000000Z"}; !slices.Equal(names, want) {
-		t.Fatalf("the store's markers named %v, want the two sessions oldest first %v", names, want)
+		t.Fatalf("marker sessions = %v, want oldest-first sessions %v", names, want)
 	}
 
 	if err != nil {
-		t.Fatalf("a target the older session retains must not be refused: %v", err)
+		t.Fatalf("a target retained by the older session must succeed: %v", err)
 	}
 
 	if name != "20260829T000000Z" {
@@ -69,6 +65,6 @@ func TestFDBBackupSelectionReadsEverySessionTheStoreHolds(t *testing.T) {
 	}
 
 	if want := []string{"20260830T000000Z", "20260829T000000Z"}; !slices.Equal(store.asked, want) {
-		t.Fatalf("the sessions must be described newest first, described %v", store.asked)
+		t.Fatalf("session reads = %v, want newest-first order %v", store.asked, want)
 	}
 }

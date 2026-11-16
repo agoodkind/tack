@@ -15,9 +15,8 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// Reader queries audit.events through the audit_reader_app pool. Read-only
-// by construction: the role's grants block any DML, and the policies in
-// migrations/002_audit.sql block UPDATE/DELETE for everyone.
+// Reader queries audit.events using audit_reader_app grants that prohibit
+// data changes. Ledger policies also prohibit row updates and deletion.
 type Reader struct {
 	pool *readerPool
 }
@@ -40,8 +39,7 @@ func NewReader(ctx context.Context, dsn string) (*Reader, error) {
 	}
 
 	pool := &readerPool{unsanitized: opened}
-	// Connect lazily. A failed ping logs a deferred warning but still returns
-	// the reader; the pool connects on first query.
+	// A failed startup ping logs a warning; the pool retries on the first query.
 	if err := pool.Ping(ctx); err != nil {
 		slog.WarnContext(ctx, "audit.reader.ping_deferred", slog.String("err", err.Error()))
 	}
@@ -55,9 +53,8 @@ func (r *Reader) Close() {
 	}
 }
 
-// QueryFilter mirrors Slack's getLogs shape. Oldest and Latest bound the
-// time range and are mandatory; an unbounded scan would foot-gun production.
-// Limit is capped at 1000 by the caller.
+// QueryFilter requires an org selection and both time bounds. Page callers
+// must enforce their upper row limit.
 type QueryFilter struct {
 	OrgID     uuid.UUID
 	Oldest    time.Time
@@ -68,25 +65,18 @@ type QueryFilter struct {
 	RequestID string
 	TraceID   string
 	Limit     int
-	// BeforeTime and BeforeSeq resume a page: only rows strictly before this
-	// (event_time, seq) position in the DESC ordering return. Zero BeforeTime
-	// disables the cursor.
+	// BeforeTime and BeforeSeq select rows strictly before this (event_time,
+	// seq) position in descending order. Zero BeforeTime disables the cursor.
 	BeforeTime time.Time `exhaustruct:"optional"`
 	BeforeSeq  int64     `exhaustruct:"optional"`
-	// NilOrg asks for the rows stored under the nil org: history recorded
-	// before every event carried an org, which chains per (org, shard) like
-	// any other org's rows. A nil OrgID on its own is refused as a filter
-	// that forgot its org, so a caller has to name the nil org on purpose,
-	// and naming it beside a real OrgID is refused too, so the flag cannot be
-	// left on by mistake.
+	// NilOrg explicitly selects historical rows under the nil org. A nil OrgID
+	// without this flag fails validation. Combining it with a non-nil OrgID also
+	// fails; the flag must not disable org isolation.
 	NilOrg bool `exhaustruct:"optional"`
 }
 
-// Validate rejects a filter no ledger read can run: an org that was neither
-// given nor named as the nil org on purpose, the nil org named beside a real
-// one, or a time range with an open end. The Reader applies it to every read;
-// it is exported so a row source that stands in for the ledger can refuse the
-// same filters the ledger refuses.
+// Validate requires explicit org selection and both time bounds, including
+// explicit nil-org access. Row sources can enforce the same rules as Reader.
 func (f QueryFilter) Validate() error {
 	if f.NilOrg && f.OrgID != uuid.Nil {
 		return fmt.Errorf("audit query: nil_org set beside org %s", f.OrgID)
@@ -103,9 +93,8 @@ func (f QueryFilter) Validate() error {
 	return nil
 }
 
-// checkQueryFilter rejects a read on a reader that was never configured, then
-// applies the filter's own rule. Shared by Query and StreamQuery so both refuse
-// the same inputs.
+// checkQueryFilter checks reader configuration and shared filter validation
+// for Query and StreamQuery.
 func (r *Reader) checkQueryFilter(f QueryFilter) error {
 	if r == nil || r.pool == nil {
 		return errors.New("audit reader not configured")
@@ -114,10 +103,8 @@ func (r *Reader) checkQueryFilter(f QueryFilter) error {
 	return f.Validate()
 }
 
-// Query returns events matching the filter, most recent first, holding every
-// matching row in memory. It is the page-sized read; a caller that wants the
-// whole match set streams it through StreamQuery instead. The caller is
-// responsible for upper-bounding the limit.
+// Query collects matching events in descending time order for a page. The
+// caller must cap the limit; whole-range reads must use StreamQuery instead.
 func (r *Reader) Query(ctx context.Context, f QueryFilter) ([]Row, error) {
 	ctx, span := telemetry.StartSpan(
 		ctx,
@@ -159,8 +146,8 @@ func (r *Reader) Query(ctx context.Context, f QueryFilter) ([]Row, error) {
 	return out, rows.Err()
 }
 
-// GetByID returns one event regardless of org. Caller must enforce org
-// authorization before exposing the row to the user.
+// GetByID reads an event without org filtering. The caller must authorize
+// access to its org before returning the row to a user.
 func (r *Reader) GetByID(ctx context.Context, eventID uuid.UUID) (*Row, error) {
 	ctx, span := telemetry.StartSpan(
 		ctx,
@@ -223,9 +210,7 @@ func (r *Reader) GetByID(ctx context.Context, eventID uuid.UUID) (*Row, error) {
 	return &row, nil
 }
 
-// outcomeFromColumn maps the stored outcome to its value. A NULL means the row
-// was written before the ledger stored outcomes, so it reads as unrecorded
-// rather than being reported as a success nobody observed.
+// outcomeFromColumn reports historical SQL NULL as unrecorded, not success.
 func outcomeFromColumn(stored *string) Outcome {
 	if stored == nil {
 		return OutcomeUnrecorded

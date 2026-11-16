@@ -14,38 +14,34 @@ import (
 	"goodkind.io/tack/internal/domain/token"
 )
 
-// CachedTokenValidator remembers accepted tokens for a short lifetime, so a
-// request whose token was accepted moments ago costs no ledger read
-// (TACK-504). Keys are the token's SHA-256, never the bearer. A stored record
-// past its own expiry is refused whatever the cache lifetime says. A refusal
-// is never cached, so a token created after a refusal is accepted at once.
-// Revocation runs in another process, so it takes effect on every instance
-// within one lifetime.
+// CachedTokenValidator caches accepted tokens for a limited lifetime to
+// avoid repeated ledger reads (TACK-504). Keys contain SHA-256 hashes rather
+// than bearers. Validation rejects expired records even during the cache
+// lifetime. The cache does not store refusals. Each instance applies remote
+// revocations within one cache lifetime.
 type CachedTokenValidator struct {
 	inner    TokenValidator
 	cache    *entryCache[*token.Token]
 	lifetime time.Duration
-	// members, when set and inner can answer the token and its org set in
-	// one read, receives the org set, so the membership lookup that follows
-	// in the same request is a cache hit (criterion 12: one ledger read on
-	// a cold request).
+	// members caches the org set when inner supports ValidateWithOrgs.
+	// The following membership lookup can use this set without another
+	// ledger read (criterion 12).
 	members *CachedMembers `exhaustruct:"optional"`
 }
 
-// TokenOrgsValidator answers a token and the org set of its holder in one
-// ledger read.
+// TokenOrgsValidator reads a token and its user's org memberships in one
+// ledger query.
 type TokenOrgsValidator interface {
 	ValidateWithOrgs(ctx context.Context, raw string) (*token.Token, []uuid.UUID, error)
 }
 
-// PrimeMembers makes every miss that inner can answer with the holder's org
-// set store that set in members.
+// PrimeMembers enables membership caching when inner supports ValidateWithOrgs.
 func (c *CachedTokenValidator) PrimeMembers(members *CachedMembers) {
 	c.members = members
 }
 
-// NewCachedTokenValidator wraps inner. A lifetime of zero or less returns a
-// wrapper that caches nothing.
+// NewCachedTokenValidator wraps inner. A lifetime of zero or less disables
+// caching.
 func NewCachedTokenValidator(
 	inner TokenValidator,
 	lifetime time.Duration,
@@ -62,7 +58,7 @@ func NewCachedTokenValidator(
 	}
 }
 
-// Validate answers from the cache when it can, and asks inner otherwise.
+// Validate returns a cached record when valid and queries inner otherwise.
 func (c *CachedTokenValidator) Validate(ctx context.Context, raw string) (*token.Token, error) {
 	now := clock.Now()
 	key := tokenCacheKey(raw)
@@ -92,8 +88,8 @@ func (c *CachedTokenValidator) Validate(ctx context.Context, raw string) (*token
 	return record, nil
 }
 
-// lookup asks inner for the token, in the same read as the holder's org set
-// when both inner and members allow it.
+// lookup queries inner for the token. It also reads the user's org set
+// when inner supports ValidateWithOrgs and members enables membership caching.
 func (c *CachedTokenValidator) lookup(
 	ctx context.Context,
 	raw string,
@@ -129,8 +125,8 @@ func (c *CachedTokenValidator) lookup(
 	return record, nil
 }
 
-// tokenCacheKey is the full SHA-256 of the bearer, the same identity the
-// token table stores, so the cache never holds a bearer.
+// tokenCacheKey hashes the bearer with SHA-256. The cache and token table
+// identify tokens by this hash rather than storing the bearer.
 func tokenCacheKey(raw string) string {
 	sum := sha256.Sum256([]byte(raw))
 	return hex.EncodeToString(sum[:])

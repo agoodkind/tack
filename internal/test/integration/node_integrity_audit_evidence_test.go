@@ -87,13 +87,13 @@ func TestNodeIntegrityAuditKeepsMutationTime(t *testing.T) {
 	}
 }
 
-// TestNodeIntegrityAuditRefusedUpdateRecordsNoChange creates an issue through
+// TestNodeIntegrityAuditExcludesChangeEvidenceForRefusedUpdate creates an issue through
 // MCP. Schema validation then refuses a tack_update_issue request with an
 // undeclared priority option. The FoundationDB outbox must not contain a
 // change event for the issue after the refused request. After the relay and
 // consumer deliver the create event and report zero lag, the ledger must not
 // contain a change row that updates the issue.
-func TestNodeIntegrityAuditRefusedUpdateRecordsNoChange(t *testing.T) {
+func TestNodeIntegrityAuditExcludesChangeEvidenceForRefusedUpdate(t *testing.T) {
 	harness := integration.NewAuditedMCPHarness(t)
 	stores, err := fdbadapter.NewStores(testenv.FoundationDB(t), nodeAuditTransactionTimeout, nil)
 	if err != nil {

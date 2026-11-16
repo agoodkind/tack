@@ -1,5 +1,4 @@
-// export_stream_order_test.go covers row ordering and the chain verdict: the
-// order the ledger hands rows over in does not change what the verifier says.
+// export_stream_order_test.go checks equal chain verdicts across ledger row orders.
 
 package audit
 
@@ -14,21 +13,15 @@ import (
 	"github.com/google/uuid"
 )
 
-// TestExportRowOrderDoesNotChangeTheChainVerdict answers what streaming costs
-// the chain check: nothing. A whole-range export carries no ORDER BY, so the
-// database is free to return an org's rows in any order, including with a
-// shard's rows split apart and its sequences descending. The verifier sorts
-// what it scans into per-shard sequence order before it walks the chain, so the
-// same rows in a different file order produce the same verdict: every row
-// re-hashed, every link checked, no gap invented by the ordering.
+// TestExportRowOrderDoesNotChangeTheChainVerdict compares ordered rows with
+// interleaved, reversed, and rotated shard sequences. Whole-range exports do
+// not request ORDER BY; the verifier must sort per-shard links before checking.
 func TestExportRowOrderDoesNotChangeTheChainVerdict(t *testing.T) {
 	const shards, perShard = 6, 100
 	orgID := uuid.Must(uuid.NewV7())
 	chained := chainedLedgerRows(t, orgID, shards, perShard)
 	scrambledRows := scrambleRowOrder(chained)
-	// The order is the fixture this test rests on, so it is checked before it is
-	// exported. A scramble that quietly left the shards in blocks would make
-	// every assertion below pass for the wrong reason.
+	// Verify fixture ordering before exporting to exclude an ineffective scramble.
 	assertShardsInterleaved(t, scrambledRows)
 
 	inFileOrder := exportedVerifyReport(t, orgID, chained)
@@ -103,15 +96,9 @@ func chainedLedgerRows(t *testing.T, orgID uuid.UUID, shards, perShard int) []Ro
 	return rows
 }
 
-// scrambleRowOrder returns the same rows in an order no chain walk could use
-// directly: the shards are interleaved, so no two consecutive rows come from
-// the same one, and each shard's own sequence arrives rotated and reversed.
-// This is the worst order a database with no ORDER BY could hand back.
-//
-// Reversing the whole slice instead leaves every shard in one contiguous block,
-// because the rows are built shard-major. A bundle in that order is the shape
-// the export already writes, so the verdict it earns says nothing about the
-// interleaving this test names.
+// scrambleRowOrder interleaves shards and reverses and rotates each shard's
+// sequences. Reversing the whole shard-major slice alone would leave shard
+// blocks intact and would not exercise interleaving.
 func scrambleRowOrder(rows []Row) []Row {
 	pending := map[int16][]Row{}
 	shardOrder := make([]int16, 0)
@@ -125,8 +112,7 @@ func scrambleRowOrder(rows []Row) []Row {
 	}
 
 	for _, shard := range shardOrder {
-		// A different rotation per shard so the shards are not phase-aligned
-		// either: their sequences wrap at different points in the file.
+		// Use distinct rotation offsets to vary sequence wrap positions.
 		pending[shard] = rotatedReverse(pending[shard], int(shard)+1)
 	}
 
@@ -146,10 +132,8 @@ func scrambleRowOrder(rows []Row) []Row {
 	return scrambled
 }
 
-// rotatedReverse returns one shard's rows backwards and rotated by offset, so
-// the sequence does not merely descend: it runs backwards, wraps once, and runs
-// backwards again. A plain reversal is still monotonic, and monotonic is an
-// order a chain walk can special-case its way through.
+// rotatedReverse reverses a shard's sequence and rotates it by offset to test
+// an order that does not simply ascend or descend.
 func rotatedReverse(rows []Row, offset int) []Row {
 	if len(rows) == 0 {
 		return rows
@@ -168,18 +152,15 @@ func rotatedReverse(rows []Row, offset int) []Row {
 	return rotated
 }
 
-// assertShardsInterleaved fails when the scrambled order still hands a shard's
-// rows over in one block, or hands any shard over in sequence order. The order
-// is the whole subject of the test that calls this: an order that keeps each
-// shard contiguous and ascending is the order the export itself writes, and a
-// verdict earned on that order says nothing about a database that interleaves.
+// assertShardsInterleaved rejects consecutive rows from one shard and any
+// shard with sorted sequences before testing the production verifier.
 func assertShardsInterleaved(t *testing.T, rows []Row) {
 	t.Helper()
 
 	for i := 1; i < len(rows); i++ {
 		if rows[i].Shard == rows[i-1].Shard {
 			t.Fatalf(
-				"rows %d and %d both come from shard %d, so the shards are not interleaved",
+				"rows %d and %d both use shard %d instead of interleaving",
 				i-1,
 				i,
 				rows[i].Shard,
@@ -195,17 +176,13 @@ func assertShardsInterleaved(t *testing.T, rows []Row) {
 
 	for shard, sequences := range seqByShard {
 		if slices.IsSorted(sequences) {
-			t.Fatalf(
-				"shard %d arrives in sequence order, so the file order is one a chain walk could use directly",
-				shard,
-			)
+			t.Fatalf("shard %d retains sorted sequences instead of scrambled order", shard)
 		}
 	}
 }
 
-// exportedVerifyReport exports the rows in the order given and returns the
-// verifier's report on the bundle, so the assertion is on what the production
-// verifier says about a real bundle rather than on the fixture.
+// exportedVerifyReport exports the supplied order and returns the production
+// verifier's report for the resulting bundle.
 func exportedVerifyReport(t *testing.T, orgID uuid.UUID, rows []Row) *VerifyReport {
 	t.Helper()
 	dir := t.TempDir()

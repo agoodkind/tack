@@ -145,12 +145,9 @@ func upsertAuditLoginRole(ctx context.Context, pool *pgxpool.Pool, role auditLog
 		return fmt.Errorf("audit seed-roles: upsert %s: %w", role.login, err)
 	}
 
-	// Seeding decides what a login role may do, so it must also decide what
-	// it may no longer do. Membership granted by an earlier seed, or by hand,
-	// otherwise survives and combines with INHERIT: an operator role that once
-	// held audit_writer would keep the delete right that lets it erase its own
-	// pending audit event. Revoking the others first makes each seed
-	// authoritative rather than additive.
+	// Revoke obsolete memberships before granting the intended role.
+	// INHERIT would otherwise retain privileges from earlier or manual grants.
+	// An operator retaining audit_writer could delete its own pending event.
 	if err := revokeOtherAuditBases(ctx, pool, role); err != nil {
 		return err
 	}
@@ -171,11 +168,9 @@ func upsertAuditLoginRole(ctx context.Context, pool *pgxpool.Pool, role auditLog
 	return nil
 }
 
-// auditBaseRoles is every base role a seeded login can hold: the audit
-// surface's four and the application's app_auth (TACK-180). A login role gets
-// exactly one of them, and this list is what the others are revoked from, so
-// the application login can never hold a ledger role and no ledger login can
-// reach the auth tables.
+// auditBaseRoles lists the audit and application base roles (TACK-180).
+// Seeding grants each login exactly one role and revokes the others to prevent
+// application access to the ledger and ledger-role access to auth tables.
 var auditBaseRoles = []string{
 	"audit_writer",
 	"audit_reader",

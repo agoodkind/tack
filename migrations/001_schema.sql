@@ -24,9 +24,9 @@ CREATE TABLE api_tokens (
 );
 
 -- ── Org membership ────────────────────────────────────────────────────────────
--- Auth gate queried on every request.
--- org_id is a soft UUID reference — orgs live in FDB, no FK constraint.
--- All sub-org membership (workspace, project, team) lives in FDB.
+-- Authorization checks org membership on every request.
+-- org_id references an org UUID in FDB without a foreign key constraint.
+-- FDB stores workspace, project, and team membership.
 
 CREATE TABLE org_members (
     id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),

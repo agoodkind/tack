@@ -17,7 +17,7 @@ import (
 type LegacyRow struct {
 	// EventID identifies the appended row.
 	EventID uuid.UUID
-	// Shard names the per-(org, shard) chain the row extends.
+	// Shard identifies the per-(org, shard) chain.
 	Shard int16
 	// Seq is the row's position on that chain.
 	Seq int64
@@ -25,47 +25,34 @@ type LegacyRow struct {
 	EventTime time.Time
 }
 
-// LegacyRowInput names the org and actor the appended row belongs to.
+// LegacyRowInput selects the org, actor, and historical event fields.
 type LegacyRowInput struct {
-	// OrgID is the org whose chain the row extends and whose readers see it.
+	// OrgID selects the chain's org and its authorized readers.
 	OrgID uuid.UUID
-	// ActorID is the user the row attributes the action to.
+	// ActorID identifies the user responsible for the recorded action.
 	ActorID uuid.UUID
-	// EntityID is the node the recorded action touched.
+	// EntityID identifies the action's node target.
 	EntityID uuid.UUID
-	// EventID identifies the row. The zero value asks for a fresh id; a caller
-	// that needs the row on a particular (org, shard) chain picks one whose
-	// shard matches, because the shard derives from the actor and event ids.
+	// EventID uses a fresh UUID when zero. Callers requiring a particular
+	// shard must select an ID that hashes to that shard with ActorID.
 	EventID uuid.UUID
-	// Action is the verb the row records. Empty writes mcp.tool_invoked, the
-	// shape production holds in quantity.
+	// Action selects the verb, defaulting to mcp.tool_invoked when empty.
 	Action string
-	// Tool names the MCP tool the row attributes the action to. Setting it also
-	// writes the entity kind the pre-fix build used for a tool invocation,
-	// mcp_tool, which is why those rows cannot name the node they touched.
+	// Tool identifies the invoked MCP tool. A nonempty value uses the historical
+	// mcp_tool entity kind, which did not identify the affected product node.
 	Tool string
 }
 
-// legacyEntityKind is the entity kind the pre-fix build stamped on a tool
-// invocation. A row carrying it names no node, which is exactly the production
-// shape TACK-455 has to reconstruct against.
+// legacyEntityKind reproduces tool-invocation rows without a node identity
+// for reference-key reconstruction testing (TACK-455).
 const legacyEntityKind = "mcp_tool"
 
-// WriteLegacyRow appends one ledger row in the shape the writer produced
-// before the ledger stored outcomes: hash version 1, whose payload does not
-// cover an outcome, and SQL NULL in the outcome, error, and extra columns.
-//
-// Every environment created after migration 006 has no such row, because its
-// writer has always stored an outcome. Only production carries them, and the
-// contract that both read tiers report a missing outcome as unrecorded cannot
-// be proven against a ledger that holds none. This writes one so a testbed can
-// carry the shape and the contract can be proven there (TACK-435).
-//
-// The row joins the real chain: it reads the head, hashes on top of it, and
-// advances it, so chain verification covers it like any other row. The caller
-// gates this on the data-generator target marker, and its command records
-// through the audit choke-point, so fabricating the row is itself on the
-// record.
+// WriteLegacyRow appends historical hash version 1 with SQL NULL outcome,
+// error, and extra columns. Version 1 does not hash an outcome. This reproduces
+// pre-migration-006 rows for testing OutcomeUnrecorded on newer environments
+// (TACK-435). It extends the real chain with the shared head protocol.
+// The caller must enforce the data-generator target marker and record the
+// generating command through the shared operator audit gate.
 func WriteLegacyRow(ctx context.Context, pool *pgxpool.Pool, in LegacyRowInput) (LegacyRow, error) {
 	if in.OrgID == uuid.Nil {
 		return LegacyRow{}, fmt.Errorf("write legacy ledger row: org id required")
@@ -109,9 +96,8 @@ func WriteLegacyRow(ctx context.Context, pool *pgxpool.Pool, in LegacyRowInput) 
 	return row, nil
 }
 
-// appendLegacyChainRow writes the row inside tx and returns its sequence. It
-// shares the head protocol with appendChainRow, so a change to how the chain
-// advances reaches both writers at once.
+// appendLegacyChainRow writes the row inside tx and returns its sequence using
+// the same head-read and compare-and-swap protocol as appendChainRow.
 func appendLegacyChainRow(
 	ctx context.Context,
 	tx pgx.Tx,
@@ -156,9 +142,8 @@ func appendLegacyChainRow(
 		return 0, fmt.Errorf("write legacy ledger row: hash: %w", err)
 	}
 
-	// The outcome, error, and extra columns bind SQL NULL, which is what the
-	// pre-006 writer left behind: those columns did not exist when it ran. A
-	// nil byte slice and a nil string pointer bind as NULL.
+	// Bind SQL NULL for columns absent from the pre-006 schema, using nil
+	// byte slices and a nil string pointer rather than JSON null values.
 	var absentOutcome *string
 	var absentJSON []byte
 	_, err = tx.Exec(
@@ -207,9 +192,8 @@ func appendLegacyChainRow(
 	return seq, nil
 }
 
-// legacyEvent builds the event the legacy row records. It carries the shape a
-// tool invocation had before the outcome column existed, which is what
-// production holds in quantity.
+// legacyEvent constructs a historical tool-invocation event without outcome
+// fields.
 func legacyEvent(in LegacyRowInput, row LegacyRow) Event {
 	verb := string(VerbMCPToolInvoked)
 	if in.Action != "" {

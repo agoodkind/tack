@@ -13,7 +13,7 @@ import (
 
 type mcpRequestMetadataKey struct{}
 
-// MCPRequestMetadata carries transport-level identity that mcp-go does not
+// MCPRequestMetadata stores transport-level identity that mcp-go does not
 // expose on CallToolRequest.
 type MCPRequestMetadata struct {
 	RequestID string

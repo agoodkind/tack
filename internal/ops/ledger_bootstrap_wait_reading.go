@@ -18,6 +18,13 @@ import (
 	"goodkind.io/tack/internal/config"
 )
 
+var (
+	errUniverseConfigObjectMissing = errors.New("get_universe_config did not print a JSON object")
+	errUniverseReplicaCountMissing = errors.New(
+		"get_universe_config does not include replicationInfo.liveReplicas.numReplicas",
+	)
+)
+
 // ledgerAliveWord matches the status yb-admin prints for a live master or
 // tablet server as a whole word.
 var ledgerAliveWord = regexp.MustCompile(`\bALIVE\b`)
@@ -131,7 +138,7 @@ type ybUniverseConfig struct {
 func unmarshalUniverseNumReplicas(ctx context.Context, output string) (int, error) {
 	start, end := strings.Index(output, "{"), strings.LastIndex(output, "}")
 	if start < 0 || end < start {
-		return 0, errors.New("get_universe_config printed no JSON object")
+		return 0, errUniverseConfigObjectMissing
 	}
 
 	var universe ybUniverseConfig
@@ -148,7 +155,7 @@ func unmarshalUniverseNumReplicas(ctx context.Context, output string) (int, erro
 
 	if universe.ReplicationInfo == nil || universe.ReplicationInfo.LiveReplicas == nil ||
 		universe.ReplicationInfo.LiveReplicas.NumReplicas == nil {
-		return 0, errors.New("get_universe_config has no replicationInfo.liveReplicas.numReplicas")
+		return 0, errUniverseReplicaCountMissing
 	}
 
 	return *universe.ReplicationInfo.LiveReplicas.NumReplicas, nil

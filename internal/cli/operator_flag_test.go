@@ -83,7 +83,7 @@ func TestFlagOperatorSourceRejectsUnattributableIdentity(t *testing.T) {
 			want:       "identifies nobody",
 		},
 		{
-			name:       "no email",
+			name:       "rejects_missing_email",
 			operatorID: "019dd222-440e-729a-a442-281aaf73ca30",
 			email:      "",
 			want:       "operator-email is required",

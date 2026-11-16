@@ -13,20 +13,18 @@ import (
 
 // chainHeadState is the state of one (org, shard) hash chain before an append.
 type chainHeadState struct {
-	// LastSeq is the sequence of the newest row on the chain, zero when the
-	// chain has no rows yet.
+	// LastSeq is the newest sequence on the chain, or zero before the first row.
 	LastSeq int64
-	// LastHash is that row's hash, which the next row hashes on top of. It is
-	// an empty slice for the first row of a chain.
+	// LastHash is the previous row's hash, which the next row includes in its
+	// hash. It is an empty slice before the first row.
 	LastHash []byte
-	// Exists reports whether audit.chain_heads already holds this chain, which
-	// decides whether advancing it is an update or an insert.
+	// Exists reports whether audit.chain_heads already records this chain.
+	// An existing chain requires an update rather than an insert.
 	Exists bool
 }
 
-// readChainHead reads the head of one (org, shard) chain inside tx. Every
-// writer reaches the chain through this and writeChainHead, so a change to the
-// chain protocol reaches all of them together.
+// readChainHead reads the head of one (org, shard) chain inside tx.
+// All writers use this function and writeChainHead for chain updates.
 func readChainHead(
 	ctx context.Context,
 	tx pgx.Tx,

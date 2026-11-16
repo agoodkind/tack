@@ -9,10 +9,11 @@ import (
 	"github.com/google/uuid"
 )
 
-// ActProvenance names the operator behind a write recorded as a product user.
-// It rides on the user's own ledger row, under the row hash, so the row keeps
-// the user as its actor and still says which operator made the change, under
-// which grant, and why (TACK-424). OperatorID and OperatorEmail identify the
+// ActProvenance identifies the operator behind a write recorded as a product
+// user.
+// The user's ledger row includes this provenance in its hash and records the
+// user as its actor. The provenance records the operator, grant, and reason
+// for the change (TACK-424). OperatorID and OperatorEmail identify the
 // accountable person. When an agent made the change for that person, the
 // Agent fields identify the agent service and its session.
 type ActProvenance struct {
@@ -27,8 +28,8 @@ type ActProvenance struct {
 
 type provenanceKey struct{}
 
-// WithActProvenance attaches the operator behind an act-as write to ctx, so
-// every state change staged under ctx carries it.
+// WithActProvenance stores the operator provenance in ctx for staged state
+// changes.
 func WithActProvenance(ctx context.Context, provenance ActProvenance) context.Context {
 	return context.WithValue(ctx, provenanceKey{}, provenance)
 }
@@ -44,8 +45,8 @@ type actAsExtra struct {
 	ActAs ActProvenance `json:"act_as"`
 }
 
-// stagedExtra returns the Extra payload a staged event carries: the act-as
-// provenance when ctx has one, nothing otherwise.
+// stagedExtra returns the act-as provenance from ctx as an Extra payload.
+// It returns nil when ctx does not include provenance.
 func stagedExtra(ctx context.Context) (json.RawMessage, error) {
 	provenance, ok := ActProvenanceFromContext(ctx)
 	if !ok {
@@ -61,8 +62,8 @@ func stagedExtra(ctx context.Context) (json.RawMessage, error) {
 	return encoded, nil
 }
 
-// stagedSource is the source a staged event records: the operator surface
-// when an operator acts as the user, the MCP surface otherwise.
+// stagedSource returns SourceOperator when an operator acts as the user.
+// Otherwise, it returns SourceMCP.
 func stagedSource(ctx context.Context) Source {
 	if _, ok := ActProvenanceFromContext(ctx); ok {
 		return SourceOperator

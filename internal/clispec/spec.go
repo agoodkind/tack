@@ -1,10 +1,4 @@
-// Package clispec declares each operator command once as one typed value and
-// renders it onto a spf13/cobra command. The declaration carries the name,
-// help text, positional arguments, flags, and one work function; the cobra
-// adapter decodes a request into the typed input and calls that function. A
-// new command is one Operation value with no separate dispatch switch, flag
-// parser, or usage string. The package is terminal-only: it renders no MCP
-// tool and never touches the consumer MCP surface.
+// Package clispec defines typed operator commands and renders them with Cobra.
 package clispec
 
 import (
@@ -17,20 +11,18 @@ import (
 	"goodkind.io/tack/internal/cli"
 )
 
-// Input constrains per-operation input structs. Embedding InputMarker
-// satisfies it, so an input struct names its fields and nothing else.
+// Input limits command registration to types that embed InputMarker.
 type Input interface {
 	isClispecInput()
 }
 
-// InputMarker embeds into an input struct to satisfy Input.
+// InputMarker satisfies Input when a command input embeds it.
 type InputMarker struct{}
 
 func (InputMarker) isClispecInput() {}
 
-// Name carries the canonical command identity and derives the terminal verb.
-// CLIOverride lets a command read as a short verb under a parent, for example
-// "read" under "inspect" rather than the dash-spelled canonical.
+// Name selects the terminal verb from CLIOverride when nonempty.
+// Otherwise, the renderer replaces underscores in Canonical with hyphens.
 type Name struct {
 	Canonical   string
 	CLIOverride string `exhaustruct:"optional"`
@@ -45,9 +37,8 @@ func (n Name) CLI() string {
 	return strings.ReplaceAll(n.Canonical, "_", "-")
 }
 
-// Group is a parent command that one or more operations attach under.
-// Operations sharing one *Group value render as subcommands of one parent.
-// Parent nests a group under another, so a chain renders as nested parents.
+// Group defines a parent command for operations that share its pointer.
+// Parent defines the next ancestor in a chain of nested commands.
 type Group struct {
 	Use    string
 	Short  string
@@ -55,55 +46,50 @@ type Group struct {
 	Parent *Group `exhaustruct:"optional"`
 }
 
-// Operation is one declared command. I is the input struct both the flags and
-// the work function share. New returns a zeroed input with defaults applied.
-// Run is the single work function; it writes results through the sink and
-// never sees cobra types. Aliases register alternate terminal spellings.
-type Operation[I Input] struct {
+// Operation defines a command with typed input. Args and Params assign values
+// to OperationInput before Run receives it. New supplies input defaults.
+// Run writes results through the sink and does not depend on Cobra types.
+// Aliases register alternate terminal spellings.
+type Operation[OperationInput Input] struct {
 	Name Name
-	// Lifetime is Permanent for a product command, or names the ticket and
-	// removal day of a backfill. A backfill renders under a backfill group
-	// with the once- prefix, and the build fails after its removal day.
+	// Lifetime specifies Permanent for a product command or records a ticket
+	// and removal date for a backfill. Backfill commands use the once- prefix
+	// under a backfill group. The build fails after the removal date.
 	Lifetime Lifetime
 	Group    *Group     `exhaustruct:"optional"`
 	Audit    audit.Spec `exhaustruct:"optional"`
 	Aliases  []string   `exhaustruct:"optional"`
 	Hidden   bool       `exhaustruct:"optional"`
 	Short    string
-	Long     string     `exhaustruct:"optional"`
-	Examples []string   `exhaustruct:"optional"`
-	Args     []Arg[I]   `exhaustruct:"optional"`
-	Params   []Param[I] `exhaustruct:"optional"`
-	New      func() I
-	// DryRun reports planned work after the audit choke-point validates the
-	// operator identity. It must not write state. The choke-point records each
-	// dry run as an operator read and prints the dry-run output only after it
-	// saves the read event.
-	DryRun func(ctx context.Context, in I, sink ResultSink) error `exhaustruct:"optional"`
-	Run    func(ctx context.Context, in I, sink ResultSink) error
+	Long     string                  `exhaustruct:"optional"`
+	Examples []string                `exhaustruct:"optional"`
+	Args     []Arg[OperationInput]   `exhaustruct:"optional"`
+	Params   []Param[OperationInput] `exhaustruct:"optional"`
+	New      func() OperationInput
+	// DryRun reports planned work after the shared audit check validates the
+	// operator identity. It must not write state. The check records each dry
+	// run as an operator read before printing the preview.
+	DryRun func(ctx context.Context, in OperationInput, sink ResultSink) error `exhaustruct:"optional"`
+	Run    func(ctx context.Context, in OperationInput, sink ResultSink) error
 }
 
-// renderable is the type-erased view of an Operation. The type parameter stays
-// captured in the methods and never escapes as any.
+// renderable provides non-generic methods for rendering an Operation.
 type renderable interface {
 	renderParent(backfills backfillGroups) *Group
 	auditSpec() audit.Spec
 	cobraCommand(f *cli.Factory) *cobra.Command
 }
 
-func (op Operation[I]) auditSpec() audit.Spec { return op.Audit }
+func (op Operation[OperationInput]) auditSpec() audit.Spec { return op.Audit }
 
-// Registry is the ordered list of every command. It holds full operations and
-// hand-written terminal commands that carry their own wiring (such as the
-// server start command, which needs no typed input model).
+// Registry stores operations and handwritten terminal command constructors.
 type Registry struct {
 	ops         []renderable
 	handwritten []HandwrittenCommand
 }
 
-// HandwrittenCommand wraps a constructor so a bespoke command lives in the
-// same registry as the spec operations. Group attaches it under a parent; a
-// nil Group renders it at the top level.
+// HandwrittenCommand registers a command constructor without a typed input.
+// Group specifies its parent. A nil Group registers a top-level command.
 type HandwrittenCommand struct {
 	Group *Group
 	Build func(f *cli.Factory) *cobra.Command
@@ -114,13 +100,12 @@ func NewRegistry() *Registry {
 	return &Registry{ops: nil, handwritten: nil}
 }
 
-// Register adds one operation. It is a free function because a Go method
-// cannot introduce its own type parameter.
-func Register[I Input](r *Registry, op Operation[I]) {
+// Register adds one operation.
+func Register[OperationInput Input](r *Registry, op Operation[OperationInput]) {
 	r.ops = append(r.ops, op)
 }
 
-// AddHandwritten adds one bespoke command.
+// AddHandwritten adds one handwritten command constructor.
 func (r *Registry) AddHandwritten(h HandwrittenCommand) {
 	r.handwritten = append(r.handwritten, h)
 }

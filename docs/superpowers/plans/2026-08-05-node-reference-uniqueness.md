@@ -1,97 +1,86 @@
-# Node Reference Uniqueness Implementation Plan
+# Implement node reference uniqueness
 
-> **For agentic workers:** the unit of work is a slice, listed under "How this plan is executed". Each slice is one Tack ticket and one pull request. The numbered tasks below are reference material grouped by concern, and a slice draws from several of them. Read the ticket first; it is authoritative for scope. Do not execute the tasks in order as written.
+Read each ticket before implementation. A delivery unit combines one ticket,
+one delegated implementation, and one pull request in a Graphite stack. The
+numbered tasks provide reference material by responsibility rather than an
+execution order. Ticket scope overrides task commit instructions and requires
+production callers with their implementations. Delegated implementers leave
+changes uncommitted; the host stages and creates the Graphite branch.
 
-**Goal:** Guarantee that a human-readable node reference such as `FAN-13` resolves to exactly one node, enforced by the storage layer at write time, with the uniqueness domain declared as data on the NodeType.
+Enforce unique human-readable references such as `FAN-13` in FoundationDB write
+transactions. NodeType stores ordered reference templates. One declaration
+renders and parses references and derives uniqueness and sequence-counter keys.
+A forward index maps each rendered value to its node; a reverse index records
+that node's keys. Generated counters omit only the template's generated part
+and use the same uniqueness domain.
 
-**Architecture:** A NodeType carries a list of reference key templates. A template is an ordered list of parts that renders one string. That single declaration renders the reference, parses it, forms the uniqueness key, and forms the counter key. Two FoundationDB key families hold the constraint: a forward family mapping a rendered key to a node identifier, and a reverse family mapping a node identifier to the keys it holds. Every write path checks the forward key inside its existing transaction. A value generator derives its counter key from the template minus the part it fills, so the counter domain and the uniqueness domain cannot diverge.
+Follow the [reference uniqueness design](../specs/2026-08-05-node-reference-uniqueness-design.md).
+Use Go, the FoundationDB tuple layer, UUIDv7 from `github.com/google/uuid`, the
+internal/ops registry, `make build`, and `make test-integration`.
 
-**Tech Stack:** Go, FoundationDB tuple layer, `github.com/google/uuid` (UUIDv7), the `internal/ops` maintenance registry, `make build` and `make test-integration`.
+## Constraints and delivery order
 
-**Design of record:** `docs/superpowers/specs/2026-08-05-node-reference-uniqueness-design.md`.
+Require all nine build checks to print `ok`: vet, lint-golangci, lint-format,
+lint-gocyclo, lint-deadcode, staticcheck-extra, govulncheck, cgo-stub, and
+platform-stub. Do not invoke go build or treat a partial summary as success.
+Deadcode analyzes calls from main rather than tests; every delivery unit must
+include a production caller for each new function.
 
-## Global Constraints
+`staticcheck/wrapped_error.go` rejects functions returning fmt.Errorf with %w
+or %v unless that function also invokes slog.Error or slog.Warn. Build the
+wrapped error, log a noun.verb message, and return it. The codec exemption
+requires both a matching name and standard-library-shaped signature, such as
+Marshal* with `() ([]byte, error)`. Do not rename functions to avoid it.
 
-- Build with `make build`. Never call `go build` directly. It runs nine checks: `vet`, `lint-golangci`, `lint-format`, `lint-gocyclo`, `lint-deadcode`, `staticcheck-extra`, `govulncheck`, `cgo-stub`, and `platform-stub`. Every one must print `ok`. A summary showing only a subset is not a passing gate.
-- **`lint-deadcode` decides how work is sliced.** It runs `golang.org/x/tools/cmd/deadcode`, which measures reachability from `main`. Tests are not entry points. A slice that adds a function with no production caller fails the build. Every slice therefore carries its own caller chain down to something `main` reaches. This is why the work is twelve vertical slices rather than one ticket per function.
-- **`staticcheck-extra` constrains how errors are returned.** `staticcheck/wrapped_error.go` rejects any function returning `fmt.Errorf` whose format contains `%w` or `%v`, unless that same function body also calls `slog.Error` or `slog.Warn`. Build the wrapped error into a variable, log it with a `noun.verb` message, then return the variable.
-- The rule's codec exemption does not apply here. `isPureCodecOrIOFunc` requires the name **and** the signature to match a stdlib shape, such as `Marshal*` with `() ([]byte, error)`. Its doc comment states both checks exist so a function cannot be renamed past the rule. Do not attempt a rename.
-- Everything is a node. Behavior follows NodeType metadata, never hardcoded type names. No task may introduce a branch on a concrete type key such as `issue` or `epic`.
-- The engine holds no reference shape. No task may add a built-in template, an implicit part, a fallback when a NodeType declares no template, or a hardcoded property name such as `sequence` outside seed data. A NodeType with no template carries no constraint and renders no reference; that is legal. Every concrete reference in this plan is one deployment's data used as a test fixture.
-- The storage layer does not read PropertyDefs or NodeTypes. The service resolves metadata and passes the result down, exactly as it already does for `indexedProps` (`internal/domain/node/repository.go` lines 84 to 86).
-- No file exceeds 200 lines. Split by concern when it does.
-- Every write goes through `EntityRepository.CreateAtomic`, `Set`, or `UpdateAtomic`, each in one FoundationDB transaction. No multi-step creates, no cross-database transactions.
-- Use `log/slog` with named attributes. Message names use `noun.verb`. `Info` for normal flow, `Debug` for trace detail, `Error` for actual failures.
-- Every error carries context and the relevant identifier. Wrapping with `%w` is preferred and requires the accompanying `slog` call described above.
-- Use the full domain term, not abbreviations. Write `workspaceID`, not `wsID`.
-- Every package has a `// Package X` doc comment. Every exported type and non-obvious field has a doc comment.
-- No backwards-compatibility shims, unused exports, or re-exports.
-- Do not add docstrings or comments to code you did not change.
-- Integration tests build-tag `integration` and skip when their DSN environment variable is unset, matching `internal/audit/chain_append_integration_test.go`.
-- Maintenance operations register through `ops.Register` in `internal/ops`. Operation names are lowercase and dot-separated.
-- Validate every migration, seed, backfill, and restore on QA before production. QA is disposable.
-- An implementing subagent does not commit. It leaves the work in the tree and reports. The host agent stages the slice and creates the branch through Graphite, so the stack metadata stays intact. Any "Commit" step inside a task section below is host-agent material; an implementing subagent skips it.
-- Task sections below invoke `go test` directly. That direct invocation stands in while the `make test-unit` container runner is broken on trunk (it passes `/usr/local/go/bin/go` as a package path). `make test-integration` remains the containerized gate every slice must pass; run direct `go test` only for the fast unit loop.
+- Interpret NodeType metadata rather than concrete issue/epic type keys.
+- Do not add engine reference shapes, implicit parts, fallback templates, or
+  concrete property identifiers such as sequence outside seed data. A type
+  without templates must remain unconstrained and must not render a reference.
+  Concrete examples below are deployment fixtures rather than engine defaults.
+- Resolve metadata in the service, not storage, matching indexedProps in
+  domain/node/repository.go:84-86.
+- Keep files at most 200 lines. Use one FDB transaction through
+  EntityRepository.CreateAtomic, Set, or UpdateAtomic for writes. Do not add
+  multistep creates or cross-database transactions.
+- Use slog attributes and noun.verb messages, with Info for ordinary work,
+  Debug for detail, and Error for failure. Include context and identifiers
+  in every error, with logging for wrapped errors.
+- Use full domain terms, package comments, and comments for exported types
+  and non-obvious fields. Do not add compatibility shims, unused exports,
+  re-exports, or comments on unrelated code.
+- Integration tests use the integration build tag and skip without their DSN,
+  matching internal/audit/chain_append_integration_test.go.
+- Register lowercase dot-separated maintenance operations with ops.Register.
+- Validate migrations, seeds, backfills, and restores on disposable QA before
+  production.
+- The direct go test commands below support quick unit checks while the trunk
+  make test-unit runner incorrectly treats /usr/local/go/bin/go as a package.
+  Every delivery unit must still pass containerized make test-integration.
 
-## How this plan is executed
+Use this ticket order:
 
-The unit of work is a **slice**, not a task. Each slice is one Tack ticket, one subagent invocation, and one pull request in a Graphite stack.
+| Delivery unit | Ticket | Reference tasks |
+|---|---|---|
+| Templates, uniqueness index, create enforcement | TACK-366 | 1, 2, 3, 4 |
+| Derived counter keys | TACK-367 | 1 CounterKey, Task 2 counter methods; Task 4 allocateCreateSequence |
+| Update/delete key replacement | TACK-374 | 3 |
+| Point reads and parsing | TACK-380 | 1 Parse, 5 |
+| Duplicate detection | TACK-382 | 6 |
+| Repair operation | TACK-385 | 7 |
+| Seed templates | TACK-386 | 8 |
+| End-to-end regressions | TACK-387 | 9 |
+| QA validation | TACK-389 | 10 steps 1-4 |
+| Production read-only audit | TACK-390 | 10 steps 5-6 |
+| Production repair | TACK-391 | 10 steps 7-8 |
+| Remove scan fallback | TACK-392 | 11 |
 
-The numbered tasks below are **reference material grouped by concern**, not an execution order. They hold the code, the test bodies, and the reasoning. A slice draws from several of them.
+## Task 1: Define reference templates
 
-| Slice | Ticket | Draws from tasks |
-| --- | --- | --- |
-| 1. Templates, uniqueness index, create enforcement | TACK-366 | 1, 2, 3, 4 |
-| 2. Counter key derived from the template | TACK-367 | 1 (`CounterKey`), 2 step 6, 4 step 4 |
-| 3. Update and delete release and reclaim keys | TACK-374 | 3 |
-| 4. Point-read resolution, parse, fail loud | TACK-380 | 1 (`Parse`), 5 |
-| 5. `reference.duplicates` detect operation | TACK-382 | 6 |
-| 6. `repair.reference_uniqueness` operation | TACK-385 | 7 |
-| 7. Seed writes a starting template | TACK-386 | 8 |
-| 8. End-to-end regressions | TACK-387 | 9 |
-| 9. QA validation | TACK-389 | 10 steps 1 to 4 |
-| 10. Production audit, read-only | TACK-390 | 10 steps 5 and 6 |
-| 11. Production repair | TACK-391 | 10 steps 7 and 8 |
-| 12. Remove the scan fallback | TACK-392 | 11 |
+Create domain/node/reference_template.go and its test. Update types.go with
+ReferenceTemplates and PrimaryReferenceTemplate. The domain types implement
+Render, Parse, and CounterKey without storage.
 
-The ticket is authoritative for a slice's scope, including what it must **not** contain. A task section that tells an implementer to commit, or that splits a symbol away from its caller, is superseded by the ticket.
-
-## File Structure
-
-| File | Responsibility |
-| --- | --- |
-| `internal/domain/node/reference_template.go` | Create. Template and part types, `Render`, `Parse`, `CounterKey`. Pure domain, no storage. |
-| `internal/domain/node/reference_template_test.go` | Create. Unit tests for render, parse, and counter derivation. |
-| `internal/domain/node/types.go` | Modify. Add `ReferenceTemplates` to `NodeType` and the `PrimaryReferenceTemplate` accessor. |
-| `internal/domain/node/repository.go` | Modify. Add `ReferenceKey`, extend `CreateAtomic` and `UpdateAtomic`, add `LookupReference` and `AllocateSequenceByKey`. |
-| `internal/adapters/foundationdb/keys.go` | Modify. Add the two reference key families and their packers. |
-| `internal/adapters/foundationdb/node_reference.go` | Create. In-transaction reference key write, clear, and lookup helpers. |
-| `internal/adapters/foundationdb/node.go` | Modify. Call the reference helpers from `CreateAtomic`, `UpdateAtomic`, `Set`, and `Delete`. Add `AllocateSequenceByKey`. |
-| `internal/service/node_reference_keys.go` | Create. Render a node's reference keys and counter key from NodeType metadata. |
-| `internal/service/node_create_prepare.go` | Modify. Allocate into the template's generated property using the derived counter key. |
-| `internal/service/node_create.go` | Modify. Pass rendered reference keys to `createNodeAtomic`. |
-| `internal/service/seed.go` | Modify. Seed reference templates on the built-in types. |
-| `internal/adapters/mcp/tools/resolve_typed.go` | Modify. Point-read resolution with a fail-loud scan fallback. |
-| `internal/ops/reference_duplicates.go` | Create. The `reference.duplicates` read operation. |
-| `internal/ops/repair_reference_uniqueness.go` | Create. The `repair.reference_uniqueness` renumber and backfill operation. |
-| `internal/test/integration/reference_uniqueness_test.go` | Create. Both reproductions and the post-repair assertions. |
-
----
-
-### Task 1: Reference template domain types, render, parse, and counter derivation
-
-**Files:**
-- Create: `internal/domain/node/reference_template.go`
-- Create: `internal/domain/node/reference_template_test.go`
-- Modify: `internal/domain/node/types.go`
-
-**Interfaces:**
-- Consumes: nothing from earlier tasks.
-- Produces: `node.ReferencePartKind` (string), constants `ReferencePartScopeRef`, `ReferencePartProperty`, `ReferencePartNodeType`, `ReferencePartLiteral`; `node.ReferencePart{Kind ReferencePartKind, Value string}`; `node.ReferenceTemplate{Name string, Parts []ReferencePart, IsPrimary bool, Generated string}`; `node.ReferenceRenderInput{NodeTypeKey string, Props map[string]json.RawMessage, ScopeRefs map[string]string}`; `node.ReferenceParseResult{ScopeRefs map[string]string, Props map[string]string, NodeTypeKey string}`; methods `ReferenceTemplate.Render(ReferenceRenderInput) (string, error)`, `ReferenceTemplate.Parse(string) (ReferenceParseResult, error)`, `ReferenceTemplate.CounterKey(ReferenceRenderInput) (string, error)`; `NodeType.ReferenceTemplates []ReferenceTemplate` and `NodeType.PrimaryReferenceTemplate() *ReferenceTemplate`.
-
-- [ ] **Step 1: Write the failing test**
-
-Create `internal/domain/node/reference_template_test.go`:
+- [ ] Add the failing tests:
 
 ```go
 package node
@@ -110,9 +99,8 @@ func rawJSON(t *testing.T, v any) json.RawMessage {
 	return b
 }
 
-// issueTemplate is the shape seeded for work-item types: the enclosing scope's
-// reference, a hyphen, then the generated sequence property. The node type is
-// deliberately absent, so an epic and an issue cannot both hold "FAN-1".
+// issueTemplate omits node type from the scoped sequence reference.
+// An epic and issue therefore cannot both claim FAN-1 in one scope.
 func issueTemplate() ReferenceTemplate {
 	return ReferenceTemplate{
 		Name:      "reference",
@@ -196,7 +184,7 @@ func TestReferenceTemplateRenderMissingScopeRefFails(t *testing.T) {
 		ScopeRefs:   map[string]string{},
 	})
 	if err == nil {
-		t.Fatal("Render with no scope reference: got nil error, want failure")
+		t.Fatal("Render without a scope reference returned nil error, want failure")
 	}
 }
 
@@ -207,7 +195,7 @@ func TestReferenceTemplateRenderMissingPropertyFails(t *testing.T) {
 		ScopeRefs:   map[string]string{FeatureIsScope: "FAN"},
 	})
 	if err == nil {
-		t.Fatal("Render with no sequence property: got nil error, want failure")
+		t.Fatal("Render without a sequence property returned nil error, want failure")
 	}
 }
 
@@ -224,9 +212,8 @@ func TestReferenceTemplateParsesScopedSequence(t *testing.T) {
 	}
 }
 
-// TestReferenceTemplateParsesHyphenatedScope covers a scope reference that
-// itself contains the separator. The trailing property consumes only the final
-// segment, so the scope keeps its hyphen.
+// TestReferenceTemplateParsesHyphenatedScope preserves separators inside scopes.
+// The final property consumes only the final segment.
 func TestReferenceTemplateParsesHyphenatedScope(t *testing.T) {
 	got, err := issueTemplate().Parse("FAN-QA-13")
 	if err != nil {
@@ -242,14 +229,12 @@ func TestReferenceTemplateParsesHyphenatedScope(t *testing.T) {
 
 func TestReferenceTemplateParseRejectsMissingSeparator(t *testing.T) {
 	if _, err := issueTemplate().Parse("FAN13"); err == nil {
-		t.Fatal("Parse without a separator: got nil error, want failure")
+		t.Fatal("Parse without a separator returned nil error, want failure")
 	}
 }
 
-// TestReferenceTemplateCounterKeyExcludesGenerated pins the derivation rule: the
-// counter key is the template minus the part the generator fills. The node type
-// is absent from this template, so it is absent from the counter key, which is
-// what stops an epic and an issue sharing a number.
+// TestReferenceTemplateCounterKeyExcludesGenerated verifies shared counters
+// for templates that omit node type and generate only the final property.
 func TestReferenceTemplateCounterKeyExcludesGenerated(t *testing.T) {
 	got, err := issueTemplate().CounterKey(ReferenceRenderInput{
 		NodeTypeKey: "issue",
@@ -311,20 +296,14 @@ func TestPrimaryReferenceTemplateSelectsTheMarkedOne(t *testing.T) {
 
 func TestPrimaryReferenceTemplateNilWhenNoneDeclared(t *testing.T) {
 	if got := (&NodeType{}).PrimaryReferenceTemplate(); got != nil {
-		t.Fatalf("PrimaryReferenceTemplate on a type with no templates = %+v, want nil", got)
+		t.Fatalf("PrimaryReferenceTemplate without templates = %+v, want nil", got)
 	}
 }
 ```
 
-- [ ] **Step 2: Run the test to verify it fails**
-
-Run: `go test ./internal/domain/node/ -run 'TestReferenceTemplate|TestPrimaryReferenceTemplate' -v`
-
-Expected: FAIL to compile, with `undefined: ReferenceTemplate`.
-
-- [ ] **Step 3: Write the domain types**
-
-Create `internal/domain/node/reference_template.go`:
+- [ ] Run `go test ./internal/domain/node/ -run 'TestReferenceTemplate|TestPrimaryReferenceTemplate' -v`
+  and require undefined ReferenceTemplate compilation failure.
+- [ ] Implement reference_template.go:
 
 ```go
 package node
@@ -336,66 +315,57 @@ import (
 	"strings"
 )
 
-// ReferencePartKind names one component of a reference key template.
+// ReferencePartKind selects a component of a reference template.
 type ReferencePartKind string
 
 const (
-	// ReferencePartScopeRef renders the rendered reference of the nearest
-	// ancestor declaring the feature named in ReferencePart.Value.
+	// ReferencePartScopeRef renders the nearest ancestor reference for Value's feature.
 	ReferencePartScopeRef ReferencePartKind = "scope_ref"
-	// ReferencePartProperty renders the node property named in ReferencePart.Value.
+	// ReferencePartProperty renders the property specified by Value.
 	ReferencePartProperty ReferencePartKind = "property"
-	// ReferencePartNodeType renders the node's own TypeKey. Value is unused.
+	// ReferencePartNodeType renders the node's TypeKey and ignores Value.
 	ReferencePartNodeType ReferencePartKind = "node_type"
-	// ReferencePartLiteral renders ReferencePart.Value verbatim, and acts as a
-	// delimiter when parsing.
+	// ReferencePartLiteral renders Value verbatim and delimits parsed segments.
 	ReferencePartLiteral ReferencePartKind = "literal"
 )
 
-// ReferencePart is one component of a reference key template.
+// ReferencePart defines one reference component.
 type ReferencePart struct {
 	Kind ReferencePartKind `json:"kind"`
-	// Value carries the feature name, property name, or literal text the Kind
-	// requires. ReferencePartNodeType ignores it.
+	// Value stores the required feature, property, or literal text.
+	// ReferencePartNodeType ignores Value.
 	Value string `json:"value,omitempty"`
 }
 
-// ReferenceTemplate declares a uniqueness constraint over the string its Parts
-// render. Two nodes in one org may not render the same string for the same
-// template. The template marked IsPrimary is also the human-readable reference
-// for its NodeType.
+// ReferenceTemplate constrains its rendered string within one organization.
+// Two nodes cannot render an identical value under the same template name.
 type ReferenceTemplate struct {
-	// Name identifies the template within its NodeType and appears in the
-	// storage key and in conflict errors.
+	// Name identifies the template in type metadata, storage keys, and errors.
 	Name string `json:"name"`
-	// Parts render in order.
+	// Parts specifies render order.
 	Parts []ReferencePart `json:"parts"`
-	// IsPrimary marks the template that renders the human-readable reference.
-	// At most one template per NodeType sets it.
+	// IsPrimary selects the human-readable reference; at most one template sets it.
 	IsPrimary bool `json:"is_primary,omitempty"`
-	// Generated names the property a value generator fills at create time.
-	// Empty means the caller supplies every part.
+	// Generated identifies the create-time generated property; empty requires supplied values.
 	Generated string `json:"generated,omitempty"`
 }
 
-// ReferenceRenderInput carries everything a template needs to render. ScopeRefs
-// maps a feature name to the rendered reference of the nearest ancestor
-// declaring that feature.
+// ReferenceRenderInput supplies property values and nearest ancestor references.
+// ScopeRefs maps each declared feature to that ancestor's rendered reference.
 type ReferenceRenderInput struct {
 	NodeTypeKey string
 	Props       map[string]json.RawMessage
 	ScopeRefs   map[string]string
 }
 
-// ReferenceParseResult holds the values recovered from a rendered reference.
+// ReferenceParseResult stores the variable components recovered from a reference.
 type ReferenceParseResult struct {
 	ScopeRefs   map[string]string
 	Props       map[string]string
 	NodeTypeKey string
 }
 
-// Render produces the template's string. It fails when a part has no value,
-// because a partially rendered reference would silently collide with another.
+// Render rejects missing part values rather than creating ambiguous partial references.
 func (t ReferenceTemplate) Render(in ReferenceRenderInput) (string, error) {
 	var out strings.Builder
 	for _, part := range t.Parts {
@@ -408,9 +378,7 @@ func (t ReferenceTemplate) Render(in ReferenceRenderInput) (string, error) {
 	return out.String(), nil
 }
 
-// CounterKey produces the template's string with the generated part omitted. A
-// value generator keys its counter on this, so the counter domain always equals
-// the uniqueness domain.
+// CounterKey renders all parts except the generated property for sequence allocation.
 func (t ReferenceTemplate) CounterKey(in ReferenceRenderInput) (string, error) {
 	var out strings.Builder
 	for _, part := range t.Parts {
@@ -438,7 +406,7 @@ func renderReferencePart(part ReferencePart, in ReferenceRenderInput) (string, e
 	case ReferencePartScopeRef:
 		value := in.ScopeRefs[part.Value]
 		if value == "" {
-			return "", fmt.Errorf("scope reference part %q: no ancestor declaring that feature has a reference", part.Value)
+			return "", fmt.Errorf("scope reference part %q: an ancestor reference for the feature does not exist", part.Value)
 		}
 		return value, nil
 	case ReferencePartProperty:
@@ -452,11 +420,11 @@ func renderReferencePart(part ReferencePart, in ReferenceRenderInput) (string, e
 	}
 }
 
-// referencePropertyString renders a JSON property value as reference text. A
-// number renders without a decimal point so sequence 13 becomes "13".
+// referencePropertyString renders JSON strings or numbers as reference text.
+// Integral sequence 13 renders as 13 without a decimal point.
 func referencePropertyString(raw json.RawMessage) (string, error) {
 	if len(raw) == 0 {
-		return "", fmt.Errorf("property has no value")
+		return "", fmt.Errorf("property does not have a value")
 	}
 	var text string
 	if err := json.Unmarshal(raw, &text); err == nil {
@@ -472,11 +440,8 @@ func referencePropertyString(raw json.RawMessage) (string, error) {
 	return "", fmt.Errorf("property value %s is neither a string nor a number", raw)
 }
 
-// Parse recovers the variable parts of a rendered reference. Literal parts act
-// as delimiters. A variable part consumes text up to the next literal, except
-// the final variable part, which consumes the remainder. A leading variable part
-// therefore keeps any separators the following literal also uses, so a scope
-// reference containing a hyphen survives a hyphen delimiter.
+// Parse recovers variable parts separated by literals. The final variable
+// consumes the remainder, preserving separators within a leading scope reference.
 func (t ReferenceTemplate) Parse(input string) (ReferenceParseResult, error) {
 	result := ReferenceParseResult{
 		ScopeRefs: map[string]string{},
@@ -505,13 +470,12 @@ func (t ReferenceTemplate) Parse(input string) (ReferenceParseResult, error) {
 	return result, nil
 }
 
-// consumeReferenceSegment takes the text belonging to the variable part at
-// index, and returns it with the text left after the following literal.
+// consumeReferenceSegment separates one variable value from its following literal.
 func consumeReferenceSegment(parts []ReferencePart, index int, remaining string) (string, string, error) {
 	delimiter := nextReferenceLiteral(parts, index)
 	if delimiter == "" {
 		if remaining == "" {
-			return "", "", fmt.Errorf("no text left for the final part")
+			return "", "", fmt.Errorf("the final part does not have text")
 		}
 		return remaining, "", nil
 	}
@@ -520,7 +484,7 @@ func consumeReferenceSegment(parts []ReferencePart, index int, remaining string)
 		return "", "", fmt.Errorf("separator %q not found", delimiter)
 	}
 	if cut == 0 {
-		return "", "", fmt.Errorf("no text before separator %q", delimiter)
+		return "", "", fmt.Errorf("text before separator %q does not exist", delimiter)
 	}
 	return remaining[:cut], remaining[cut+len(delimiter):], nil
 }
@@ -535,23 +499,17 @@ func nextReferenceLiteral(parts []ReferencePart, index int) string {
 }
 ```
 
-- [ ] **Step 4: Add the NodeType field and accessor**
-
-In `internal/domain/node/types.go`, add to the `NodeType` struct immediately after the `Reference` field (line 146):
+- [ ] Add this field after Reference in types.go:146 and the accessor after
+  BuildTypeIndex:
 
 ```go
-	// ReferenceTemplates declares uniqueness constraints for this type. Two
-	// nodes in one org may not render the same string for the same template.
-	// At most one template sets IsPrimary, which makes it the human-readable
-	// reference.
+	// ReferenceTemplates constrains rendered strings by template and organization.
+	// At most one template selects IsPrimary for the human-readable reference.
 	ReferenceTemplates []ReferenceTemplate `json:"reference_templates,omitempty"`
 ```
 
-Add below `BuildTypeIndex` in the same file:
-
 ```go
-// PrimaryReferenceTemplate returns the template that renders this type's
-// human-readable reference, or nil when the type declares none.
+// PrimaryReferenceTemplate returns the primary declaration or nil when absent.
 func (nt *NodeType) PrimaryReferenceTemplate() *ReferenceTemplate {
 	for index := range nt.ReferenceTemplates {
 		if nt.ReferenceTemplates[index].IsPrimary {
@@ -562,19 +520,8 @@ func (nt *NodeType) PrimaryReferenceTemplate() *ReferenceTemplate {
 }
 ```
 
-- [ ] **Step 5: Run the tests to verify they pass**
-
-Run: `go test ./internal/domain/node/ -run 'TestReferenceTemplate|TestPrimaryReferenceTemplate' -v`
-
-Expected: PASS, all eleven tests.
-
-- [ ] **Step 6: Build**
-
-Run: `make build`
-
-Expected: success.
-
-- [ ] **Step 7: Commit**
+- [ ] Repeat the domain test command and require all eleven tests to pass.
+  Run make build, then commit:
 
 ```bash
 git add internal/domain/node/reference_template.go internal/domain/node/reference_template_test.go internal/domain/node/types.go
@@ -583,23 +530,13 @@ git commit -S -m "Add reference key templates to NodeType metadata (TACK-342)
 Co-authored-by: Claude <noreply@anthropic.com>"
 ```
 
----
+## Task 2: Store uniqueness claims and sequence counters
 
-### Task 2: Reference key families and in-transaction storage helpers
+Modify foundationdb/keys.go, node.go, and domain/node/repository.go. Create
+foundationdb/node_reference.go and integration/reference_store_test.go.
+Storage accepts rendered strings without reading metadata.
 
-**Files:**
-- Modify: `internal/adapters/foundationdb/keys.go`
-- Create: `internal/adapters/foundationdb/node_reference.go`
-- Modify: `internal/domain/node/repository.go`
-- Test: `internal/test/integration/reference_store_test.go`
-
-**Interfaces:**
-- Consumes: `node.ReferenceTemplate` (Task 1), though this task uses only rendered strings.
-- Produces: key packers `nodeReferenceKey(orgID uuid.UUID, templateName, encoded string) []byte`, `nodeReferenceOwnedKey(orgID, nodeID uuid.UUID, templateName string) []byte`, `nodeReferenceOwnedPrefix(orgID, nodeID uuid.UUID) []byte`; in-transaction helpers `writeReferenceKeys(tr fdb.Transaction, orgID, nodeID uuid.UUID, keys []node.ReferenceKey) error` and `clearReferenceKeys(tr fdb.Transaction, orgID, nodeID uuid.UUID) error`; store method `(*NodeStore).LookupReference(ctx context.Context, orgID uuid.UUID, templateName, encoded string) (uuid.UUID, error)`; domain type `node.ReferenceKey{TemplateName string, Encoded string}`.
-
-- [ ] **Step 1: Write the failing test**
-
-Create `internal/test/integration/reference_store_test.go`:
+- [ ] Add the reference-store regressions:
 
 ```go
 package integration
@@ -612,8 +549,6 @@ import (
 	"goodkind.io/tack/internal/domain/node"
 )
 
-// TestReferenceKeyRejectsASecondHolder is the core enforcement assertion: two
-// different nodes cannot hold the same rendered reference for one template.
 func TestReferenceKeyRejectsASecondHolder(t *testing.T) {
 	env := SetupTestEnv(t)
 	actor := uuid.New()
@@ -641,16 +576,14 @@ func TestReferenceKeyRejectsASecondHolder(t *testing.T) {
 	})
 	err := env.Stores.Nodes.SetReferenceKeys(env.Ctx, env.OrgID, second.ID, keys)
 	if err == nil {
-		t.Fatal("SetReferenceKeys on a second node holding the same reference: got nil error, want conflict")
+		t.Fatal("SetReferenceKeys accepted a duplicate node reference, want conflict")
 	}
 	if !errors.Is(err, domain.ErrConflict) {
 		t.Fatalf("SetReferenceKeys error = %v, want a domain.ErrConflict", err)
 	}
 }
 
-// TestReferenceKeyIsIdempotentForItsHolder confirms re-writing the same key for
-// the same node succeeds, so an update that does not change the reference is a
-// no-op rather than a self-conflict.
+// TestReferenceKeyIsIdempotentForItsHolder verifies repeated claims by one node.
 func TestReferenceKeyIsIdempotentForItsHolder(t *testing.T) {
 	env := SetupTestEnv(t)
 	actor := uuid.New()
@@ -673,8 +606,7 @@ func TestReferenceKeyIsIdempotentForItsHolder(t *testing.T) {
 	}
 }
 
-// TestReferenceKeyMovesWithTheNode confirms the reverse index lets a node give
-// up its prior reference, so the prior value becomes available again.
+// TestReferenceKeyMovesWithTheNode verifies reuse after reference replacement.
 func TestReferenceKeyMovesWithTheNode(t *testing.T) {
 	env := SetupTestEnv(t)
 	actor := uuid.New()
@@ -716,9 +648,6 @@ func TestReferenceKeyMovesWithTheNode(t *testing.T) {
 	}
 }
 
-// TestLookupReferenceMissReturnsNil confirms an unheld reference resolves to the
-// nil UUID with no error, so callers can fall back rather than treating a miss
-// as a failure.
 func TestLookupReferenceMissReturnsNil(t *testing.T) {
 	env := SetupTestEnv(t)
 	holder, err := env.Stores.Nodes.LookupReference(env.Ctx, env.OrgID, "reference", "FAN-404")
@@ -731,93 +660,68 @@ func TestLookupReferenceMissReturnsNil(t *testing.T) {
 }
 ```
 
-Add `"errors"` and `"goodkind.io/tack/internal/service"` to the import block.
+Add errors and service imports. Require make test-integration to fail for
+undefined SetReferenceKeys before implementation.
 
-- [ ] **Step 2: Run the test to verify it fails**
-
-Run: `make test-integration`
-
-Expected: FAIL to compile, with `env.Stores.Nodes.SetReferenceKeys undefined`.
-
-- [ ] **Step 3: Add the key families**
-
-In `internal/adapters/foundationdb/keys.go`, add to the `const` block after `keyIdempotency`:
+- [ ] Add key families after keyIdempotency, then packers after idempotencyKey:
 
 ```go
-	// Forward reference uniqueness index. One entry per constrained value; the
-	// value is the holding node's UUID string. A write that finds a different
-	// holder is a conflict.
+	// keyNodeReference maps each constrained reference to its node UUID.
 	// (node_reference, orgID, templateName, encodedKey) -> nodeID
 	keyNodeReference = "node_reference"
 
-	// Reverse index from a node to the reference keys it holds. Delete and
-	// UpdateAtomic need a node's prior keys without NodeType metadata, which
-	// the storage layer never reads.
-	// (node_reference_owned, orgID, nodeID, templateName) -> encodedKey
 	keyNodeReferenceOwned = "node_reference_owned"
 ```
 
-Add the packers after `idempotencyKey`:
-
 ```go
-// nodeReferenceKey packs the forward reference uniqueness key.
+// nodeReferenceKey packs the forward uniqueness key.
 func nodeReferenceKey(orgID uuid.UUID, templateName, encoded string) []byte {
 	return withPrefix(tuple.Tuple{keyNodeReference, orgID.String(), templateName, encoded}.Pack())
 }
 
-// nodeReferenceOwnedKey packs the reverse key naming one reference a node holds.
+// nodeReferenceOwnedKey packs one node's reverse template entry.
 func nodeReferenceOwnedKey(orgID, nodeID uuid.UUID, templateName string) []byte {
 	return withPrefix(tuple.Tuple{keyNodeReferenceOwned, orgID.String(), nodeID.String(), templateName}.Pack())
 }
 
-// nodeReferenceOwnedPrefix packs the prefix covering every reference a node holds.
+// nodeReferenceOwnedPrefix selects every reverse reference entry for a node.
 func nodeReferenceOwnedPrefix(orgID, nodeID uuid.UUID) []byte {
 	return withPrefix(tuple.Tuple{keyNodeReferenceOwned, orgID.String(), nodeID.String()}.Pack())
 }
 ```
 
-- [ ] **Step 4: Add the domain type and repository methods**
-
-In `internal/domain/node/repository.go`, add above the `NodeRepository` interface:
+- [ ] Define ReferenceKey before NodeRepository and add repository methods
+  after AllocateSequence:
 
 ```go
-// ReferenceKey pairs a NodeType reference template with the string that
-// template rendered for one node. The service renders these; the storage layer
-// stores them without interpreting them.
+// ReferenceKey pairs a template name with its rendered value.
+// The service interprets metadata; storage persists the rendered claim.
 type ReferenceKey struct {
-	// TemplateName is ReferenceTemplate.Name.
+	// TemplateName identifies ReferenceTemplate.Name.
 	TemplateName string
-	// Encoded is the rendered reference, for example "FAN-13".
+	// Encoded stores the rendered reference, such as FAN-13.
 	Encoded string
 }
 ```
 
-Add to the `NodeRepository` interface, after `AllocateSequence`:
-
 ```go
-	// SetReferenceKeys replaces every reference key the node holds with keys.
-	// Returns a domain.ErrConflict when another node already holds one of them.
-	// Passing an empty slice releases every key the node holds.
+	// SetReferenceKeys replaces all node claims and rejects another node's claim.
+	// An empty slice releases every reference key for the node.
 	SetReferenceKeys(ctx context.Context, orgID, nodeID uuid.UUID, keys []ReferenceKey) error
 
-	// LookupReference returns the node holding encoded under templateName, or
-	// uuid.Nil with a nil error when no node holds it.
+	// LookupReference returns the claiming node or nil UUID without error on a miss.
 	LookupReference(ctx context.Context, orgID uuid.UUID, templateName, encoded string) (uuid.UUID, error)
 
-	// AllocateSequenceByKey atomically increments and returns the counter named
-	// by counterKey, which the caller derives from a reference template minus
-	// the generated part.
+	// AllocateSequenceByKey atomically increments the counter derived from a
+	// reference template without its generated part.
 	AllocateSequenceByKey(ctx context.Context, orgID uuid.UUID, counterKey string) (int64, error)
 
-	// SeedSequenceByKey raises the counter named by counterKey to at least
-	// value. It never lowers a counter. The repair backfill uses it to carry a
-	// scope's high-water mark onto a newly derived counter key.
+	// SeedSequenceByKey raises the counter to at least value without lowering it.
+	// Repair initializes derived counters from the scope's maximum existing value.
 	SeedSequenceByKey(ctx context.Context, orgID uuid.UUID, counterKey string, value int64) error
 ```
 
-- [ ] **Step 5: Write the storage helpers**
-
-Create `internal/adapters/foundationdb/node_reference.go`:
+- [ ] Implement transactional claims and lookup:
 
 ```go
 package foundationdb
@@ -834,9 +738,8 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// writeReferenceKeys releases every reference key the node currently holds and
-// claims the given ones, inside the caller's transaction. A key held by another
-// node fails the transaction, which is the uniqueness guarantee.
+// writeReferenceKeys replaces claims inside the caller's transaction.
+// A different claiming node causes the entire transaction to fail.
 func writeReferenceKeys(tr fdb.Transaction, orgID, nodeID uuid.UUID, keys []node.ReferenceKey) error {
 	if err := clearReferenceKeys(tr, orgID, nodeID); err != nil {
 		return err
@@ -849,7 +752,7 @@ func writeReferenceKeys(tr fdb.Transaction, orgID, nodeID uuid.UUID, keys []node
 		}
 		if len(existing) > 0 && string(existing) != nodeID.String() {
 			return fmt.Errorf(
-				"reference %q for template %q is already held by node %s: %w",
+				"reference %q for template %q already identifies node %s: %w",
 				key.Encoded, key.TemplateName, string(existing), domain.ErrConflict,
 			)
 		}
@@ -859,9 +762,8 @@ func writeReferenceKeys(tr fdb.Transaction, orgID, nodeID uuid.UUID, keys []node
 	return nil
 }
 
-// clearReferenceKeys releases every reference key the node holds, inside the
-// caller's transaction. It reads the reverse index, so it needs no NodeType
-// metadata.
+// clearReferenceKeys reads the reverse index and releases claims transactionally.
+// It does not read NodeType metadata.
 func clearReferenceKeys(tr fdb.Transaction, orgID, nodeID uuid.UUID) error {
 	ownedRange, err := fdb.PrefixRange(nodeReferenceOwnedPrefix(orgID, nodeID))
 	if err != nil {
@@ -883,7 +785,6 @@ func clearReferenceKeys(tr fdb.Transaction, orgID, nodeID uuid.UUID) error {
 	return nil
 }
 
-// SetReferenceKeys replaces every reference key the node holds.
 func (s *NodeStore) SetReferenceKeys(ctx context.Context, orgID, nodeID uuid.UUID, keys []node.ReferenceKey) (err error) {
 	defer telemetry.FDBOp(ctx, "store.node.set_reference_keys")(&err)
 	_, err = s.db.Transact(func(tr fdb.Transaction) (any, error) {
@@ -892,7 +793,6 @@ func (s *NodeStore) SetReferenceKeys(ctx context.Context, orgID, nodeID uuid.UUI
 	return
 }
 
-// LookupReference returns the node holding encoded under templateName.
 func (s *NodeStore) LookupReference(ctx context.Context, orgID uuid.UUID, templateName, encoded string) (id uuid.UUID, err error) {
 	defer telemetry.FDBOp(ctx, "store.node.lookup_reference")(&err)
 	value, err := s.db.ReadTransact(func(tr fdb.ReadTransaction) (any, error) {
@@ -907,20 +807,17 @@ func (s *NodeStore) LookupReference(ctx context.Context, orgID uuid.UUID, templa
 	}
 	held, parseErr := uuid.Parse(string(raw))
 	if parseErr != nil {
-		return uuid.Nil, fmt.Errorf("reference %q holds unparseable node id %q: %w", encoded, raw, parseErr)
+		return uuid.Nil, fmt.Errorf("reference %q maps to invalid node ID %q: %w", encoded, raw, parseErr)
 	}
 	return held, nil
 }
 ```
 
-- [ ] **Step 6: Add the counter methods**
-
-In `internal/adapters/foundationdb/node.go`, add after `AllocateSequence`:
+- [ ] Add the counter methods after AllocateSequence in node.go and the
+  sequenceByKeyKey packer after sequenceKey:
 
 ```go
-// AllocateSequenceByKey atomically increments and returns the counter named by
-// counterKey. The caller derives counterKey from a reference template minus its
-// generated part, so the counter domain matches the uniqueness domain.
+// AllocateSequenceByKey increments the template-derived counter atomically.
 func (s *NodeStore) AllocateSequenceByKey(ctx context.Context, orgID uuid.UUID, counterKey string) (seq int64, err error) {
 	defer telemetry.FDBOp(ctx, "store.node.allocate_sequence_by_key")(&err)
 	val, err := s.db.Transact(func(tr fdb.Transaction) (any, error) {
@@ -932,8 +829,7 @@ func (s *NodeStore) AllocateSequenceByKey(ctx context.Context, orgID uuid.UUID, 
 	return val.(int64), nil
 }
 
-// SeedSequenceByKey raises the counter named by counterKey to at least value.
-// It never lowers a counter, so re-running the repair backfill is safe.
+// SeedSequenceByKey raises the counter without decreasing an existing value.
 func (s *NodeStore) SeedSequenceByKey(ctx context.Context, orgID uuid.UUID, counterKey string, value int64) (err error) {
 	defer telemetry.FDBOp(ctx, "store.node.seed_sequence_by_key")(&err)
 	_, err = s.db.Transact(func(tr fdb.Transaction) (any, error) {
@@ -982,25 +878,14 @@ func bumpSequence(tr fdb.Transaction, key fdb.Key, delta int64) (int64, error) {
 }
 ```
 
-Add the key packer to `internal/adapters/foundationdb/keys.go`, after `sequenceKey`:
-
 ```go
-// sequenceByKeyKey packs a counter keyed by a rendered reference-template
-// prefix rather than by (scope, nodeType).
+// sequenceByKeyKey selects a rendered-template counter rather than scope/type.
 func sequenceByKeyKey(orgID uuid.UUID, counterKey string) []byte {
 	return withPrefix(tuple.Tuple{keySequence, orgID.String(), counterKey}.Pack())
 }
 ```
 
-- [ ] **Step 7: Run the tests to verify they pass**
-
-Run: `make test-integration`
-
-Expected: PASS, including the four new reference-store tests.
-
-- [ ] **Step 8: Build and commit**
-
-Run: `make build`
+- [ ] Require the four reference-store tests and make build to pass. Commit:
 
 ```bash
 git add internal/adapters/foundationdb/keys.go internal/adapters/foundationdb/node_reference.go internal/adapters/foundationdb/node.go internal/domain/node/repository.go internal/test/integration/reference_store_test.go
@@ -1009,29 +894,18 @@ git commit -S -m "Add node reference key families and uniqueness enforcement hel
 Co-authored-by: Claude <noreply@anthropic.com>"
 ```
 
----
+## Task 3: Enforce claims on create, update, and delete
 
-### Task 3: Enforce reference keys on every write path
+Update foundationdb/node.go and domain/node/repository.go. Extend the store
+regression. Preserve Set's existing caller-reconciled index contract.
 
-**Files:**
-- Modify: `internal/adapters/foundationdb/node.go` (`CreateAtomic`, `UpdateAtomic`, `Delete`)
-- Modify: `internal/domain/node/repository.go` (`CreateAtomic` and `UpdateAtomic` signatures)
-- Test: `internal/test/integration/reference_store_test.go`
-
-**Interfaces:**
-- Consumes: `writeReferenceKeys`, `clearReferenceKeys` (Task 2); `node.ReferenceKey` (Task 2).
-- Produces: `CreateAtomic(ctx, n, view, rels, indexedProps, referenceKeys []ReferenceKey, idempotency)` and `UpdateAtomic(ctx, n, view, oldProps, indexedProps, referenceKeys []ReferenceKey, relationshipChanges ...RelationshipChanges)`.
-
-`Set` is intentionally unchanged. Its doc comment already states it does not reconcile indexes and is only correct when the caller has reconciled them externally. Reference keys follow that rule.
-
-- [ ] **Step 1: Write the failing test**
-
-Append to `internal/test/integration/reference_store_test.go`:
+- [ ] Add these tests and encoding/json import. Require make test-integration
+  compilation failure because CreateAtomic still accepts six rather than seven
+  arguments:
 
 ```go
-// TestCreateAtomicRejectsADuplicateReference is the create-path enforcement
-// assertion. A create carrying a reference another node holds must fail the
-// whole transaction, leaving no partial node behind.
+// TestCreateAtomicRejectsADuplicateReference verifies atomic duplicate refusal.
+// Rejection must not persist any part of the new node.
 func TestCreateAtomicRejectsADuplicateReference(t *testing.T) {
 	env := SetupTestEnv(t)
 	actor := uuid.New()
@@ -1053,7 +927,7 @@ func TestCreateAtomicRejectsADuplicateReference(t *testing.T) {
 	}
 	err := env.Stores.Nodes.CreateAtomic(env.Ctx, intruder, nil, nil, nil, keys, nil)
 	if err == nil {
-		t.Fatal("CreateAtomic with a taken reference: got nil error, want conflict")
+		t.Fatal("CreateAtomic with a taken reference returned nil error, want conflict")
 	}
 	if !errors.Is(err, domain.ErrConflict) {
 		t.Fatalf("CreateAtomic error = %v, want a domain.ErrConflict", err)
@@ -1064,12 +938,10 @@ func TestCreateAtomicRejectsADuplicateReference(t *testing.T) {
 		t.Fatalf("Get the rejected node: %v", getErr)
 	}
 	if stored != nil {
-		t.Fatal("the rejected create left a node behind; the transaction did not roll back")
+		t.Fatal("the rejected create persisted a node; the transaction did not roll back")
 	}
 }
 
-// TestDeleteReleasesTheReference confirms deleting a node frees its reference
-// for reuse, so the reverse index is cleared with the node.
 func TestDeleteReleasesTheReference(t *testing.T) {
 	env := SetupTestEnv(t)
 	keys := []node.ReferenceKey{{TemplateName: "reference", Encoded: "FAN-55"}}
@@ -1088,29 +960,18 @@ func TestDeleteReleasesTheReference(t *testing.T) {
 		t.Fatalf("LookupReference after delete: %v", err)
 	}
 	if holder != uuid.Nil {
-		t.Fatalf("FAN-55 still held by %s after delete, want released", holder)
+		t.Fatalf("FAN-55 still identifies %s after delete, want a released reference", holder)
 	}
 }
 ```
 
-Add `"encoding/json"` to the import block.
-
-- [ ] **Step 2: Run the test to verify it fails**
-
-Run: `make test-integration`
-
-Expected: FAIL to compile, because `CreateAtomic` takes six arguments, not seven.
-
-- [ ] **Step 3: Change the interface signatures**
-
-In `internal/domain/node/repository.go`, replace the `UpdateAtomic` and `CreateAtomic` entries in `NodeRepository`:
+- [ ] Replace repository declarations:
 
 ```go
-	// UpdateAtomic overwrites the node and view, reconciles the secondary
-	// property indexes against oldProps for each name in indexedProps, and
-	// replaces the node's reference keys with referenceKeys. Single FDB
-	// transaction, so a duplicate reference rolls the whole update back and no
-	// reader sees a half-rotated index.
+	// UpdateAtomic writes node/view records and reconciles indexedProps against
+	// oldProps in one transaction. Nil referenceKeys preserves existing claims;
+	// a non-nil slice replaces them, and a non-nil empty slice releases them all.
+	// A duplicate claim rolls back all changes.
 	UpdateAtomic(
 		ctx context.Context,
 		n *Node,
@@ -1121,15 +982,10 @@ In `internal/domain/node/repository.go`, replace the `UpdateAtomic` and `CreateA
 		relationshipChanges ...RelationshipChanges,
 	) error
 
-	// CreateAtomic writes a new node plus its initial relationships and
-	// reference keys in one FDB transaction. Used by NodeService.Create.
-	// Sequence allocation is the caller's responsibility; the caller sets the
-	// generated value in Props and renders referenceKeys before calling.
-	//
-	// indexedProps names the subset of Props that should receive a secondary
-	// property index entry, and referenceKeys names the rendered uniqueness
-	// keys. The caller resolves both from the NodeType and PropertyDef
-	// registries; the storage layer reads neither.
+	// CreateAtomic writes the node, relationships, and reference claims together.
+	// NodeService.Create allocates sequences, supplies Props, and renders claims.
+	// indexedProps selects secondary property indexes and referenceKeys supplies
+	// uniqueness claims; storage does not read their metadata registries.
 	CreateAtomic(
 		ctx context.Context,
 		n *Node,
@@ -1141,9 +997,7 @@ In `internal/domain/node/repository.go`, replace the `UpdateAtomic` and `CreateA
 	) error
 ```
 
-- [ ] **Step 4: Wire the storage implementations**
-
-In `internal/adapters/foundationdb/node.go`, change `UpdateAtomic`'s signature and body:
+- [ ] Implement the update transaction:
 
 ```go
 func (s *NodeStore) UpdateAtomic(
@@ -1161,8 +1015,10 @@ func (s *NodeStore) UpdateAtomic(
 			return nil, err
 		}
 		reconcilePropertyIndexes(tr, n, oldProps, indexedProps)
-		if err := writeReferenceKeys(tr, n.OrgID, n.ID, referenceKeys); err != nil {
-			return nil, err
+		if referenceKeys != nil {
+			if err := writeReferenceKeys(tr, n.OrgID, n.ID, referenceKeys); err != nil {
+				return nil, err
+			}
 		}
 		if err := applyRelationshipChanges(ctx, tr, relationshipChanges); err != nil {
 			return nil, err
@@ -1173,39 +1029,31 @@ func (s *NodeStore) UpdateAtomic(
 }
 ```
 
-Change `CreateAtomic`'s signature to accept `referenceKeys []node.ReferenceKey` immediately before `idempotency`, and add this block between the property-index loop (step 4 in that function) and the relationship loop (step 5):
+Add referenceKeys before idempotency in CreateAtomic and invoke uniqueness
+after property indexes and before relationships:
 
 ```go
-		// 4b. Reference uniqueness keys. A key held by another node fails the
-		// whole transaction, so no partial node survives a duplicate.
+		// Reject duplicate reference claims before committing the create.
 		if err := writeReferenceKeys(tr, n.OrgID, n.ID, referenceKeys); err != nil {
 			return nil, err
 		}
 ```
 
-In `Delete`, add inside the transaction, immediately after the property-index clear loop:
+After property-index clearing in Delete's transaction, add:
 
 ```go
-		// Release every reference this node holds, read from the reverse index
-		// so no NodeType metadata is needed here.
+		// Release prior claims through the reverse index without metadata reads.
 		if err := clearReferenceKeys(tr, orgID, nodeID); err != nil {
 			return nil, err
 		}
 ```
 
-- [ ] **Step 5: Update every caller to compile**
-
-Run: `make build`
-
-Fix each reported call site by passing `nil` for `referenceKeys`. Task 4 replaces the `nil` at the service create path with real keys; every other call site (tests, seed, ops) keeps `nil` because those nodes carry no template yet.
-
-- [ ] **Step 6: Run the tests to verify they pass**
-
-Run: `make test-integration`
-
-Expected: PASS, including the two new write-path tests.
-
-- [ ] **Step 7: Commit**
+- [ ] Run make build. The current callers already accept referenceKeys under the
+  [NodeRepository contract](../../../internal/domain/node/repository.go).
+  Task 4 renders service-create keys from metadata. Create callers must supply
+  those keys for templated types. Update callers may pass nil only when preserving
+  existing claims; changed references require the complete replacement key set.
+  Require both new integration tests to pass. Commit:
 
 ```bash
 git add internal/adapters/foundationdb/node.go internal/domain/node/repository.go internal/test/integration/reference_store_test.go
@@ -1214,25 +1062,17 @@ git commit -S -m "Enforce reference keys in CreateAtomic, UpdateAtomic, and Dele
 Co-authored-by: Claude <noreply@anthropic.com>"
 ```
 
----
+## Task 4: Render keys and allocate generated values
 
-### Task 4: Render reference keys in the service and allocate from the derived counter
+Create service/node_reference_keys.go and its test. Update node_create_prepare.go,
+node_create.go, and node_create_idempotency.go. Resolve scope ancestor features
+and their own direct-property references, such as project FAN.
 
-**Files:**
-- Create: `internal/service/node_reference_keys.go`
-- Modify: `internal/service/node_create_prepare.go`
-- Modify: `internal/service/node_create.go`
-- Test: `internal/service/node_reference_keys_test.go`
+The declared service APIs are
+`(*NodeService).referenceKeysFor(ctx context.Context, orgID uuid.UUID, nt *node.NodeType, nodeTypeKey string, scopeID uuid.UUID, props map[string]json.RawMessage) ([]node.ReferenceKey, error)`
+and `(*NodeService).scopeRefsFor(ctx context.Context, orgID, scopeID uuid.UUID) (map[string]string, error)`.
 
-**Interfaces:**
-- Consumes: `node.ReferenceTemplate`, `node.ReferenceRenderInput`, `NodeType.PrimaryReferenceTemplate` (Task 1); `node.ReferenceKey`, `AllocateSequenceByKey` (Task 2); the extended `CreateAtomic` (Task 3).
-- Produces: `(*NodeService).referenceKeysFor(ctx context.Context, orgID uuid.UUID, nt *node.NodeType, nodeTypeKey string, scopeID uuid.UUID, props map[string]json.RawMessage) ([]node.ReferenceKey, error)`; `(*NodeService).scopeRefsFor(ctx context.Context, orgID, scopeID uuid.UUID) (map[string]string, error)`.
-
-`scopeRefsFor` walks from the scope node upward and, for each ancestor declaring a feature, records that ancestor's own rendered reference. An ancestor whose reference strategy is a direct property renders from that property, which is how a project produces `FAN`.
-
-- [ ] **Step 1: Write the failing test**
-
-Create `internal/service/node_reference_keys_test.go`:
+- [ ] Add the template-property contract test:
 
 ```go
 package service
@@ -1244,9 +1084,6 @@ import (
 	"goodkind.io/tack/internal/domain/node"
 )
 
-// TestAllocateCreateSequenceUsesTheTemplateProperty proves the generated
-// property name comes from the template, not from the literal "sequence". A
-// type numbering into "number" must have "number" stamped.
 func TestAllocateCreateSequenceUsesTheTemplateProperty(t *testing.T) {
 	nodeType := &node.NodeType{
 		TypeKey:  "ticket",
@@ -1294,15 +1131,11 @@ func TestAllocateCreateSequenceUsesTheTemplateProperty(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run the test to verify it fails**
+Run `go test ./internal/service/ -run TestAllocateCreateSequenceUsesTheTemplateProperty -v`.
+The domain assertions should pass before integration, while changed signatures
+can cause an intermediate compilation failure. Record the actual result.
 
-Run: `go test ./internal/service/ -run TestAllocateCreateSequenceUsesTheTemplateProperty -v`
-
-Expected: PASS on the domain assertions but FAIL to compile once Step 3 lands, because the test only pins the contract. Run it now and record that it passes; it guards the contract the next steps consume.
-
-- [ ] **Step 3: Write the reference-key renderer**
-
-Create `internal/service/node_reference_keys.go`:
+- [ ] Implement the renderer and scope lookup:
 
 ```go
 package service
@@ -1316,11 +1149,8 @@ import (
 	"goodkind.io/tack/internal/domain/node"
 )
 
-// maxScopeWalkDepth bounds the ancestor walk when collecting scope references.
 const maxScopeWalkDepth = 32
 
-// referenceKeysFor renders every reference key the node's type declares. An
-// empty result means the type declares no template, which is legal.
 func (s *NodeService) referenceKeysFor(
 	ctx context.Context,
 	orgID uuid.UUID,
@@ -1347,9 +1177,6 @@ func (s *NodeService) referenceKeysFor(
 	return keys, nil
 }
 
-// scopeRefsFor walks from scopeID upward and records, for each feature an
-// ancestor declares, that ancestor's own rendered reference. The nearest
-// ancestor wins, so a deeper container shadows a shallower one.
 func (s *NodeService) scopeRefsFor(ctx context.Context, orgID, scopeID uuid.UUID) (map[string]string, error) {
 	refs := map[string]string{}
 	if scopeID == uuid.Nil {
@@ -1378,8 +1205,6 @@ func (s *NodeService) scopeRefsFor(ctx context.Context, orgID, scopeID uuid.UUID
 	return refs, nil
 }
 
-// recordScopeRefs stamps the ancestor's own reference under every feature it
-// declares, unless a nearer ancestor already claimed that feature.
 func recordScopeRefs(refs map[string]string, ancestorType *node.NodeType, view *node.NodeView) {
 	reference := ancestorReference(ancestorType, view)
 	if reference == "" {
@@ -1393,9 +1218,6 @@ func recordScopeRefs(refs map[string]string, ancestorType *node.NodeType, view *
 	}
 }
 
-// ancestorReference renders an ancestor's own human reference. Only the
-// direct-property strategy is supported as a scope reference, because a scope
-// must be addressable without first resolving a further scope.
 func ancestorReference(ancestorType *node.NodeType, view *node.NodeView) string {
 	property := ancestorType.Reference.DirectAddressProperty()
 	if property == "" {
@@ -1417,15 +1239,10 @@ func uuidPropValue(props map[string]json.RawMessage, name string) uuid.UUID {
 }
 ```
 
-- [ ] **Step 4: Allocate into the template's property from the derived counter**
-
-In `internal/service/node_create_prepare.go`, replace `allocateCreateSequence` entirely:
+- [ ] Replace allocateCreateSequence in node_create_prepare.go:
 
 ```go
-// allocateCreateSequence fills the property the node type's primary reference
-// template declares as generated, using a counter keyed by that template minus
-// the generated part. The counter domain therefore always equals the uniqueness
-// domain, so two nodes cannot be issued the same reference.
+// The template defines the counter domain instead of a type/property naming convention.
 func (s *NodeService) allocateCreateSequence(
 	ctx context.Context,
 	log *slog.Logger,
@@ -1464,9 +1281,7 @@ func (s *NodeService) allocateCreateSequence(
 }
 ```
 
-- [ ] **Step 5: Pass the rendered keys to the create**
-
-In `internal/service/node_create.go`, after the `indexedProps` block (line 97 to 100), add:
+After indexedProps in node_create.go:97-100, add:
 
 ```go
 	referenceKeys, err := s.referenceKeysFor(ctx, orgID, nt, in.ScopeID, props)
@@ -1475,15 +1290,12 @@ In `internal/service/node_create.go`, after the `indexedProps` block (line 97 to
 	}
 ```
 
-Change the `createNodeAtomic` call to pass `referenceKeys` after `indexedProps`, and thread the parameter through `createNodeAtomic` in `internal/service/node_create_idempotency.go` to its `CreateAtomic` call.
+Pass referenceKeys after indexedProps through createNodeAtomic in
+node_create_idempotency.go to CreateAtomic.
 
-- [ ] **Step 6: Run the tests and build**
-
-Run: `go test ./internal/service/ -v` then `make build` then `make test-integration`
-
-Expected: all pass. Existing tests still pass because no seeded type declares a template yet, so `referenceKeysFor` returns nil and `allocateCreateSequence` is a no-op. Task 8 turns it on.
-
-- [ ] **Step 7: Commit**
+- [ ] Run `go test ./internal/service/ -v`, make build, and make test-integration.
+  Require success. Before Task 8, seed types lack templates and both helpers
+  retain their empty-template behavior. Commit:
 
 ```bash
 git add internal/service/node_reference_keys.go internal/service/node_reference_keys_test.go internal/service/node_create_prepare.go internal/service/node_create.go internal/service/node_create_idempotency.go
@@ -1492,26 +1304,17 @@ git commit -S -m "Render reference keys and allocate from the template-derived c
 Co-authored-by: Claude <noreply@anthropic.com>"
 ```
 
----
+## Task 5: Resolve claims and reject ambiguous legacy references
 
-### Task 5: Point-read resolution with a fail-loud scan fallback
+Update tools/resolve_typed.go, resolve_reference_helpers.go:99-109, and tests.
+Use LookupReference before the legacy candidate scan and require uniqueMatch
+for fallback results.
 
-**Files:**
-- Modify: `internal/adapters/mcp/tools/resolve_typed.go`
-- Test: `internal/adapters/mcp/tools/resolve_typed_test.go`
-
-**Interfaces:**
-- Consumes: `LookupReference` (Task 2); `NodeType.PrimaryReferenceTemplate`, `ReferenceTemplate.Parse` (Task 1); `uniqueMatch` (existing, `resolve_reference_helpers.go` lines 99 to 109).
-- Produces: `(*Resolver).resolveSequenceNodeID` resolving by point read first and, on a miss, by the prior scan routed through `uniqueMatch`.
-
-- [ ] **Step 1: Write the failing test**
-
-Append to `internal/adapters/mcp/tools/resolve_typed_test.go`:
+- [ ] Add the ambiguity regression:
 
 ```go
-// TestResolveSequenceNodeIDFailsLoudOnDuplicates pins the fallback contract. A
-// reference held by two nodes with no reference key written must raise an
-// ambiguity error naming both, never silently return one of them.
+// TestResolveSequenceNodeIDFailsLoudOnDuplicates requires both candidate IDs
+// when legacy nodes render the same reference without uniqueness-index entries.
 func TestResolveSequenceNodeIDFailsLoudOnDuplicates(t *testing.T) {
 	orgID := uuid.New()
 	workspaceID := uuid.New()
@@ -1541,26 +1344,20 @@ func TestResolveSequenceNodeIDFailsLoudOnDuplicates(t *testing.T) {
 
 	_, err := resolver.ResolveTypedNodeID(ctx, issueType, "FAN-13")
 	if err == nil {
-		t.Fatal("ResolveTypedNodeID on a duplicated reference: got nil error, want ambiguity")
+		t.Fatal("ResolveTypedNodeID accepted a duplicated reference, want ambiguity")
 	}
 	if !strings.Contains(err.Error(), "matched multiple nodes") {
 		t.Fatalf("error = %v, want it to report multiple matches", err)
 	}
 	if !strings.Contains(err.Error(), firstID.String()) || !strings.Contains(err.Error(), secondID.String()) {
-		t.Fatalf("error = %v, want both candidate UUIDs named so an operator can recover", err)
+		t.Fatalf("error = %v, want both candidate UUIDs for operator recovery", err)
 	}
 }
 ```
 
-- [ ] **Step 2: Run the test to verify it fails**
-
-Run: `go test ./internal/adapters/mcp/tools/ -run TestResolveSequenceNodeIDFailsLoudOnDuplicates -v`
-
-Expected: FAIL, because the current code returns the first candidate with a nil error.
-
-- [ ] **Step 3: Rewrite the resolution path**
-
-Replace `resolveSequenceNodeID` in `internal/adapters/mcp/tools/resolve_typed.go`:
+- [ ] Run `go test ./internal/adapters/mcp/tools/ -run TestResolveSequenceNodeIDFailsLoudOnDuplicates -v`
+  and require failure while resolution returns the first candidate.
+- [ ] Replace the resolver and add errors import:
 
 ```go
 func (r *Resolver) resolveSequenceNodeID(ctx context.Context, input string, typeKeys []string) (uuid.UUID, error) {
@@ -1599,8 +1396,6 @@ func (r *Resolver) resolveSequenceNodeID(ctx context.Context, input string, type
 	return uuid.Nil, fmt.Errorf("reference %q: %w", input, domain.ErrNotFound)
 }
 
-// referenceKeyHolder resolves the reference through the uniqueness index. A hit
-// is authoritative and needs no scope resolution or candidate scan.
 func (r *Resolver) referenceKeyHolder(ctx context.Context, orgID uuid.UUID, typeKeys []string, input string) (uuid.UUID, bool) {
 	for _, typeKey := range typeKeys {
 		nodeType := r.typeIndex[typeKey]
@@ -1621,10 +1416,7 @@ func (r *Resolver) referenceKeyHolder(ctx context.Context, orgID uuid.UUID, type
 	return uuid.Nil, false
 }
 
-// scanSequenceCandidates is the fallback for nodes written before the reference
-// index existed. It collects every candidate and routes them through
-// uniqueMatch, so a duplicate raises an ambiguity error naming both nodes rather
-// than silently resolving to one of them.
+// scanSequenceCandidates collects legacy candidates and rejects ambiguous results.
 func (r *Resolver) scanSequenceCandidates(
 	ctx context.Context,
 	orgID uuid.UUID,
@@ -1660,16 +1452,12 @@ func (r *Resolver) scanSequenceCandidates(
 }
 ```
 
-Add `"errors"` to the import block.
-
-- [ ] **Step 4: Name both candidates in the ambiguity error**
-
-In `internal/adapters/mcp/tools/resolve_reference_helpers.go`, replace `uniqueMatch`:
+Replace uniqueMatch and add sort import. Preserve the message fragment
+`matched multiple nodes`, which the regression asserts:
 
 ```go
-// uniqueMatch returns the single match, or an error. An ambiguous result names
-// every candidate UUID, because a caller holding an ambiguous reference has no
-// other way to reach the nodes behind it.
+// uniqueMatch returns one candidate or an error listing all ambiguous node UUIDs.
+// Callers can use those UUIDs when the rendered reference is ambiguous.
 func uniqueMatch(matches map[uuid.UUID]struct{}, kind, input string) (uuid.UUID, error) {
 	switch len(matches) {
 	case 0:
@@ -1691,17 +1479,8 @@ func uniqueMatch(matches map[uuid.UUID]struct{}, kind, input string) (uuid.UUID,
 }
 ```
 
-Add `"sort"` to the import block.
-
-- [ ] **Step 5: Run the tests to verify they pass**
-
-Run: `go test ./internal/adapters/mcp/tools/ -v`
-
-Expected: PASS, including the new duplicate test.
-
-- [ ] **Step 6: Build and commit**
-
-Run: `make build`
+- [ ] Require `go test ./internal/adapters/mcp/tools/ -v` and make build to
+  pass, then commit:
 
 ```bash
 git add internal/adapters/mcp/tools/resolve_typed.go internal/adapters/mcp/tools/resolve_reference_helpers.go internal/adapters/mcp/tools/resolve_typed_test.go
@@ -1710,23 +1489,13 @@ git commit -S -m "Resolve references by point read and fail loud on legacy dupli
 Co-authored-by: Claude <noreply@anthropic.com>"
 ```
 
----
+## Task 6: Detect duplicate references
 
-### Task 6: Duplicate-reference detect operation
+Create ops/reference_duplicates.go and integration/reference_duplicates_test.go.
+Export FindDuplicateReferences for Task 7 and register reference.duplicates
+through the existing ops.Register/Env API at ops.go:39-54.
 
-**Files:**
-- Create: `internal/ops/reference_duplicates.go`
-- Test: `internal/test/integration/reference_duplicates_test.go`
-
-**Interfaces:**
-- Consumes: `node.ReferenceTemplate.Render`, `NodeType.ReferenceTemplates` (Task 1); `ops.Register`, `ops.Env` (existing, `internal/ops/ops.go` lines 39 to 54).
-- Produces: operation named `reference.duplicates`; exported `ops.FindDuplicateReferences(ctx context.Context, env *Env) ([]DuplicateReference, error)`; type `ops.DuplicateReference{OrgID uuid.UUID, TemplateName string, Encoded string, NodeIDs []uuid.UUID}`.
-
-Task 7 reuses `FindDuplicateReferences`, so it is exported rather than folded into the operation body.
-
-- [ ] **Step 1: Write the failing test**
-
-Create `internal/test/integration/reference_duplicates_test.go`:
+- [ ] Add the failing test:
 
 ```go
 package integration
@@ -1738,8 +1507,6 @@ import (
 	"goodkind.io/tack/internal/ops"
 )
 
-// TestFindDuplicateReferencesReportsBothHolders is the detect contract: two
-// nodes rendering one reference appear as a single group naming both.
 func TestFindDuplicateReferencesReportsBothHolders(t *testing.T) {
 	env := SetupTestEnv(t)
 	actor := uuid.New()
@@ -1762,26 +1529,19 @@ func TestFindDuplicateReferencesReportsBothHolders(t *testing.T) {
 	}
 	group := duplicates[0]
 	if len(group.NodeIDs) != 2 {
-		t.Fatalf("group %q holds %d nodes, want 2", group.Encoded, len(group.NodeIDs))
+		t.Fatalf("group %q contains %d nodes, want 2", group.Encoded, len(group.NodeIDs))
 	}
 	held := map[uuid.UUID]bool{group.NodeIDs[0]: true, group.NodeIDs[1]: true}
 	if !held[epic.ID] || !held[issue.ID] {
-		t.Fatalf("group %q holds %v, want the epic %s and the issue %s", group.Encoded, group.NodeIDs, epic.ID, issue.ID)
+		t.Fatalf("group %q contains %v, want the epic %s and the issue %s", group.Encoded, group.NodeIDs, epic.ID, issue.ID)
 	}
 }
 ```
 
-This test requires `SetupTestEnv` to expose an `*ops.Env`. Add an `Ops *ops.Env` field to the integration `TestEnv` and populate it from the same stores and pool the env already opens.
+Add Ops *ops.Env to TestEnv using its existing stores and pool. Require
+make test-integration to fail for undefined ops.FindDuplicateReferences.
 
-- [ ] **Step 2: Run the test to verify it fails**
-
-Run: `make test-integration`
-
-Expected: FAIL to compile, with `undefined: ops.FindDuplicateReferences`.
-
-- [ ] **Step 3: Write the operation**
-
-Create `internal/ops/reference_duplicates.go`:
+- [ ] Implement detection:
 
 ```go
 package ops
@@ -1800,18 +1560,18 @@ import (
 func init() {
 	Register(Operation{
 		Name:        "reference.duplicates",
-		Description: "Report every human-readable node reference held by more than one node, across every org and node type. Read-only.",
+		Description: "Report references that identify multiple nodes across organizations and node types without changing data.",
 		Run:         runReferenceDuplicates,
 	})
 }
 
-// DuplicateReference names one rendered reference held by more than one node.
+// DuplicateReference identifies one rendered value shared by multiple nodes.
 type DuplicateReference struct {
 	OrgID        uuid.UUID
 	TemplateName string
-	// Encoded is the rendered reference, for example "FAN-13".
+	// Encoded stores the rendered reference, such as FAN-13.
 	Encoded string
-	// NodeIDs are the holders, sorted so the output is stable across runs.
+	// NodeIDs lists claiming nodes in stable order.
 	NodeIDs []uuid.UUID
 }
 
@@ -1832,9 +1592,7 @@ func runReferenceDuplicates(ctx context.Context, env *Env) error {
 	return nil
 }
 
-// FindDuplicateReferences renders every node's reference templates and returns
-// each rendered value held by more than one node. Grouping is by rendered
-// value, so it catches duplicates across node types as well as within one.
+// FindDuplicateReferences groups rendered template values across node types.
 func FindDuplicateReferences(ctx context.Context, env *Env) ([]DuplicateReference, error) {
 	orgIDs, err := listOrgIDs(ctx, env)
 	if err != nil {
@@ -1930,8 +1688,7 @@ func duplicateGroups(
 	return duplicates
 }
 
-// scopeReferencesForView mirrors the service-side scope walk so a rendered
-// reference here matches the one the service would write.
+// scopeReferencesForView uses the service's ancestor-reference interpretation.
 func scopeReferencesForView(ctx context.Context, env *Env, orgID uuid.UUID, view *node.NodeView) (map[string]string, error) {
 	nodeTypes, err := env.Stores.NodeTypes.List(ctx, orgID)
 	if err != nil {
@@ -1969,19 +1726,12 @@ func scopeReferencesForView(ctx context.Context, env *Env, orgID uuid.UUID, view
 var _ = json.Marshal
 ```
 
-Remove the trailing `var _ = json.Marshal` line and the `encoding/json` import if the compiler reports them unused.
+Remove the trailing json.Marshal reference and encoding/json import if unused.
+The detection test still fails without Task 8's templates. Temporarily declare
+issue/epic templates in test setup to verify detection, remove that local setup,
+and record the expected intermediate result. Task 8 reruns unchanged tests.
 
-- [ ] **Step 4: Run the test to verify it passes**
-
-Run: `make test-integration`
-
-Expected: FAIL, because no seeded node type declares a template yet. Temporarily add the issue and epic templates in the test's setup to confirm the detection logic, then remove them. Task 8 makes this test pass without local setup.
-
-Record the outcome and proceed. Task 8 reruns it.
-
-- [ ] **Step 5: Build and commit**
-
-Run: `make build`
+- [ ] Run make build and commit:
 
 ```bash
 git add internal/ops/reference_duplicates.go internal/test/integration/reference_duplicates_test.go
@@ -1990,29 +1740,15 @@ git commit -S -m "Add reference.duplicates detect operation (TACK-342)
 Co-authored-by: Claude <noreply@anthropic.com>"
 ```
 
----
+## Task 7: Repair duplicates and backfill claims
 
-### Task 7: Renumber and backfill operation
+Create ops/repair_reference_uniqueness.go and integration/reference_repair_test.go.
+Keep accepts oldest or newest and defaults to oldest. UUIDv7 order supplies
+creation order. This is repair policy rather than a storage rule. Seed all
+counters to existing maxima before allocating replacement values; then renumber
+duplicates and write claims for every templated node, including older nodes.
 
-**Files:**
-- Create: `internal/ops/repair_reference_uniqueness.go`
-- Test: `internal/test/integration/reference_repair_test.go`
-
-**Interfaces:**
-- Consumes: `FindDuplicateReferences`, `DuplicateReference`, `scopeReferencesForView` (Task 6); `SetReferenceKeys`, `AllocateSequenceByKey`, `SeedSequenceByKey` (Task 2); `node.ReferenceTemplate` (Task 1).
-- Produces: operation named `repair.reference_uniqueness`; exported `ops.RepairReferenceUniqueness(ctx context.Context, env *Env, opts RepairReferenceOptions) (RepairReferenceReport, error)`; types `ops.RepairReferenceOptions{Execute bool, Keep string}` and `ops.RepairReferenceReport{Renumbered []ReferenceRename, CountersSeeded int, KeysWritten int}`, `ops.ReferenceRename{NodeID uuid.UUID, From string, To string}`.
-
-`Keep` accepts `oldest` and `newest`. `oldest` orders by UUIDv7, which sorts by creation time. The default is `oldest`. Which node is retained is this operation's policy; the storage layer holds no opinion.
-
-Order of work inside one run, and the order matters:
-
-1. Seed every counter to the highest generated value observed in its scope. A newly derived counter key starts at zero, so skipping this reissues values already in use.
-2. Renumber duplicates, oldest or newest retained per `Keep`.
-3. Write reference keys for every node carrying a template, so enforcement data exists for nodes created before templates did.
-
-- [ ] **Step 1: Write the failing test**
-
-Create `internal/test/integration/reference_repair_test.go`:
+- [ ] Add the failing tests and require undefined RepairReferenceUniqueness:
 
 ```go
 package integration
@@ -2024,10 +1760,8 @@ import (
 	"goodkind.io/tack/internal/ops"
 )
 
-// TestRepairReferenceUniquenessRenumbersAndHoldsTheLine drives the full repair:
-// a duplicate is renumbered, the retained node keeps its reference, and a
-// subsequent create cannot collide because the counter was seeded past the
-// high-water mark.
+// TestRepairReferenceUniquenessRenumbersAndHoldsTheLine verifies renumbering,
+// retained identity, seeded counters, and uniqueness after another create.
 func TestRepairReferenceUniquenessRenumbersAndHoldsTheLine(t *testing.T) {
 	env := SetupTestEnv(t)
 	actor := uuid.New()
@@ -2058,10 +1792,10 @@ func TestRepairReferenceUniquenessRenumbersAndHoldsTheLine(t *testing.T) {
 		t.Fatalf("FindDuplicateReferences after repair: %v", err)
 	}
 	if len(remaining) != 0 {
-		t.Fatalf("duplicates after repair = %+v, want none", remaining)
+		t.Fatalf("duplicates after repair = %+v, want an empty result", remaining)
 	}
 
-	// A fresh create must not reuse a number already in play.
+	// A new create must not reuse an existing number.
 	fresh := mustCreate(t, env, service.CreateInput{
 		ParentID: project.ID, ScopeID: project.ID, NodeTypeKey: "issue", Name: "Fresh", ActorID: actor,
 	})
@@ -2070,14 +1804,14 @@ func TestRepairReferenceUniquenessRenumbersAndHoldsTheLine(t *testing.T) {
 		t.Fatalf("FindDuplicateReferences after a fresh create: %v", err)
 	}
 	if len(after) != 0 {
-		t.Fatalf("a create after repair produced duplicates %+v; the counter was not seeded past the high-water mark", after)
+		t.Fatalf("a create after repair produced duplicates %+v; the counter did not exceed the existing maximum", after)
 	}
 	_ = fresh
 }
 
-// TestRepairReferenceUniquenessDryRunChangesNothing confirms the default mode
-// reports without writing.
-func TestRepairReferenceUniquenessDryRunChangesNothing(t *testing.T) {
+// TestRepairReferenceUniquenessDryRunPreservesDuplicateGroups verifies
+// nonmutating reports.
+func TestRepairReferenceUniquenessDryRunPreservesDuplicateGroups(t *testing.T) {
 	env := SetupTestEnv(t)
 	actor := uuid.New()
 	workspace := mustCreateScope(t, env, "workspace", "Main", env.OrgID, env.OrgID, actor)
@@ -2098,20 +1832,12 @@ func TestRepairReferenceUniquenessDryRunChangesNothing(t *testing.T) {
 		t.Fatalf("FindDuplicateReferences after the dry run: %v", err)
 	}
 	if len(remaining) != 1 {
-		t.Fatalf("duplicates after a dry run = %d, want the original 1 left untouched", len(remaining))
+		t.Fatalf("duplicates after a dry run = %d, want the original 1 unchanged", len(remaining))
 	}
 }
 ```
 
-- [ ] **Step 2: Run the test to verify it fails**
-
-Run: `make test-integration`
-
-Expected: FAIL to compile, with `undefined: ops.RepairReferenceUniqueness`.
-
-- [ ] **Step 3: Write the repair operation**
-
-Create `internal/ops/repair_reference_uniqueness.go`:
+- [ ] Implement the operation:
 
 ```go
 package ops
@@ -2128,9 +1854,7 @@ import (
 	"goodkind.io/tack/internal/domain/node"
 )
 
-// keepOldest and keepNewest name the retention policies this operation offers.
-// Which node keeps a contested reference is a policy of this backfill, not a
-// rule in the storage layer.
+// keepOldest and keepNewest select repair retention policy, not storage behavior.
 const (
 	keepOldest = "oldest"
 	keepNewest = "newest"
@@ -2139,17 +1863,16 @@ const (
 func init() {
 	Register(Operation{
 		Name:        "repair.reference_uniqueness",
-		Description: "Seed reference counters to their high-water mark, renumber duplicate references, and write the uniqueness keys for every node. Reports without writing unless executed.",
+		Description: "Seed reference counters, renumber duplicates, and backfill uniqueness keys. Preview does not write until the operator enables execution.",
 		Run:         runRepairReferenceUniqueness,
 	})
 }
 
 // RepairReferenceOptions configures one repair run.
 type RepairReferenceOptions struct {
-	// Execute applies the changes. False reports and writes nothing.
+	// Execute enables writes; false only reports planned changes.
 	Execute bool
-	// Keep selects which node retains a contested reference: "oldest" or
-	// "newest". Empty means "oldest".
+	// Keep selects oldest or newest retention; an empty value uses oldest.
 	Keep string
 }
 
@@ -2160,7 +1883,7 @@ type ReferenceRename struct {
 	To     string
 }
 
-// RepairReferenceReport summarises one repair run.
+// RepairReferenceReport summarizes one repair run.
 type RepairReferenceReport struct {
 	Renumbered     []ReferenceRename
 	CountersSeeded int
@@ -2187,9 +1910,8 @@ func runRepairReferenceUniqueness(ctx context.Context, env *Env) error {
 	return nil
 }
 
-// RepairReferenceUniqueness seeds counters, renumbers duplicates, and writes
-// reference keys. Counter seeding runs first: a newly derived counter key starts
-// at zero, so renumbering before seeding would reissue values already in use.
+// RepairReferenceUniqueness seeds counters before renumbering and claim backfill.
+// Newly derived counters start at zero and otherwise reissue existing values.
 func RepairReferenceUniqueness(ctx context.Context, env *Env, opts RepairReferenceOptions) (RepairReferenceReport, error) {
 	if opts.Keep == "" {
 		opts.Keep = keepOldest
@@ -2234,8 +1956,7 @@ func RepairReferenceUniqueness(ctx context.Context, env *Env, opts RepairReferen
 	return report, nil
 }
 
-// seedReferenceCounters raises every counter to the highest generated value its
-// scope already holds, so no counter reissues a value in use.
+// seedReferenceCounters initializes each counter from its scope's maximum value.
 func seedReferenceCounters(ctx context.Context, env *Env, orgID uuid.UUID, execute bool) (int, error) {
 	highest := map[string]int64{}
 	nodeTypes, err := env.Stores.NodeTypes.List(ctx, orgID)
@@ -2293,8 +2014,8 @@ func recordHighestGenerated(
 	}
 }
 
-// renumberDuplicateGroup reassigns every node in the group except the retained
-// one. Ordering is by UUIDv7, which sorts by creation time.
+// renumberDuplicateGroup preserves the selected node and renumbers the others.
+// UUIDv7 ordering supplies creation order.
 func renumberDuplicateGroup(ctx context.Context, env *Env, duplicate DuplicateReference, opts RepairReferenceOptions) ([]ReferenceRename, error) {
 	ordered := append([]uuid.UUID(nil), duplicate.NodeIDs...)
 	sort.Slice(ordered, func(i, j int) bool { return ordered[i].String() < ordered[j].String() })
@@ -2327,7 +2048,7 @@ func renumberOneNode(ctx context.Context, env *Env, duplicate DuplicateReference
 	}
 	template := nodeType.PrimaryReferenceTemplate()
 	if template == nil || template.Generated == "" {
-		return ReferenceRename{}, fmt.Errorf("node type %q declares no generated reference part; node %s cannot be renumbered", nodeType.TypeKey, nodeID)
+		return ReferenceRename{}, fmt.Errorf("node type %q does not declare a generated reference part; repair cannot renumber node %s", nodeType.TypeKey, nodeID)
 	}
 	scopeRefs, err := scopeReferencesForView(ctx, env, duplicate.OrgID, view)
 	if err != nil {
@@ -2367,8 +2088,7 @@ func renumberOneNode(ctx context.Context, env *Env, duplicate DuplicateReference
 	return ReferenceRename{NodeID: nodeID, From: duplicate.Encoded, To: rendered}, nil
 }
 
-// writeAllReferenceKeys backfills the uniqueness keys for every node carrying a
-// template, so enforcement data exists for nodes created before templates did.
+// writeAllReferenceKeys backfills uniqueness claims for all templated nodes.
 func writeAllReferenceKeys(ctx context.Context, env *Env, orgID uuid.UUID) (int, error) {
 	nodeTypes, err := env.Stores.NodeTypes.List(ctx, orgID)
 	if err != nil {
@@ -2421,8 +2141,7 @@ func numberPropValue(props map[string]json.RawMessage, name string) int64 {
 	return int64(value)
 }
 
-// viewFromRepairedNode builds the materialized view for a node the repair
-// rewrote, mirroring the fields the service stamps.
+// viewFromRepairedNode reconstructs the read view using normal node fields.
 func viewFromRepairedNode(n *node.Node) *node.NodeView {
 	return &node.NodeView{
 		ID:        n.ID,
@@ -2438,15 +2157,9 @@ func viewFromRepairedNode(n *node.Node) *node.NodeView {
 }
 ```
 
-- [ ] **Step 4: Run the tests to verify they pass**
-
-Run: `make test-integration`
-
-Expected: FAIL until Task 8 seeds templates. Confirm the compile is clean and the logic runs, then proceed. Task 8 reruns both tests.
-
-- [ ] **Step 5: Build and commit**
-
-Run: `make build`
+- [ ] Run make test-integration. Before Task 8, require successful compilation
+  and record expected missing-template failures; Task 8 reruns both tests.
+  Run make build and commit:
 
 ```bash
 git add internal/ops/repair_reference_uniqueness.go internal/test/integration/reference_repair_test.go
@@ -2455,40 +2168,19 @@ git commit -S -m "Add repair.reference_uniqueness renumber and backfill operatio
 Co-authored-by: Claude <noreply@anthropic.com>"
 ```
 
----
+## Task 8: Seed explicit templates
 
-### Task 8: Write a starting reference template in the seed
+Only seed.go defines the deployment's issue, epic, cycle, and module templates.
+An organization may change or remove them; the engine must not provide a
+fallback or implicit part. Omitting node_type shares numbering across types.
+Including node_type permits independent numbering with the same interpreter.
 
-**Files:**
-- Modify: `internal/service/seed.go`
-- Test: `internal/test/integration/reference_duplicates_test.go` and `internal/test/integration/reference_repair_test.go` (both from earlier tasks, now expected to pass unmodified)
-
-**Interfaces:**
-- Consumes: `node.ReferenceTemplate` (Task 1).
-- Produces: `issue`, `epic`, `cycle`, and `module` node types each carrying a primary reference template of scope reference, hyphen, generated `sequence`, with no node-type part.
-
-This is data the seed writes, not a default the engine holds. No task in this plan adds a fallback template, an implicit part, or any code path that supplies a template when a NodeType declares none. A NodeType with no template carries no constraint and renders no reference; that is a legal, supported state.
-
-Omitting the node-type part is what makes epic `FAN-1` and issue `FAN-1` a conflict in this deployment. A deployment wanting independent numbering per type declares a `node_type` part in its own template. The engine enforces either declaration identically.
-
-- [ ] **Step 1: Run the earlier tests to confirm they still fail**
-
-Run: `make test-integration`
-
-Expected: the Task 6 and Task 7 tests FAIL, because no seeded type declares a template.
-
-- [ ] **Step 2: Add the shared template constructor**
-
-In `internal/service/seed.go`, add above the node type definitions:
+- [ ] Run make test-integration and record Task 6/7 missing-template failures.
+  Add the constructor above seed type declarations:
 
 ```go
-// scopedSequenceTemplate is the reference template the seed writes for
-// work-item types: the enclosing scope's reference, a hyphen, then a generated
-// sequence. The node type is absent, so every type carrying this template in one
-// scope shares a single numbering space.
-//
-// This is seed data, not an engine default. An org may edit or remove it, and a
-// type with no template carries no constraint.
+// scopedSequenceTemplate defines this deployment's shared work-item numbering.
+// Organizations may change or remove this seed data; absent templates do not constrain.
 func scopedSequenceTemplate() []node.ReferenceTemplate {
 	return []node.ReferenceTemplate{{
 		Name:      "reference",
@@ -2503,25 +2195,15 @@ func scopedSequenceTemplate() []node.ReferenceTemplate {
 }
 ```
 
-- [ ] **Step 3: Attach it to every sequence-bearing built-in type**
-
-For each of the `issue`, `epic`, `cycle`, and `module` NodeType literals in `internal/service/seed.go`, add:
+Locate issue, epic, cycle, and module declarations by FeatureHasSequenceID
+rather than slug. Add:
 
 ```go
 			ReferenceTemplates: scopedSequenceTemplate(),
 ```
 
-Locate them by their existing `Features` entry containing `node.FeatureHasSequenceID`, not by their slug.
-
-- [ ] **Step 4: Run the tests to verify they pass**
-
-Run: `make test-integration`
-
-Expected: PASS, including both Task 6 tests and both Task 7 tests, unmodified.
-
-- [ ] **Step 5: Build and commit**
-
-Run: `make build`
+- [ ] Require Task 6 and Task 7 tests to pass unchanged under
+  make test-integration. Run make build and commit:
 
 ```bash
 git add internal/service/seed.go
@@ -2530,22 +2212,12 @@ git commit -S -m "Seed a shared scoped-sequence reference template on work-item 
 Co-authored-by: Claude <noreply@anthropic.com>"
 ```
 
----
+## Task 9: Reproduce both collision mechanisms
 
-### Task 9: End-to-end regression for both duplicate mechanisms
+Create integration/reference_uniqueness_test.go. Use real create/update paths
+rather than synthetic persisted fixtures. This task does not introduce an API.
 
-**Files:**
-- Create: `internal/test/integration/reference_uniqueness_test.go`
-
-**Interfaces:**
-- Consumes: everything from Tasks 1 through 8.
-- Produces: no new API. This task proves the defect is closed.
-
-Both reproductions drive real code paths. Neither writes synthetic data, so a passing test proves the behavior rather than restating it.
-
-- [ ] **Step 1: Write the regression test**
-
-Create `internal/test/integration/reference_uniqueness_test.go`:
+- [ ] Add the regressions:
 
 ```go
 package integration
@@ -2560,9 +2232,8 @@ import (
 	"goodkind.io/tack/internal/service"
 )
 
-// TestCrossTypeReferenceCollisionIsRejected is the first reproduction. Creating
-// an epic and an issue in one project previously gave both sequence 1 and both
-// rendered "FAN-1". The second create must now fail.
+// TestCrossTypeReferenceCollisionIsRejected verifies shared numbering across types.
+// Previously an epic and issue each received sequence 1 and rendered FAN-1.
 func TestCrossTypeReferenceCollisionIsRejected(t *testing.T) {
 	env := SetupTestEnv(t)
 	actor := uuid.New()
@@ -2575,8 +2246,7 @@ func TestCrossTypeReferenceCollisionIsRejected(t *testing.T) {
 		t.Fatalf("create the epic: %v", err)
 	}
 
-	// The issue counter shares the epic's counter key, so the issue takes the
-	// next value rather than colliding. Its reference must be unique.
+	// The shared counter assigns the next value to the issue.
 	issueResult, err := env.Service.Create(env.Ctx, service.CreateInput{
 		ParentID: project.ID, ScopeID: project.ID, NodeTypeKey: "issue", Name: "Issue one", ActorID: actor,
 	})
@@ -2588,14 +2258,13 @@ func TestCrossTypeReferenceCollisionIsRejected(t *testing.T) {
 		t.Fatalf("FindDuplicateReferences: %v", err)
 	}
 	if len(duplicates) != 0 {
-		t.Fatalf("an epic and an issue in one project produced duplicates %+v; the shared counter did not hold", duplicates)
+		t.Fatalf("an epic and issue produced duplicates %+v; the shared counter did not prevent collisions", duplicates)
 	}
 	_ = issueResult
 }
 
-// TestScopeRewriteCannotProduceADuplicate is the second reproduction. Moving a
-// node into a scope whose counter already issued its number previously
-// collided silently. It must now fail the write.
+// TestScopeRewriteCannotProduceADuplicate verifies refusal when scope reassignment
+// would duplicate a number already allocated in the destination.
 func TestScopeRewriteCannotProduceADuplicate(t *testing.T) {
 	env := SetupTestEnv(t)
 	actor := uuid.New()
@@ -2616,8 +2285,8 @@ func TestScopeRewriteCannotProduceADuplicate(t *testing.T) {
 		t.Fatalf("create the migrant: %v", err)
 	}
 
-	// Both hold value 1 in their own project. Moving the migrant into the
-	// target project makes both render the same reference.
+	// Both nodes use sequence 1 in separate projects. A destination reassignment
+	// would make their rendered references identical.
 	stored, err := env.Stores.Nodes.Get(env.Ctx, env.OrgID, migrant.View.ID)
 	if err != nil || stored == nil {
 		t.Fatalf("read the migrant: %v", err)
@@ -2629,7 +2298,7 @@ func TestScopeRewriteCannotProduceADuplicate(t *testing.T) {
 	keys := []node.ReferenceKey{{TemplateName: "reference", Encoded: "DST-1"}}
 	err = env.Stores.Nodes.UpdateAtomic(env.Ctx, stored, nil, oldProps, nil, keys)
 	if err == nil {
-		t.Fatal("moving a node onto a taken reference: got nil error, want conflict")
+		t.Fatal("scope reassignment accepted a taken reference, want conflict")
 	}
 	if !errors.Is(err, domain.ErrConflict) {
 		t.Fatalf("UpdateAtomic error = %v, want a domain.ErrConflict", err)
@@ -2638,25 +2307,16 @@ func TestScopeRewriteCannotProduceADuplicate(t *testing.T) {
 }
 ```
 
-Add a `cloneTestProps` helper to the integration test helpers if one does not exist. The literal reference `DST-1` in the last assertion is the value the resident already holds; confirm it against the resident's rendered reference before asserting, and adjust if the seeded project identifier differs.
+Add cloneTestProps if absent. Confirm DST-1 against the resident's actual
+rendered reference and adjust the fixture assertion if its seeded project
+identifier differs. Require both tests to pass under make test-integration.
+Temporarily omit CreateAtomic's writeReferenceKeys invocation. The cross-type
+counter regression should still pass, while the scope-rewrite regression must
+fail. Restore the invocation and record both results. This verifies distinct
+counter and uniqueness-index responsibilities.
 
-- [ ] **Step 2: Run the test to verify it passes**
-
-Run: `make test-integration`
-
-Expected: PASS, both tests.
-
-- [ ] **Step 3: Confirm the tests are meaningful**
-
-Temporarily comment out the `writeReferenceKeys` call in `CreateAtomic` and rerun. Expected: `TestCrossTypeReferenceCollisionIsRejected` still passes, because the shared counter alone prevents that collision, and `TestScopeRewriteCannotProduceADuplicate` fails. Restore the line. Record both outcomes; they show the counter and the key each carry part of the guarantee.
-
-- [ ] **Step 4: Run the full suite**
-
-Run: `make test-unit` then `make test-integration` then `make build`
-
-Expected: all pass.
-
-- [ ] **Step 5: Commit**
+- [ ] Run make test-unit, make test-integration, and make build. Require success
+  and commit:
 
 ```bash
 git add internal/test/integration/reference_uniqueness_test.go
@@ -2665,94 +2325,70 @@ git commit -S -m "Add reference uniqueness end-to-end regression (TACK-342)
 Co-authored-by: Claude <noreply@anthropic.com>"
 ```
 
----
+## Task 10: Validate and repair deployment data
 
-### Task 10: QA validation, blast-radius audit, and production rollout
+Eight confirmed FAN duplicate references require repair. Determine whether
+other projects or organizations also contain duplicates and record the
+complete counts on TACK-342. Its existing description incorrectly reports four.
 
-**Files:** none. This task is operational.
-
-**Interfaces:**
-- Consumes: `reference.duplicates` (Task 6), `repair.reference_uniqueness` (Task 7).
-- Produces: the recorded duplicate count for every project in every org, written onto TACK-342.
-
-The eight confirmed duplicate references are all in the FAN project. Whether other projects carry the same condition is unknown. This task answers that.
-
-- [ ] **Step 1: Merge after the review gates**
-
-Confirm gpt-subagent, review-bugbot, and code-review approve, and CI is green, then merge to `main`.
-
-- [ ] **Step 2: Deploy to QA and run detect**
-
-Deploy the stack to `tack_qa` at the merged reference. Then run:
+1. Require gpt-subagent, review-bugbot, and code-review approval and passing CI
+   before merging main.
+2. Deploy the merged ref to tack_qa and record the detection count:
 
 ```bash
 docker compose run --rm tack-ops ops reference.duplicates
 ```
 
-Expected: the operation completes and reports a group count. Record it.
-
-- [ ] **Step 3: Run the repair on QA and confirm convergence**
+3. Repair QA and detect again:
 
 ```bash
 docker compose run --rm tack-ops ops repair.reference_uniqueness
 docker compose run --rm tack-ops ops reference.duplicates
 ```
 
-Expected: the second detect reports zero groups. Create a new issue through the MCP tools and rerun detect; expected zero groups, which proves the counter was seeded past the high-water mark.
+Require zero duplicate groups. Create an issue through MCP and require zero
+groups again to verify seeded counters.
 
-- [ ] **Step 4: Recreate QA and confirm a fresh environment is clean**
-
-Destroy and recreate `tack_qa`, run the first-boot sequence, then run detect. Expected: zero groups on a fresh seed.
-
-- [ ] **Step 5: Run detect against production, read-only**
+4. Destroy and recreate tack_qa, run first boot, and require zero groups from
+   its fresh seed.
+5. Run read-only production detection:
 
 ```bash
 docker compose run --rm tack-ops ops reference.duplicates
 ```
 
-Expected: at least the eight known FAN groups. Record every group, with its project, its rendered reference, and both node identifiers.
+Require at least the eight known FAN groups. Record each project, rendered
+reference, and both node identifiers.
 
-- [ ] **Step 6: Record the blast radius on TACK-342**
-
-Post a comment on TACK-342 listing every duplicate group found in production, grouped by project. State explicitly whether any project other than FAN is affected. Correct the ticket description, which records four duplicates; the verified FAN count is eight.
-
-- [ ] **Step 7: Run the repair against production**
-
-Renumbering changes references people may have written down. Take a fresh backup and confirm the restore drill passes first, per `docs/runbooks/recovery.md`.
+6. Attach every group to TACK-342 by project and state whether any non-FAN
+   project is affected. Correct the description's four-duplicate count to the
+   verified eight FAN groups.
+7. Renumbering changes references users may have saved. Take a fresh backup
+   and require a passing restore drill under the recovery runbook first:
 
 ```bash
 docker compose run --rm tack-ops ops repair.reference_uniqueness
 ```
 
-Review the printed rename mapping. Then rerun with the execute gate once the mapping is confirmed correct.
+Review the preview mapping, confirm it, and rerun with the execute gate.
 
-- [ ] **Step 8: Verify production and record the mapping**
+8. Require zero production groups and attach the complete old/new mapping.
+   FAN-29, FAN-30, FAN-31, and FAN-32 manually replaced formerly ambiguous
+   references. Resolve their canonical status with the operator: close as
+   superseded or retain as the authoritative records.
 
-Run detect again; expected zero groups. Post the complete old-to-new rename mapping as a comment on TACK-342.
+Task 8 changes counter-key layout for four seeded types. Existing environments
+must run repair.reference_uniqueness immediately after deployment, before the
+next create. Its first step seeds counters to existing maximum values; otherwise a
+new zero-based counter reissues occupied references.
 
-Confirm the four hand-created replacement issues are no longer needed: FAN-29, FAN-30, FAN-31, and FAN-32 each replace a reference that is now reachable. Decide with the operator whether to close them as superseded or keep them as the canonical record.
+## Task 11: Remove legacy scanning after backfill
 
----
+Require Task 10 step 8 and zero reference.duplicates groups on both production
+and QA before proceeding. Until then, legacy nodes without index entries still
+require the scan. Update resolve_typed.go and its tests.
 
-### Task 11: Remove the scan fallback
-
-**Files:**
-- Modify: `internal/adapters/mcp/tools/resolve_typed.go`
-- Modify: `internal/adapters/mcp/tools/resolve_typed_test.go`
-
-**Interfaces:**
-- Consumes: the point-read path (Task 5), the completed backfill (Task 10).
-- Produces: `resolveSequenceNodeID` resolving only through the reference key index.
-
-Run this task only after Task 10 step 8 confirms detect reports zero groups in production. Until then the fallback is the only path for a node whose reference key was never written.
-
-- [ ] **Step 1: Confirm the precondition**
-
-Run `reference.duplicates` against production and QA. Expected: zero groups in both. Do not proceed otherwise.
-
-- [ ] **Step 2: Delete the fallback**
-
-Remove `scanSequenceCandidates` from `internal/adapters/mcp/tools/resolve_typed.go`, and reduce `resolveSequenceNodeID` to the point-read path:
+- [ ] Delete scanSequenceCandidates and replace the sequence resolver:
 
 ```go
 func (r *Resolver) resolveSequenceNodeID(ctx context.Context, input string, typeKeys []string) (uuid.UUID, error) {
@@ -2776,19 +2412,11 @@ func (r *Resolver) resolveSequenceNodeID(ctx context.Context, input string, type
 }
 ```
 
-- [ ] **Step 3: Replace the fallback test**
-
-Delete `TestResolveSequenceNodeIDFailsLoudOnDuplicates` from `internal/adapters/mcp/tools/resolve_typed_test.go`. It tested behavior that no longer exists, and a test for removed behavior is worse than no test.
-
-Confirm `TestResolveTypedNodeIDSequenceStampsWorkspace` still covers the resolution path, updating its fake to serve the reference key rather than the property scan.
-
-- [ ] **Step 4: Run everything**
-
-Run: `make test-unit` then `make test-integration` then `make build`
-
-Expected: all pass.
-
-- [ ] **Step 5: Commit**
+- [ ] Delete TestResolveSequenceNodeIDFailsLoudOnDuplicates, which tests the
+  removed scan. Preserve TestResolveTypedNodeIDSequenceStampsWorkspace by
+  updating its existing fake to supply reference-index claims rather than scans.
+- [ ] Require make test-unit, make test-integration, and make build success.
+  Commit:
 
 ```bash
 git add internal/adapters/mcp/tools/resolve_typed.go internal/adapters/mcp/tools/resolve_typed_test.go
@@ -2797,31 +2425,9 @@ git commit -S -m "Remove the reference scan fallback now the index is backfilled
 Co-authored-by: Claude <noreply@anthropic.com>"
 ```
 
----
-
-## Self-review
-
-**Spec coverage.** Every design section maps to a task.
-
-| Spec section | Task |
-| --- | --- |
-| The declaration, part kinds | 1 |
-| Counter derivation rule | 1 (derivation), 4 (use), 7 (seeding) |
-| Enforcement, two key families | 2 (families and helpers), 3 (write paths) |
-| Resolution, point read plus fallback | 5 |
-| Seeded defaults | 8 |
-| Repair, detect | 6 |
-| Repair, renumber and `--keep` | 7 |
-| No forwarding record | 7, by construction; the repair writes no forwarding entry |
-| Testing, both reproductions | 9 |
-| Testing, template-driven assertions | 1, 4 |
-| Rollout steps 1 through 6 | 3, 6, 7, 10, 11 |
-| Work breakdown item 6, blast-radius audit | 10 |
-
-**Placeholder scan.** No TBD or TODO. Three steps record an expected intermediate failure rather than a pass, and each names the later task that resolves it: Task 6 step 4, Task 7 step 4, and Task 8 step 1. Task 9 step 1 flags one literal, `DST-1`, that must be confirmed against the seeded project identifier before asserting.
-
-**Type consistency.** `node.ReferenceKey{TemplateName, Encoded}` is defined in Task 2 and used in Tasks 3, 4, 7, and 9. `ReferenceTemplate.Render`, `Parse`, and `CounterKey` are defined in Task 1 and used in Tasks 4, 6, and 7. `PrimaryReferenceTemplate` is defined in Task 1 and used in Tasks 4, 5, and 7. `SetReferenceKeys`, `LookupReference`, `AllocateSequenceByKey`, and `SeedSequenceByKey` are declared in Task 2 and used in Tasks 4, 5, and 7. `FindDuplicateReferences` and `DuplicateReference` are defined in Task 6 and used in Tasks 7, 9, and 10. `scopeReferencesForView` is defined in Task 6 and used in Task 7. `RepairReferenceOptions.Keep` accepts the same two values in Task 7's constants, its tests, and the spec.
-
-**Signature changes.** `CreateAtomic` and `UpdateAtomic` both gain a `referenceKeys []ReferenceKey` parameter in Task 3. Task 3 step 5 requires fixing every call site. `Set` is unchanged by design.
-
-**Known risk.** Task 8 changes the counter key shape for the four seeded work-item types. Any environment that already holds nodes of those types must run `repair.reference_uniqueness` before the next create, or the newly derived counter starts at zero and reissues values in use. Task 7's counter seeding runs first inside the repair for exactly this reason, and Task 10 sequences the repair immediately after deploy on both QA and production.
+Tasks 1 and 2 define template and key interfaces; Tasks 3, 4, 5, 7, and 9 use
+the same ReferenceKey declarations. Task 3 requires every caller to accept
+referenceKeys while Set preserves its externally reconciled contract.
+Tasks 6 and 7 intentionally record missing-template failures before Task 8
+seeds declarations. The repair does not create forwarding records. Detection,
+renumbering, UUID resolution, and final removal retain the same template domain.

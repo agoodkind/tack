@@ -2,7 +2,6 @@ package postgres
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"net"
 	"strings"
@@ -10,21 +9,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgproto3"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// The ledger is reached over a multi-host connection string. Losing one data
-// guest black-holes its sockets rather than refusing them, so both a dial to
-// that guest and a ping on a connection already held to it hang until some
-// deadline fires. These tests stand that shape up over real loopback TCP.
-
-// blackHoleListener completes the TCP handshake and then never speaks the wire
-// protocol, which is what a stopped guest's address looks like while the kernel
-// still believes its neighbour entry. It holds every accepted connection open.
+// blackHoleListener accepts TCP connections without answering protocol messages.
+// Its open sockets simulate an unresponsive database host.
 type blackHoleListener struct {
 	listener net.Listener
-
 	mu       sync.Mutex
 	accepted []net.Conn
 }
@@ -51,169 +42,31 @@ func newBlackHoleListener(t *testing.T) *blackHoleListener {
 	return blackHole
 }
 
-func (b *blackHoleListener) serve() {
+func (listener *blackHoleListener) serve() {
 	for {
-		connection, err := b.listener.Accept()
+		connection, err := listener.listener.Accept()
 		if err != nil {
 			return
 		}
 
-		b.mu.Lock()
-		b.accepted = append(b.accepted, connection)
-		b.mu.Unlock()
+		listener.mu.Lock()
+		listener.accepted = append(listener.accepted, connection)
+		listener.mu.Unlock()
 	}
 }
 
-func (b *blackHoleListener) addr() string {
-	return b.listener.Addr().String()
+func (listener *blackHoleListener) addr() string {
+	return listener.listener.Addr().String()
 }
 
-func (b *blackHoleListener) acceptedCount() int {
-	b.mu.Lock()
-	defer b.mu.Unlock()
+func (listener *blackHoleListener) acceptedCount() int {
+	listener.mu.Lock()
+	defer listener.mu.Unlock()
 
-	return len(b.accepted)
+	return len(listener.accepted)
 }
 
-// fakeLedger speaks enough of the wire protocol to complete a startup and
-// answer the empty statement the pool uses as its liveness ping. goSilent makes
-// it stop answering while leaving the socket open, which is what a pooled
-// connection to a lost guest becomes.
-type fakeLedger struct {
-	listener   net.Listener
-	silent     chan struct{}
-	done       chan struct{}
-	silentOnce sync.Once
-	doneOnce   sync.Once
-
-	mu       sync.Mutex
-	accepted []net.Conn
-}
-
-func newFakeLedger(t *testing.T) *fakeLedger {
-	t.Helper()
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatalf("listen: %v", err)
-	}
-
-	ledger := &fakeLedger{
-		listener: listener,
-		silent:   make(chan struct{}),
-		done:     make(chan struct{}),
-	}
-	go ledger.serve()
-	t.Cleanup(ledger.shutdown)
-
-	return ledger
-}
-
-// shutdown drops every socket the fake holds. A silent fake must be shut down
-// before the pool is closed: closing a pool whose connections are black-holed
-// makes the driver wait out its own terminate timeout on each one.
-func (f *fakeLedger) shutdown() {
-	f.doneOnce.Do(func() { close(f.done) })
-	_ = f.listener.Close()
-	f.mu.Lock()
-	defer f.mu.Unlock()
-
-	for _, connection := range f.accepted {
-		_ = connection.Close()
-	}
-
-	f.accepted = nil
-}
-
-func (f *fakeLedger) addr() string {
-	return f.listener.Addr().String()
-}
-
-func (f *fakeLedger) goSilent() {
-	f.silentOnce.Do(func() { close(f.silent) })
-}
-
-func (f *fakeLedger) isSilent() bool {
-	select {
-	case <-f.silent:
-		return true
-	default:
-		return false
-	}
-}
-
-func (f *fakeLedger) serve() {
-	for {
-		connection, err := f.listener.Accept()
-		if err != nil {
-			return
-		}
-
-		f.mu.Lock()
-		f.accepted = append(f.accepted, connection)
-		f.mu.Unlock()
-		go f.serveConnection(connection)
-	}
-}
-
-func (f *fakeLedger) serveConnection(connection net.Conn) {
-	defer func() { _ = connection.Close() }()
-	backend := pgproto3.NewBackend(connection, connection)
-	if _, err := backend.ReceiveStartupMessage(); err != nil {
-		return
-	}
-
-	if f.isSilent() {
-		<-f.done
-		return
-	}
-
-	backend.Send(&pgproto3.AuthenticationOk{})
-	backend.Send(&pgproto3.ParameterStatus{
-		Name:  "client_encoding",
-		Value: "UTF8",
-	})
-	backend.Send(&pgproto3.ParameterStatus{
-		Name:  "standard_conforming_strings",
-		Value: "on",
-	})
-	backend.Send(&pgproto3.BackendKeyData{
-		ProcessID: 1,
-		SecretKey: make([]byte, 4),
-	})
-	backend.Send(&pgproto3.ReadyForQuery{TxStatus: 'I'})
-	if err := backend.Flush(); err != nil {
-		return
-	}
-
-	for {
-		message, err := backend.Receive()
-		if err != nil {
-			return
-		}
-
-		switch message.(type) {
-		case *pgproto3.Query:
-			if f.isSilent() {
-				// Hold the socket open and answer nothing, exactly as a
-				// black-holed connection to a lost guest behaves.
-				<-f.done
-				return
-			}
-
-			backend.Send(&pgproto3.RowDescription{Fields: []pgproto3.FieldDescription{}})
-			backend.Send(&pgproto3.CommandComplete{CommandTag: []byte("SELECT 0")})
-			backend.Send(&pgproto3.ReadyForQuery{TxStatus: 'I'})
-			if backend.Flush() != nil {
-				return
-			}
-		case *pgproto3.Terminate:
-			return
-		}
-	}
-}
-
-// deployDSN renders the connection string in the shape the deploy renders it:
-// the ledger hosts in preference order carrying the connect bound.
+// deployDSN formats hosts in preference order with a connection timeout.
 func deployDSN(connectTimeoutSeconds int, hosts ...string) string {
 	return fmt.Sprintf(
 		"postgres://tack@%s/tack?sslmode=disable&connect_timeout=%d",
@@ -222,56 +75,46 @@ func deployDSN(connectTimeoutSeconds int, hosts ...string) string {
 	)
 }
 
-// fakeLedgerDSN adds the exec mode the fake server understands. The fake
-// answers simple Query messages only.
+// fakeLedgerDSN selects the simple Query protocol that fakeLedger supports.
 func fakeLedgerDSN(connectTimeoutSeconds int, hosts ...string) string {
 	return deployDSN(connectTimeoutSeconds, hosts...) +
 		"&default_query_exec_mode=simple_protocol"
 }
 
-// configuredPool builds the pool configuration the same way NewPool does, so
-// these assertions run against the configuration the server actually opens.
+// configuredPool applies the production pool settings to a parsed DSN.
 func configuredPool(t *testing.T, dsn string) *pgxpool.Config {
 	t.Helper()
-	cfg, err := pgxpool.ParseConfig(dsn)
+	configuration, err := pgxpool.ParseConfig(dsn)
 	if err != nil {
 		t.Fatalf("parse %q: %v", dsn, err)
 	}
 
-	applyPoolSettings(cfg, nil)
+	applyPoolSettings(configuration, nil)
 
-	return cfg
+	return configuration
 }
 
-// The regression: with the first host black-holed, the pool must reach a
-// surviving host well inside the ten-second acceptance bound. With no connect
-// bound the dial to the first host waits out the kernel's TCP retry instead of
-// ever reaching the second.
-func TestNewPoolReachesASurvivingHostWhenTheFirstBlackHoles(t *testing.T) {
+// The pool must connect to a surviving host within five seconds when the first
+// host accepts TCP connections but does not answer PostgreSQL messages.
+func TestNewPoolConnectsToASurvivingHostWhenTheFirstBlackHoles(t *testing.T) {
 	blackHole := newBlackHoleListener(t)
 	live := newFakeLedger(t)
-
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-
 	startedAt := time.Now()
 	pool, err := NewPool(ctx, fakeLedgerDSN(1, blackHole.addr(), live.addr()), nil)
 	elapsed := time.Since(startedAt)
 	if err != nil {
-		t.Fatalf("open pool across a black-holed first host: %v", err)
+		t.Fatalf("open pool across an unresponsive first host: %v", err)
 	}
 
 	defer pool.Close()
-
 	if elapsed > 5*time.Second {
-		t.Fatalf(
-			"pool reached a surviving host after %s, want well inside the ten-second bound",
-			elapsed,
-		)
+		t.Fatalf("pool connected to a surviving host after %s, want at most five seconds", elapsed)
 	}
 
 	if blackHole.acceptedCount() == 0 {
-		t.Fatal("the black-holed host was never dialled, so this did not exercise failover")
+		t.Fatal("pool did not dial the unresponsive host; failover did not run")
 	}
 
 	if err := pool.Ping(ctx); err != nil {
@@ -279,18 +122,12 @@ func TestNewPoolReachesASurvivingHostWhenTheFirstBlackHoles(t *testing.T) {
 	}
 }
 
-// healthProbeDeadline is the deadline GET /healthz runs its probes under
-// (healthCheckTimeout in cmd/server/health.go), restated here because that
-// constant is private to its package.
+// healthProbeDeadline matches the private healthCheckTimeout in cmd/server.
 const healthProbeDeadline = 2 * time.Second
 
-// openPoolAcrossBlackHole opens a pool over a black-holed first host and a
-// live second host, then closes every pooled connection. The next Ping must
-// dial. The driver dials the hosts one at a time in list order and applies
-// the connect bound to each host. The dial spends the whole bound on the
-// black-holed host and then dials the live host. A /healthz probe makes this
-// same dial once the pool has retired its connections to a stopped ledger
-// guest.
+// openPoolAcrossBlackHole opens a pool with an unresponsive first host and a
+// live second host, then retires its connections. The next Ping must dial.
+// The driver applies the connection timeout to each host in preference order.
 func openPoolAcrossBlackHole(
 	t *testing.T,
 	connectTimeoutSeconds int,
@@ -298,16 +135,15 @@ func openPoolAcrossBlackHole(
 	t.Helper()
 	blackHole := newBlackHoleListener(t)
 	live := newFakeLedger(t)
-
-	openCtx, cancelOpen := context.WithTimeout(context.Background(), 30*time.Second)
+	openContext, cancelOpen := context.WithTimeout(context.Background(), 30*time.Second)
 	t.Cleanup(cancelOpen)
 	pool, err := NewPool(
-		openCtx,
+		openContext,
 		fakeLedgerDSN(connectTimeoutSeconds, blackHole.addr(), live.addr()),
 		nil,
 	)
 	if err != nil {
-		t.Fatalf("open pool across a black-holed first host: %v", err)
+		t.Fatalf("open pool across an unresponsive first host: %v", err)
 	}
 
 	t.Cleanup(pool.Close)
@@ -316,23 +152,18 @@ func openPoolAcrossBlackHole(
 	return pool, blackHole
 }
 
-// With the connect bound at one second the dial past the black-holed host
-// fits inside the health deadline: the probe answers 200 while a ledger guest
-// is stopped.
-func TestPoolPingReachesASurvivingHostInsideTheHealthDeadline(t *testing.T) {
+// A one-second connection timeout permits failover within the health deadline.
+func TestPoolPingConnectsToASurvivingHostInsideTheHealthDeadline(t *testing.T) {
 	pool, blackHole := openPoolAcrossBlackHole(t, 1)
 	dialsBefore := blackHole.acceptedCount()
-
-	pingCtx, cancelPing := context.WithTimeout(context.Background(), healthProbeDeadline)
+	pingContext, cancelPing := context.WithTimeout(context.Background(), healthProbeDeadline)
 	defer cancelPing()
-
 	startedAt := time.Now()
-	err := pool.Ping(pingCtx)
+	err := pool.Ping(pingContext)
 	elapsed := time.Since(startedAt)
-
-	t.Logf("ping across a black-holed first host at connect_timeout=1 answered in %s", elapsed)
+	t.Logf("ping across an unresponsive first host at connect_timeout=1 answered in %s", elapsed)
 	if err != nil {
-		t.Fatalf("ping across a black-holed first host after %s: %v", elapsed, err)
+		t.Fatalf("ping across an unresponsive first host after %s: %v", elapsed, err)
 	}
 
 	if elapsed >= healthProbeDeadline {
@@ -344,262 +175,6 @@ func TestPoolPingReachesASurvivingHostInsideTheHealthDeadline(t *testing.T) {
 	}
 
 	if blackHole.acceptedCount() == dialsBefore {
-		t.Fatal(
-			"the black-holed host was never dialled; this did not exercise the health probe's dial",
-		)
-	}
-}
-
-// The other half of the regression: a connection the pool already holds to a
-// host that has gone silent must be surfaced on the pool's own ping bound, not
-// on the caller's deadline. A /healthz probe carries a two-second deadline, so
-// a caller that spends its whole deadline per dead connection returns 503 for
-// as many probes as the pool holds connections.
-func TestPoolSurfacesASilentHeldConnectionWithoutSpendingTheCallerDeadline(t *testing.T) {
-	live := newFakeLedger(t)
-
-	openCtx, cancelOpen := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancelOpen()
-	pool, err := NewPool(openCtx, fakeLedgerDSN(1, live.addr()), nil)
-	if err != nil {
-		t.Fatalf("open pool: %v", err)
-	}
-
-	// The fake must drop its sockets before the pool closes; see shutdown.
-	defer func() {
-		live.shutdown()
-		pool.Close()
-	}()
-
-	live.goSilent()
-	// The pool only pings a connection idle for longer than a second, which is
-	// the state every connection is in behind a once-per-second probe.
-	time.Sleep(1500 * time.Millisecond)
-
-	const callerDeadline = 6 * time.Second
-	pingCtx, cancelPing := context.WithTimeout(context.Background(), callerDeadline)
-	defer cancelPing()
-
-	startedAt := time.Now()
-	err = pool.Ping(pingCtx)
-	elapsed := time.Since(startedAt)
-
-	if err == nil {
-		t.Fatal("ping against a silent host succeeded, want an error")
-	}
-
-	if elapsed >= callerDeadline {
-		t.Fatalf(
-			"ping spent the whole %s caller deadline (%s); the pool is not bounding its own ping",
-			callerDeadline,
-			elapsed,
-		)
-	}
-
-	// The pool's ping bound, plus one bounded dial to the same silent host.
-	if budget := acquirePingCeiling + 2*time.Second; elapsed > budget {
-		t.Fatalf("ping returned after %s, want within %s", elapsed, budget)
-	}
-}
-
-// The defect as measured on QA on 2026-09-20 (TACK-464), in the shape the QA
-// owner guest produced: the first host answered the four pooled connections
-// and then stopped; the second host stays live. The next pool Ping pings each
-// idle connection under the pool's bound and destroys it, and the driver's
-// close runs a cancel request against the dead host under a fifteen-second
-// deadline while the slot stays held. With all four slots held, the Ping
-// blocks on the pool's semaphore past the health deadline. A fresh dial from
-// the same connection configuration spends the connect bound on the stopped
-// host and answers from the live one inside the deadline.
-func TestPoolPingBlocksOnHeldSlotsAfterAGuestStopsWhileAFreshDialAnswers(t *testing.T) {
-	stopped := newFakeLedger(t)
-	live := newFakeLedger(t)
-
-	openCtx, cancelOpen := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancelOpen()
-	dsn := fakeLedgerDSN(1, stopped.addr(), live.addr()) + "&pool_max_conns=4"
-	pool, err := NewPool(openCtx, dsn, nil)
-	if err != nil {
-		t.Fatalf("open pool: %v", err)
-	}
-	// The silent fake must drop its sockets before the pool closes; see shutdown.
-	defer pool.Close()
-	defer stopped.shutdown()
-
-	held := make([]*pgxpool.Conn, 0, 4)
-
-	for i := range 4 {
-		conn, err := pool.Acquire(openCtx)
-		if err != nil {
-			t.Fatalf("acquire %d: %v", i, err)
-		}
-
-		held = append(held, conn)
-	}
-
-	for _, conn := range held {
-		conn.Release()
-	}
-
-	if idle := pool.Stat().IdleConns(); idle != 4 {
-		t.Fatalf("idle connections = %d, want 4 held to the first host", idle)
-	}
-
-	// The pool only pings a connection idle for longer than a second.
-	time.Sleep(1500 * time.Millisecond)
-	stopped.goSilent()
-
-	pooledCtx, cancelPooled := context.WithTimeout(context.Background(), healthProbeDeadline)
-	defer cancelPooled()
-	startedAt := time.Now()
-	err = pool.Ping(pooledCtx)
-	pooledElapsed := time.Since(startedAt)
-	t.Logf(
-		"pool Ping with four held slots to a stopped host returned after %s: %v",
-		pooledElapsed,
-		err,
-	)
-	if !errors.Is(err, context.DeadlineExceeded) {
-		t.Fatalf(
-			"pool Ping after %s = %v, want the %s health deadline to expire",
-			pooledElapsed,
-			err,
-			healthProbeDeadline,
-		)
-	}
-
-	freshCtx, cancelFresh := context.WithTimeout(context.Background(), healthProbeDeadline)
-	defer cancelFresh()
-	startedAt = time.Now()
-	err = PingFreshConnection(freshCtx, pool)
-	freshElapsed := time.Since(startedAt)
-	t.Logf("fresh dial past the stopped host answered in %s", freshElapsed)
-	if err != nil {
-		t.Fatalf("fresh dial past the stopped host after %s: %v", freshElapsed, err)
-	}
-
-	if freshElapsed >= healthProbeDeadline {
-		t.Fatalf(
-			"fresh dial answered after %s, want inside the %s health deadline",
-			freshElapsed,
-			healthProbeDeadline,
-		)
-	}
-}
-
-// The connect bound is the one lever the deploy can carry, and it is safe only
-// because the driver consumes it. Every connection-string key the driver does
-// not recognise is forwarded to the server as a startup parameter, and the
-// ledger's SQL layer is PostgreSQL 11 compatible: forwarding a key it does not
-// know is a FATAL on every connection, which is worse than the bug this fixes.
-// This pins that connect_timeout is consumed and never forwarded.
-func TestPoolConfigConsumesConnectTimeoutWithoutForwardingItToTheServer(t *testing.T) {
-	// Both shapes the deploy renders: the app gets a URL, and the ops sidecar
-	// gets keyword form because a URL rejects a comma list of bracketed IPv6
-	// hosts.
-	testCases := []struct {
-		name string
-		dsn  string
-	}{
-		{
-			name: "app URL form",
-			dsn:  deployDSN(2, "yb1:5433", "yb2:5433", "yb3:5433"),
-		},
-		{
-			name: "ops keyword form",
-			dsn: "host=yb1,yb2,yb3 port=5433 user=tack dbname=tack " +
-				"sslmode=disable connect_timeout=2",
-		},
-	}
-
-	for _, testCase := range testCases {
-		t.Run(
-			testCase.name,
-			func(t *testing.T) {
-				cfg := configuredPool(t, testCase.dsn)
-
-				if cfg.ConnConfig.ConnectTimeout != 2*time.Second {
-					t.Fatalf(
-						"ConnectTimeout = %s, want %s",
-						cfg.ConnConfig.ConnectTimeout,
-						2*time.Second,
-					)
-				}
-
-				for name, value := range cfg.ConnConfig.RuntimeParams {
-					t.Errorf(
-						"DSN key %q=%q is forwarded to the server as a startup parameter",
-						name,
-						value,
-					)
-				}
-
-				// The bound applies per host, so the surviving hosts stay reachable.
-				if len(cfg.ConnConfig.Fallbacks) != 2 {
-					t.Fatalf("fallback hosts = %d, want 2", len(cfg.ConnConfig.Fallbacks))
-				}
-			},
-		)
-	}
-}
-
-// The pool's ping bound guarantees one thing: a single caller retires every
-// dead connection in the pool inside the walk budget, whatever size the pool
-// resolved to. The pool sizes itself to the CPU count, and a constant bound
-// would scale the walk with the machine. The budget does not bound a health
-// probe: a destroyed connection's slot stays held while the driver cleans it
-// up, and the probe dials outside the pool for that reason (see
-// TestPoolPingBlocksOnHeldSlotsAfterAGuestStopsWhileAFreshDialAnswers).
-func TestPoolConfigBoundsTheFullPoolWalkUnderTheHealthDeadline(t *testing.T) {
-	cfg := configuredPool(t, deployDSN(2, "yb1:5433"))
-	if cfg.PingTimeout <= 0 {
-		t.Fatal("PingTimeout is unset, so a dead connection is surfaced on the caller's deadline")
-	}
-
-	if cfg.PingTimeout != acquirePingTimeoutFor(cfg.MaxConns) {
-		t.Fatalf(
-			"PingTimeout = %s, want %s for a pool of %d",
-			cfg.PingTimeout,
-			acquirePingTimeoutFor(cfg.MaxConns),
-			cfg.MaxConns,
-		)
-	}
-
-	if walk := time.Duration(cfg.MaxConns) * cfg.PingTimeout; walk > acquireWalkBudget {
-		t.Fatalf(
-			"walking all %d dead connections costs %s, past the %s walk budget",
-			cfg.MaxConns,
-			walk,
-			acquireWalkBudget,
-		)
-	}
-
-	// The derivation itself, across pool sizes: small pools cap at the
-	// ceiling, large pools divide the budget, absurd pools floor.
-	for _, tc := range []struct {
-		maxConns int32
-		want     time.Duration
-	}{
-		{maxConns: 1, want: acquirePingCeiling},
-		{maxConns: 4, want: acquirePingCeiling},
-		{maxConns: 8, want: acquireWalkBudget / 8},
-		{maxConns: 16, want: acquireWalkBudget / 16},
-		{maxConns: 128, want: acquirePingFloor},
-	} {
-		if got := acquirePingTimeoutFor(tc.maxConns); got != tc.want {
-			t.Errorf("acquirePingTimeoutFor(%d) = %s, want %s", tc.maxConns, got, tc.want)
-		}
-
-		if walk := time.Duration(tc.maxConns) * acquirePingTimeoutFor(
-			tc.maxConns,
-		); tc.maxConns <= 64 &&
-			walk > acquireWalkBudget {
-			t.Errorf(
-				"pool of %d walks dead in %s, past the %s budget",
-				tc.maxConns,
-				walk,
-				acquireWalkBudget,
-			)
-		}
+		t.Fatal("pool did not dial the unresponsive host; the health probe dial did not run")
 	}
 }

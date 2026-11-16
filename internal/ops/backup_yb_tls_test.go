@@ -9,20 +9,11 @@ import (
 	"goodkind.io/tack/internal/config"
 )
 
-// TestYBAdminClusterAccessCarriesCertificatesOnlyWhenTheClusterEncrypts pins
-// what the engine's administration tool is told about this environment. On a
-// plaintext cluster it gets the master addresses and nothing else, so no
-// one-shot mounts a directory that does not exist; on an encrypted cluster it
-// also gets the certificate directory as a flag and as a read-only mount at
-// the same path, which is the whole reason a backup can still reach the
-// cluster after TACK-460 (the tool speaks the cluster protocol, not SQL, so
-// the DSNs' sslmode does nothing for it).
-//
-// The third case is a half-configured host: encryption on, no directory
-// rendered. It must not invent a path, because a mount of a directory Docker
-// then creates empty would turn a clear connection failure into a confusing
-// certificate error.
-func TestYBAdminClusterAccessCarriesCertificatesOnlyWhenTheClusterEncrypts(t *testing.T) {
+// TestYBAdminClusterAccessAddsCertificatesForTLS checks
+// master-address arguments and TLS certificate flags with read-only mounts.
+// yb-admin uses the cluster protocol rather than SQL connection settings.
+// Missing directories must not create empty Docker mounts or invented paths.
+func TestYBAdminClusterAccessAddsCertificatesForTLS(t *testing.T) {
 	const masters = "yb1:7100,yb2:7100,yb3:7100"
 	const certsDir = "/etc/tack/ledger-certs"
 
@@ -86,11 +77,8 @@ func TestYBAdminClusterAccessCarriesCertificatesOnlyWhenTheClusterEncrypts(t *te
 	}
 }
 
-// TestYBDumpTransportVerifiesTheNodeOnlyWhenTheClusterEncrypts pins what the
-// schema and roles dumps are told. The dumpers take no connection-string flag,
-// so an encrypted ledger has to reach them through the environment; without
-// this they connect in the clear and an encrypted node refuses them, which
-// would fail the nightly export rather than a test.
+// TestYBDumpTransportVerifiesTheNodeOnlyWhenTheClusterEncrypts checks libpq
+// environment settings for schema and role dumps against TLS ledger nodes.
 func TestYBDumpTransportVerifiesTheNodeOnlyWhenTheClusterEncrypts(t *testing.T) {
 	const certsDir = "/etc/tack/ledger-certs"
 
@@ -116,10 +104,8 @@ func TestYBDumpTransportVerifiesTheNodeOnlyWhenTheClusterEncrypts(t *testing.T) 
 			wantBinds: []string{certsDir + ":" + certsDir + ":ro"},
 		},
 		{
-			// Fail closed: with no directory there is nothing to mount, so the
-			// mode alone goes in. Verification then has no authority to read
-			// and the connection fails, rather than falling back to the client
-			// library's default, which would accept an unverified one.
+			// Verification remains mandatory without a directory. Connection
+			// failure must replace the client's unverified default mode.
 			name:      "encrypted cluster with no directory rendered",
 			cfg:       &config.Config{LedgerTLSEnabled: true, LedgerCertsDir: ""},
 			wantEnv:   []string{"PGSSLMODE=verify-full"},
@@ -144,11 +130,9 @@ func TestYBDumpTransportVerifiesTheNodeOnlyWhenTheClusterEncrypts(t *testing.T) 
 	}
 }
 
-// TestRunYBDumpOneShotRefusesAnEncryptedLedgerWithNoCertificateDirectory pins
-// the fail-closed rule at the only place that can enforce it before a
-// container starts. A host whose ledger encrypts client traffic but whose
-// certificate directory is unset cannot verify the node, and an export that
-// ran anyway would ship an artifact taken over a connection nobody checked.
+// TestRunYBDumpOneShotRefusesAnEncryptedLedgerWithNoCertificateDirectory
+// checks rejection before container creation when node verification lacks a
+// certificate directory.
 func TestRunYBDumpOneShotRefusesAnEncryptedLedgerWithNoCertificateDirectory(t *testing.T) {
 	cfg := &config.Config{
 		LedgerTLSEnabled:        true,
@@ -159,22 +143,17 @@ func TestRunYBDumpOneShotRefusesAnEncryptedLedgerWithNoCertificateDirectory(t *t
 
 	err := runYBDumpOneShot(context.Background(), nil, cfg, t.TempDir(), spec)
 	if err == nil {
-		t.Fatal(
-			"runYBDumpOneShot returned no error for an encrypted ledger with no certificate directory",
-		)
+		t.Fatal("runYBDumpOneShot did not reject TLS without a certificate directory")
 	}
 
 	if !strings.Contains(err.Error(), "TACK_LEDGER_CERTS_DIR") {
-		t.Errorf("error = %q, want it to name the missing setting", err.Error())
+		t.Errorf("error = %q, want the missing setting", err.Error())
 	}
 }
 
-// TestLedgerCertificateSettingsTreatABlankDirectoryAsNone pins that a value
-// made of whitespace counts as no directory in every caller. The value is
-// rendered into an environment file where a stray space is invisible, and a
-// path of spaces would otherwise mount nothing and be handed to the engine's
-// tools as if it were real. Found in review of this branch.
-func TestLedgerCertificateSettingsTreatABlankDirectoryAsNone(t *testing.T) {
+// TestLedgerCertificateSettingsRejectBlankDirectory checks that
+// whitespace-only values cannot create certificate mounts or tool arguments.
+func TestLedgerCertificateSettingsRejectBlankDirectory(t *testing.T) {
 	cfg := &config.Config{
 		LedgerTLSEnabled:        true,
 		LedgerCertsDir:          "   ",
@@ -183,11 +162,11 @@ func TestLedgerCertificateSettingsTreatABlankDirectoryAsNone(t *testing.T) {
 
 	args, binds := ybAdminClusterAccess(cfg)
 	if slices.Contains(args, "--certs_dir_name") {
-		t.Errorf("args = %v, want no certificate flag for a blank directory", args)
+		t.Errorf("args = %v, certificate flag must not use a blank directory", args)
 	}
 
 	if len(binds) != 0 {
-		t.Errorf("binds = %v, want none for a blank directory", binds)
+		t.Errorf("binds = %v, want an empty list for a blank directory", binds)
 	}
 
 	env, dumpBinds := ybDumpTransport(cfg)
@@ -196,11 +175,11 @@ func TestLedgerCertificateSettingsTreatABlankDirectoryAsNone(t *testing.T) {
 	}
 
 	if len(dumpBinds) != 0 {
-		t.Errorf("dump binds = %v, want none for a blank directory", dumpBinds)
+		t.Errorf("dump binds = %v, want an empty list for a blank directory", dumpBinds)
 	}
 
 	spec := ybDumpSpec{label: "schema", failEvent: "backup.yb_snapshot.schema_failed"}
 	if err := runYBDumpOneShot(context.Background(), nil, cfg, t.TempDir(), spec); err == nil {
-		t.Error("runYBDumpOneShot returned no error for a blank certificate directory")
+		t.Error("runYBDumpOneShot did not reject a blank certificate directory")
 	}
 }

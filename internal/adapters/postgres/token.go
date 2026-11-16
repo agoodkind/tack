@@ -23,10 +23,10 @@ func NewTokenRepo(db *pgxpool.Pool) *TokenRepo {
 	return &TokenRepo{db: db}
 }
 
-// Validate looks up a raw Bearer token and returns the token record. It is a
-// read: the token's last use is projected by the audit-consumer from the auth
-// event the request records, so no request writes the token table (TACK-502).
-// Returns domain.ErrUnauthenticated if not found or expired.
+// Validate reads a raw bearer token without updating the token table.
+// The audit-consumer projects last use from the request's auth event
+// (TACK-502).
+// Missing or expired tokens return domain.ErrUnauthenticated.
 func (r *TokenRepo) Validate(ctx context.Context, raw string) (*token.Token, error) {
 	const q = `
 		SELECT id, user_id, label, last_used, expires_at, created_at
@@ -88,8 +88,8 @@ func (r *TokenRepo) List(ctx context.Context, userID uuid.UUID) ([]*token.Token,
 	return tokens, rows.Err()
 }
 
-// GetByID returns one token record by primary key without touching last_used.
-// Returns domain.ErrNotFound when no row carries the id.
+// GetByID returns one token record by primary key without updating last_used.
+// It returns domain.ErrNotFound when the ID does not match a row.
 func (r *TokenRepo) GetByID(ctx context.Context, id uuid.UUID) (*token.Token, error) {
 	const q = `
 		SELECT id, user_id, label, last_used, expires_at, created_at

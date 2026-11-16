@@ -7,9 +7,8 @@ import (
 	"time"
 )
 
-// describeWindow renders `fdbbackup describe --version-timestamps` output for
-// one backup in the shape foundationdb 7.4.6 prints, so each session's window
-// is read through the real parser rather than handed to the selection.
+// describeWindow reproduces FoundationDB 7.4.6 describe output for the
+// production window parser.
 func describeWindow(minStamp, maxStamp string) string {
 	return "URL: " + drillDestURL + "\n" +
 		"Restorable: true\n" +
@@ -19,10 +18,8 @@ func describeWindow(minStamp, maxStamp string) string {
 		"MaxRestorableVersion:    100731044 (" + maxStamp + ")\n"
 }
 
-// storeDescribes stands in for the describe exec over a store holding several
-// backup sessions: each name maps to the describe output the engine would print
-// for it, or to an error where the describe would fail. It counts what it was
-// asked so a test can see which sessions were read.
+// storeDescribes supplies engine output or errors per session and records
+// description requests and skips for selection assertions.
 type storeDescribes struct {
 	outputs map[string]string
 	failing map[string]error
@@ -43,12 +40,9 @@ func (s *storeDescribes) skip(name, reason string) {
 	s.skipped = append(s.skipped, name+": "+reason)
 }
 
-// TestChooseFDBBackupForTargetTakesAnOlderSessionThatCoversTheTarget is the
-// defect this file exists for. The window check consulted the newest backup
-// only, so a moment retained by an older session was refused whenever the
-// newest session's window began after it. Two sessions exist below because
-// the continuous backup was started twice; the target falls inside the older
-// one's window and before the newer one's, and must restore from the older.
+// TestChooseFDBBackupForTargetTakesAnOlderSessionThatCoversTheTarget checks
+// selection from two continuous-backup sessions when only the older window
+// includes the requested time.
 func TestChooseFDBBackupForTargetTakesAnOlderSessionThatCoversTheTarget(t *testing.T) {
 	store := &storeDescribes{
 		outputs: map[string]string{
@@ -74,7 +68,7 @@ func TestChooseFDBBackupForTargetTakesAnOlderSessionThatCoversTheTarget(t *testi
 		store.skip,
 	)
 	if err != nil {
-		t.Fatalf("a target the older session retains must not be refused: %v", err)
+		t.Fatalf("a target retained by the older session must succeed: %v", err)
 	}
 
 	if name != "20260829T000000Z" {
@@ -82,17 +76,16 @@ func TestChooseFDBBackupForTargetTakesAnOlderSessionThatCoversTheTarget(t *testi
 	}
 
 	if !window.Min.Equal(time.Date(2026, 8, 29, 0, 0, 0, 0, time.UTC)) {
-		t.Fatalf("the window returned is not the chosen session's: %s", formatFDBTime(window.Min))
+		t.Fatalf("returned window differs from the chosen session: %s", formatFDBTime(window.Min))
 	}
 
 	if len(store.skipped) != 1 || !strings.HasPrefix(store.skipped[0], "20260830T000000Z: ") {
-		t.Fatalf("the newer session must be passed over with its reason, got %v", store.skipped)
+		t.Fatalf("the newer session must include a skip reason, got %v", store.skipped)
 	}
 }
 
-// TestChooseFDBBackupForTargetStopsAtTheNewestCoveringSession settles what
-// happens when more than one session covers the target: the newest is used,
-// and the search stops there, so the older session is never described.
+// TestChooseFDBBackupForTargetStopsAtTheNewestCoveringSession checks selection
+// of the newest covering session without inspecting an older covering session.
 func TestChooseFDBBackupForTargetStopsAtTheNewestCoveringSession(t *testing.T) {
 	store := &storeDescribes{
 		outputs: map[string]string{
@@ -118,21 +111,20 @@ func TestChooseFDBBackupForTargetStopsAtTheNewestCoveringSession(t *testing.T) {
 		store.skip,
 	)
 	if err != nil {
-		t.Fatalf("a target both sessions cover must not be refused: %v", err)
+		t.Fatalf("a target included in both windows must succeed: %v", err)
 	}
 
 	if name != "20260830T000000Z" {
-		t.Fatalf("chose %q, want the newest of the sessions that cover the target", name)
+		t.Fatalf("chose %q, want the newest covering session", name)
 	}
 
 	if len(store.asked) != 1 || store.asked[0] != "20260830T000000Z" {
-		t.Fatalf("the search must stop at the newest covering session, described %v", store.asked)
+		t.Fatalf("selection must stop after the newest covering session, read %v", store.asked)
 	}
 }
 
-// TestChooseFDBBackupForTargetPassesOverASessionItCannotDescribe proves a
-// session whose window cannot be read does not end the search, since an older
-// session may still cover the target, and that its reason is kept.
+// TestChooseFDBBackupForTargetPassesOverASessionItCannotDescribe checks that
+// an unreadable window records a reason and permits an older covering backup.
 func TestChooseFDBBackupForTargetPassesOverASessionItCannotDescribe(t *testing.T) {
 	store := &storeDescribes{
 		outputs: map[string]string{
@@ -156,26 +148,21 @@ func TestChooseFDBBackupForTargetPassesOverASessionItCannotDescribe(t *testing.T
 		store.skip,
 	)
 	if err != nil {
-		t.Fatalf("an older session that covers the target must be taken: %v", err)
+		t.Fatalf("an older covering session must succeed: %v", err)
 	}
 
 	if name != "20260829T000000Z" {
-		t.Fatalf("chose %q, want the session that could be described and covers the target", name)
+		t.Fatalf("chose %q, want the readable covering session", name)
 	}
 
 	if len(store.skipped) != 1 || !strings.Contains(store.skipped[0], "no such backup") {
-		t.Fatalf(
-			"the unreadable session must be passed over with its reason, got %v",
-			store.skipped,
-		)
+		t.Fatalf("the unreadable session must include a skip reason, got %v", store.skipped)
 	}
 }
 
-// TestChooseFDBBackupForTargetNamesEverySessionWhenNoneCovers proves the
-// refusal an operator gets when no session reaches the moment: every session
-// is named with its window, or with why it could not be read, so a reachable
-// moment can be picked.
-func TestChooseFDBBackupForTargetNamesEverySessionWhenNoneCovers(t *testing.T) {
+// TestChooseFDBBackupForTargetReportsEveryExcludedSession checks that refusal
+// includes the target and every session's window or read failure.
+func TestChooseFDBBackupForTargetReportsEveryExcludedSession(t *testing.T) {
 	store := &storeDescribes{
 		outputs: map[string]string{
 			"20260829T000000Z": describeWindow(
@@ -206,7 +193,7 @@ func TestChooseFDBBackupForTargetNamesEverySessionWhenNoneCovers(t *testing.T) {
 		store.skip,
 	)
 	if err == nil {
-		t.Fatalf("a target no session covers must be refused, chose %q", name)
+		t.Fatalf("a target outside every window must fail, chose %q", name)
 	}
 
 	for _, want := range []string{
@@ -216,11 +203,7 @@ func TestChooseFDBBackupForTargetNamesEverySessionWhenNoneCovers(t *testing.T) {
 		"20260828T000000Z: fdbbackup describe exited 1: expired",
 	} {
 		if !strings.Contains(err.Error(), want) {
-			t.Fatalf(
-				"the refusal must carry %q so the operator can pick a reachable moment, got: %v",
-				want,
-				err,
-			)
+			t.Fatalf("the refusal must include %q for target selection, got: %v", want, err)
 		}
 	}
 }

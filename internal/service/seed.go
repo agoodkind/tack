@@ -313,16 +313,12 @@ func applyDefaultSearchProjections(definitions []*node.PropertyDef) error {
 	return nil
 }
 
-// scopedSequenceTemplate is the reference template the seed writes for
-// work-item types: the enclosing scope's reference, a hyphen, then a generated
-// sequence. The node type is absent, so every type carrying this template in one
-// scope shares a single numbering space.
-//
-// This is seed data, not an engine default: the engine supplies no template of
-// its own, and a type with no template carries no constraint. SeedOrg reapplies
-// every built-in NodeType field on reseed, this template included, so an org's
-// edit to a built-in type survives only until the next reseed. A durable custom
-// reference shape belongs on an org-defined type, which the seed never touches.
+// scopedSequenceTemplate joins the scope reference, a hyphen, and a generated
+// sequence. Types using this template share numbering within each scope because
+// the template omits the node type.
+// The engine does not supply a default template or constrain types without one.
+// SeedOrg overwrites built-in templates on reseed. Org-defined types preserve
+// custom templates because the seed does not update those types.
 func scopedSequenceTemplate() []node.ReferenceTemplate {
 	return []node.ReferenceTemplate{
 		{

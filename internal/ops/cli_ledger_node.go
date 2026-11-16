@@ -14,8 +14,8 @@ import (
 // ledgerNodeTarget is the external target reference of the local ledger node.
 const ledgerNodeTarget = "docker/" + yugabyteBackupContainer
 
-// ledgerNodeWaitInput contains the two windows of the wait, as durations in
-// Go syntax (5m, 10s).
+// ledgerNodeWaitInput specifies stall and poll durations in Go syntax, such as
+// 5m and 10s.
 type ledgerNodeWaitInput struct {
 	Stall string `json:"stall"`
 	Poll  string `json:"poll"`
@@ -23,20 +23,19 @@ type ledgerNodeWaitInput struct {
 
 func (ledgerNodeWaitInput) isCommandInput() {}
 
-// ledgerNodePrepareCommand builds `ops ledger node-prepare`. With --execute,
-// the command records the observed node state and any change as one external
-// step. Without --execute, it records the read of the node state and prints
-// the planned change.
+// ledgerNodePrepareCommand records observed state and changes as an external
+// step with --execute. Without it, the command records a read and prints the
+// plan.
 func ledgerNodePrepareCommand(f *cli.Factory) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "node-prepare",
-		Short: "Align this guest's ledger node saved master list with the environment before it starts",
-		Long: "Reads the node's saved launcher config out of its container, compares " +
-			"its master list with the names in TACK_LEDGER_NODE_HOSTS, and when they " +
-			"differ rewrites the list and stops the container. The next compose up " +
-			"starts the node against the right masters. Prints changed, unchanged, or " +
-			"absent (no container or no saved config). Without --execute it reports " +
-			"and writes nothing.",
+		Short: "Align this guest's saved ledger master list before startup",
+		Long: "Read the node's saved launcher config using the container API and " +
+			"compare its master list with TACK_LEDGER_NODE_HOSTS. If they differ, " +
+			"rewrite the list and stop the container. The next compose up starts " +
+			"the node with the configured masters. The result is changed, unchanged, " +
+			"or absent if the container or config does not exist. Without --execute, " +
+			"the command reports planned changes without writing them.",
 		Args: cobra.NoArgs,
 	}
 	spec := externalSpec(audit.VerbOpsLedgerNodePrepare, ledgerNodeTarget)
@@ -56,8 +55,8 @@ func ledgerNodePrepareCommand(f *cli.Factory) *cobra.Command {
 	return cmd
 }
 
-// ledgerNodeWaitCommand builds `ops ledger node-wait`. With --execute, the
-// command records the wait as one external step with the observed health.
+// ledgerNodeWaitCommand records the wait and observed health as one external
+// step when the operator supplies --execute.
 func ledgerNodeWaitCommand(f *cli.Factory) *cobra.Command {
 	in := ledgerNodeWaitInput{
 		Stall: ledgerNodeWaitDefaultStall.String(),
@@ -65,19 +64,19 @@ func ledgerNodeWaitCommand(f *cli.Factory) *cobra.Command {
 	}
 	cmd := &cobra.Command{
 		Use:   "node-wait",
-		Short: "Wait until this guest's ledger node is healthy, bounded by inactivity rather than a clock",
-		Long: "Polls the node's container health and the master quorum's dead node and " +
-			"under-replicated tablet counts. A count that falls is progress; the wait " +
-			"fails only when nothing has moved for the stall window or the container " +
-			"stops. The wait does not bound the total time, and a node replaying a large log " +
-			"waits for as long as it needs.",
+		Short: "Wait for ledger node health with a limit on inactivity",
+		Long: "Poll container health and the master quorum's dead-node and " +
+			"under-replicated tablet counts. A decreasing count indicates progress. " +
+			"The wait fails if counts do not improve during the stall window or " +
+			"the container stops. The wait does not limit total recovery time; " +
+			"a node can continue replaying a large log while it makes progress.",
 		Args: cobra.NoArgs,
 	}
 	cmd.Flags().StringVar(
 		&in.Stall,
 		"stall",
 		ledgerNodeWaitDefaultStall.String(),
-		"how long with no progress before the wait fails",
+		"maximum duration without progress before the wait fails",
 	)
 	cmd.Flags().StringVar(
 		&in.Poll,

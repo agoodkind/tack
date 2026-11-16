@@ -18,25 +18,22 @@ import (
 )
 
 const (
-	// ledgerService is the stack file service whose image the ledger runs.
+	// ledgerService identifies the stack service that specifies the ledger image.
 	ledgerService = "yugabyte"
 	// ledgerPort is the engine's YSQL port.
 	ledgerPort = "5433"
-	// ledgerAdminUser is the engine superuser the container is started with.
+	// ledgerAdminUser identifies the engine superuser at container startup.
 	ledgerAdminUser = "yugabyte"
-	// ledgerDatabase is the database the container creates at start and the
-	// one the migrations run in. It answers only once the engine has applied
-	// the password, so readiness is probed against it.
+	// ledgerDatabase specifies the database for migrations and readiness probes.
+	// It accepts connections after the engine applies the password.
 	ledgerDatabase = "tack"
 	// ledgerProbeTimeout bounds one readiness probe.
 	ledgerProbeTimeout = 10 * time.Second
 )
 
-// ledgerCommand starts a single-node engine. One tablet per table on the one
-// tablet server, where the engine's default sizes by core count, keeps each
-// migration's many CREATE TABLE statements, and the weekly partitions behind
-// them, from creating tablets by the dozen; the test ledger carries a few
-// rows per test, so tablet count changes nothing the tests observe.
+// ledgerCommand starts a single-node engine with one tablet per table.
+// Tests store few rows and do not require the core-based default tablet count
+// for tables and weekly partitions.
 var ledgerCommand = []string{
 	"/home/yugabyte/bin/yugabyted",
 	"start",
@@ -85,8 +82,8 @@ func ledgerPlatform(ctx context.Context, cli *client.Client) (*ocispec.Platform,
 }
 
 // provisionLedger starts this process's ledger engine, migrates it, and
-// returns its connection string. The superuser credential is generated here
-// and lives only in the container's environment and the returned DSN.
+// returns its connection string. The function generates a superuser credential
+// and stores it only in the container environment and returned DSN.
 func provisionLedger(ctx context.Context) (string, error) {
 	image, err := serviceImage(ctx, ledgerService)
 	if err != nil {
@@ -164,9 +161,9 @@ func waitForLedger(ctx context.Context, dsn string) error {
 	}
 }
 
-// probeLedger makes one bounded connection and query against the engine. A
-// failed probe is expected while the engine starts, so it logs at debug and
-// returns the reason as text for the final deadline error to carry.
+// probeLedger attempts a connection and query within a timeout. Startup
+// failures produce debug logs and return error text for the final deadline
+// error.
 func probeLedger(ctx context.Context, dsn string) error {
 	probeCtx, cancel := context.WithTimeout(ctx, ledgerProbeTimeout)
 	defer cancel()

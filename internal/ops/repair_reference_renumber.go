@@ -27,10 +27,9 @@ func renumberDuplicateGroup(
 			return ordered[i].String() < ordered[j].String()
 		},
 	)
-	// UUIDv7 sorts by creation time, so ascending order is oldest first. The
-	// retained node is selected by index rather than by rotating the slice: a
-	// rotation of three or more nodes would retain the second-oldest instead
-	// of the newest.
+	// UUIDv7 ascending order lists the oldest node first. Select the retained
+	// node by index; rotating three or more nodes would retain the second-oldest
+	// instead of the newest.
 	retainIndex := 0
 	if opts.Keep == keepNewest {
 		retainIndex = len(ordered) - 1
@@ -54,11 +53,9 @@ func renumberDuplicateGroup(
 // renumberGroupNodes renames every node in the group except the one at
 // retainIndex, and returns the renames it applied even when one fails.
 //
-// Each rename lands in its own FoundationDB transaction, so the ones before a
-// failure are live in the store. Returning nil on the first failure, which is
-// what this did, discarded them and left applied mutations with no ledger row
-// naming them; a rerun cannot recover the record either, because a renamed
-// node is no longer a duplicate and never appears in a later plan (TACK-452).
+// Each rename commits in a separate FoundationDB transaction. Return earlier
+// renames on failure for audit recording. A rerun cannot recover that evidence
+// because renamed nodes no longer appear in the duplicate plan (TACK-452).
 func renumberGroupNodes(
 	ordered []uuid.UUID,
 	retainIndex int,
@@ -256,12 +253,24 @@ func repairReferenceTemplate(
 
 	template := nodeType.PrimaryReferenceTemplate()
 	if template == nil || template.Generated == "" {
-		return nil, nil, nil, fmt.Errorf(
-			"node type %q has no generated primary reference for node %s",
-			nodeType.TypeKey,
-			view.ID,
-		)
+		return nil, nil, nil, generatedPrimaryReferenceMissingError{
+			NodeType: nodeType.TypeKey,
+			NodeID:   view.ID,
+		}
 	}
 
 	return nodeType, template, typeIndex, nil
+}
+
+type generatedPrimaryReferenceMissingError struct {
+	NodeType string
+	NodeID   uuid.UUID
+}
+
+func (failure generatedPrimaryReferenceMissingError) Error() string {
+	return fmt.Sprintf(
+		"node type %q does not define a generated primary reference for node %s",
+		failure.NodeType,
+		failure.NodeID,
+	)
 }

@@ -9,17 +9,15 @@ import (
 	"time"
 )
 
-// refusingWriter is an output stream that accepts nothing, the shape of a
-// closed stdout under a service manager.
+// refusingWriter simulates failed stdout writes under a service manager.
 type refusingWriter struct{ err error }
 
 func (w refusingWriter) Write([]byte) (int, error) { return 0, w.err }
 
-// TestBackupStalenessAlarmMailsWhenTheReportCannotBeWritten pins that the mail
-// does not depend on stdout. A stale reading whose report write fails still
-// mails once and still returns the stale verdict, not the write error; a fresh
-// reading whose report write fails returns the write error and mails nothing.
-func TestBackupStalenessAlarmMailsWhenTheReportCannotBeWritten(t *testing.T) {
+// TestBackupAlarmHandlesReportWriteFailure checks email and stale-verdict
+// precedence when stdout fails. Fresh runs must instead return the write error
+// without sending email.
+func TestBackupAlarmHandlesReportWriteFailure(t *testing.T) {
 	now := time.Date(2026, 8, 29, 12, 0, 0, 0, time.UTC)
 	fixBackupStalenessClock(t, now)
 	captured := captureBackupAlarmSends(t, nil)
@@ -33,18 +31,15 @@ func TestBackupStalenessAlarmMailsWhenTheReportCannotBeWritten(t *testing.T) {
 	}
 
 	if !strings.Contains(err.Error(), "past threshold") || errors.Is(err, writeErr) {
-		t.Fatalf("a stale run must return the staleness verdict, not the write error: %v", err)
+		t.Fatalf("stale runs must return the stale verdict instead of the write error: %v", err)
 	}
 
 	if len(captured.messages) != 1 {
-		t.Fatalf(
-			"the fault must mail even though the report could not be written, sent %d",
-			len(captured.messages),
-		)
+		t.Fatalf("report failure must not prevent fault email, sent %d", len(captured.messages))
 	}
 
 	if alarmed, found := alarmedBackupMetrics(t, staleCfg); !found || len(alarmed) != 3 {
-		t.Fatalf("an accepted mail must be remembered, found = %v state = %v", found, alarmed)
+		t.Fatalf("state must record acceptance, found = %v state = %v", found, alarmed)
 	}
 
 	objects := ybExportRunObjects(
@@ -77,13 +72,10 @@ func TestBackupStalenessAlarmMailsWhenTheReportCannotBeWritten(t *testing.T) {
 	seesHealthyCluster(t, freshCfg)
 	err = RunBackupStalenessCheck(context.Background(), freshCfg, out)
 	if !errors.Is(err, writeErr) {
-		t.Fatalf(
-			"a fresh run whose report cannot be written must return the write error, got %v",
-			err,
-		)
+		t.Fatalf("fresh runs must return the report write error, got %v", err)
 	}
 
 	if len(captured.messages) != 1 {
-		t.Fatalf("a fresh run must mail nothing, sent %d in total", len(captured.messages))
+		t.Fatalf("a fresh run must not send email, sent %d total", len(captured.messages))
 	}
 }

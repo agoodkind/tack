@@ -9,7 +9,7 @@ import (
 	"github.com/google/uuid"
 )
 
-// contextBeforeTokenID is EventContext as the writer marshalled it before
+// contextBeforeTokenID is EventContext as the writer marshaled it before
 // f48a5a6 (TACK-502) added the token id.
 type contextBeforeTokenID struct {
 	OrgID       uuid.UUID `json:"org_id"`
@@ -24,9 +24,8 @@ type contextBeforeTokenID struct {
 	Reason      string    `json:"reason,omitempty"`
 }
 
-// contextWithOmitemptyTokenID is EventContext as the writer marshalled it from
-// f48a5a6 until TACK-514: omitempty on an array never omits, so a zero token
-// id was written as an explicit zero UUID.
+// contextWithOmitemptyTokenID reproduces encoding from f48a5a6 until TACK-514.
+// omitempty does not omit a zero UUID array; that encoding included it explicitly.
 type contextWithOmitemptyTokenID struct {
 	contextBeforeTokenID
 
@@ -48,8 +47,8 @@ func contextBeforeTokenIDFrom(context EventContext) contextBeforeTokenID {
 	}
 }
 
-// chainTokenIDTestRows builds one chain of rows, each hashed from the context
-// bytes its writer produced, and links every row to its predecessor.
+// chainTokenIDTestRows hashes each supplied context encoding and links every
+// row to its predecessor.
 func chainTokenIDTestRows(t *testing.T, rows []Row, contexts [][]byte) []Row {
 	t.Helper()
 	var prev []byte
@@ -122,7 +121,7 @@ func tokenIDTestRow(orgID uuid.UUID, action string, version int16, tokenID uuid.
 	}
 }
 
-// tokenIDTestContext is every context encoding the ledger's writers used.
+// tokenIDTestContext defines the historical and current context encodings.
 type tokenIDTestContext interface {
 	contextBeforeTokenID | contextWithOmitemptyTokenID | EventContext
 }
@@ -137,10 +136,9 @@ func marshalTokenIDTestContext[C tokenIDTestContext](t *testing.T, context C) []
 	return encoded
 }
 
-// TestVerifyBundleAcceptsEveryTokenIDEncodingTheLedgerWrote pins TACK-514: one
-// chain holds rows hashed without the token id key (before TACK-502), with an
-// explicit zero token id (f48a5a6 until TACK-514), with a real token id, and
-// as the writer encodes a context today. Every row must verify.
+// TestVerifyBundleAcceptsEveryTokenIDEncodingTheLedgerWrote checks one chain
+// with omitted IDs, historical explicit zero IDs, nonzero IDs, and current
+// omission rules (TACK-514). Every historical encoding must verify.
 func TestVerifyBundleAcceptsEveryTokenIDEncodingTheLedgerWrote(t *testing.T) {
 	orgID := uuid.Must(uuid.NewV7())
 	tokenID := uuid.Must(uuid.NewV7())
@@ -153,7 +151,7 @@ func TestVerifyBundleAcceptsEveryTokenIDEncodingTheLedgerWrote(t *testing.T) {
 	}
 	currentContext := marshalTokenIDTestContext(t, rows[4].Context)
 	if strings.Contains(string(currentContext), "api_token_id") {
-		t.Fatalf("current context encoding %s carries a zero token id", currentContext)
+		t.Fatalf("current context encoding %s includes an unexpected zero token ID", currentContext)
 	}
 
 	contexts := [][]byte{

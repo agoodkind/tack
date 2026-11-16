@@ -9,7 +9,12 @@ import (
 )
 
 // runReadOperation records the attempted read before writing command output.
-func runReadOperation[I Input](ctx context.Context, f *cli.Factory, op Operation[I], in I) error {
+func runReadOperation[OperationInput Input](
+	ctx context.Context,
+	f *cli.Factory,
+	op Operation[OperationInput],
+	in OperationInput,
+) error {
 	input, err := json.Marshal(in)
 	if err != nil {
 		return loggedAuditError(ctx, "encode command input", err)

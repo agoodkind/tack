@@ -1,25 +1,13 @@
--- Move ownership of the ops outbox off audit_writer.
+-- Give ops_outbox_owner ownership of the operator outbox.
+-- Table owners can insert rows and drop tables regardless of grants.
+-- The relay inherits audit_writer; it must not own the table.
+-- ops_outbox_owner cannot log in and does not grant membership to any role.
+-- audit_operator permits operator commands to INSERT only.
+-- audit_writer permits the relay to SELECT and DELETE only.
 --
--- Migration 005 made audit_writer the table owner. The relay inherits that
--- role, and a table owner may write and drop regardless of grants, so the
--- read-and-delete grant that looked like the protection was decorative: the
--- relay could have inserted audit events no operator ever performed, into the
--- table that feeds the compliance ledger, and could have dropped the table.
---
--- This is a new migration rather than an edit to 005 because goose records
--- applied versions and never re-runs one. Editing 005 would have fixed only a
--- database created after the edit and left every existing deployment, testbed
--- and production alike, on the old ownership while the code claimed otherwise.
---
--- After this runs, three roles touch the table and none is the other:
---
---   ops_outbox_owner  owns it. NOLOGIN, granted to nobody, so owner powers
---                     are unreachable from any session.
---   audit_operator    INSERT only, held by operator commands.
---   audit_writer      SELECT and DELETE only, held by the relay.
---
--- Every statement is idempotent, because YugabyteDB keeps completed DDL when
--- a transaction rolls back and a retry must reconcile rather than fail.
+-- Use a new migration because goose does not rerun applied versions.
+-- Every statement supports retries because YugabyteDB keeps completed DDL
+-- when a transaction rolls back.
 
 -- +goose Up
 -- +goose StatementBegin
@@ -36,8 +24,7 @@ $$;
 ALTER TABLE public.ops_outbox OWNER TO ops_outbox_owner;
 -- +goose StatementEnd
 
--- The relay keeps exactly what it needs to drain the table, and nothing that
--- would let it put a row in.
+-- Grant the relay SELECT and DELETE access to public.ops_outbox.
 -- +goose StatementBegin
 DO $$
 BEGIN
@@ -47,8 +34,10 @@ END
 $$;
 -- +goose StatementEnd
 
--- The migration runner is no longer the owner, so it holds no standing rights
--- here. It writes through audit_operator like any other command.
+-- Revoke the current migration role's explicit grants on public.ops_outbox.
+-- This does not remove superuser privileges. Migration 018 later grants
+-- tack_migrator SELECT for schema dumps. Operator commands record events
+-- using audit_operator.
 -- +goose StatementBegin
 DO $$
 DECLARE
@@ -59,9 +48,8 @@ END
 $$;
 -- +goose StatementEnd
 
--- The relay drains in creation order, and now() is stable within a
--- transaction, so created_at alone is not a total order and two rows can tie.
--- The event id breaks the tie and makes the drain order deterministic.
+-- now() is stable within a transaction. Order rows by created_at and event_id
+-- to resolve ties between rows from one transaction.
 -- +goose StatementBegin
 CREATE INDEX IF NOT EXISTS ops_outbox_drain_idx
     ON public.ops_outbox (created_at, event_id);

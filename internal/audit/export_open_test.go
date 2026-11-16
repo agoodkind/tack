@@ -1,7 +1,5 @@
-// export_open_test.go covers what the verifier is willing to open. The rows
-// file is named by the manifest, and the manifest is unverified until the rows
-// have been read, so an entry planted in the bundle directory under that name
-// is read before any verdict exists.
+// export_open_test.go checks filesystem type rejection before reading untrusted
+// bundle rows for signature verification.
 
 package audit
 
@@ -19,8 +17,8 @@ import (
 	"github.com/google/uuid"
 )
 
-// exportedTestBundle writes a real bundle and returns its directory, the key
-// that verifies it, and the path of the rows file its manifest names.
+// exportedTestBundle writes a bundle and returns its directory, public key,
+// and manifest-selected rows path.
 func exportedTestBundle(t *testing.T) (string, ed25519.PublicKey, string) {
 	t.Helper()
 	dir := t.TempDir()
@@ -50,18 +48,9 @@ func exportedTestBundle(t *testing.T) (string, ed25519.PublicKey, string) {
 	return dir, publicKey, rowsPath
 }
 
-// TestTheVerifierRefusesRowsThatAreASymlink pins that the bundle's rows are
-// read from the bundle. The manifest supplies the name, and a name check can
-// only keep that name inside the directory; it cannot say what the entry under
-// it is. A symbolic link planted there sends every byte the verifier digests and
-// hashes to a file outside the bundle, chosen by whoever planted the link, and
-// the verdict is still reported as a verdict about the bundle.
-//
-// The link points at a byte-for-byte copy of the real rows on purpose. The
-// digest and the signature both pass on that content, so a verifier that follows
-// the link returns a clean report, and only refusing the link itself catches it.
-// That is what makes content checks the wrong place to fix this.
-func TestTheVerifierRefusesRowsThatAreASymlink(t *testing.T) {
+// TestVerifyBundleRejectsSymlinkRows requires rejection of the file type even
+// when the external target contains identical rows with a valid digest.
+func TestVerifyBundleRejectsSymlinkRows(t *testing.T) {
 	dir, publicKey, rowsPath := exportedTestBundle(t)
 
 	body, err := os.ReadFile(rowsPath)
@@ -92,15 +81,9 @@ func TestTheVerifierRefusesRowsThatAreASymlink(t *testing.T) {
 	}
 }
 
-// TestTheVerifierRefusesRowsThatAreANamedPipe pins that the verifier always
-// reaches a verdict. Opening a pipe that has no writer blocks in open(2) with no
-// timeout, so a pipe planted under the name the manifest carries stops the
-// verifier before it has checked anything, and it never returns to report that
-// something was wrong.
-//
-// The wait is bounded here so a regression fails this test rather than hanging
-// the suite.
-func TestTheVerifierRefusesRowsThatAreANamedPipe(t *testing.T) {
+// TestVerifyBundleRejectsFIFORowsWithoutBlocking checks rejection of a FIFO
+// (first-in, first-out) special file without waiting indefinitely for a writer.
+func TestVerifyBundleRejectsFIFORowsWithoutBlocking(t *testing.T) {
 	dir, publicKey, rowsPath := exportedTestBundle(t)
 
 	if err := os.Remove(rowsPath); err != nil {
@@ -108,7 +91,7 @@ func TestTheVerifierRefusesRowsThatAreANamedPipe(t *testing.T) {
 	}
 
 	if err := syscall.Mkfifo(rowsPath, 0o600); err != nil {
-		t.Skipf("this filesystem cannot hold a named pipe: %v", err)
+		t.Skipf("this filesystem cannot create a FIFO special file: %v", err)
 	}
 
 	type verdict struct {
@@ -124,24 +107,20 @@ func TestTheVerifierRefusesRowsThatAreANamedPipe(t *testing.T) {
 	select {
 	case got := <-done:
 		if got.err == nil {
-			t.Fatalf("the verifier read a named pipe as a bundle and reported %+v", got.report)
+			t.Fatalf("the verifier accepted a FIFO special file as bundle rows: %+v", got.report)
 		}
 
 		if !strings.Contains(got.err.Error(), "verify jsonl") {
 			t.Fatalf("err = %v, want the rows open refused", got.err)
 		}
 	case <-time.After(10 * time.Second):
-		t.Fatal(
-			"the verifier is still inside the rows open after 10s: a planted pipe stops it reaching any verdict",
-		)
+		t.Fatal("the verifier did not reject the FIFO special file within 10s")
 	}
 }
 
-// TestTheVerifierRefusesRowsThatAreADirectory pins the third entry an attacker
-// can leave under the manifest's name without any privilege. It reads as an
-// empty file on some systems and fails the read on others, and neither is a
-// verdict about a bundle.
-func TestTheVerifierRefusesRowsThatAreADirectory(t *testing.T) {
+// TestVerifyBundleRejectsDirectoryRows checks that a directory cannot substitute
+// for the manifest-selected regular file.
+func TestVerifyBundleRejectsDirectoryRows(t *testing.T) {
 	dir, publicKey, rowsPath := exportedTestBundle(t)
 
 	if err := os.Remove(rowsPath); err != nil {

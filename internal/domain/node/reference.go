@@ -2,7 +2,7 @@ package node
 
 import "strings"
 
-// FeatureHasAddress marks types whose instances carry a declared human-readable address property.
+// FeatureHasAddress marks types that declare a human-readable address property.
 const FeatureHasAddress = "has_address"
 
 // ReferenceDirectProperty resolves nodes from the property named by ReferenceConfig.Property.

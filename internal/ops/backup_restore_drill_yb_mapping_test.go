@@ -6,11 +6,9 @@ import (
 	"testing"
 )
 
-// importSnapshotOutput renders `yb-admin import_snapshot` output the way
-// ImportSnapshotMetaFile in YugabyteDB 2024.2's yb-admin_client.cc prints it:
-// the object type padded to sixteen characters, then the old and new ids, the
-// three separated by " \t", with tablet rows numbered. rows are the mapping
-// rows after the header.
+// importSnapshotOutput reproduces ImportSnapshotMetaFile output from
+// YugabyteDB 2024.2's yb-admin_client.cc: padded object types, tab-separated
+// old and new IDs, and numbered tablet rows after the header.
 func importSnapshotOutput(rows ...string) string {
 	return "Snapshot metadata file: /artifacts/metadata.snapshot\n" +
 		"Importing snapshot 4963ed18-2295-4e4f-9d9f-0a1a45c39bd1 (COMPLETE)\n" +
@@ -26,9 +24,8 @@ func mappingRow(object, oldID, newID string) string {
 	return object + strings.Repeat(" ", 16-len(object)) + " \t" + oldID + " \t" + newID
 }
 
-// The table ids below are in the form GetPgsqlTableId renders (the database
-// oid in the first four bytes, the table oid in the last four); the tablet ids
-// are patterned rather than random so no scanner reads them as credentials.
+// Table IDs follow GetPgsqlTableId: database OID first and table OID last.
+// Patterned tablet IDs avoid credential-scanner false positives.
 const (
 	usersTableID    = "000033e800003000800000000000400a"
 	tokensTableID   = "000033e8000030008000000000004010"
@@ -38,8 +35,8 @@ const (
 	tokensTabletNew = "bbbb0000bbbb0000bbbb0000bbbb0002"
 )
 
-// TestParseYBSnapshotMappingReadsTheEngineRows proves the parser reads the
-// rows the engine prints, pairing each tablet with the table row above it.
+// TestParseYBSnapshotMappingReadsTheEngineRows checks table association and
+// old-to-new tablet IDs in engine-formatted rows.
 func TestParseYBSnapshotMappingReadsTheEngineRows(t *testing.T) {
 	out := importSnapshotOutput(
 		mappingRow(
@@ -67,14 +64,9 @@ func TestParseYBSnapshotMappingReadsTheEngineRows(t *testing.T) {
 	}
 }
 
-// TestParseYBSnapshotMappingRefusesRowsItCannotPlace is the silent skip this
-// test exists for. A tablet row short of its ids, or one before any table row,
-// matched no case and fell out of the mapping: a tablet the placement never
-// tried and the audit never counted, since both work from the mapping. A
-// table row whose new id differs from its old one was read for the old id
-// alone, though the import preserves table ids and the placement's paths are
-// built from the one the row is read for. Each row below must refuse the
-// whole mapping with the row named.
+// TestParseYBSnapshotMappingRefusesRowsItCannotPlace checks complete mapping
+// rejection for missing IDs, invalid table association, and changed table IDs.
+// Silently omitting a row would exclude its tablet from placement and audit.
 func TestParseYBSnapshotMappingRefusesRowsItCannotPlace(t *testing.T) {
 	tableRow := mappingRow("Table", usersTableID, usersTableID)
 	for _, tc := range []struct {
@@ -83,24 +75,24 @@ func TestParseYBSnapshotMappingRefusesRowsItCannotPlace(t *testing.T) {
 		row    string
 	}{
 		{
-			name:   "a tablet row short of its new id",
+			name:   "tablet row omits new ID",
 			before: []string{tableRow},
 			row:    "Tablet 0        \t" + usersTabletOld,
 		},
-		{name: "a tablet row with no ids", before: []string{tableRow}, row: "Tablet 0"},
+		{name: "tablet row omits both IDs", before: []string{tableRow}, row: "Tablet 0"},
 		{
-			name:   "a tablet row before any table row",
+			name:   "tablet row precedes table rows",
 			before: nil,
 			row:    mappingRow("Tablet 0", usersTabletOld, usersTabletNew),
 		},
-		{name: "a table row with no id", before: nil, row: "Table"},
+		{name: "table row omits ID", before: nil, row: "Table"},
 		{
-			name:   "a table row whose new id differs from its old",
+			name:   "table row changes preserved ID",
 			before: nil,
 			row:    mappingRow("Table", usersTableID, tokensTableID),
 		},
 		{
-			name:   "a table row whose new id is outside the engine form",
+			name:   "table row includes invalid new ID",
 			before: nil,
 			row:    mappingRow("Table", usersTableID, "../.."),
 		},
@@ -117,31 +109,24 @@ func TestParseYBSnapshotMappingRefusesRowsItCannotPlace(t *testing.T) {
 
 				remaps, err := parseYBSnapshotMapping(out)
 				if err == nil {
-					t.Fatalf(
-						"a mapping row the placement cannot use must be refused, got %+v",
-						remaps,
-					)
+					t.Fatalf("an unusable mapping row must fail validation, got %+v", remaps)
 				}
 
 				if remaps != nil {
-					t.Fatalf(
-						"a refused mapping must yield no rows for the placement, got %+v",
-						remaps,
-					)
+					t.Fatalf("a rejected mapping must not return placement rows, got %+v", remaps)
 				}
 
 				if !strings.Contains(err.Error(), strings.Join(strings.Fields(tc.row), " ")) {
-					t.Fatalf("the refusal must name the row, got: %v", err)
+					t.Fatalf("the refusal must identify the row, got: %v", err)
 				}
 			},
 		)
 	}
 }
 
-// TestParseYBSnapshotMappingReadsATableRowCarryingOneId settles the one
-// tolerated short form: a table row naming only the preserved id is read for
-// it, since there is no second id to disagree with.
-func TestParseYBSnapshotMappingReadsATableRowCarryingOneId(t *testing.T) {
+// TestParseYBSnapshotMappingAcceptsSingleTableID checks the permitted short
+// table row without a repeated ID.
+func TestParseYBSnapshotMappingAcceptsSingleTableID(t *testing.T) {
 	out := importSnapshotOutput(
 		"Table            \t"+usersTableID,
 		mappingRow("Tablet 0", usersTabletOld, usersTabletNew),
@@ -158,13 +143,10 @@ func TestParseYBSnapshotMappingReadsATableRowCarryingOneId(t *testing.T) {
 	}
 }
 
-// TestParseYBSnapshotMappingRefusesIdsOutsideTheEngineForm is the path
-// traversal this file exists for. The ids are fields of engine output, but
-// that output is produced by importing a metadata file staged from the object
-// store, so a crafted file controls them, and the placement embeds them in
-// paths under the scratch cluster's data directory. Rather than looking for
-// the traversal, the parser requires the form the engine emits, and every
-// value below, traversal or not, is refused with the row named.
+// TestParseYBSnapshotMappingRefusesIdsOutsideTheEngineForm checks IDs that
+// could create unsafe paths or violate the engine's format. Object-store
+// metadata controls imported IDs, which placement uses under the scratch
+// data directory. Invalid IDs reject the whole mapping and identify the row.
 func TestParseYBSnapshotMappingRefusesIdsOutsideTheEngineForm(t *testing.T) {
 	for _, tc := range []struct {
 		name string
@@ -211,21 +193,15 @@ func TestParseYBSnapshotMappingRefusesIdsOutsideTheEngineForm(t *testing.T) {
 
 				remaps, err := parseYBSnapshotMapping(out)
 				if err == nil {
-					t.Fatalf(
-						"a mapping row outside the engine's form must be refused, got %+v",
-						remaps,
-					)
+					t.Fatalf("a mapping row outside the engine's form must fail, got %+v", remaps)
 				}
 
 				if remaps != nil {
-					t.Fatalf(
-						"a refused mapping must yield no rows for the placement, got %+v",
-						remaps,
-					)
+					t.Fatalf("a rejected mapping must not return placement rows, got %+v", remaps)
 				}
 
 				if !strings.Contains(err.Error(), strings.Join(strings.Fields(tc.row), " ")) {
-					t.Fatalf("the refusal must name the row, got: %v", err)
+					t.Fatalf("the refusal must identify the row, got: %v", err)
 				}
 			},
 		)

@@ -1,8 +1,6 @@
-// backup_staleness_blind_guest_test.go proves the staleness check alarms on
-// what the guest running it can see. On QA the owner guest was blocked from
-// all three ledger masters for 64 minutes and its replication reading still
-// said FRESH, because the deputy checker on the data guest kept refreshing the
-// shared success marker (TACK-529).
+// Per-guest replication tests cover TACK-529: a fresh shared observation from
+// another guest must not conceal this checker's prolonged inability to read
+// usable master health reports.
 
 package ops
 
@@ -15,10 +13,8 @@ import (
 	"goodkind.io/tack/internal/config"
 )
 
-// seesHealthyCluster points cfg's ledger masters at a master that answers
-// healthy, so the guest running the check observes the cluster for itself. A
-// guest that cannot see the cluster alarms on its own blindness, so a test
-// whose subject is another mechanism has to let this guest see the cluster.
+// seesHealthyCluster supplies a healthy local master response for tests of
+// other backup mechanisms that must not trigger a replication alarm.
 func seesHealthyCluster(t *testing.T, cfgs ...*config.Config) {
 	t.Helper()
 	startYBMasterHealthServer(t, ybHealthAllGood)
@@ -28,8 +24,7 @@ func seesHealthyCluster(t *testing.T, cfgs ...*config.Config) {
 	}
 }
 
-// readBackupStatusMarkerObject reads one mechanism's marker straight out of
-// the store, so a test can tell what the check left there.
+// readBackupStatusMarkerObject decodes the actual marker stored by a check.
 func readBackupStatusMarkerObject(
 	t *testing.T,
 	store *backupTestStore,
@@ -38,7 +33,7 @@ func readBackupStatusMarkerObject(
 	t.Helper()
 	body, found := store.object(backupStatusKey(metric))
 	if !found {
-		t.Fatalf("no %s marker in the store", metric)
+		t.Fatalf("the store does not contain a %s marker", metric)
 	}
 
 	var marker backupStatusMarker
@@ -49,14 +44,10 @@ func readBackupStatusMarkerObject(
 	return marker
 }
 
-// TestBlindGuestAlarmsWhileAnotherGuestKeepsTheMarkerFresh is the QA defect.
-// The owner guest sees the cluster once, then hears from no master for 64
-// minutes while another guest keeps the shared marker fresh. The owner's
-// reading must go stale on its own observation, mail once in words that claim
-// only its own blindness, stay silent while it lasts, and clear silently when
-// the owner sees the cluster again. The shared marker must survive untouched,
-// because the deputy still keeps it.
-func TestBlindGuestAlarmsWhileAnotherGuestKeepsTheMarkerFresh(t *testing.T) {
+// TestGuestAlarmsWithoutLocalHealthDespiteFreshSharedMarker checks local aging,
+// one observation-failure email, duplicate suppression, and silent recovery.
+// Another guest's shared healthy marker must remain unchanged throughout.
+func TestGuestAlarmsWithoutLocalHealthDespiteFreshSharedMarker(t *testing.T) {
 	sawCluster := time.Date(2026, 9, 19, 17, 0, 0, 0, time.UTC)
 	fixBackupStalenessClock(t, sawCluster)
 	captured := captureBackupAlarmSends(t, nil)
@@ -78,11 +69,8 @@ func TestBlindGuestAlarmsWhileAnotherGuestKeepsTheMarkerFresh(t *testing.T) {
 	)
 	store := newBackupTestStore(t, objects)
 	owner := storedBackupStalenessConfig(t, store)
-	// The leader answers the first probe and every probe after it comes back
-	// as a follower's page, the answer that tells this guest to ask a leader
-	// it cannot reach. The last body repeats until the bodies run out, so the
-	// owner is blind for the two runs in between and sees the cluster again on
-	// the last one.
+	// The first probe establishes health. Two follower responses omit usable
+	// cluster health before the final healthy response establishes recovery.
 	startYBMasterHealthServer(
 		t,
 		ybHealthAllGood,
@@ -94,10 +82,10 @@ func TestBlindGuestAlarmsWhileAnotherGuestKeepsTheMarkerFresh(t *testing.T) {
 
 	runFreshBackupStalenessCheck(t, owner)
 	if len(captured.messages) != 0 {
-		t.Fatalf("a guest that sees the cluster must mail nothing, sent %d", len(captured.messages))
+		t.Fatalf("healthy local observations must not send email, sent %d", len(captured.messages))
 	}
 
-	// Another guest keeps the shared marker fresh while this one is blind.
+	// Another guest refreshes shared state without this guest observing health.
 	blindAt := sawCluster.Add(64 * time.Minute)
 	deputySawCluster := blindAt.Add(-2 * time.Minute)
 	store.put(
@@ -109,7 +97,7 @@ func TestBlindGuestAlarmsWhileAnotherGuestKeepsTheMarkerFresh(t *testing.T) {
 	report := runStaleBackupStalenessCheck(t, owner)
 	if !strings.Contains(report, "age=3840s threshold=1800s STALE") {
 		t.Fatalf(
-			"the blind guest's reading must age from its own observation and read STALE:\n%s",
+			"this guest's metric must use its own observation age and report STALE:\n%s",
 			report,
 		)
 	}
@@ -118,81 +106,73 @@ func TestBlindGuestAlarmsWhileAnotherGuestKeepsTheMarkerFresh(t *testing.T) {
 		report,
 		"the shared record dates the cluster healthy at 2026-09-19T18:02:00Z",
 	) {
-		t.Fatalf("the report must say what the shared record holds:\n%s", report)
+		t.Fatalf("the report must include the shared observation separately:\n%s", report)
 	}
 
 	if len(captured.messages) != 1 {
-		t.Fatalf("a blind guest must mail once, sent %d", len(captured.messages))
+		t.Fatalf(
+			"prolonged local observation failure must email once, sent %d",
+			len(captured.messages),
+		)
 	}
 
 	message := captured.messages[0]
-	if message.Subject != "["+backupAlarmHost()+"] This guest cannot see the ledger cluster" {
+	if message.Subject != "["+backupAlarmHost()+"] This guest cannot read ledger cluster health" {
 		t.Errorf("subject = %q", message.Subject)
 	}
 
-	wantBody := "This guest cannot reach the ledger cluster (logins and audit trail), " +
-		"so it cannot say whether the cluster is healthy. " +
-		"It last saw the cluster healthy at 5:00 PM UTC on Sep 19, 2026, 1 hour 4 minutes ago; " +
+	wantBody := "This guest could not read a usable health report from the ledger cluster (logins and audit trail). " +
+		"This check cannot establish whether the cluster is healthy. " +
+		"This guest last observed the cluster healthy at 5:00 PM UTC on Sep 19, 2026, 1 hour 4 minutes ago; " +
 		"the limit is 30 minutes.\n" +
 		"\n" +
 		"1. Confirm every ledger guest is up.\n" +
 		"2. From this guest, confirm the ledger master page answers.\n" +
-		"3. Fix what blocks it; the alarm clears itself once this guest sees the cluster again."
+		"3. Resolve the health-check failure; the checker clears the alarm after this guest reads a healthy response."
 	if message.Body != wantBody {
 		t.Errorf("body mismatch:\n got=%q\nwant=%q", message.Body, wantBody)
 	}
 
 	for _, claim := range []string{"unhealthy", "never been seen", "under-replicated", "dead nodes"} {
 		if strings.Contains(message.Subject+message.Body, claim) {
-			t.Errorf(
-				"a guest that heard from no master must not claim %q:\n%s",
-				claim,
-				message.Body,
-			)
+			t.Errorf("failed master observations must not establish %q:\n%s", claim, message.Body)
 		}
 	}
 
 	assertBackupAlarmPlainWords(t, message.Subject, message.Body, owner.BackupS3Endpoint)
 
-	// The shared marker is the deputy's to keep: the blind run neither wrote
-	// it nor took its age from it.
+	// Failed local observation must not replace the other guest's shared marker.
 	if marker := readBackupStatusMarkerObject(
 		t,
 		store,
 		backupStalenessReplicationName,
 	); !marker.At.Equal(deputySawCluster) {
-		t.Errorf(
-			"the shared marker must still hold the other guest's observation, got %s",
-			marker.At,
-		)
+		t.Errorf("the shared marker must retain the other guest's observation, got %s", marker.At)
 	}
 
 	fixBackupStalenessClock(t, blindAt.Add(6*time.Minute))
 	runStaleBackupStalenessCheck(t, owner)
 	if len(captured.messages) != 1 {
-		t.Fatalf("a fault that lasts must not mail again, sent %d in total", len(captured.messages))
+		t.Fatalf("a continuing fault must not repeat email, sent %d total", len(captured.messages))
 	}
 
 	fixBackupStalenessClock(t, blindAt.Add(12*time.Minute))
 	runFreshBackupStalenessCheck(t, owner)
 	if len(captured.messages) != 1 {
 		t.Fatalf(
-			"a guest that sees the cluster again must clear without a mail, sent %d in total",
+			"healthy recovery must clear the fault without email, sent %d total",
 			len(captured.messages),
 		)
 	}
 
 	if alarmed, _ := alarmedBackupMetrics(t, owner); len(alarmed) != 0 {
-		t.Fatalf("the cleared fault must be forgotten, state = %v", alarmed)
+		t.Fatalf("recovery must remove recorded faults, state = %v", alarmed)
 	}
 }
 
-// TestDegradedClusterStillSaysTheClusterIsUnhealthy keeps the claim a master's
-// own answer supports. A master that answers and describes a cluster short of
-// its replicas is a degraded cluster, so the mail names it rather than this
-// guest's eyesight, and the age still counts from this guest's own last
-// healthy observation.
-func TestDegradedClusterStillSaysTheClusterIsUnhealthy(t *testing.T) {
+// TestDegradedClusterReportsObservedReplicationFailure checks a valid master's
+// degraded answer and an age based on this guest's prior healthy observation.
+func TestDegradedClusterReportsObservedReplicationFailure(t *testing.T) {
 	sawCluster := time.Date(2026, 9, 19, 17, 0, 0, 0, time.UTC)
 	fixBackupStalenessClock(t, sawCluster)
 	captured := captureBackupAlarmSends(t, nil)
@@ -225,7 +205,7 @@ func TestDegradedClusterStillSaysTheClusterIsUnhealthy(t *testing.T) {
 	runStaleBackupStalenessCheck(t, owner)
 
 	if len(captured.messages) != 1 {
-		t.Fatalf("a degraded cluster must mail once, sent %d", len(captured.messages))
+		t.Fatalf("a degraded cluster must email once, sent %d", len(captured.messages))
 	}
 
 	message := captured.messages[0]

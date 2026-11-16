@@ -5,8 +5,7 @@ import (
 	"log/slog"
 )
 
-// nopLogger is the logger tests hand to code that logs progress, so a test's
-// output holds only its own findings.
+// nopLogger discards progress logs during tests.
 func nopLogger() *slog.Logger {
 	return slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelError}))
 }

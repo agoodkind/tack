@@ -17,18 +17,14 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// primaryService and deputyService are the --operator-service names the two
-// checkers record under.
+// Service labels match the --operator-service identities recorded by checkers.
 const (
 	primaryService = "tack-backup"
 	deputyService  = "tack-backup-deputy"
 )
 
-// deputyBackupStalenessConfig is an unreachable-store host that defers to the
-// primary checker recorded under primary, over the default window and grace.
-// The grace wait itself is replaced by a seam that returns at once and counts
-// its calls, so no test sleeps; a test that needs the wait to do something
-// installs its own seam on top.
+// deputyBackupStalenessConfig configures refused store and master connections
+// with primary deferral. Tests replace grace delays with immediate callbacks.
 func deputyBackupStalenessConfig(t *testing.T, primary string) *config.Config {
 	t.Helper()
 	cfg := unreachableBackupStalenessConfig(t, "backups@example.test")
@@ -40,8 +36,7 @@ func deputyBackupStalenessConfig(t *testing.T, primary string) *config.Config {
 	return cfg
 }
 
-// skipBackupAlarmGrace substitutes the grace wait with during, which runs in
-// its place, and returns a counter of the waits the deputy asked for.
+// skipBackupAlarmGrace invokes during instead of waiting and counts requests.
 func skipBackupAlarmGrace(t *testing.T, during func()) *int {
 	t.Helper()
 	waits := 0
@@ -55,8 +50,7 @@ func skipBackupAlarmGrace(t *testing.T, during func()) *int {
 	return &waits
 }
 
-// blockingLedger is a ledger whose read never answers: it returns only when
-// the context ends, the way a pool waiting on a partitioned database does.
+// blockingLedger simulates a ledger read that ends only after cancellation.
 type blockingLedger struct{ blockedFor time.Duration }
 
 func (l *blockingLedger) StreamQuery(
@@ -73,16 +67,14 @@ func (l *blockingLedger) StreamQuery(
 
 func (*blockingLedger) Close() {}
 
-// systemLedger is a restored-ledger fixture holding the system org's operator
-// events, handed to the deputy in place of the database for the test's
-// duration. The query the deputy runs is the real one; only the pool is
-// replaced.
+// systemLedger supplies operator rows while exercising the deputy's production
+// query with a substituted database pool.
 type systemLedger struct{ *restoredLedger }
 
 func (systemLedger) Close() {}
 
-// installSystemLedger builds the fixture from rows, makes the deputy open it,
-// and returns it so a test can count the rows the deputy read.
+// installSystemLedger supplies the system-org fixture for ledger opening and
+// returns its read counters for assertions.
 func installSystemLedger(t *testing.T, rows ...audit.Row) *restoredLedger {
 	t.Helper()
 	ledger := &restoredLedger{
@@ -98,8 +90,8 @@ func installSystemLedger(t *testing.T, rows ...audit.Row) *restoredLedger {
 	return ledger
 }
 
-// operatorRunRow is one operator event as the choke-point records it: the
-// system org, the service's derived actor id, and the command's verb.
+// operatorRunRow reproduces the system organization, service actor, and
+// operation verb from operator audit recording.
 func operatorRunRow(service string, action audit.Verb, at time.Time) audit.Row {
 	return audit.Row{
 		OrgID:          audit.SystemOrgID(),
@@ -125,8 +117,8 @@ func operatorRunRow(service string, action audit.Verb, at time.Time) audit.Row {
 	}
 }
 
-// runStaleDeputyCheck runs the command once through a context whose logger
-// writes to the returned buffer, and asserts the stale verdict came back.
+// runStaleDeputyCheck verifies the public command's stale verdict and returns
+// contextual logger output.
 func runStaleDeputyCheck(t *testing.T, cfg *config.Config) string {
 	t.Helper()
 	var logs bytes.Buffer
@@ -154,10 +146,8 @@ func runStaleDeputyCheck(t *testing.T, cfg *config.Config) string {
 	return logs.String()
 }
 
-// TestBackupStalenessDeputyDefersWhileThePrimaryRuns is the one-mail rule
-// across guests: with a primary staleness-check event inside the window, the
-// deputy leaves a new fault unmailed and unrecorded, on the first run and on
-// every run after it.
+// TestBackupStalenessDeputyDefersWhileThePrimaryRuns checks repeated deferral
+// without email or fault recording while recent primary evidence exists.
 func TestBackupStalenessDeputyDefersWhileThePrimaryRuns(t *testing.T) {
 	now := time.Date(2026, 9, 5, 4, 0, 0, 0, time.UTC)
 	fixBackupStalenessClock(t, now)
@@ -172,14 +162,14 @@ func TestBackupStalenessDeputyDefersWhileThePrimaryRuns(t *testing.T) {
 		logs := runStaleDeputyCheck(t, cfg)
 		if len(captured.messages) != 0 {
 			t.Fatalf(
-				"run %d: a deputy whose primary ran must not mail, sent %d",
+				"run %d: recent primary evidence must suppress deputy email, sent %d",
 				run,
 				len(captured.messages),
 			)
 		}
 
 		if _, found := alarmedBackupMetrics(t, cfg); found {
-			t.Fatalf("run %d: a deferred fault must not be recorded", run)
+			t.Fatalf("run %d: deferral must not record a fault", run)
 		}
 
 		if !strings.Contains(logs, "msg=backup.staleness.alarm_deferred") ||
@@ -187,7 +177,7 @@ func TestBackupStalenessDeputyDefersWhileThePrimaryRuns(t *testing.T) {
 			!strings.Contains(logs, "primary="+primaryService) ||
 			!strings.Contains(logs, "primary_seen_at=2026-09-05T03:53:00") {
 			t.Fatalf(
-				"run %d: the deferral must be logged with the metrics, the primary, and its run:\n%s",
+				"run %d: deferral logs must include metrics, primary identity, and its run time:\n%s",
 				run,
 				logs,
 			)
@@ -195,10 +185,8 @@ func TestBackupStalenessDeputyDefersWhileThePrimaryRuns(t *testing.T) {
 	}
 }
 
-// TestBackupStalenessDeputyMailsWhenThePrimaryHasNotRun covers the deputy's
-// reason to exist. The ledger holds the deputy's own run and a different
-// primary command inside the window, neither of which is the primary's check,
-// so the deputy mails once, records the fault, and holds it on the next run.
+// TestBackupStalenessDeputyMailsWhenThePrimaryHasNotRun excludes deputy checks
+// and unrelated primary operations from proof of recent primary checking.
 func TestBackupStalenessDeputyMailsWhenThePrimaryHasNotRun(t *testing.T) {
 	now := time.Date(2026, 9, 5, 4, 0, 0, 0, time.UTC)
 	fixBackupStalenessClock(t, now)
@@ -213,7 +201,7 @@ func TestBackupStalenessDeputyMailsWhenThePrimaryHasNotRun(t *testing.T) {
 	logs := runStaleDeputyCheck(t, cfg)
 	if len(captured.messages) != 1 {
 		t.Fatalf(
-			"with no primary run in the window the deputy must mail once, sent %d",
+			"the deputy must email once without a recent primary check, sent %d",
 			len(captured.messages),
 		)
 	}
@@ -221,22 +209,24 @@ func TestBackupStalenessDeputyMailsWhenThePrimaryHasNotRun(t *testing.T) {
 	if !strings.Contains(logs, "msg=backup.staleness.primary_not_seen") ||
 		!strings.Contains(logs, "primary="+primaryService) ||
 		!strings.Contains(logs, "window=25m0s") {
-		t.Fatalf("the missing primary must be logged with the service and the window:\n%s", logs)
+		t.Fatalf("missing-primary logs must include service and window:\n%s", logs)
 	}
 
 	if alarmed, found := alarmedBackupMetrics(t, cfg); !found || len(alarmed) != 3 {
-		t.Fatalf("the mailed fault must be recorded, found = %v state = %v", found, alarmed)
+		t.Fatalf("state must record accepted email, found = %v state = %v", found, alarmed)
 	}
 
 	runStaleDeputyCheck(t, cfg)
 	if len(captured.messages) != 1 {
-		t.Fatalf("a recorded fault must be held, sent %d in total", len(captured.messages))
+		t.Fatalf(
+			"recorded faults must suppress duplicate email, sent %d total",
+			len(captured.messages),
+		)
 	}
 }
 
-// TestBackupStalenessDeputyMailsWhenThePrimaryRanTooLongAgo treats a primary
-// run older than the window as no run: the primary has missed more than two
-// timer firings, so the deputy mails.
+// TestBackupStalenessDeputyMailsWhenThePrimaryRanTooLongAgo checks expiry of
+// primary evidence outside the configured activity window.
 func TestBackupStalenessDeputyMailsWhenThePrimaryRanTooLongAgo(t *testing.T) {
 	now := time.Date(2026, 9, 5, 4, 0, 0, 0, time.UTC)
 	fixBackupStalenessClock(t, now)
@@ -249,17 +239,19 @@ func TestBackupStalenessDeputyMailsWhenThePrimaryRanTooLongAgo(t *testing.T) {
 
 	logs := runStaleDeputyCheck(t, cfg)
 	if len(captured.messages) != 1 {
-		t.Fatalf("a primary run outside the window must not defer, sent %d", len(captured.messages))
+		t.Fatalf(
+			"expired primary evidence must permit deputy email, sent %d",
+			len(captured.messages),
+		)
 	}
 
 	if !strings.Contains(logs, "msg=backup.staleness.primary_not_seen") {
-		t.Fatalf("the missing primary must be logged:\n%s", logs)
+		t.Fatalf("logs must report missing recent primary activity:\n%s", logs)
 	}
 }
 
-// TestBackupStalenessDeputyMailsWhenTheLedgerCannotBeRead drives the real
-// reader at a port that refuses connections: a deputy that cannot read the
-// ledger mails, and says why.
+// TestBackupStalenessDeputyMailsWhenTheLedgerCannotBeRead checks production
+// reader failure against a refused connection and subsequent fault email.
 func TestBackupStalenessDeputyMailsWhenTheLedgerCannotBeRead(t *testing.T) {
 	fixBackupStalenessClock(t, time.Date(2026, 9, 5, 4, 0, 0, 0, time.UTC))
 	captured := captureBackupAlarmSends(t, nil)
@@ -269,7 +261,7 @@ func TestBackupStalenessDeputyMailsWhenTheLedgerCannotBeRead(t *testing.T) {
 	logs := runStaleDeputyCheck(t, cfg)
 	if len(captured.messages) != 1 {
 		t.Fatalf(
-			"a deputy that cannot read the ledger must mail once, sent %d",
+			"an unreadable ledger must permit one deputy email, sent %d",
 			len(captured.messages),
 		)
 	}
@@ -277,18 +269,17 @@ func TestBackupStalenessDeputyMailsWhenTheLedgerCannotBeRead(t *testing.T) {
 	if !strings.Contains(logs, "msg=backup.staleness.primary_not_seen") ||
 		!strings.Contains(logs, "err=") ||
 		!strings.Contains(logs, "read the primary's runs from the ledger") {
-		t.Fatalf("the unreadable ledger must be logged with its error:\n%s", logs)
+		t.Fatalf("logs must report unreadable ledger details:\n%s", logs)
 	}
 
 	if alarmed, found := alarmedBackupMetrics(t, cfg); !found || len(alarmed) != 3 {
-		t.Fatalf("the mailed fault must be recorded, found = %v state = %v", found, alarmed)
+		t.Fatalf("state must record accepted email, found = %v state = %v", found, alarmed)
 	}
 }
 
-// TestBackupStalenessDeputyMailsWhenTheLedgerHangs bounds the ledger read: a
-// read that never answers is cut off at the query timeout, counts as a ledger
-// that cannot be read, and the deputy mails.
-func TestBackupStalenessDeputyMailsWhenTheLedgerHangs(t *testing.T) {
+// TestBackupStalenessDeputyEmailsAfterLedgerTimeout checks a bounded unanswered
+// query followed by deputy email and an observation-failure log.
+func TestBackupStalenessDeputyEmailsAfterLedgerTimeout(t *testing.T) {
 	fixBackupStalenessClock(t, time.Date(2026, 9, 5, 4, 0, 0, 0, time.UTC))
 	captured := captureBackupAlarmSends(t, nil)
 	previousTimeout := backupAlarmPrimaryQueryTimeout
@@ -305,36 +296,30 @@ func TestBackupStalenessDeputyMailsWhenTheLedgerHangs(t *testing.T) {
 	logs := runStaleDeputyCheck(t, cfg)
 	if len(captured.messages) != 1 {
 		t.Fatalf(
-			"a deputy whose ledger read timed out must mail once, sent %d",
+			"a timed-out ledger read must permit one deputy email, sent %d",
 			len(captured.messages),
 		)
 	}
 
 	if ledger.blockedFor == 0 || ledger.blockedFor > time.Second {
-		t.Fatalf(
-			"the read must be cut off at the query timeout, it blocked for %s",
-			ledger.blockedFor,
-		)
+		t.Fatalf("query timeout must bound the read, observed duration %s", ledger.blockedFor)
 	}
 
 	if !strings.Contains(logs, "msg=backup.staleness.primary_not_seen") ||
 		!strings.Contains(logs, "context deadline exceeded") {
-		t.Fatalf("the timed-out read must be logged as an unreadable ledger:\n%s", logs)
+		t.Fatalf("logs must classify the timed-out read as unreadable:\n%s", logs)
 	}
 }
 
-// TestBackupStalenessDeputyDefersWhenThePrimaryRunLandsDuringGrace is the
-// takeover race: the primary's row is not committed when the deputy first
-// looks, so the deputy waits out the grace period, and the row is there on
-// the second read. Nothing mails and nothing is recorded.
-func TestBackupStalenessDeputyDefersWhenThePrimaryRunLandsDuringGrace(t *testing.T) {
+// TestBackupStalenessDeputyDefersAfterPrimaryCommitsDuringGrace checks the
+// second ledger read after a primary event appears during the grace interval.
+func TestBackupStalenessDeputyDefersAfterPrimaryCommitsDuringGrace(t *testing.T) {
 	now := time.Date(2026, 9, 5, 4, 0, 0, 0, time.UTC)
 	fixBackupStalenessClock(t, now)
 	captured := captureBackupAlarmSends(t, nil)
 	ledger := installSystemLedger(t)
 	cfg := deputyBackupStalenessConfig(t, primaryService)
-	// The clock is pinned, so the row lands a second before the deputy's
-	// second read the way a real commit precedes the read that sees it.
+	// Fixed test time places the event one second before the second read.
 	waits := skipBackupAlarmGrace(
 		t,
 		func() {
@@ -352,30 +337,29 @@ func TestBackupStalenessDeputyDefersWhenThePrimaryRunLandsDuringGrace(t *testing
 	logs := runStaleDeputyCheck(t, cfg)
 	if len(captured.messages) != 0 {
 		t.Fatalf(
-			"a primary run that landed during the grace period must defer, sent %d",
+			"a primary commit during grace must defer deputy email, sent %d",
 			len(captured.messages),
 		)
 	}
 
 	if _, found := alarmedBackupMetrics(t, cfg); found {
-		t.Fatal("a deferred fault must not be recorded")
+		t.Fatal("deferral must not record a fault")
 	}
 
 	if *waits != 1 {
-		t.Fatalf("the deputy must wait out the grace period once, waited %d times", *waits)
+		t.Fatalf("grace waits = %d, want 1", *waits)
 	}
 
 	if !strings.Contains(logs, "msg=backup.staleness.primary_grace") ||
 		!strings.Contains(logs, "seconds=90") ||
 		!strings.Contains(logs, "msg=backup.staleness.alarm_deferred") {
-		t.Fatalf("the grace wait and the deferral must both be logged:\n%s", logs)
+		t.Fatalf("logs must report the grace wait and deferral:\n%s", logs)
 	}
 }
 
-// TestBackupStalenessDeputyMailsAfterGraceFindsNoPrimaryRun is the other side
-// of the race: with no primary run on either read, the deputy waits once and
-// then mails once.
-func TestBackupStalenessDeputyMailsAfterGraceFindsNoPrimaryRun(t *testing.T) {
+// TestBackupStalenessDeputyEmailsWhenPrimaryAbsentAfterGrace checks one grace
+// wait and one email after both ledger reads fail to find recent primary work.
+func TestBackupStalenessDeputyEmailsWhenPrimaryAbsentAfterGrace(t *testing.T) {
 	now := time.Date(2026, 9, 5, 4, 0, 0, 0, time.UTC)
 	fixBackupStalenessClock(t, now)
 	captured := captureBackupAlarmSends(t, nil)
@@ -386,25 +370,24 @@ func TestBackupStalenessDeputyMailsAfterGraceFindsNoPrimaryRun(t *testing.T) {
 	logs := runStaleDeputyCheck(t, cfg)
 	if len(captured.messages) != 1 {
 		t.Fatalf(
-			"with no primary run after the grace period the deputy must mail once, sent %d",
+			"the deputy must email once when primary work remains absent after grace, sent %d",
 			len(captured.messages),
 		)
 	}
 
 	if *waits != 1 {
-		t.Fatalf("the deputy must wait out the grace period once, waited %d times", *waits)
+		t.Fatalf("grace waits = %d, want 1", *waits)
 	}
 
 	if !strings.Contains(logs, "msg=backup.staleness.primary_grace") ||
 		!strings.Contains(logs, "msg=backup.staleness.primary_not_seen") {
-		t.Fatalf("the grace wait and the missing primary must both be logged:\n%s", logs)
+		t.Fatalf("logs must report grace and absent primary work:\n%s", logs)
 	}
 }
 
-// TestBackupStalenessPrimaryIgnoresTheLedger pins that a checker with no
-// primary service is the primary: it mails whatever the ledger says, and reads
-// none of it.
-func TestBackupStalenessPrimaryIgnoresTheLedger(t *testing.T) {
+// TestBackupStalenessPrimaryEmailsWithoutLedgerRead checks that an unset
+// primary service selects primary behavior independently of ledger evidence.
+func TestBackupStalenessPrimaryEmailsWithoutLedgerRead(t *testing.T) {
 	now := time.Date(2026, 9, 5, 4, 0, 0, 0, time.UTC)
 	fixBackupStalenessClock(t, now)
 	captured := captureBackupAlarmSends(t, nil)
@@ -416,12 +399,12 @@ func TestBackupStalenessPrimaryIgnoresTheLedger(t *testing.T) {
 
 	runStaleDeputyCheck(t, cfg)
 	if len(captured.messages) != 1 {
-		t.Fatalf("the primary must mail once, sent %d", len(captured.messages))
+		t.Fatalf("the primary must email once, sent %d", len(captured.messages))
 	}
 
 	if ledger.served[audit.SystemOrgID()] != 0 {
 		t.Fatalf(
-			"the primary must not read the ledger, read %d rows",
+			"the primary must not read ledger rows, read %d",
 			ledger.served[audit.SystemOrgID()],
 		)
 	}

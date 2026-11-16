@@ -12,13 +12,10 @@ import (
 	"goodkind.io/tack/internal/testenv"
 )
 
-// TestDBBreakGlassRefusesToRunUnobserved pins the control: no reason, no
-// recipient, or a mail the SMTP server cannot accept each stop the statement
-// before the command dials the database. The database address here refuses
-// connections. A statement that ran would fail on that dial and name the
-// address; none of these errors name it. The mail account points at a closed
-// local port, and the real SQL outbox records no row for the statement that
-// never ran.
+// TestDBBreakGlassRefusesToRunUnobserved checks that missing reasons, missing
+// recipients, and SMTP failures prevent database access. Both network endpoints
+// refuse connections. The command must report the mail failure rather than
+// the database address and must not create an outbox row for the unexecuted statement.
 func TestDBBreakGlassRefusesToRunUnobserved(t *testing.T) {
 	pool := testenv.LedgerPool(t, testenv.Ledger(t))
 	unreachable := unreachableMsmtprc(t)
@@ -62,8 +59,9 @@ func TestDBBreakGlassRefusesToRunUnobserved(t *testing.T) {
 		&bufferSink{buf: &sink},
 		true,
 	)
-	if err == nil || !strings.Contains(err.Error(), "was not delivered") ||
-		!strings.Contains(err.Error(), "the statement did not run") {
+	if err == nil ||
+		!strings.Contains(err.Error(), "email delivery to alarm@example.test failed") ||
+		!strings.Contains(err.Error(), "the break-glass statement did not run") {
 		t.Fatalf("err = %v, want the undelivered mail to stop the statement", err)
 	}
 
@@ -119,7 +117,7 @@ func TestDBBreakGlassRunsTheStatementAndRecordsIt(t *testing.T) {
 
 	if !strings.Contains(messages[0].Text, reason) ||
 		!strings.Contains(messages[0].Text, statement) {
-		t.Fatalf("the mail must carry the reason and the statement, got %q", messages[0].Text)
+		t.Fatalf("the mail must include the reason and the statement, got %q", messages[0].Text)
 	}
 
 	rows := breakGlassRows(t, pool, reason)

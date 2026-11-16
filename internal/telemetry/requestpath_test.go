@@ -33,9 +33,9 @@ func captureDefaultLog(t *testing.T) *bytes.Buffer {
 	return &buffer
 }
 
-// TestRequestPathCounterLogsOneRequestsTotals serves a request through the
-// middleware whose handler runs the three kinds of round trip, and reads the
-// totals back from the line the middleware logs.
+// TestRequestPathCounterLogsOneRequestsTotals serves a request with ledger
+// reads, ledger writes, and synchronous broker produces. It checks the counts
+// in the middleware's log record.
 func TestRequestPathCounterLogsOneRequestsTotals(t *testing.T) {
 	logged := captureDefaultLog(t)
 	tracer := &CountingQueryTracer{Next: nil}
@@ -116,10 +116,10 @@ func TestCountLedgerQueryClassifiesStatements(t *testing.T) {
 	}
 }
 
-// TestCountingOutsideARequestIsANoOp proves a query or produce on a context
+// TestCountingSkipsContextsWithoutRequestCounters proves a query or produce on a context
 // with no request attached, such as a background job, neither counts nor
 // panics.
-func TestCountingOutsideARequestIsANoOp(t *testing.T) {
+func TestCountingSkipsContextsWithoutRequestCounters(t *testing.T) {
 	ctx := context.Background()
 	CountLedgerQuery(ctx, "SELECT 1")
 	CountSyncProduce(ctx)

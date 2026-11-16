@@ -15,8 +15,8 @@ import (
 	"goodkind.io/tack/internal/domain/org"
 )
 
-// capturingMembers keeps the context the handler hands downstream after it
-// read the request metadata, then fails the request so nothing else runs.
+// capturingMembers records the membership lookup context and returns an error
+// before the handler dispatches the tool call.
 type capturingMembers struct {
 	seen context.Context
 }
@@ -41,11 +41,10 @@ func (m *capturingMembers) ListOrgIDsForUser(
 	return nil, errors.New("stop here")
 }
 
-// The JSON-RPC id and the session id read off the request stay on the context
-// the handler carries forward, so a create's idempotency key can read them
-// and a retried create reuses the node instead of writing a second one
-// (TACK-476).
-func TestServeHTTPCarriesRequestMetadataDownstream(t *testing.T) {
+// TestServeHTTPPreservesRequestMetadataInMembershipContext checks the request's JSON-RPC
+// ID and session ID in the membership lookup context. Create idempotency uses
+// these IDs to identify retries (TACK-476).
+func TestServeHTTPPreservesRequestMetadataInMembershipContext(t *testing.T) {
 	members := &capturingMembers{seen: nil}
 	handler := NewHandler(Deps{
 		NodeSvc:       nil,

@@ -16,10 +16,9 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// RunBackupBucketsInit idempotently creates the SeaweedFS S3 bucket that holds
-// off-host backup artifacts. It is safe to run repeatedly; an already-existing
-// bucket is a success, not an error. SeaweedFS only speaks path-style S3
-// addressing, so the client forces UsePathStyle regardless of endpoint.
+// RunBackupBucketsInit creates the off-host backup bucket idempotently.
+// Existing buckets count as success. SeaweedFS requires path-style addressing
+// rather than virtual-hosted bucket names.
 func RunBackupBucketsInit(ctx context.Context, cfg *config.Config) error {
 	logger := telemetry.L(ctx)
 	if cfg.BackupS3Endpoint == "" {
@@ -70,13 +69,12 @@ func RunBackupBucketsInit(ctx context.Context, cfg *config.Config) error {
 
 const backupS3DefaultMaxAttempts = 3
 
-// Retries against a refusing address only repeat the refusal, so tests cut
-// this to one attempt (TACK-528).
+// Tests use one attempt for refused connections to avoid repeated identical
+// failures and retry delays (TACK-528).
 var backupS3MaxAttempts = backupS3DefaultMaxAttempts
 
-// newBackupS3Client builds an S3 client for the SeaweedFS endpoint using static
-// credentials from config. UsePathStyle is mandatory because SeaweedFS does not
-// support virtual-hosted-style bucket addressing.
+// newBackupS3Client configures static credentials and mandatory path-style
+// addressing for the SeaweedFS endpoint.
 func newBackupS3Client(cfg *config.Config) *s3.Client {
 	creds := credentials.NewStaticCredentialsProvider(
 		cfg.BackupS3AccessKey,
@@ -98,10 +96,8 @@ func newBackupS3Client(cfg *config.Config) *s3.Client {
 	)
 }
 
-// ensureBucket creates one bucket if it is missing. A successful HeadBucket
-// means the bucket already exists and is reachable. A NotFound HeadBucket
-// triggers CreateBucket, where BucketAlreadyOwnedByYou and BucketAlreadyExists
-// are both treated as success to keep the operation idempotent under races.
+// ensureBucket creates only absent buckets. Existing-bucket create responses
+// count as success when another process creates the bucket after the head read.
 func ensureBucket(ctx context.Context, client *s3.Client, bucket string) error {
 	logger := telemetry.L(ctx)
 	_, headErr := client.HeadBucket(ctx, &s3.HeadBucketInput{Bucket: aws.String(bucket)})
@@ -145,9 +141,8 @@ func ensureBucket(ctx context.Context, client *s3.Client, bucket string) error {
 	return nil
 }
 
-// isBucketNotFound reports whether a HeadBucket error means the bucket is
-// absent. HeadBucket returns no typed body, so a NotFound smithy.APIError code
-// or a NoSuchBucket typed error both indicate absence.
+// isBucketNotFound recognizes typed absence errors and API codes because
+// HeadBucket does not return a typed response body.
 func isBucketNotFound(err error) bool {
 	var notFound *s3types.NotFound
 	if errors.As(err, &notFound) {
@@ -168,8 +163,8 @@ func isBucketNotFound(err error) bool {
 	return false
 }
 
-// isBucketAlreadyOwned reports whether a CreateBucket error means the bucket
-// already exists, which makes the create a no-op success.
+// isBucketAlreadyOwned recognizes existing-bucket responses as successful
+// completion of idempotent creation.
 func isBucketAlreadyOwned(err error) bool {
 	var owned *s3types.BucketAlreadyOwnedByYou
 	if errors.As(err, &owned) {

@@ -155,11 +155,9 @@ func recordHighestGenerated(
 	return nil
 }
 
-// numberPropValue reads the generated property as the number the node holds.
-// A missing property yields zero: the node carries no number to protect. A
-// present value that cannot be read is an error, because counting it as zero
-// would leave the counter below a number already in use and the next
-// allocation would hand out that number again.
+// numberPropValue reads the generated property as an integer. A missing
+// property yields zero. An unreadable value returns an error to prevent
+// resetting the counter below a number already in use and allocating it again.
 func numberPropValue(props map[string]json.RawMessage, name string) (int64, error) {
 	raw := props[name]
 	if len(raw) == 0 {
@@ -171,8 +169,7 @@ func numberPropValue(props map[string]json.RawMessage, name string) (int64, erro
 		return value, nil
 	}
 
-	// Rendering accepts a numeric string, so seeding reads one too; the two
-	// must agree on what counts as the node's number.
+	// Seeding and rendering both accept numeric strings as node numbers.
 	var text string
 	if err := json.Unmarshal(raw, &text); err == nil {
 		parsed, parseErr := strconv.ParseInt(text, 10, 64)
@@ -181,5 +178,18 @@ func numberPropValue(props map[string]json.RawMessage, name string) (int64, erro
 		}
 	}
 
-	return 0, fmt.Errorf("property %q holds %s, which is not a whole number", name, raw)
+	return 0, referenceCounterNotWholeError{Name: name, Value: raw}
+}
+
+type referenceCounterNotWholeError struct {
+	Name  string
+	Value json.RawMessage
+}
+
+func (failure referenceCounterNotWholeError) Error() string {
+	return fmt.Sprintf(
+		"property %q contains %s, which is not a whole number",
+		failure.Name,
+		failure.Value,
+	)
 }

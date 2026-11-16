@@ -13,7 +13,8 @@ import (
 )
 
 // ProjectionBackfillRepository scans property definitions in bounded pages
-// and sets a search projection only on a definition that has none.
+// and sets a search projection only when a definition does not already have
+// one.
 type ProjectionBackfillRepository interface {
 	ScanProjections(ctx context.Context, cursor string) ([]*node.PropertyDef, string, error)
 	SetProjectionIfNil(

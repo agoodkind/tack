@@ -2,11 +2,9 @@ package ops_test
 
 import "testing"
 
-// TestLedgerNodeCommandsAreReachableFromTheCommandLine pins that the deploy can
-// run both halves of the ledger restart through the rendered tree, under the
-// group and names the configs playbook calls, with the wait's windows as flags
-// and nothing shadowing the global --execute the audit choke-point reads.
-func TestLedgerNodeCommandsAreReachableFromTheCommandLine(t *testing.T) {
+// TestLedgerNodeCommandsRegisterExecutionAndWaitFlags checks the rendered
+// deploy commands and wait defaults. Local flags must not override --execute.
+func TestLedgerNodeCommandsRegisterExecutionAndWaitFlags(t *testing.T) {
 	prepare := findCommand(t, "ops", "ledger", "node-prepare")
 	if prepare.LocalNonPersistentFlags().Lookup("execute") != nil {
 		t.Fatal("node-prepare declares its own --execute, which shadows the audit gate")

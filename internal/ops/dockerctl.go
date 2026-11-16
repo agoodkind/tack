@@ -1,8 +1,6 @@
-// Package ops: dockerctl.go is a thin Docker SDK helper shared by every ops
-// family that touches the container runtime. Nothing here runs the docker
-// program: the SDK's `client.FromEnv` reads `DOCKER_HOST`, `DOCKER_CERT_PATH`,
-// and `DOCKER_TLS_VERIFY`, and the commands run on the guest whose daemon they
-// address, through the socket the tack-ops service mounts.
+// Docker SDK helpers manage the container runtime.
+// client.FromEnv reads DOCKER_HOST, DOCKER_CERT_PATH, and DOCKER_TLS_VERIFY.
+// Commands use the guest daemon through the socket tack-ops mounts.
 
 package ops
 
@@ -20,10 +18,7 @@ import (
 	"github.com/moby/moby/client"
 )
 
-// newDockerClient builds a docker client honoring DOCKER_HOST, DOCKER_CERT_PATH,
-// and DOCKER_TLS_VERIFY, which is the guest's own daemon under the tack-ops
-// service. Boundary event so dispatch-time failures have a log line
-// independent of the wrapped error.
+// newDockerClient uses Docker environment settings and logs connection failures.
 func newDockerClient(ctx context.Context) (*client.Client, error) {
 	slog.DebugContext(ctx, "ops.docker.client.connect", slog.String("scope", "env"))
 	cli, err := client.New(client.FromEnv)
@@ -36,23 +31,16 @@ func newDockerClient(ctx context.Context) (*client.Client, error) {
 	return cli, nil
 }
 
-// execResult bundles a single ContainerExec invocation's stdout, stderr, and
-// exit code so callers do not have to plumb the multiplexed stream by hand.
+// execResult records one exec's stdout, stderr, and exit code.
 type execResult struct {
 	Stdout   string
 	Stderr   string
 	ExitCode int
 }
 
-// ensureImage guarantees the named image is present on the target daemon
-// before a one-shot container is created from it. runOneShot calls
-// cli.ContainerCreate directly, which does not pull on a cache miss, so a
-// helper image absent from the host (alpine on a fresh QA host, or anything
-// after image GC) would fail create with "No such image". A successful
-// ImageInspect means the image is already local and no pull is needed; any
-// inspect error is treated as not-present, which is safe because a successful
-// anonymous pull then makes create work. alpine and foundationdb are public,
-// so ImagePull runs without RegistryAuth.
+// ensureImage pulls the image when inspection fails. ContainerCreate does not
+// pull missing images, including on fresh hosts or after image cleanup.
+// ImagePull uses anonymous access for the public alpine and foundationdb images.
 func ensureImage(ctx context.Context, cli *client.Client, log *slog.Logger, image string) error {
 	_, err := cli.ImageInspect(ctx, image)
 	if err == nil {
@@ -89,28 +77,24 @@ func ensureImage(ctx context.Context, cli *client.Client, log *slog.Logger, imag
 	return nil
 }
 
-// runOneShotOptions configures a single-use docker container created, run to
-// completion, captured, and removed. Equivalent to `docker run --rm` but
-// without shelling out to the docker CLI.
+// runOneShotOptions configures a single-use container, like docker run --rm.
 type runOneShotOptions struct {
 	Image         string
-	Network       string   // optional; empty joins default
-	Entrypoint    []string // optional override
+	Network       string   // Empty selects the default network.
+	Entrypoint    []string // This optional value overrides the image entrypoint.
 	Cmd           []string
-	Env           []string          // KEY=VAL form
-	Binds         []string          // host:container[:ro]
-	ExtraHosts    []string          // optional /etc/hosts entries, "hostname:ip" form
-	Name          string            // optional explicit container name
-	User          string            `exhaustruct:"optional"` // optional "uid:gid"; empty uses the image user
+	Env           []string          // Entries use KEY=VAL form.
+	Binds         []string          // Entries use host:container[:ro] form.
+	ExtraHosts    []string          // Entries use hostname:ip form for /etc/hosts.
+	Name          string            // This optional value sets the container name.
+	User          string            `exhaustruct:"optional"` // Empty uses the image user; otherwise use uid:gid.
 	PrivateFiles  map[string][]byte `exhaustruct:"optional"`
 	PrivateOutput bool              `exhaustruct:"optional"`
 }
 
-// runOneShot creates a container with the given options, starts it, waits for
-// it to exit, captures stdout/stderr, and force-removes it. Replaces shell-outs
-// to `docker run --rm <image> <cmd>` per TACK-264. Removal happens via deferred
-// teardown using a non-cancellable context so SIGINT during a backup still
-// cleans up the scratch container.
+// runOneShot creates and runs a container, captures its output, and removes it.
+// Deferred cleanup uses a non-cancellable context to remove the scratch
+// container even after SIGINT interrupts a backup.
 func runOneShot(
 	ctx context.Context,
 	cli *client.Client,
@@ -238,24 +222,16 @@ func runOneShot(
 	}, nil
 }
 
-// containerExec runs cmd inside an existing container and returns the
-// captured streams plus exit code. Equivalent to `docker exec` but typed
-// and stream-safe. Use [containerExecStreaming] when stdout may be large
-// (multi-MB+) to avoid buffering it in memory.
+// containerExec runs cmd in an existing container and returns its output and
+// exit code. Use containerExecStreaming for large output to avoid buffering
+// it.
 //
-// The exec's streams close when ctx ends. The attach is a hijacked connection
-// the SDK does not tie to the context, so without this a command that never
-// exits would hold the read past any deadline the caller set.
-//
-// Closing the attach ends the read, not the command: the Engine API has no
-// exec kill, so a command still running when ctx ends keeps running inside the
-// container until it exits on its own. That is accepted because every exec a
-// deadline or cancellation can cut short is one the restore drill runs inside
-// its own scratch containers (the probes, readiness checks, and describes on
-// tack-rtfdb-* and tack-rtyb-*), and cleanupRestoreDrill force-removes those
-// containers, which kills every process in them. The execs against live
-// containers (provisioning's fdbcli and seed, the export's tar) run commands
-// that finish on their own.
+// Cancellation closes the attached connection to end the read. The Engine
+// API does not support killing an exec; the command continues until it exits
+// or its container stops. Restore drill probes run in scratch containers
+// that cleanupRestoreDrill force-removes, killing their processes. Commands
+// in live containers (provisioning's fdbcli and seed, and export's tar)
+// finish on their own.
 func containerExec(
 	ctx context.Context,
 	cli *client.Client,
@@ -328,13 +304,10 @@ func containerExec(
 	}, nil
 }
 
-// containerExecStreaming runs cmd inside an existing container and streams
-// stdout directly to the caller-provided writer instead of buffering in memory.
-// Stderr is captured to a string (small; error messages only). Returns the
-// exit code and stderr. Used by backup paths that produce multi-GB dumps —
-// the in-memory buffering pattern of [containerExec] would OOM the orchestrator
-// container otherwise (verified by 2026-05-10 observability: yugabyte ysql_dump
-// pushed VmRSS to 3.78 GB before being OOM-killed).
+// containerExecStreaming writes stdout directly to the supplied writer and
+// returns stderr and the exit code. Backup dumps can exceed container memory;
+// buffering a ysql_dump used 3.78 GB VmRSS before an out-of-memory kill on
+// 2026-05-10.
 func containerExecStreaming(
 	ctx context.Context,
 	cli *client.Client,
@@ -376,9 +349,7 @@ func containerExecStreaming(
 		return 0, "", fmt.Errorf("exec attach: %w", err)
 	}
 	defer att.Close()
-	// As in containerExec: the hijacked attach outlives the context on its
-	// own, so the stream is closed when ctx ends; the command behind it is
-	// not, for the reasons given there.
+	// Cancellation closes the stream, not the command, as in containerExec.
 	stopClosing := context.AfterFunc(ctx, att.Close)
 	defer stopClosing()
 	var stderrBuf bytes.Buffer
@@ -409,12 +380,9 @@ func containerExecStreaming(
 	return insp.ExitCode, stderrBuf.String(), nil
 }
 
-// removeContainerForce removes a container by name, ignoring not-found
-// errors. Used by deferred teardown paths. It removes the container's
-// anonymous volumes with it: the yugabyte and foundationdb images declare
-// VOLUMEs, so every scratch container otherwise leaves them behind, and the
-// guest's prune never removes volumes (634 had piled up on the production
-// owner by 2026-09-15, TACK-498). Named volumes are never removed this way.
+// removeContainerForce removes a container and its anonymous volumes during
+// deferred cleanup. The yugabyte and foundationdb images declare volumes that
+// guest pruning does not remove (TACK-498). This does not remove named volumes.
 func removeContainerForce(ctx context.Context, cli *client.Client, name string) {
 	_, _ = cli.ContainerRemove(
 		ctx,
@@ -423,7 +391,7 @@ func removeContainerForce(ctx context.Context, cli *client.Client, name string) 
 	)
 }
 
-// netMode constructs a NetworkingConfig that joins the named docker network.
+// netMode constructs a NetworkingConfig for the specified Docker network.
 func netMode(networkName string) *network.NetworkingConfig {
 	if networkName == "" {
 		return nil

@@ -10,11 +10,10 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// releaseCachedPages asks the kernel to drop the cached pages of file's
-// length bytes at offset, which the caller has just synced, so they stop
-// counting against this process's memory limit. The advice is best effort: a
-// refusal leaves clean pages the kernel can still reclaim on its own, so it is
-// logged and the copy goes on.
+// releaseCachedPages asks the kernel to release cached pages for length bytes
+// at offset after the caller syncs them. Releasing pages reduces this process's
+// memory usage. The kernel can refuse the request and reclaim clean pages
+// later. The function logs refusals without interrupting the copy.
 func releaseCachedPages(ctx context.Context, file *os.File, offset, length int64) {
 	raw, err := file.SyscallConn()
 	if err == nil {

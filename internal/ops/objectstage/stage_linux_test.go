@@ -1,12 +1,9 @@
 //go:build linux
 
-// stage_linux_test.go downloads an object much larger than the
-// memory a restore drill may hold, through the same fetch the drill stages
-// snapshot artifacts with, from a real S3-compatible store. It needs the
-// cachestat system call (Linux 6.5 and later) to read how much of the staged
-// file sits in the page cache, which the kernel charges to the drill
-// container's memory limit, and a disk filesystem under TMPDIR, since
-// cachestat sees no cache through overlayfs.
+// stage_linux_test.go downloads a large object from a real S3-compatible store
+// using the restore drill's staging function. It measures cache usage against
+// the drill's memory limit with cachestat, which requires Linux 6.5 or later.
+// TMPDIR must use a disk filesystem because overlayfs does not report cache usage.
 
 package objectstage_test
 
@@ -136,8 +133,8 @@ func TestGetObjectToFileBoundsUnwrittenStagingData(t *testing.T) {
 	)
 	if peaks.cachedBytes == 0 {
 		t.Fatal(
-			"cachestat saw none of the staged file cached, so it cannot measure this filesystem " +
-				"(overlayfs reports nothing); run with TMPDIR on a disk filesystem such as a Docker volume",
+			"cachestat did not report cached pages for the staged file and cannot measure this filesystem " +
+				"(overlayfs does not report cache usage); run with TMPDIR on a disk filesystem such as a Docker volume",
 		)
 	}
 
@@ -167,10 +164,9 @@ func TestGetObjectToFileBoundsUnwrittenStagingData(t *testing.T) {
 	}
 }
 
-// sampleStaging reads the staged file's cached and unwritten bytes and the
-// heap in use until stop closes, and returns the largest of each. A read that
-// finds no file yet is skipped; a cachestat failure fails the test, because
-// without it the bound is not measured.
+// sampleStaging records peak cached bytes, unwritten bytes, and heap usage
+// until stop closes. It skips samples before the staged file exists and fails
+// the test if cachestat cannot measure the cache bound.
 func sampleStaging(t *testing.T, path string, stop <-chan struct{}) streamPeaks {
 	var peaks streamPeaks
 	pageSize := uint64(os.Getpagesize())

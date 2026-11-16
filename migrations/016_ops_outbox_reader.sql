@@ -1,8 +1,8 @@
 -- `ops audit consumer-offsets` reports how many operator-command events wait
--- in public.ops_outbox and when the oldest one was written. It reads through
--- the ledger reader. The ledger reader does not have the relay's writer
--- credential. The reader gains SELECT on the two columns that count and age
--- need, and no access to the event payloads.
+-- in public.ops_outbox and reports the oldest event's creation time. It uses
+-- the ledger reader, which does not have the relay's writer credential.
+-- The reader gains SELECT on the two columns needed for count and age.
+-- It cannot read event payloads.
 --
 -- Every statement is idempotent. A retry after a partial run applies the same
 -- grant again.

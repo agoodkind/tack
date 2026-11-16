@@ -10,10 +10,8 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// ListDeadLetters reads up to limit dead-letter rows with their payloads for
-// a replay: rows never attempted first, then the fewest attempts, oldest
-// first within a count, so a payload that can never land does not sit at
-// the front of every run and starve the rows behind it.
+// ListDeadLetters reads payloads ordered by fewest replay attempts, then oldest
+// receipt and Kafka position. Unrecoverable rows must not starve untried rows.
 func (r *Reader) ListDeadLetters(ctx context.Context, limit int) ([]DeadLetter, error) {
 	if r == nil || r.pool == nil {
 		return nil, fmt.Errorf("audit reader not configured")
@@ -107,16 +105,12 @@ func (r *Reader) SummarizeDeadLetters(ctx context.Context) ([]DeadLetterSummary,
 	return out, nil
 }
 
-// Replay re-publishes one dead-letter row's payload to the audit topic,
-// byte for byte, under a header naming the row. The consumer decodes and
-// projects it exactly as it would a fresh record and, as the ledger's one
-// writer, deletes the row when the event lands or counts the attempt when it
-// fails again. The payload is not validated here on purpose: a row the
-// current decoder still rejects must reach the consumer to be counted as
-// another failed attempt, and a replay that refused it first would hide
-// that. The partition key is the one the producer would have used, read from
-// the payload when it decodes, so the replay lands on the partition that
-// owns the event's chain and no second consumer advances it.
+// Replay republishes exact payload bytes with the original dead-letter row key
+// in the replay header.
+// The consumer deletes successful replays or counts failed attempts. Do not
+// validate here: the consumer must count even a still-undecodable replay.
+// Decodable payloads use the original producer's chain partition key to avoid
+// concurrent consumers advancing one chain.
 func (k *KafkaRecorder) Replay(ctx context.Context, letter DeadLetter) error {
 	produceCtx, cancel := context.WithTimeout(ctx, k.produceTimeout)
 	defer cancel()
@@ -155,9 +149,8 @@ func (k *KafkaRecorder) Replay(ctx context.Context, letter DeadLetter) error {
 	return nil
 }
 
-// replayPartitionKey derives the producer's partition key from a dead-letter
-// payload. A payload that does not decode gets no key and lands anywhere,
-// which is harmless: the consumer will refuse it again and count the attempt.
+// replayPartitionKey derives the producer key for decodable payloads. Invalid
+// payloads use nil keys; the consumer still rejects and counts those attempts.
 func replayPartitionKey(payload []byte) []byte {
 	var ev Event
 	if err := json.Unmarshal(payload, &ev); err != nil {

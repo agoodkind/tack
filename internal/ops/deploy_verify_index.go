@@ -1,7 +1,5 @@
-// deploy_verify_index.go is the given-digest half of `ops deploy verify`: with
-// the expected multi-platform index digests the build workflow published, the
-// command compares each running container's image index descriptor with the
-// given digest and never with a value the daemon derives from a local tag.
+// Index verification compares each running container's image index descriptor
+// with the expected build workflow digest, not a daemon-derived tag value.
 
 package ops
 
@@ -10,8 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"regexp"
-	"slices"
 	"strings"
 
 	"github.com/moby/moby/api/types/image"
@@ -19,91 +15,20 @@ import (
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 )
 
+var errDeployIndexMismatch = errors.New("deployment image index mismatch")
+
 const (
-	// ContainerdSnapshotterDriverType is the DriverStatus driver-type value of the
-	// containerd image store, the only store that records the index digest
-	// in the image descriptor.
+	// ContainerdSnapshotterDriverType identifies the containerd image store,
+	// which records the index digest in the image descriptor.
 	ContainerdSnapshotterDriverType = "io.containerd.snapshotter.v1"
-	// ImageStoreDriverTypeKey is the DriverStatus key of the image store driver type.
+	// ImageStoreDriverTypeKey specifies the DriverStatus key for
+	// the image store driver type.
 	ImageStoreDriverTypeKey = "driver-type"
-	// dockerManifestListMediaType is the Docker multi-platform manifest list.
+	// dockerManifestListMediaType identifies Docker's manifest list format.
 	dockerManifestListMediaType = "application/vnd.docker.distribution.manifest.list.v2+json"
 )
 
-// indexDigestPattern is the only accepted form of a given index digest.
-var indexDigestPattern = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
-
-// deployIndexDigests maps each service to the index digest its replicas must
-// run. A nil map selects the local tag comparison.
-type deployIndexDigests map[string]string
-
-// parseDeployIndexDigests checks the two digest flags against the checked
-// services. Both empty selects the local tag comparison. When services
-// include audit-consumer, the command refuses one flag without the other.
-// When services are only app, the command refuses --tack-audit-consumer-digest.
-// The command also refuses a value outside the sha256 index digest form. Every
-// refusal happens before the command reads the daemon.
-func parseDeployIndexDigests(
-	ctx context.Context,
-	server string,
-	consumer string,
-	services []string,
-) (deployIndexDigests, error) {
-	if server == "" && consumer == "" {
-		return nil, nil
-	}
-
-	appOnly := !slices.Contains(services, auditConsumerService)
-	var problems []string
-	switch {
-	case appOnly && consumer != "":
-		problems = append(
-			problems,
-			"--service app checks only the app service and refuses --tack-audit-consumer-digest",
-		)
-	case !appOnly && (server == "" || consumer == ""):
-		problems = append(
-			problems,
-			"--tack-server-digest and --tack-audit-consumer-digest must be given together",
-		)
-	}
-
-	for flag, value := range map[string]string{
-		"--tack-server-digest":         server,
-		"--tack-audit-consumer-digest": consumer,
-	} {
-		if value != "" && !indexDigestPattern.MatchString(value) {
-			problems = append(
-				problems,
-				fmt.Sprintf(
-					"%s %q is not sha256: followed by 64 lowercase hex digits",
-					flag,
-					value,
-				),
-			)
-		}
-	}
-
-	if len(problems) > 0 {
-		err := errors.New("ops deploy verify: " + strings.Join(problems, "; "))
-		slog.ErrorContext(
-			ctx,
-			"ops.deploy.verify.digest_flags_invalid",
-			slog.String("err", err.Error()),
-		)
-
-		return nil, err
-	}
-
-	if appOnly {
-		return deployIndexDigests{appService: server}, nil
-	}
-
-	return deployIndexDigests{appService: server, auditConsumerService: consumer}, nil
-}
-
-// imageStoreDriverType returns the DriverStatus driver-type entry, or an empty
-// string when the daemon reports none.
+// imageStoreDriverType returns the driver-type entry or an empty string.
 func imageStoreDriverType(status [][2]string) string {
 	for _, entry := range status {
 		if entry[0] == ImageStoreDriverTypeKey {
@@ -114,8 +39,8 @@ func imageStoreDriverType(status [][2]string) string {
 	return ""
 }
 
-// requireContainerdImageStore refuses every image store other than the
-// containerd snapshotter store.
+// requireContainerdImageStore rejects stores other than the
+// containerd snapshotter.
 func requireContainerdImageStore(ctx context.Context, status [][2]string) error {
 	driverType := imageStoreDriverType(status)
 	if driverType == ContainerdSnapshotterDriverType {
@@ -136,7 +61,7 @@ func requireContainerdImageStore(ctx context.Context, status [][2]string) error 
 	return err
 }
 
-// indexReading is what the daemon reports for one container's image.
+// indexReading records the daemon's image inspection for one container.
 type indexReading struct {
 	container      string
 	driverType     string
@@ -144,16 +69,16 @@ type indexReading struct {
 	image          image.InspectResponse
 }
 
-// requireIndexDescriptor compares the given digest with the image index
-// descriptor digest, as exact strings. The image ID and RepoDigests are
-// printed on failure and never compared.
-func requireIndexDescriptor(ctx context.Context, given string, reading indexReading) error {
-	container, inspected := reading.container, reading.image
+// requireIndexDescriptor compares the expected digest and descriptor digest as
+// exact strings. Failure details include the image ID and RepoDigests, but the
+// comparison does not use them.
+func requireIndexDescriptor(ctx context.Context, given string, imageReading indexReading) error {
+	container, inspected := imageReading.container, imageReading.image
 	descriptor := inspected.Descriptor
 	var reason string
 	switch {
 	case descriptor == nil:
-		reason = "the image has no descriptor"
+		reason = "the image does not have a descriptor"
 	case descriptor.MediaType != ocispec.MediaTypeImageIndex && descriptor.MediaType != dockerManifestListMediaType:
 		reason = fmt.Sprintf("descriptor media type %q is not an image index", descriptor.MediaType)
 	case descriptor.Digest.String() != given:
@@ -168,16 +93,18 @@ func requireIndexDescriptor(ctx context.Context, given string, reading indexRead
 	}
 
 	err := fmt.Errorf(
-		"deploy verify: %s on %s (given=%s driver-type=%s container.Image=%s descriptor.digest=%q descriptor.mediaType=%q image.Id=%s repoDigests=%v)",
+		"deploy verify: %s on %s (given=%s driver-type=%s container.Image=%s "+
+			"descriptor.digest=%q descriptor.mediaType=%q image.Id=%s repoDigests=%v): %w",
 		reason,
 		container,
 		given,
-		reading.driverType,
-		reading.containerImage,
+		imageReading.driverType,
+		imageReading.containerImage,
 		descriptorDigest,
 		mediaType,
 		inspected.ID,
 		inspected.RepoDigests,
+		errDeployIndexMismatch,
 	)
 	slog.ErrorContext(
 		ctx,
@@ -189,9 +116,9 @@ func requireIndexDescriptor(ctx context.Context, given string, reading indexRead
 	return err
 }
 
-// verifyIndexDigests reads the image store once, then each container's image
-// by the image ID the container runs, and compares its index descriptor with
-// the given digest. It returns one result line per container.
+// verifyIndexDigests reads the image store once and inspects each image by ID.
+// It compares each index descriptor with the expected digest and returns
+// one result line per container.
 func verifyIndexDigests(
 	ctx context.Context,
 	cli *client.Client,
@@ -201,6 +128,7 @@ func verifyIndexDigests(
 	info, err := cli.Info(ctx, client.InfoOptions{})
 	if err != nil {
 		slog.ErrorContext(ctx, "ops.deploy.verify.info_failed", slog.String("err", err.Error()))
+
 		return nil, fmt.Errorf("read the daemon image store: %w", err)
 	}
 
@@ -246,13 +174,13 @@ func verifyIndexDigests(
 			)
 		}
 
-		reading := indexReading{
+		imageReading := indexReading{
 			container:      target.Container,
 			driverType:     driverType,
 			containerImage: imageID,
 			image:          inspectedImage.InspectResponse,
 		}
-		if err := requireIndexDescriptor(ctx, given, reading); err != nil {
+		if err := requireIndexDescriptor(ctx, given, imageReading); err != nil {
 			return nil, err
 		}
 

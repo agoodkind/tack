@@ -27,11 +27,9 @@ func TestOutboxReadBatchAndDelete(t *testing.T) {
 		outboxTestEvent("second"),
 		outboxTestEvent("third"),
 	}
-	// Dated far enough in the past that no real row can predate them. The DSN
-	// points at a shared database, so a row left behind by another test would
-	// otherwise sort ahead of these and the limited read below would return
-	// it instead, failing this test for a reason that has nothing to do with
-	// the outbox.
+	// ReadBatch sorts rows by creation time. This test uses old timestamps
+	// to sort its events before rows from concurrent tests in the shared
+	// database. The limited read below checks the first two events.
 	createdAt := []time.Time{
 		time.Date(2000, time.January, 1, 0, 0, 0, 0, time.UTC),
 		time.Date(2000, time.January, 1, 0, 0, 1, 0, time.UTC),
@@ -70,10 +68,8 @@ func TestOutboxReadBatchAndDelete(t *testing.T) {
 		}
 	}
 
-	// The three rows carry the oldest created_at values in the table, so a
-	// limited read returns exactly the first two of them in that order. Every
-	// later assertion filters to this test's own ids, because the shared
-	// database may hold rows another test is writing.
+	// Later assertions filter rows by this test's event IDs because
+	// concurrent tests can write other rows to the shared database.
 	outbox := NewPoolOutbox(pool)
 	batch, err := outbox.ReadBatch(ctx, 2)
 	if err != nil {
@@ -94,12 +90,12 @@ func TestOutboxReadBatchAndDelete(t *testing.T) {
 		}
 	}
 
-	mine := readOwnOutboxRows(ctx, t, outbox, events)
-	if len(mine) != len(events) {
-		t.Fatalf("own rows found = %d, want %d", len(mine), len(events))
+	testOutboxRows := readOwnOutboxRows(ctx, t, outbox, events)
+	if len(testOutboxRows) != len(events) {
+		t.Fatalf("own rows found = %d, want %d", len(testOutboxRows), len(events))
 	}
 
-	for i, row := range mine {
+	for i, row := range testOutboxRows {
 		if !reflect.DeepEqual(row.Event, events[i]) {
 			t.Errorf("own row %d = %#v, want %#v", i, row.Event, events[i])
 		}
@@ -109,28 +105,29 @@ func TestOutboxReadBatchAndDelete(t *testing.T) {
 		t.Fatalf("delete second event: %v", err)
 	}
 
-	remaining := readOwnOutboxRows(ctx, t, outbox, events)
-	if len(remaining) != 2 {
-		t.Fatalf("own rows after delete = %d, want 2", len(remaining))
+	remainingOutboxRows := readOwnOutboxRows(ctx, t, outbox, events)
+	if len(remainingOutboxRows) != 2 {
+		t.Fatalf("own rows after delete = %d, want 2", len(remainingOutboxRows))
 	}
 
-	if remaining[0].EventID != events[0].EventID || remaining[1].EventID != events[2].EventID {
+	if remainingOutboxRows[0].EventID != events[0].EventID ||
+		remainingOutboxRows[1].EventID != events[2].EventID {
 		t.Fatalf(
 			"remaining event IDs = %s, %s, want %s, %s",
-			remaining[0].EventID,
-			remaining[1].EventID,
+			remainingOutboxRows[0].EventID,
+			remainingOutboxRows[1].EventID,
 			events[0].EventID,
 			events[2].EventID,
 		)
 	}
 }
 
-// outboxReadLimit covers this test's rows plus whatever a concurrent test on
-// the same shared database left behind.
+// outboxReadLimit limits the rows read from the shared database before
+// readOwnOutboxRows filters them by this test's event IDs.
 const outboxReadLimit = 1000
 
-// readOwnOutboxRows drains a generous batch and keeps only the rows this test
-// wrote, in the order the reader returned them.
+// readOwnOutboxRows reads a batch and selects rows with this test's event IDs
+// without changing their order.
 func readOwnOutboxRows(
 	ctx context.Context,
 	t *testing.T,

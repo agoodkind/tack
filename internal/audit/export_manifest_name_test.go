@@ -1,6 +1,5 @@
-// export_manifest_name_test.go covers name validation: the events file name a
-// manifest carries is untrusted input, and a name that points outside the
-// bundle is refused rather than followed.
+// export_manifest_name_test.go checks that manifest file names cannot select
+// rows outside the bundle directory.
 
 package audit
 
@@ -11,11 +10,10 @@ import (
 	"testing"
 )
 
-// TestAManifestCannotNameAFileOutsideTheBundle pins that the manifest is
-// untrusted input. The scan opens the file the manifest names before the
-// signature verdict is reported, so a manifest able to name any path would make
-// the verifier read whatever a foreign bundle chose to point it at.
-func TestAManifestCannotNameAFileOutsideTheBundle(t *testing.T) {
+// TestVerifyBundleRejectsRowsPathsOutsideBundle checks path rejection before
+// the verifier reports a signature verdict. Untrusted manifests must not
+// select arbitrary files for reading.
+func TestVerifyBundleRejectsRowsPathsOutsideBundle(t *testing.T) {
 	for _, name := range []string{"../events.jsonl", "sub/events.jsonl", "/etc/passwd", "..", "."} {
 		t.Run(
 			name,
@@ -28,8 +26,8 @@ func TestAManifestCannotNameAFileOutsideTheBundle(t *testing.T) {
 
 				rows := chainedExportTestRows(t, 2)
 				pub := writeSignedExportTestBundle(t, dir, rows)
-				// A decoy at each reachable target, so a verifier that followed the
-				// name would find something to scan rather than fail on an absent file.
+				// Populate candidate paths with valid rows. Rejection must depend on
+				// the invalid file name rather than a missing target.
 				decoy, err := os.ReadFile(filepath.Join(dir, legacyExportEventsFile))
 				if err != nil {
 					t.Fatal(err)

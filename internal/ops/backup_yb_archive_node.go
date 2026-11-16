@@ -1,9 +1,6 @@
-// backup_yb_archive_node.go is the data-guest half of the YugabyteDB snapshot
-// export. The orchestrator (yb-snapshot-export) uploads the snapshot metadata,
-// schema, and a completeness manifest; this command runs on each data guest,
-// tars that guest's own tablet snapshot files out of the local yugabyte
-// container, and fills the prefix the manifest assigns to this node's name with
-// that tar and the inventory of what it carries.
+// Data guests archive their local tablet snapshots and upload each tar and
+// inventory to the node prefix assigned by the export manifest. The export
+// orchestrator supplies metadata, schema, and that completeness manifest.
 
 package ops
 
@@ -21,12 +18,10 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// RunBackupYBArchiveNode archives this node's tablet snapshot files for one
-// export run. With an explicit runID it archives that run and errors when the
-// run's manifest does not list this node; with an empty runID it discovers the
-// newest manifest and exits 0 with a log line when there is no manifest, the
-// manifest does not list this node, or every artifact this node owes the run
-// already exists.
+// RunBackupYBArchiveNode archives this node for an explicit run or discovers
+// the newest manifest when runID is empty. Explicit runs require membership.
+// Discovery succeeds without upload when manifests are absent, the node is
+// unlisted, or all required artifacts already exist, and logs the reason.
 func RunBackupYBArchiveNode(ctx context.Context, cfg *config.Config, runID string) error {
 	if err := requireYBArchiveConfig(ctx, cfg); err != nil {
 		return err
@@ -92,9 +87,8 @@ func uploadYBNodeArchive(
 	)
 
 	stageDir := filepath.Join(cfg.BackupRoot, "yb-archive-"+target.manifest.RunID)
-	// The manifest's run id is validated at decode, but this dir is recursively
-	// removed on exit, so independently refuse any resolved path that escapes
-	// the backup root before creating or deleting anything.
+	// Decode validates the run ID. This independent containment check protects
+	// recursive staging cleanup before creating or deleting any directory.
 	if !strings.HasPrefix(stageDir, filepath.Clean(cfg.BackupRoot)+string(filepath.Separator)) {
 		err := fmt.Errorf(
 			"yb-archive-node: stage dir %s escapes backup root %s",
@@ -129,10 +123,8 @@ func uploadYBNodeArchive(
 		return err
 	}
 
-	// The inventory is recorded from the finished archive and uploaded ahead of
-	// it, so no archive is ever in the store without the record of what it
-	// carries; every gate and this command's own idempotency probe require
-	// both.
+	// Inventory records the finished archive and uploads before it.
+	// Completeness and idempotency checks require both objects.
 	if err := writeYBArchiveInventory(
 		ctx,
 		target.manifest.RunID,

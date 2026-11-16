@@ -2,40 +2,33 @@ package audit
 
 import "strings"
 
-// Verb is the stable identifier of what happened. New verbs must be added
-// here and to ToolVerb (when MCP-triggerable).
-//
-// Two tests guard the list from opposite sides. coverage_test.go fails when
-// a listed MCP tool resolves to no verb. verb_emitter_test.go fails when a
-// declared verb is recorded nowhere, which is the direction that catches a
-// verb whose emitter was never written; mcp.session_start and
-// mcp.session_end were removed because the transport is stateless and no
-// session boundary exists to record (TACK-340).
+// Verb identifies the recorded operation. Add new MCP-triggered verbs to
+// ToolVerb as well. Coverage tests require a verb for each listed tool and an
+// emitter for each declared verb. Stateless MCP does not record session
+// boundaries (TACK-340).
 type Verb string
 
 const (
-	// State changes are written synchronously, and they must not be dropped.
+	// State changes must record synchronously without dropping events.
 	VerbNodeCreate         Verb = "node.create"
 	VerbNodeUpdate         Verb = "node.update"
 	VerbNodeDelete         Verb = "node.delete"
 	VerbRelationshipAdd    Verb = "relationship.add"
 	VerbRelationshipRemove Verb = "relationship.remove"
-	// VerbRelationshipUpdate records a write that replaces the stored value
-	// of an existing relationship.
+	// VerbRelationshipUpdate records replacement of an existing relationship value.
 	VerbRelationshipUpdate Verb = "relationship.update"
 	VerbPropertyDefCreate  Verb = "property_def.create"
 	VerbPropertyDefUpdate  Verb = "property_def.update"
 	VerbPropertyDefDelete  Verb = "property_def.delete"
 	VerbNodeTypeCreate     Verb = "node_type.create"
 	VerbNodeTypeUpdate     Verb = "node_type.update"
-	// VerbNodeTypeDelete records the deletion of a node type definition.
+	// VerbNodeTypeDelete records deletion of a node type definition.
 	VerbNodeTypeDelete Verb = "node_type.delete"
-	// VerbSequenceCreate records the first stored value of a sequence counter.
+	// VerbSequenceCreate records the first stored sequence counter value.
 	VerbSequenceCreate Verb = "sequence.create"
-	// VerbSequenceUpdate records a change to the stored value of a sequence
-	// counter.
+	// VerbSequenceUpdate records a sequence counter value change.
 	VerbSequenceUpdate Verb = "sequence.update"
-	// VerbNodeReferenceRename records a change to a node reference.
+	// VerbNodeReferenceRename records a node reference change.
 	VerbNodeReferenceRename Verb = "node.reference_rename"
 	VerbOrgMemberAdd        Verb = "org.member_add"
 	VerbOrgMemberRemove     Verb = "org.member_remove"
@@ -43,7 +36,7 @@ const (
 	// VerbUserCreate records creation of an authenticated user.
 	VerbUserCreate Verb = "user.create"
 
-	// Auth covers every breath, including failures.
+	// Auth verbs record authentication operations, including failures.
 	VerbAuthLoginSucceeded Verb = "auth.login_succeeded"
 	VerbAuthLoginFailed    Verb = "auth.login_failed"
 	VerbAuthTokenCreate    Verb = "auth.token_create"
@@ -51,7 +44,7 @@ const (
 	VerbAuthTokenUsed      Verb = "auth.token_used"
 	VerbAuthTokenRejected  Verb = "auth.token_rejected"
 
-	// Reads are batched via WAL for hot-path tolerance.
+	// Read-class verbs support batched recording with a write-ahead log.
 	VerbNodeRead          Verb = "node.read"
 	VerbNodeList          Verb = "node.list"
 	VerbNodeSearch        Verb = "node.search"
@@ -64,14 +57,14 @@ const (
 	VerbAuditRead         Verb = "audit.read"
 	VerbAuditExport       Verb = "audit.export"
 
-	// VerbMCPToolInvoked and the two below it record the transport itself
-	// rather than the domain change a call made, so every request leaves a
-	// row even when its tool maps to no semantic verb.
+	// VerbMCPToolInvoked records calls independently of their domain changes,
+	// including tools without a semantic verb mapping. The other transport verbs
+	// record resource reads and prompt calls independently of domain changes.
 	VerbMCPToolInvoked   Verb = "mcp.tool_invoked"
 	VerbMCPResourceRead  Verb = "mcp.resource_read"
 	VerbMCPPromptInvoked Verb = "mcp.prompt_invoked"
 
-	// Audit-of-audit.
+	// Audit verbs record operations on audit evidence itself.
 	VerbAuditDropped       Verb = "audit.dropped"
 	VerbAuditNotarized     Verb = "audit.notarized"
 	VerbAuditPIIRedacted   Verb = "audit.pii_redacted"
@@ -85,8 +78,8 @@ const (
 	VerbBootstrapSeed Verb = "bootstrap.seed"
 	// VerbAuditVerify records audit bundle verification.
 	VerbAuditVerify Verb = "audit.verify"
-	// VerbAuditSignersVerified records an operator checking every notarization
-	// against the valid signer set (TACK-437).
+	// VerbAuditSignersVerified records notarization checks against the valid
+	// signer set.
 	VerbAuditSignersVerified Verb = "audit.signers_verified"
 	// VerbAuditKeyGenerate records audit signing key generation.
 	VerbAuditKeyGenerate Verb = "audit.key_generate"
@@ -116,70 +109,62 @@ const (
 	VerbOpsDatagenSoak Verb = "ops.datagen_soak"
 	// VerbOpsDatagenSearch records QA verification of public search.
 	VerbOpsDatagenSearch Verb = "ops.datagen_search"
-	// VerbOpsDatagenRepair records QA proof of the node integrity repair path
-	// through ops qa datagen repair with the audit verb ops.datagen_repair.
+	// VerbOpsDatagenRepair records QA node integrity repair checks with
+	// ops qa datagen repair and ops.datagen_repair.
 	VerbOpsDatagenRepair Verb = "ops.datagen_repair"
-	// VerbOpsDatagenLegacyLedgerRow records QA generation of a ledger row in
-	// the shape the writer produced before the ledger stored outcomes.
+	// VerbOpsDatagenLegacyLedgerRow records generation of historical ledger rows
+	// without stored outcomes.
 	VerbOpsDatagenLegacyLedgerRow Verb = "ops.datagen_legacy_ledger_row"
 	// VerbOpsProvision records environment provisioning.
 	VerbOpsProvision Verb = "ops.provision"
-	// VerbOpsAuditDLQInspect records an operator listing the dead-letter table.
+	// VerbOpsAuditDLQInspect records a dead-letter listing.
 	VerbOpsAuditDLQInspect Verb = "ops.audit_dlq_inspect"
-	// VerbOpsAuditDLQReplay records an operator re-publishing dead-letter
-	// rows to the audit topic.
+	// VerbOpsAuditDLQReplay records dead-letter republication to the audit topic.
 	VerbOpsAuditDLQReplay Verb = "ops.audit_dlq_replay"
-	// VerbOpsAuditConsumerOffsets records an operator reading the audit
-	// consumer's committed lag and the operator outbox remainders.
+	// VerbOpsAuditConsumerOffsets records committed consumer lag and outbox
+	// remainders.
 	VerbOpsAuditConsumerOffsets Verb = "ops.audit_consumer_offsets"
 	VerbOpsSearchAccessRollback Verb = "ops.search_access_rollback" // VerbOpsSearchAccessRollback records an access policy rollback.
-	// VerbOpsAuditSchemaGuardProof records the intent and outcome of a CREATE TABLE
-	// probe against the audit schema using an engine superuser login.
+	// VerbOpsAuditSchemaGuardProof records an engine-superuser CREATE TABLE probe
+	// against the audit schema, including intent and outcome.
 	VerbOpsAuditSchemaGuardProof Verb = "ops.audit_schema_guard_proof"
-	// VerbOpsDBBreakGlass records an operator running one SQL statement
-	// against the production database through the audited command, the only
-	// sanctioned path once the raw one is closed (TACK-327).
+	// VerbOpsDBBreakGlass records one production SQL statement using the
+	// required audited operator command (TACK-327).
 	VerbOpsDBBreakGlass Verb = "ops.db_break_glass"
-	// VerbOpsAuthTokenCreate records an operator minting an API token for an
-	// existing user.
+	// VerbOpsAuthTokenCreate records API token creation for an existing user.
 	VerbOpsAuthTokenCreate Verb = "ops.auth_token_create"
-	// VerbOpsAuthTokenList records an operator listing a user's API tokens.
+	// VerbOpsAuthTokenList records a user's API token listing.
 	VerbOpsAuthTokenList Verb = "ops.auth_token_list"
-	// VerbOpsAuthTokenRevoke records an operator revoking an API token.
+	// VerbOpsAuthTokenRevoke records API token revocation.
 	VerbOpsAuthTokenRevoke Verb = "ops.auth_token_revoke"
-	// VerbOpsActAsCreate records the operator command that creates one node
-	// as a named user (TACK-424).
+	// VerbOpsActAsCreate records node creation as a specified user (TACK-424).
 	VerbOpsActAsCreate Verb = "ops.act_as_create"
-	// VerbOpsActAsGrant records the grant under which an operator acted as a
-	// user: the user, the org, the reason, and the grant id the user's own
-	// row carries (TACK-424).
+	// VerbOpsActAsGrant records the user, org, reason, and grant ID for operator
+	// actions as a user. The user's own row includes that grant ID (TACK-424).
 	VerbOpsActAsGrant Verb = "ops.act_as_grant"
 	// VerbOpsBackfillDefaultChildren records default child backfills.
 	VerbOpsBackfillDefaultChildren Verb = "ops.backfill_default_children"
 	// VerbOpsBackfillSearchProjections records the one-time explicit metadata rollout.
 	VerbOpsBackfillSearchProjections Verb = "ops.backfill_search_projections"
-	// VerbOpsBackfillFixedDefinitions records each run of the
-	// ops backfill once-fixed-definitions command.
+	// VerbOpsBackfillFixedDefinitions records the ops backfill
+	// once-fixed-definitions command.
 	VerbOpsBackfillFixedDefinitions Verb = "ops.backfill_fixed_definitions"
-	// VerbOpsBackfillMetadataNameIndex records the one-time backfill of the
-	// node type-key and property-name index entries.
+	// VerbOpsBackfillMetadataNameIndex records the node type-key and
+	// property-name index backfill.
 	VerbOpsBackfillMetadataNameIndex Verb = "ops.backfill_metadata_name_index"
-	// VerbOpsBackfillOrphanNodes records the one-time delete of the nodes
-	// without a hierarchy parent and their descendants.
+	// VerbOpsBackfillOrphanNodes records deletion of parentless nodes and descendants.
 	VerbOpsBackfillOrphanNodes Verb = "ops.backfill_orphan_nodes"
-	// VerbOpsBackfillNodeIntegrity records the one-time node integrity backfill
-	// for TACK-582. The backfill applies a frozen repair manifest.
+	// VerbOpsBackfillNodeIntegrity records the frozen-manifest integrity backfill
+	// (TACK-582).
 	VerbOpsBackfillNodeIntegrity Verb = "ops.backfill_node_integrity"
-	// VerbOpsBackfillAuditPartitionNames records the one-time rename of each
-	// audit.events child with a name outside events_pYYYY_MM_DD.
+	// VerbOpsBackfillAuditPartitionNames records renaming audit.events children
+	// outside the events_pYYYY_MM_DD format.
 	VerbOpsBackfillAuditPartitionNames Verb = "ops.backfill_audit_partition_names"
-	// VerbOpsBackfillDropKilltestSchema records the one-time killtest schema drop
-	// from the ledger database in the ops audit ledger.
+	// VerbOpsBackfillDropKilltestSchema records the one-time killtest schema deletion.
 	VerbOpsBackfillDropKilltestSchema Verb = "ops.backfill_drop_killtest_schema"
 	// VerbOpsReindex records property index backfills.
 	VerbOpsReindex Verb = "ops.reindex"
-	// VerbOpsStrictValidation is the audit verb for strict validation scans
-	// and activation.
+	// VerbOpsStrictValidation records strict validation scans and activation.
 	VerbOpsStrictValidation Verb = "ops.strict_validation"
 	// VerbOpsReferenceDuplicates records duplicate reference reports.
 	VerbOpsReferenceDuplicates Verb = "ops.reference_duplicates"
@@ -199,87 +184,75 @@ const (
 	VerbOpsBackupFDBContinuousInit Verb = "ops.backup_fdb_continuous_init"
 	// VerbOpsBackupStalenessCheck records a backup staleness report.
 	VerbOpsBackupStalenessCheck Verb = "ops.backup_staleness_check"
-	// VerbOpsBackupFDBRestoreVersion records an operator converting a moment
-	// into the FoundationDB version a restore names.
+	// VerbOpsBackupFDBRestoreVersion records conversion of a time into an FDB
+	// restore version.
 	VerbOpsBackupFDBRestoreVersion Verb = "ops.backup_fdb_restore_version"
-	// VerbOpsDeployVerify records a check that the rolled containers run the
-	// deployed images.
+	// VerbOpsDeployVerify records checks of running images against deployed image
+	// references.
 	VerbOpsDeployVerify Verb = "ops.deploy_verify"
-	// VerbOpsSearchProvision records creation of the pinned search model, the
-	// empty physical index, and its alias.
+	// VerbOpsSearchProvision records search model, empty index, and alias creation.
 	VerbOpsSearchProvision Verb = "ops.search_provision"
-	// VerbOpsSearchVerify records a check of the search model, mapping,
-	// topology, alias, and health.
+	// VerbOpsSearchVerify records search model, mapping, topology, alias, and
+	// health checks.
 	VerbOpsSearchVerify Verb = "ops.search_verify"
-	// VerbOpsSearchSettings records a read of the persistent, transient,
-	// default, and effective values of the OpenSearch point-in-time limit.
+	// VerbOpsSearchSettings records persistent, transient, default, and effective
+	// OpenSearch point-in-time limits.
 	VerbOpsSearchSettings Verb = "ops.search_settings"
-	// VerbOpsSearchAccessRollout records the start of an access policy
-	// rollout for one permission authority.
+	// VerbOpsSearchAccessRollout records access policy rollout for one permission
+	// authority.
 	VerbOpsSearchAccessRollout Verb = "ops.search_access_rollout"
-	// VerbOpsSearchReindex records the start or resumption of a search index
-	// replacement.
+	// VerbOpsSearchReindex records search index replacement starts and resumptions.
 	VerbOpsSearchReindex Verb = "ops.search_reindex"
-	// VerbOpsLedgerNodePrepare records a deploy aligning a ledger node's saved
-	// master list with the environment before the node restarts (TACK-489).
+	// VerbOpsLedgerNodePrepare records saved master-list alignment before restart
+	// (TACK-489).
 	VerbOpsLedgerNodePrepare Verb = "ops.ledger_node_prepare"
-	// VerbOpsLedgerNodeWait records a deploy waiting for a restarted ledger
-	// node, keyed on its replication progress (TACK-471).
+	// VerbOpsLedgerNodeWait records waiting for restarted-node replication
+	// progress (TACK-471).
 	VerbOpsLedgerNodeWait Verb = "ops.ledger_node_wait"
-	// VerbOpsLedgerAuditBootstrap records the migrations and audit role seed
-	// that create the operator outbox on an empty ledger before any other
-	// operator command can record.
+	// VerbOpsLedgerAuditBootstrap records migrations and audit role seeding that
+	// create the outbox before other operator commands can record.
 	VerbOpsLedgerAuditBootstrap Verb = "ops.ledger_audit_bootstrap"
-	// VerbOpsLedgerBootstrapWait records a deploy waiting until a ledger that
-	// is being bootstrapped lists the expected masters, tablet servers, and
-	// replicas.
+	// VerbOpsLedgerBootstrapWait records waiting for expected masters, tablet
+	// servers, and replicas during ledger bootstrap.
 	VerbOpsLedgerBootstrapWait Verb = "ops.ledger_bootstrap_wait"
-	// VerbOpsStoreStatus records an operator reading the product store's own
-	// cluster status (TACK-408).
+	// VerbOpsStoreStatus records product-store cluster status reads (TACK-408).
 	VerbOpsStoreStatus Verb = "ops.store_status"
-	// VerbOpsStoreSetRedundancy records a change to how many copies of every
-	// key the product store keeps (TACK-408).
+	// VerbOpsStoreSetRedundancy records a product-store copy-count change
+	// (TACK-408).
 	VerbOpsStoreSetRedundancy Verb = "ops.store_set_redundancy"
-	// VerbOpsStoreSetCoordinators records a change to the product store's
-	// coordinator list (TACK-408).
+	// VerbOpsStoreSetCoordinators records coordinator-list changes (TACK-408).
 	VerbOpsStoreSetCoordinators Verb = "ops.store_set_coordinators"
-	// VerbOpsStoreExclude records an operator taking product-store processes
-	// out of service, which moves their data first (TACK-408).
+	// VerbOpsStoreExclude records process exclusion after data replication (TACK-408).
 	VerbOpsStoreExclude Verb = "ops.store_exclude"
-	// VerbSearchIndexStructure records a search worker step that creates,
-	// splits, or deletes a physical index or switches the public alias.
+	// VerbSearchIndexStructure records index creation, splits, deletion, or alias
+	// switches.
 	VerbSearchIndexStructure Verb = "search.index_structure"
-	// VerbSearchAccessRolloutPhase records a search worker step that can
-	// change the phase of an access policy rollout.
+	// VerbSearchAccessRolloutPhase records a worker step that can change rollout
+	// phase.
 	VerbSearchAccessRolloutPhase Verb = "search.access_rollout_phase"
-	// VerbSearchModelRepair records a model repair step that deploys a
-	// stuck serving model again.
+	// VerbSearchModelRepair records redeployment of a stuck serving model.
 	VerbSearchModelRepair Verb = "search.model_repair"
-	// VerbSearchSessionCreate records a new search session, replay, or
-	// visited record.
+	// VerbSearchSessionCreate records new search sessions, replays, or visited
+	// records.
 	VerbSearchSessionCreate Verb = "search.session_create"
-	// VerbSearchSessionUpdate records a changed search session record.
+	// VerbSearchSessionUpdate records search session record changes.
 	VerbSearchSessionUpdate Verb = "search.session_update"
-	// VerbSearchSessionDelete records a removed search session, replay, or
-	// visited record.
+	// VerbSearchSessionDelete records removal of search sessions, replays, or
+	// visited records.
 	VerbSearchSessionDelete Verb = "search.session_delete"
-	// VerbSearchPointInTimeCreate records the creation of the OpenSearch point
-	// in time of one search session.
+	// VerbSearchPointInTimeCreate records an OpenSearch point-in-time creation.
 	VerbSearchPointInTimeCreate Verb = "search.point_in_time_create"
-	// VerbSearchPointInTimeDelete records the deletion of the OpenSearch point
-	// in time of one search session.
+	// VerbSearchPointInTimeDelete records an OpenSearch point-in-time deletion.
 	VerbSearchPointInTimeDelete Verb = "search.point_in_time_delete"
-	// VerbAuditPartitionMaintain records one audit partition maintenance run
-	// of the audit-consumer.
+	// VerbAuditPartitionMaintain records one consumer partition maintenance run.
 	VerbAuditPartitionMaintain Verb = "audit.partition_maintain"
-	// VerbNodeSubtreeDeleteResume records one run of the delete resumer that
-	// finishes a subtree delete job without a runner.
+	// VerbNodeSubtreeDeleteResume records subtree deletion without an active
+	// runner.
 	VerbNodeSubtreeDeleteResume Verb = "node.subtree_delete_resume"
 )
 
-// stateChangeVerbs is the set of application events that must be persisted
-// synchronously with the operation they describe. Operator commands declare
-// their class in Spec.
+// stateChangeVerbs requires synchronous recording with product state changes.
+// Operator commands declare their class in Spec.
 var stateChangeVerbs = map[Verb]bool{
 	VerbNodeCreate:          true,
 	VerbNodeUpdate:          true,
@@ -311,15 +284,10 @@ var stateChangeVerbs = map[Verb]bool{
 
 func IsRead(v Verb) bool { return !stateChangeVerbs[v] }
 
-// staticToolVerb maps MCP tool names whose names are fixed at build time to
-// their verb. Per-NodeType tools (tack_create_<slug>, tack_list_<plural>,
-// etc.) are resolved in ToolVerb by prefix.
-//
-// Every entry resolves to a non-empty verb so the MCP wrapper unconditionally
-// records one event per tool call. State-change verbs are staged by the
-// service and committed inside the FoundationDB transaction that makes the
-// change (TACK-173); the wrapper records those only when no transaction
-// committed the staged row, and records every read-class verb itself.
+// staticToolVerb maps fixed MCP tool names to nonempty verbs. ToolVerb matches
+// per-NodeType tools by prefix. The service commits state-change events in the
+// FoundationDB transaction (TACK-173); the wrapper records them only without a
+// committed staged row and records read-class events itself.
 var staticToolVerb = map[string]Verb{
 	"tack_list_workspaces":     VerbWorkspaceList,
 	"tack_list_members":        VerbMembersList,
@@ -332,8 +300,8 @@ var staticToolVerb = map[string]Verb{
 	"tack_getting_started":     VerbMCPPromptInvoked,
 }
 
-// perTypePrefixVerb maps a tool name prefix (computed from NodeType slug)
-// to the right verb. Order matters: longer prefixes first.
+// perTypePrefixVerb maps NodeType-derived prefixes to verbs, longest prefixes
+// first.
 var perTypePrefixVerb = []struct {
 	Prefix string
 	Verb   Verb
@@ -347,11 +315,9 @@ var perTypePrefixVerb = []struct {
 	{"tack_delete_", VerbNodeDelete},          // tack_delete_<slug>
 }
 
-// ToolVerb returns the verb for a registered MCP tool name, plus a bool
-// indicating whether the tool is covered (true) or unknown (false).
-//
-// A returned empty Verb with covered=true means the tool's audit event is
-// emitted by a lower layer; the MCP wrapper must skip it.
+// ToolVerb returns the registered tool's verb and coverage status. An empty
+// verb with true coverage means another layer records the event; the wrapper
+// must not record it again.
 func ToolVerb(toolName string) (Verb, bool) {
 	if v, ok := staticToolVerb[toolName]; ok {
 		return v, true

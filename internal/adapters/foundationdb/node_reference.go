@@ -13,10 +13,9 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// claimReferenceKeys claims keys for a node that holds no prior claims, such
-// as a fresh create. It skips the reverse-index read entirely when the type
-// declares no reference keys, keeping the hot create path free of the extra
-// range read.
+// claimReferenceKeys claims keys for a node without prior claims, such as
+// a newly created node. It skips the reverse-index read when the type does
+// not declare reference keys.
 func claimReferenceKeys(
 	tr fdb.Transaction,
 	orgID uuid.UUID,

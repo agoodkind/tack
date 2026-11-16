@@ -1,11 +1,6 @@
-// backup_yb_archive_inventory.go records what one node's tablet archive
-// carries. Every check between the export and the restore is a claim by
-// whichever tool touched the archive last, and a tool that loses part of a
-// tablet without saying so leaves a restore that cannot tell. The inventory is
-// a fact recorded at capture time: the path and size of every file the archive
-// holds, uploaded beside it, so the restore compares its extraction against
-// what this backup actually captured instead of guessing what a tablet ought to
-// contain.
+// The archive inventory records archived file paths and sizes at capture time.
+// The restore compares extracted files against this inventory to detect missing
+// files and size mismatches.
 
 package ops
 
@@ -25,9 +20,8 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// writeYBArchiveInventory records what the staged archive carries and stages
-// that record beside it under its own object name, ready for the upload that
-// publishes both.
+// writeYBArchiveInventory writes an inventory beside the staged archive for
+// upload.
 func writeYBArchiveInventory(ctx context.Context, runID, node, stageDir, tarPath string) error {
 	logger := telemetry.L(ctx)
 	inventory, err := readYBArchiveInventory(ctx, runID, node, tarPath)
@@ -57,30 +51,24 @@ func writeYBArchiveInventory(ctx context.Context, runID, node, stageDir, tarPath
 	return nil
 }
 
-// ybArchivedFile is one regular file the node archive carries: its path
-// relative to the rocksdb root the export tarred from, and the size it was
-// archived at.
+// ybArchivedFile records a regular file's path relative to the rocksdb root
+// and its archived size.
 type ybArchivedFile struct {
 	Path string
 	Size int64
 }
 
-// ybArchiveInventory is everything one node's archive carries, together with
-// the run and node it was recorded for. The restore verifies an extraction
-// against it, so it declares its own run and node the way the run manifest
-// does: an inventory read for the wrong node describes a different set of files
-// and would condemn a healthy extraction.
+// ybArchiveInventory records a node archive's files, run, and node.
+// Run and node IDs prevent comparisons against a different archive's inventory.
 type ybArchiveInventory struct {
 	RunID string
 	Node  string
 	Files []ybArchivedFile
 }
 
-// readYBArchiveInventory reads the staged archive back and records every file
-// in it. It reads the finished artifact rather than the tree the tar walked,
-// so the inventory describes the bytes that get uploaded: a file the walk saw
-// but the archive did not keep can never reach it. The cost is one sequential
-// pass over a local file, against the compress pass that produced it.
+// readYBArchiveInventory inventories the completed archive rather than the
+// source directory. This sequential pass records only files the archive
+// actually contains.
 func readYBArchiveInventory(
 	ctx context.Context,
 	runID string,
@@ -119,7 +107,7 @@ func readYBArchiveInventory(
 	}
 
 	if len(files) == 0 {
-		err := fmt.Errorf("tablet archive %s carries no files, only directory entries", tarPath)
+		err := tabletArchiveEmptyError{Path: tarPath}
 		logger.ErrorContext(
 			ctx,
 			"backup.yb_archive.inventory_failed",
@@ -134,12 +122,10 @@ func readYBArchiveInventory(
 	return ybArchiveInventory{RunID: runID, Node: node, Files: files}, nil
 }
 
-// readYBArchivedFiles walks the archive's members. Directory entries carry no
-// bytes and are skipped; anything that is neither a directory nor a regular
-// file is refused rather than skipped, because a member the inventory does not
-// describe is a member the restore never checks, which is the silence this
-// whole record exists to remove. The export tars each tablet's snapshot
-// directory once, so no two members name one inode and tar emits no hard links.
+// readYBArchivedFiles skips directories and rejects entries other than
+// regular files. Silently skipping unsupported entries would omit them from
+// restore verification. The export archives each snapshot directory once
+// without hard links.
 func readYBArchivedFiles(
 	ctx context.Context,
 	tarPath string,
@@ -170,12 +156,11 @@ func readYBArchivedFiles(
 		}
 
 		if header.Typeflag != tar.TypeReg {
-			err := fmt.Errorf(
-				"tablet archive %s carries %q as a %q entry, which an inventory cannot describe",
-				tarPath,
-				header.Name,
-				string(header.Typeflag),
-			)
+			err := tabletArchiveEntryUnsupportedError{
+				Path:  tarPath,
+				Entry: header.Name,
+				Type:  string(header.Typeflag),
+			}
 			logger.ErrorContext(
 				ctx,
 				"backup.yb_archive.inventory_failed",
@@ -200,19 +185,45 @@ func readYBArchivedFiles(
 	}
 }
 
-// ybArchivedPath is the inventory's form of one member name: the path relative
-// to the rocksdb root, without the "./" the export's find prefixes every entry
-// with. The inventory is one line per file with a tab between path and size, so
-// a name carrying either delimiter is refused here rather than splitting a line
-// the restore would then read as two files it never finds.
+// ybArchivedPath removes the export's "./" prefix from a rocksdb-relative path.
+// It rejects empty paths and tab or newline delimiters that would corrupt the
+// inventory's tab-separated path and size records.
 func ybArchivedPath(name string) (string, error) {
 	path := strings.TrimPrefix(name, "./")
 	if path == "" || strings.ContainsAny(path, "\t\n") {
-		return "", fmt.Errorf(
-			"tablet archive entry %q cannot be recorded as an inventory line",
-			name,
-		)
+		return "", tabletArchivePathInvalidError{Entry: name}
 	}
 
 	return path, nil
+}
+
+type tabletArchivePathInvalidError struct {
+	Entry string
+}
+
+func (failure tabletArchivePathInvalidError) Error() string {
+	return fmt.Sprintf("tablet inventory cannot encode archive entry %q", failure.Entry)
+}
+
+type tabletArchiveEmptyError struct {
+	Path string
+}
+
+func (failure tabletArchiveEmptyError) Error() string {
+	return fmt.Sprintf("tablet archive %s does not contain regular files", failure.Path)
+}
+
+type tabletArchiveEntryUnsupportedError struct {
+	Path  string
+	Entry string
+	Type  string
+}
+
+func (failure tabletArchiveEntryUnsupportedError) Error() string {
+	return fmt.Sprintf(
+		"tablet archive %s contains %q with unsupported entry type %q",
+		failure.Path,
+		failure.Entry,
+		failure.Type,
+	)
 }

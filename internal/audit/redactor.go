@@ -13,12 +13,11 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// Redactor implements GDPR Right to Erasure for the audit ledger. It runs
-// against the audit_redactor_app role, which can UPDATE only the payload,
-// redacted, and redacted_at columns of audit.pii. Every other audit table
-// is read-only or invisible to this role; the hash chain in audit.events
-// stays intact because it was computed over pii_ref (a UUID) and not the
-// payload itself.
+// Redactor implements GDPR Right to Erasure for the audit ledger. It uses
+// tack_audit_redactor, which inherits audit_redactor and can UPDATE only
+// payload, redacted, and redacted_at in audit.pii. The role can SELECT from
+// audit.pii but cannot access other audit tables.
+// The hash chain covers pii_ref, not the erased payload.
 type Redactor struct {
 	pool *pgxpool.Pool
 }
@@ -40,8 +39,7 @@ func NewRedactor(ctx context.Context, dsn string) (*Redactor, error) {
 		return nil, fmt.Errorf("audit redactor pool open: %w", err)
 	}
 
-	// Connect lazily, same reasoning as NewReader: a failed ping is logged and
-	// the pool connects on first use.
+	// The pool connects on first use after a failed startup ping.
 	if err := pool.Ping(ctx); err != nil {
 		slog.WarnContext(ctx, "audit.redactor.ping_deferred", slog.String("err", err.Error()))
 	}
@@ -55,9 +53,8 @@ func (r *Redactor) Close() {
 	}
 }
 
-// CountUnredacted reports how many of the given audit.pii rows still hold a
-// payload. The redactor role holds SELECT on audit.pii, so a plan can count
-// without touching the ledger.
+// CountUnredacted counts the given audit.pii rows that retain their payloads.
+// The redactor role can SELECT from audit.pii without reading audit.events.
 func (r *Redactor) CountUnredacted(ctx context.Context, refs []uuid.UUID) (int64, error) {
 	if r == nil || r.pool == nil {
 		return 0, errors.New("audit redactor not configured")
@@ -86,9 +83,9 @@ func (r *Redactor) CountUnredacted(ctx context.Context, refs []uuid.UUID) (int64
 	return count, nil
 }
 
-// RedactPIIRefs erases the payload of the given audit.pii rows and returns how
-// many it changed. The caller resolves the references through the reader,
-// scoped to one org, so the redactor never reads audit.events itself.
+// RedactPIIRefs erases the payloads of the given audit.pii rows and returns
+// the number of changed rows. The caller resolves references through the
+// reader within one org. The redactor does not read audit.events.
 func (r *Redactor) RedactPIIRefs(ctx context.Context, refs []uuid.UUID) (int64, error) {
 	ctx, span := telemetry.StartSpan(
 		ctx,

@@ -123,8 +123,7 @@ func uniqueRefs(groups ...[]uuid.UUID) []uuid.UUID {
 	return refs
 }
 
-// redactActorError stamps the failing step with the identifiers this layer
-// alone holds together.
+// redactActorError logs and wraps the failure with the actor and org IDs.
 func redactActorError(ctx context.Context, orgID, actorID uuid.UUID, err error) error {
 	slog.ErrorContext(
 		ctx,

@@ -12,7 +12,7 @@ import (
 	"goodkind.io/tack/internal/domain/node"
 )
 
-// RepairCleanupPolicy controls whether source fields are removed after repair.
+// RepairCleanupPolicy controls whether the repair removes source fields.
 type RepairCleanupPolicy string
 
 // RepairConflictPolicy controls candidate selection when inputs disagree.
@@ -33,7 +33,7 @@ const (
 	RepairConflictFail RepairConflictPolicy = "fail"
 )
 
-// RepairReferenceProfile describes one generic UUID reference-property repair.
+// RepairReferenceProfile specifies a generic UUID reference-property repair.
 type RepairReferenceProfile struct {
 	Name                string                  `json:"name,omitempty"`
 	TargetProperty      string                  `json:"target_property"`
@@ -58,7 +58,7 @@ type RepairNormalization struct {
 	ValueMap map[string]string `json:"value_map,omitempty"`
 }
 
-// RepairPreview describes the current repair decision for one node.
+// RepairPreview records the current repair decision for one node.
 type RepairPreview struct {
 	Class                RepairClass                `json:"class"`
 	ProfileName          string                     `json:"profile_name,omitempty"`

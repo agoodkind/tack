@@ -1,6 +1,5 @@
-// export_bundle.go names the two files a bundle is made of and resolves which
-// rows file a manifest describes. Both halves of the bundle, the writer and the
-// verifier, read their names from here.
+// export_bundle.go defines bundle file names and resolves the rows file for
+// export writers and verifiers.
 
 package audit
 
@@ -13,65 +12,44 @@ import (
 )
 
 const (
-	// exportManifestFile is the one name in a bundle directory that is fixed and
-	// mutable. Everything else a bundle holds is named for the export that wrote
-	// it, so publishing a bundle is the single rename that replaces this file.
+	// exportManifestFile is the fixed, mutable bundle manifest. Publishing
+	// replaces this file in a single rename.
 	exportManifestFile = "manifest.json"
 
-	// exportEventsPrefix and exportEventsSuffix bracket the export id in the
-	// name of the file carrying a bundle's rows. The id makes the name unique,
-	// so no two exports into one directory ever write, truncate, or rename the
-	// same rows file, and a manifest can only ever name the rows its own export
-	// wrote.
+	// exportEventsPrefix and exportEventsSuffix delimit the export ID in each
+	// rows file name. Each export writes a unique rows file rather than
+	// truncating or replacing another export's rows.
 	exportEventsPrefix = "events-"
 	exportEventsSuffix = ".jsonl"
 
-	// legacyExportEventsFile is the fixed name every bundle used before the
-	// manifest carried the name of its own rows. A manifest that names no events
-	// file is one of those, and this is the name its format fixed.
+	// legacyExportEventsFile is the rows file for manifests that predate
+	// EventsFile and do not specify a rows file.
 	legacyExportEventsFile = "events.jsonl"
 )
 
-// stagedSuffix names a file that is being written and is not part of a bundle
-// yet. A bundle is a manifest and the rows it names, so nothing carrying this
-// suffix is ever mistaken for either.
+// stagedSuffix marks an unfinished file outside the published bundle.
 const stagedSuffix = ".partial"
 
-// exportEventsFileName is the name of the rows file one export writes.
+// exportEventsFileName returns the rows file name for one export.
 func exportEventsFileName(exportID uuid.UUID) string {
 	return exportEventsPrefix + exportID.String() + exportEventsSuffix
 }
 
-// stagedExportPath names the manifest one export writes before it publishes.
-//
-// The export id is in the name because two exports into one directory would
-// otherwise create and truncate the same staged path, and the second one's
-// write would land under the first one's rename.
+// stagedExportPath returns a unique staging path for one export. The export
+// ID prevents concurrent exports from truncating or publishing each other's
+// staged manifest.
 func stagedExportPath(publishedPath string, exportID uuid.UUID) string {
 	return publishedPath + "." + exportID.String() + stagedSuffix
 }
 
-// bundleEventsFileName resolves which file in the bundle directory a manifest
-// describes. Verification reads this rather than a fixed path, which is what
-// makes a manifest paired with another export's rows unrepresentable: the name
-// is inside the signed manifest, so a manifest names its own rows or it does
-// not verify.
+// bundleEventsFileName resolves the rows file specified by a signed manifest.
+// Older manifests omit EventsFile and require legacyExportEventsFile. A change
+// to EventsFile changes the signed payload and fails verification.
 //
-// A manifest naming no events file is one written before the format carried the
-// name, and the name its format fixed is returned for it. That fallback cannot
-// be induced on a bundle written since: the name is covered by the signature, so
-// stripping it from a manifest that had one breaks that manifest's signature,
-// and adding one to a manifest that had none breaks its signature too. No name
-// that is not signed can ever decide which rows are read.
-//
-// The name is refused unless it is a plain name inside the bundle directory.
-// The manifest is untrusted input until its signature verifies, and the scan
-// opens the file it names before that verdict is reported, so a manifest must
-// not be able to point the verifier at a path of its choosing.
-//
-// This settles where the verifier reads, and only that. What the name resolves
-// to inside the directory is not a property of the name, so the kind of entry
-// that gets read is decided by the open itself.
+// The file name must not specify a path outside the bundle directory. The
+// verifier opens the rows file before reporting its signature verdict and
+// must not read an arbitrary path from untrusted input. The open operation
+// separately checks the file type inside the directory.
 func bundleEventsFileName(manifest ExportManifest) (string, error) {
 	if manifest.EventsFile == "" {
 		return legacyExportEventsFile, nil
@@ -89,21 +67,11 @@ func bundleEventsFileName(manifest ExportManifest) (string, error) {
 	return name, nil
 }
 
-// exporterOwnedFile reports whether a name in a bundle directory is one this
-// exporter writes. Reclaiming is confined to these, so an operator's own files
-// in the directory are never candidates for removal, whatever they are called.
-//
-// Every name this exporter has ever written is covered: the per-export rows
-// file, the fixed rows name bundles used before that, a staged manifest, and
-// the staged rows name earlier revisions wrote. The published manifest is
-// deliberately absent: it is the one file that is always the bundle.
-//
-// Each of those names carries the id of the export that wrote it, so the id is
-// required rather than merely bracketed. A directory a compliance export writes
-// into is a directory an operator also works in, and matching a prefix and a
-// suffix alone made every file of that broad shape a candidate for removal:
-// events-before-the-incident.jsonl is one an auditor might reasonably leave
-// there, and it is not a name any export produced.
+// exporterOwnedFile recognizes only exporter file names for reclamation.
+// It includes legacy rows, per-export rows, and staged manifests and rows,
+// but excludes the published manifest. Per-export file names require a
+// canonical UUID, not just a matching prefix and suffix. Reclamation must
+// preserve operator files such as events-before-the-incident.jsonl.
 func exporterOwnedFile(name string) bool {
 	if name == legacyExportEventsFile {
 		return true
@@ -123,20 +91,16 @@ func exporterOwnedFile(name string) bool {
 		stagedForExport(stagedName, legacyExportEventsFile)
 }
 
-// stagedForExport reports whether a staged name is base followed by the id of
-// the export that staged it.
+// stagedForExport reports whether stagedName consists of base followed by
+// the export ID.
 func stagedForExport(stagedName, base string) bool {
 	exportID, found := strings.CutPrefix(stagedName, base+".")
 	return found && isExportIDText(exportID)
 }
 
-// isExportIDText reports whether text is an export id as this exporter renders
-// one.
-//
-// The rendering matters, not just the value. [uuid.Parse] also accepts the urn
-// form, the braced form, the undashed form, and uppercase hex, and this exporter
-// writes none of them, so a name carrying one of those is not a name it wrote
-// and is not its to remove.
+// isExportIDText requires the canonical UUID spelling the exporter writes.
+// [uuid.Parse] also accepts URNs, braces, omitted hyphens, and uppercase hex.
+// The exporter does not write those forms and must not remove their files.
 func isExportIDText(text string) bool {
 	parsed, err := uuid.Parse(text)
 	if err != nil {

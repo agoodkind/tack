@@ -1,6 +1,5 @@
-// backup_restore_drill_yb_wait_reading.go takes one poll's reading of the
-// scratch yugabyted for the wait, with every probe under its own deadline, so
-// a probe that never answers cannot keep the stall check from running.
+// Each scratch yugabyted probe uses its own deadline. An unresponsive probe
+// cannot prevent the wait loop from checking for stalled progress.
 
 package ops
 
@@ -9,10 +8,9 @@ import (
 	"time"
 )
 
-// ybScratchReading is what one poll observed. failure is a reason the step can
-// never succeed, blind is a poll whose failure check could not be read, readErr
-// is the last read that failed this poll, and counters is nil when no progress
-// was read.
+// ybScratchReading records one poll's observations. failure records a permanent
+// failure. blind indicates that the failure check failed. readErr records the
+// last probe error. counters is nil when the poll did not read progress.
 type ybScratchReading struct {
 	exited   bool
 	ready    bool
@@ -22,56 +20,57 @@ type ybScratchReading struct {
 	readErr  string
 }
 
-// readYBScratch takes one poll's reading. A container that is not running, or
-// a step that has failed for good, ends the reading before readiness is asked,
-// and a passed readiness check ends it before progress is read.
+// readYBScratch checks container state, failure, readiness, and progress
+// in order.
+// Container exit and permanent failure end the poll before the readiness check.
+// A successful readiness check ends the poll before the progress check.
 func readYBScratch(
 	ctx context.Context,
 	watch ybScratchWatch,
 	timeout time.Duration,
 ) ybScratchReading {
-	var reading ybScratchReading
-	running, err := probeYBScratch(ctx, timeout, watch.Running)
+	var progressReading ybScratchReading
+	containerRunning, err := probeYBScratch(ctx, timeout, watch.Running)
 	switch {
 	case err != nil:
-		reading.readErr = "container inspect: " + err.Error()
-	case !running:
-		reading.exited = true
-		return reading
+		progressReading.readErr = "container inspect: " + err.Error()
+	case !containerRunning:
+		progressReading.exited = true
+		return progressReading
 	}
 
 	failure, err := probeYBScratch(ctx, timeout, watch.Failed)
 	switch {
 	case err != nil:
-		reading.readErr = "failure check: " + err.Error()
-		reading.blind = true
+		progressReading.readErr = "failure check: " + err.Error()
+		progressReading.blind = true
 	case failure != "":
-		reading.failure = failure
-		return reading
+		progressReading.failure = failure
+		return progressReading
 	}
 
 	ready, err := probeYBScratch(ctx, timeout, watch.Ready)
 	if err == nil && ready {
-		reading.ready = true
-		return reading
+		progressReading.ready = true
+		return progressReading
 	}
 
 	if err != nil {
-		reading.readErr = "readiness check: " + err.Error()
+		progressReading.readErr = "readiness check: " + err.Error()
 	}
 
 	counters, err := probeYBScratch(ctx, timeout, watch.Progress)
 	if err != nil {
-		reading.readErr = "progress read: " + err.Error()
-		return reading
+		progressReading.readErr = "progress read: " + err.Error()
+		return progressReading
 	}
 
-	reading.counters = counters
+	progressReading.counters = counters
 
-	return reading
+	return progressReading
 }
 
-// probeYBScratchResult is the set of values a scratch probe returns.
+// probeYBScratchResult restricts the values a scratch probe can return.
 type probeYBScratchResult interface {
 	bool | string | map[string]int64
 }

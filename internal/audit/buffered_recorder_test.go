@@ -12,10 +12,8 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// gatedRecorder holds every delivery until release is called, then hands it
-// to the real recorder behind it. It is what a slow broker looks like to the
-// flusher, without holding the fake broker itself, whose held connection
-// would also hold the test's own consumer.
+// gatedRecorder waits for release before calling the real recorder. It
+// simulates a slow broker without blocking the test's Kafka consumer.
 type gatedRecorder struct {
 	inner *SpillRecorder
 	gate  chan struct{}
@@ -54,10 +52,9 @@ func newBufferedForTest(
 	return buffered
 }
 
-// TestBufferedRecordAnswersReadsBeforeTheBroker is criterion 12's produce
-// half: a read-class event costs the request no synchronous produce, and a
-// state change still costs exactly one.
-func TestBufferedRecordAnswersReadsBeforeTheBroker(t *testing.T) {
+// TestBufferedRecordDefersReadsAndSynchronizesChanges checks that read events do
+// not synchronously produce on the request while state changes produce once.
+func TestBufferedRecordDefersReadsAndSynchronizesChanges(t *testing.T) {
 	cluster := newFakeCluster(t)
 	outbox := &memoryOutbox{}
 	buffered := newBufferedForTest(
@@ -90,16 +87,16 @@ func TestBufferedRecordAnswersReadsBeforeTheBroker(t *testing.T) {
 	if records := consumeRecords(t, cluster.ListenAddrs(), testKafkaTopic, reads+1); len(
 		records,
 	) != reads+1 {
-		t.Fatalf("broker holds %d records, want %d", len(records), reads+1)
+		t.Fatalf("broker stored %d records, want %d", len(records), reads+1)
 	}
 
 	if outbox.count() != 0 {
-		t.Fatalf("outbox holds %d events while the broker answered", outbox.count())
+		t.Fatalf("outbox stored %d events while the broker answered", outbox.count())
 	}
 }
 
-// TestBufferedFlushSpillsWhatTheBrokerRefuses pins that a refused batch is
-// not a lost batch: every event lands in the outbox for the relay.
+// TestBufferedFlushSpillsWhatTheBrokerRefuses checks that the outbox stores
+// every event in a refused batch for later relay publication.
 func TestBufferedFlushSpillsWhatTheBrokerRefuses(t *testing.T) {
 	cluster := newFakeCluster(t)
 	stop := refuseProduce(cluster)
@@ -125,15 +122,15 @@ func TestBufferedFlushSpillsWhatTheBrokerRefuses(t *testing.T) {
 	waitUntil(
 		t,
 		10*time.Second,
-		"refused reads never reached the outbox",
+		"outbox did not store refused reads",
 		func() bool {
 			return outbox.count() == reads
 		},
 	)
 }
 
-// TestBufferedCloseDrainsTheQueue pins the shutdown contract: what was queued
-// when Close ran is on the broker when Close returns.
+// TestBufferedCloseDrainsTheQueue checks that the broker stores all queued
+// events before Close returns.
 func TestBufferedCloseDrainsTheQueue(t *testing.T) {
 	cluster := newFakeCluster(t)
 	outbox := &memoryOutbox{}
@@ -162,14 +159,13 @@ func TestBufferedCloseDrainsTheQueue(t *testing.T) {
 	if records := consumeRecords(t, cluster.ListenAddrs(), testKafkaTopic, reads); len(
 		records,
 	) != reads {
-		t.Fatalf("broker holds %d records after Close, want %d", len(records), reads)
+		t.Fatalf("broker stored %d records after Close, want %d", len(records), reads)
 	}
 }
 
-// TestBufferedOverflowGoesToTheOutbox pins that a full queue behind a stalled
-// broker never blocks the request and never drops the event: the event goes
-// to the outbox at once.
-func TestBufferedOverflowGoesToTheOutbox(t *testing.T) {
+// TestBufferedRecordAppendsOverflowToOutbox checks immediate durable storage
+// of a full queue's overflow while broker delivery waits.
+func TestBufferedRecordAppendsOverflowToOutbox(t *testing.T) {
 	cluster := newFakeCluster(t)
 	outbox := &memoryOutbox{}
 	gated := newGatedRecorder(&SpillRecorder{
@@ -184,8 +180,8 @@ func TestBufferedOverflowGoesToTheOutbox(t *testing.T) {
 	)
 	t.Cleanup(func() { gated.release(); _ = buffered.Close() })
 
-	// The flusher takes the first event and waits on the held delivery; the
-	// second fills the queue; the third has nowhere to go but the outbox.
+	// The flusher waits on the first delivery. The second event fills the
+	// queue, and the third must append to the outbox.
 	first := makeEvent("held-first")
 	if err := buffered.Record(context.Background(), first); err != nil {
 		t.Fatalf("record first: %v", err)
@@ -215,7 +211,7 @@ func TestBufferedOverflowGoesToTheOutbox(t *testing.T) {
 	}
 
 	if outbox.count() != 1 {
-		t.Fatalf("outbox holds %d events, want the one overflowed event", outbox.count())
+		t.Fatalf("outbox stored %d events, want the one overflowed event", outbox.count())
 	}
 
 	var stored Event
@@ -224,12 +220,12 @@ func TestBufferedOverflowGoesToTheOutbox(t *testing.T) {
 	}
 
 	if stored.EventID != overflow.EventID {
-		t.Fatalf("outbox holds event %s, want the overflowed %s", stored.EventID, overflow.EventID)
+		t.Fatalf("outbox stored event %s, want the overflowed %s", stored.EventID, overflow.EventID)
 	}
 
-	// Once delivery is released, the two held events reach the broker.
+	// Release delivery and require both queued events on the broker.
 	gated.release()
 	if records := consumeRecords(t, cluster.ListenAddrs(), testKafkaTopic, 2); len(records) != 2 {
-		t.Fatalf("broker holds %d records after release, want 2", len(records))
+		t.Fatalf("broker stored %d records after release, want 2", len(records))
 	}
 }

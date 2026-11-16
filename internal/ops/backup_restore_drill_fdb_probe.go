@@ -1,9 +1,5 @@
-// backup_restore_drill_fdb_probe.go takes one reading of a FoundationDB
-// restore for the watch, with each of the two probes under its own deadline.
-// The watch decides whether the restore stopped by comparing readings over
-// time, so a probe that never answers would keep it from deciding anything:
-// the stall check runs only between readings, and a container exec can hang,
-// which left the drill waiting on the exec rather than on the restore.
+// FoundationDB monitoring bounds each exit and status probe independently.
+// An unanswered exec must not prevent the inactivity check between readings.
 
 package ops
 
@@ -16,50 +12,34 @@ import (
 )
 
 const (
-	// fdbDrillProbeTimeout bounds one probe: the exec that reads whether the
-	// restore exited, or the one that reads its status. Each does constant
-	// work, reading one small file or the restore's status keys, so nothing
-	// about a large restore makes a healthy probe approach this, unlike the
-	// restore itself, whose duration scales with the dataset and is bounded
-	// only by inactivity.
+	// fdbDrillProbeTimeout bounds reading a small status file or restore keys,
+	// not dataset-sized restore work. Restore execution uses inactivity limits.
 	fdbDrillProbeTimeout = 2 * time.Minute
 
-	// fdbDrillProbeTimeoutTolerance is how many consecutive polls may end in a
-	// probe that did not answer before the drill gives up. A probe that times
-	// out is not progress, and it is not evidence the restore stopped either:
-	// it says only that the drill could not look. One is a transient, such as
-	// the Docker daemon answering late under load or the scratch cluster in a
-	// recovery, either of which clears within a probe deadline. Three in a row
-	// is six minutes in which the drill could not run so much as a shell in
-	// its own scratch container, which no healthy restore or host explains,
-	// and a restore the drill cannot see is not one it can vouch for. Giving up
-	// then, rather than after the stall window, keeps the failure attributable:
-	// the error names the probes that did not answer instead of reporting a
-	// stall the drill never observed.
+	// fdbDrillProbeTimeoutTolerance permits transient daemon or cluster recovery
+	// delays. Repeated unanswered polls fail observation explicitly rather
+	// than claiming an unobserved restore stall.
 	fdbDrillProbeTimeoutTolerance = 3
 )
 
-// errFDBRestoreProbeTimedOut marks a probe that did not answer within its
-// deadline, so the watch can tell it from a probe that answered with an error.
+// errFDBRestoreProbeTimedOut distinguishes unanswered probes from answered
+// probes that returned an error.
 var errFDBRestoreProbeTimedOut = errors.New("the probe did not answer")
 
-// fdbRestoreReading is what one poll of the restore observed: whether it
-// exited and with what, or one status reading, or a probe that failed or did
-// not answer.
+// fdbRestoreReading records one exit result, status result, or probe failure.
 type fdbRestoreReading struct {
 	exitCode int
 	done     bool
 	status   string
-	// statusErr is why the reading carries no status: the status probe
-	// failed, or a probe did not answer.
+	// statusErr records the failed status or unanswered probe.
 	statusErr error
-	// timedOut is whether a probe hit its deadline this poll.
+	// timedOut identifies a probe deadline during this poll.
 	timedOut bool
 }
 
-// readFDBRestore takes one poll's reading. The status is not asked for after
-// the exit probe timed out: both are execs on the same path into the scratch
-// container, so asking again would only double the time spent blind.
+// readFDBRestore skips status after exit-probe timeout because both operations
+// depend on the same scratch exec access. A second request would only increase
+// the time without a usable observation.
 func readFDBRestore(
 	ctx context.Context,
 	watch fdbRestoreWatch,
@@ -109,17 +89,10 @@ func readFDBRestore(
 	), nil
 }
 
-// runFDBRestoreProbe runs one probe under its own deadline and returns what it
-// answered, or a reading that says it did not answer in time. The probe runs
-// on its own goroutine so the deadline holds however the probe behaves; a
-// probe abandoned at the deadline keeps a cancelled context, which is what
-// ends the exec behind it, and its late answer goes nowhere.
-//
-// A probe that answers with its own deadline's error is a probe that did not
-// answer. The exec behind it returns that error at the moment the probe's
-// context ends, so the answer and the context's done channel are ready
-// together and the select may take either; which one it takes must not decide
-// whether the poll counts as blind.
+// runFDBRestoreProbe isolates execution in a goroutine to enforce deadlines.
+// Cancellation ends the underlying exec; buffered answers after timeout cannot
+// block the probe. Own-deadline errors require identical classification whether
+// select receives the answer or observes context completion first.
 func runFDBRestoreProbe(
 	ctx context.Context,
 	timeout time.Duration,
@@ -153,7 +126,7 @@ func runFDBRestoreProbe(
 		return classifyFDBRestoreProbeAnswer(reading, probeCtx, ctx, timeout)
 	case <-probeCtx.Done():
 		if ctx.Err() != nil {
-			err := fmt.Errorf("the probe was cancelled: %w", ctx.Err())
+			err := fmt.Errorf("the drill canceled the probe: %w", ctx.Err())
 
 			return fdbRestoreReading{
 				exitCode:  0,
@@ -176,13 +149,9 @@ func runFDBRestoreProbe(
 	}
 }
 
-// classifyFDBRestoreProbeAnswer decides whether an answer that did arrive is a
-// probe that did not answer. Only the probe's own deadline counts: the answer
-// must carry the deadline error and probeCtx must have expired with that
-// deadline, with the drill's own context still live. A deadline error the
-// probe returned while its context was live came from some nested operation
-// of the probe's own and is a probe failure like any other, so it is returned
-// as answered.
+// classifyFDBRestoreProbeAnswer requires the probe's own expired deadline and
+// matching error while the parent remains active. A nested operation's earlier
+// deadline error remains an ordinary answered failure.
 func classifyFDBRestoreProbeAnswer(
 	reading fdbRestoreReading,
 	probeCtx context.Context,
@@ -202,22 +171,37 @@ func classifyFDBRestoreProbeAnswer(
 	return fdbRestoreReading{exitCode: 0, done: false, status: "", statusErr: err, timedOut: true}
 }
 
-// fdbRestoreBlindError names a restore the drill could no longer observe: how
-// many polls in a row had a probe that did not answer, the furthest the
-// counters were seen before that, and the last probe's failure.
+// fdbRestoreBlindError reports unanswered poll count, probe deadline, recorded
+// counter extremes, and the final probe failure.
 func fdbRestoreBlindError(
 	polls int,
 	probeTimeout time.Duration,
 	progress *fdbRestoreProgress,
 	lastErr string,
 ) error {
-	return fmt.Errorf(
+	return fdbRestoreObservationError{
+		Polls:        polls,
+		ProbeTimeout: probeTimeout,
+		Progress:     progress.summary(),
+		LastError:    lastErr,
+	}
+}
+
+type fdbRestoreObservationError struct {
+	Polls        int
+	ProbeTimeout time.Duration
+	Progress     string
+	LastError    string
+}
+
+func (failure fdbRestoreObservationError) Error() string {
+	return fmt.Sprintf(
 		"the FoundationDB restore could not be observed: %d consecutive polls had a probe"+
-			" that did not answer within %s, so whether it is still moving is unknown; the furthest it was"+
-			" seen: %s; the last probe failed: %s",
-		polls,
-		probeTimeout,
-		progress.summary(),
-		lastErr,
+			" that did not answer within %s; current progress is unknown; recorded counter extremes:"+
+			" %s; the last probe failed: %s",
+		failure.Polls,
+		failure.ProbeTimeout,
+		failure.Progress,
+		failure.LastError,
 	)
 }

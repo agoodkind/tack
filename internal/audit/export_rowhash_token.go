@@ -8,23 +8,19 @@ import (
 	"github.com/google/uuid"
 )
 
-// contextWithZeroTokenID marshals an event context with "api_token_id" always
-// present. The outer field shadows the embedded one, so encoding/json emits
-// the key even though its value is the zero UUID.
+// contextWithZeroTokenID always encodes api_token_id, including the zero UUID.
+// The outer field overrides the embedded field's omission rule.
 type contextWithZeroTokenID struct {
 	EventContext
 
 	APITokenID uuid.UUID `json:"api_token_id"`
 }
 
-// checkZeroTokenIDRowHash is the second and last try for a version 3 row whose
-// context holds no token id. From f48a5a6 (TACK-502) until TACK-514, the
-// writer tagged EventContext.APITokenID omitempty, which encoding/json never
-// applies to an array, so every event of that window hashed its context with
-// "api_token_id" set to the zero UUID. A row decodes to the same context
-// either way, and the current encoding omits the zero id, so those rows are
-// recomputed here with the key restored. Rows written before and after that
-// window, and every row with a real token id, match on the first try.
+// checkZeroTokenIDRowHash retries verification for version 3 rows with a zero
+// APITokenID. Between f48a5a6 (TACK-502) and TACK-514, omitempty encoded the
+// zero UUID array in every context. The current encoder omits it. This retry
+// restores the historical key for hashing without changing decoded values.
+// Rows outside that interval and rows with nonzero token IDs verify first.
 func checkZeroTokenIDRowHash(row Row) (bool, string, error) {
 	if row.Context.APITokenID != uuid.Nil {
 		return false, "hash mismatch", nil

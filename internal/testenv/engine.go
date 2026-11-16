@@ -19,44 +19,41 @@ import (
 // label and the engine's testenv.engine.started log line.
 const processLabel = managedLabel + ".process"
 
-// engineSpec describes one engine container.
+// engineSpec defines one engine container.
 type engineSpec struct {
-	// kind names the engine in the container name.
+	// kind identifies the engine in the container name.
 	kind  string
 	image string
-	// platform pins the image variant; nil takes the daemon's own.
+	// platform pins the image variant; nil uses the daemon's variant.
 	platform *ocispec.Platform
 	cmd      []string
 	env      []string
-	// files are written into the created container, path to contents, before
-	// it starts, for an engine that reads its configuration from a file.
+	// files maps container paths to contents. Startup writes these files
+	// before starting an engine that requires configuration files.
 	files map[string][]byte `exhaustruct:"optional"`
 	// entrypoint replaces the image's entrypoint when set.
 	entrypoint []string `exhaustruct:"optional"`
-	// networkOf names a container whose network stack the engine shares, so
-	// the engine's address outlives the engine when it stops. Empty joins the
-	// engines' network directly.
+	// networkOf identifies the container that shares its network stack with
+	// the engine. That container preserves the address after the engine stops.
+	// An empty value joins the engines' network directly.
 	networkOf string `exhaustruct:"optional"`
-	// name replaces the generated container name, for an engine that the
-	// code under test finds by a fixed name. Empty generates a name unique to
-	// this process.
+	// name replaces the generated name for code that requires a fixed
+	// container name. An empty value generates a process-specific name.
 	name string `exhaustruct:"optional"`
-	// healthcheck is the container's health check; nil keeps the image's.
+	// healthcheck specifies the container's health check; nil uses the image's.
 	healthcheck *container.HealthConfig `exhaustruct:"optional"`
-	// attachNetwork replaces the engines' network as the one network the
-	// engine joins. Empty joins the engines' network.
+	// attachNetwork overrides the network the engine joins. An empty value
+	// uses the engines' network.
 	attachNetwork string `exhaustruct:"optional"`
-	// ipv4Address fixes the engine's address on its network. The zero value
-	// takes an address the daemon allocates.
+	// ipv4Address fixes the engine's address on its network. The daemon
+	// allocates an address when this field contains the zero value.
 	ipv4Address netip.Addr `exhaustruct:"optional"`
-	// extraHosts are name:address entries the daemon adds to the engine's
-	// /etc/hosts.
+	// extraHosts specifies name:address entries for the engine's /etc/hosts.
 	extraHosts []string `exhaustruct:"optional"`
-	// privileged runs the engine with every device and capability, for an
-	// engine that runs its own container daemon.
+	// privileged grants every device and capability to engines that run
+	// their own container daemon.
 	privileged bool `exhaustruct:"optional"`
-	// tmpfs mounts a memory file system at each path, with the mount options
-	// beside it.
+	// tmpfs maps memory file system paths to mount options.
 	tmpfs map[string]string `exhaustruct:"optional"`
 }
 
@@ -164,8 +161,8 @@ func generatedEngineName(ctx context.Context, kind string) (string, error) {
 	return "tack-testenv-" + kind + "-" + strconv.Itoa(os.Getpid()) + "-" + suffix, nil
 }
 
-// ensureImage pulls spec's image unless the daemon already holds it for the
-// wanted platform.
+// ensureImage pulls spec's image unless the daemon already stores the
+// requested platform variant.
 func ensureImage(ctx context.Context, cli *client.Client, spec engineSpec) error {
 	inspectOptions := []client.ImageInspectOption{}
 	pullPlatforms := []ocispec.Platform{}

@@ -16,7 +16,7 @@ import (
 	"github.com/google/uuid"
 )
 
-// VerifyReport summarises the result of validating an exported bundle.
+// VerifyReport summarizes export bundle integrity checks.
 type VerifyReport struct {
 	BundleDir     string
 	RowsScanned   int
@@ -25,28 +25,20 @@ type VerifyReport struct {
 	ChainBreaks   []string
 	FileSHA256OK  bool
 	SignatureOK   bool
-	// ManifestRowCount is what the manifest claims the file holds. It is
-	// reported beside RowsScanned so a bundle whose own two halves disagree
-	// fails on that disagreement, not only on the signature it also breaks.
+	// ManifestRowCount records the claimed count for comparison with RowsScanned.
 	ManifestRowCount int
 	ManifestSubject  string
-	// ManifestSigner is the identifier the manifest names as its signer and
-	// VerifiedSigner the identifier of the key the signature verified under.
-	// The set is checked against the verified key, never the manifest's
-	// claim: a manifest can name any signer, and only the key that verifies
-	// it proves who signed. SignerSetConfigured says whether a set was given
-	// and SignerAllowed whether the verified key is in it; with no set the
-	// identifiers are reported and not judged, and the report says so.
+	// ManifestSigner records the claimed signer; VerifiedSigner records the
+	// verification key's identifier. A configured set checks the verified key
+	// and requires both identifiers to match. Without a set, the report records
+	// these identifiers without judging membership or matching their spelling.
 	ManifestSigner      string
 	VerifiedSigner      string
 	SignerSetConfigured bool
 	SignerAllowed       bool
 }
 
-// Err returns an error naming every integrity check the bundle failed, and nil
-// when the bundle verified. A caller prints the report either way; this is
-// what a caller that reads only success or failure needs, so a tampered bundle
-// cannot pass silently through a script, a scheduled job, or a release gate.
+// Err returns all failed integrity checks or nil for a verified bundle.
 func (r *VerifyReport) Err() error {
 	var failures []string
 	if !r.FileSHA256OK {
@@ -57,9 +49,7 @@ func (r *VerifyReport) Err() error {
 		failures = append(failures, "the manifest signature did not verify")
 	}
 
-	// A valid signature under a key the environment does not accept is the
-	// leaked-key case, not a pass: the key proves who signed, the set says
-	// whether that signer is allowed to (TACK-437).
+	// A valid signature does not authorize a key outside the configured set (TACK-437).
 	if r.SignerSetConfigured && !r.SignerAllowed {
 		failures = append(
 			failures,
@@ -70,10 +60,8 @@ func (r *VerifyReport) Err() error {
 		)
 	}
 
-	// A manifest that names one signer and verifies under another is lying
-	// about its origin, whichever of the two the set allows. Judged only with
-	// a set, because bundles written before the one identifier existed name
-	// their key differently and are verified without a set on purpose.
+	// Require the claimed identifier to match the verification key when a set
+	// is configured. Older bundles use different identifiers without a set.
 	if r.SignerSetConfigured && r.ManifestSigner != r.VerifiedSigner {
 		failures = append(
 			failures,
@@ -92,15 +80,8 @@ func (r *VerifyReport) Err() error {
 		)
 	}
 
-	// A sequence gap is deliberately not a failure. An export is filtered by
-	// time, actor, or entity, so a legitimate bundle routinely omits rows and
-	// the sequence skips. Treating that as tampering would reject almost
-	// every honest export, and a verifier that cries wolf gets ignored. The
-	// row hash and the previous-hash link are what actually detect a change,
-	// and both are checked above. The gap count stays in the report so a
-	// reader can see it.
-	// A row that scanned but did not match its stored hash shows up as a
-	// shortfall in the counts even when nothing else complains.
+	// Filtered exports can omit sequence numbers legitimately. Report gaps
+	// without rejecting them; reject hash mismatches and broken links instead.
 	if r.HashMatches != r.RowsScanned {
 		failures = append(
 			failures,
@@ -112,15 +93,12 @@ func (r *VerifyReport) Err() error {
 		)
 	}
 
-	// The manifest names how many rows it signed for. A file that holds a
-	// different number is either a manifest that was edited or an export
-	// that stopped short of what it certified, and either way the bundle
-	// does not describe itself truthfully.
+	// Check the actual row count even when the signature and digest verify.
 	if r.ManifestRowCount != r.RowsScanned {
 		failures = append(
 			failures,
 			fmt.Sprintf(
-				"the manifest declares %d rows but the events file holds %d",
+				"the manifest declares %d rows but the events file contains %d",
 				r.ManifestRowCount,
 				r.RowsScanned,
 			),
@@ -138,13 +116,9 @@ func (r *VerifyReport) Err() error {
 	)
 }
 
-// chainLink is the only per-row state verification keeps after a row is
-// scanned. A full Row carries parsed context, delta, and extra payloads, so
-// holding every one of them made verification scale with total bundle bytes
-// rather than row count: a 420,000-row production bundle exhausted the app
-// container's memory limit and the verifier was killed (TACK-463). The link
-// check needs nothing but the chain coordinates and the two hashes, which are
-// fixed width, so this record is what the second pass reads instead.
+// chainLink retains fixed-width chain coordinates and hashes after each row
+// check. The link pass does not retain variable-size context, delta, or extra
+// payloads from the full Row (TACK-463).
 type chainLink struct {
 	Shard    int16
 	Seq      int64
@@ -153,26 +127,16 @@ type chainLink struct {
 	RowHash  [sha256.Size]byte
 }
 
-// VerifyBundle re-hashes every row in the events file the manifest names,
-// checks the chain links via prev_hash within each (org, shard) sequence, and
-// validates the manifest signature with the supplied public key. Pure offline
-// check.
-//
-// The rows come from the file the manifest names rather than from a fixed path,
-// and that name is inside what the signature covers, so a manifest presented
-// beside another export's rows cannot be read as a bundle at all.
-//
-// The events file is streamed rather than read whole, and each row is hashed
-// and released as it is decoded, so peak memory tracks the row count times a
-// fixed-width link record instead of the size of the bundle.
+// VerifyBundle checks row hashes, per-shard chain links, the file digest, and
+// the manifest signature offline. The signed manifest selects the rows file.
+// Verification decodes one row at a time and retains only fixed-width links.
 func VerifyBundle(dir string, pub ed25519.PublicKey) (*VerifyReport, error) {
 	return VerifyBundleWithSigners(dir, pub, SignerSet{ordered: nil, members: nil})
 }
 
-// VerifyBundleWithSigners is VerifyBundle plus the signer-set check: with a
-// configured set, a bundle whose signature verifies under a key outside the
-// set fails the report, as does one whose manifest names a signer other than
-// the key that verified it (TACK-437).
+// VerifyBundleWithSigners also rejects verification keys outside a configured
+// signer set and claimed identifiers that differ from the verified key
+// (TACK-437).
 func VerifyBundleWithSigners(
 	dir string,
 	pub ed25519.PublicKey,
@@ -229,10 +193,8 @@ func VerifyBundleWithSigners(
 	return report, nil
 }
 
-// scanBundleRows streams the manifest's events file once: it digests the bytes
-// for the manifest check, decodes one row at a time, verifies that row's own
-// hash, and keeps only its chain link. The decoded row goes out of scope
-// immediately.
+// scanBundleRows computes the file digest, checks each decoded row, and
+// retains only chain links rather than complete rows.
 func scanBundleRows(
 	dir string,
 	eventsName string,
@@ -256,16 +218,10 @@ func scanBundleRows(
 	hasher := sha256.New()
 	reader := bufio.NewReaderSize(io.TeeReader(file, hasher), 1<<20)
 	dec := json.NewDecoder(reader)
-	// A bundle row carrying a key its type does not declare is rejected, not
-	// dropped: the typed decode is what the hash is recomputed from, so a
-	// silently dropped key would be a planted field that verifies.
+	// Reject unknown keys instead of hiding injected fields during re-encoding.
 	dec.DisallowUnknownFields()
 
-	// The manifest's row count is not a size hint. It is unverified input
-	// until the signature and the file agree with it, and a bundle claiming
-	// a hundred million rows over a two-row file would otherwise have the
-	// verifier allocate for the claim before it had checked anything. The
-	// slice grows with what the file actually holds.
+	// Allocate from actual rows, never an untrusted manifest count.
 	links := make([]chainLink, 0)
 
 	for {
@@ -287,10 +243,8 @@ func scanBundleRows(
 		}
 
 		report.RowsScanned++
-		// An export is one org's ledger. A row from another org inside it is
-		// not a filtered gap but a bundle that does not describe itself, and
-		// the row's own hash does not cover the org column, so it has to be
-		// checked here.
+		// Require each row's org column to match the manifest independently
+		// of its hash; a foreign row can have a valid hash for its own org.
 		if row.OrgID != mf.OrgID {
 			report.ChainBreaks = append(
 				report.ChainBreaks,
@@ -324,10 +278,7 @@ func scanBundleRows(
 		links = append(links, newChainLink(row))
 	}
 
-	// The decoder stops at the last JSON value, so drain whatever trailing
-	// bytes remain through the tee before reading the digest; otherwise a
-	// trailing newline would change the file's real digest and never reach
-	// the hasher.
+	// Include trailing bytes such as newlines in the file digest after JSON decoding.
 	if _, err := io.Copy(io.Discard, reader); err != nil {
 		slog.Error(
 			"audit.verify.events_drain_failed",

@@ -8,8 +8,7 @@ import (
 	"goodkind.io/tack/internal/domain/node"
 )
 
-// maxConfirmationNameBytes bounds the name a confirmation prints for a node
-// whose name is its only human-readable identity, such as a comment body.
+// maxConfirmationNameBytes limits confirmation names, including comment bodies.
 const maxConfirmationNameBytes = 120
 
 const (
@@ -20,10 +19,10 @@ const (
 	maxChangeLines       = 4
 )
 
-// renderWriteConfirmation prints the heading, Reference, Name, and Type, then up to
-// maxChangeLines lines from describeFieldChanges and Raw id last. If it omits lines,
-// it adds one More line with their count and tack_get_<type>. A node without a distinct
-// reference, such as a comment, prints its name once, shortened, in the heading.
+// renderWriteConfirmation renders node identity and changes within the byte
+// limit.
+// A More line reports omitted changes and the tool for reading the full node.
+// Nodes without distinct references use a shortened name in the heading.
 func renderWriteConfirmation(
 	rc *renderCtx,
 	verb string,

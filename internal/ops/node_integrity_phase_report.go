@@ -287,7 +287,7 @@ func (runner repairPhaseRunner) readReportComment(
 		return snapshot, "", repairRefused(
 			ctx,
 			run.entry,
-			fmt.Sprintf("report comment %s has no child_of edge to the node", commentID),
+			fmt.Sprintf("report comment %s does not have a child_of edge to the node", commentID),
 			domain.ErrConflict,
 		)
 	}

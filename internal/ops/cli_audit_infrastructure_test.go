@@ -100,7 +100,10 @@ func TestOnlyProvisionAndAuditBootstrapCreateAuditInfrastructure(t *testing.T) {
 		if strings.Join(path, " ") == "ops audit seed-roles" {
 			var postgresError *pgconn.PgError
 			if !errors.As(runErr, &postgresError) || postgresError.Code != "42P01" {
-				t.Errorf("seed-roles did not reach the missing outbox table: %v", runErr)
+				t.Errorf(
+					"seed-roles did not attempt recording in the missing outbox table: %v",
+					runErr,
+				)
 			}
 		}
 
@@ -173,7 +176,7 @@ func auditedCommandPaths(t *testing.T) [][]string {
 	}
 	walk(root, nil)
 	if len(paths) == 0 {
-		t.Fatal("the rendered tree has no audited command")
+		t.Fatal("the rendered tree does not contain an audited command")
 	}
 
 	return paths

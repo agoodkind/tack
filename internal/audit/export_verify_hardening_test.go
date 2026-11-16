@@ -10,10 +10,8 @@ import (
 	"github.com/google/uuid"
 )
 
-// TestVerifyBundleRejectsARowFromAnotherOrg pins that an export is one org's
-// ledger. A row lifted intact from another org's export carries a hash that
-// is valid for that org, so it verifies row by row and its link holds; only
-// comparing the row's org to the manifest's catches it.
+// TestVerifyBundleRejectsARowFromAnotherOrg checks org membership independently
+// of valid row hashes and chain links.
 func TestVerifyBundleRejectsARowFromAnotherOrg(t *testing.T) {
 	dir := t.TempDir()
 	rows := chainedExportTestRows(t, 3)
@@ -32,7 +30,7 @@ func TestVerifyBundleRejectsARowFromAnotherOrg(t *testing.T) {
 
 	if report.HashMatches != 3 {
 		t.Fatalf(
-			"HashMatches = %d, want 3: the foreign row is internally valid, so only the org check can catch it",
+			"HashMatches = %d, want 3 valid hashes before testing org membership",
 			report.HashMatches,
 		)
 	}
@@ -43,10 +41,8 @@ func TestVerifyBundleRejectsARowFromAnotherOrg(t *testing.T) {
 	}
 }
 
-// TestVerifyBundleRejectsARepeatedSequence pins that a sequence which does not
-// advance is a break, not a gap. The duplicate is the last row on purpose: a
-// duplicate in the middle also breaks the next row's previous-hash link, which
-// would let a gap-tolerant walk fail for the wrong reason and hide this check.
+// TestVerifyBundleRejectsARepeatedSequence appends the duplicate last to isolate
+// sequence rejection from a later row's predecessor mismatch.
 func TestVerifyBundleRejectsARepeatedSequence(t *testing.T) {
 	dir := t.TempDir()
 	rows := chainedExportTestRows(t, 3)
@@ -63,7 +59,7 @@ func TestVerifyBundleRejectsARepeatedSequence(t *testing.T) {
 
 	if report.HashMatches != 4 {
 		t.Fatalf(
-			"HashMatches = %d, want 4: the replayed row is self-consistent so only the sequence check can catch it",
+			"HashMatches = %d, want 4 valid hashes before testing sequence rejection",
 			report.HashMatches,
 		)
 	}
@@ -74,9 +70,8 @@ func TestVerifyBundleRejectsARepeatedSequence(t *testing.T) {
 	}
 }
 
-// TestVerifyBundleRefusesAnOversizedManifest pins the read bound. The padding
-// is whitespace so the document stays valid JSON with no unknown field; only
-// its size is wrong.
+// TestVerifyBundleRefusesAnOversizedManifest pads valid JSON with whitespace
+// to isolate the manifest size limit.
 func TestVerifyBundleRefusesAnOversizedManifest(t *testing.T) {
 	dir := t.TempDir()
 	rows := chainedExportTestRows(t, 2)
@@ -99,9 +94,8 @@ func TestVerifyBundleRefusesAnOversizedManifest(t *testing.T) {
 	}
 }
 
-// TestVerifyBundleRefusesAManifestWithAPlantedField pins that a manifest key
-// the type does not declare fails the parse. The signature covers only the
-// declared fields, so a dropped key would be a planted field that verifies.
+// TestVerifyBundleRefusesAManifestWithAPlantedField requires unknown-key
+// rejection instead of silently discarding unsigned fields during decoding.
 func TestVerifyBundleRefusesAManifestWithAPlantedField(t *testing.T) {
 	dir := t.TempDir()
 	rows := chainedExportTestRows(t, 2)
@@ -134,9 +128,9 @@ func TestVerifyBundleRefusesAManifestWithAPlantedField(t *testing.T) {
 	}
 }
 
-// TestVerifyBundleSurvivesAMalformedPublicKey pins that a key of the wrong
-// length is a failed signature check, not a panic out of ed25519.Verify.
-func TestVerifyBundleSurvivesAMalformedPublicKey(t *testing.T) {
+// TestVerifyBundleReportsInvalidPublicKeyLength checks that an invalid key length
+// fails signature verification without panicking.
+func TestVerifyBundleReportsInvalidPublicKeyLength(t *testing.T) {
 	dir := t.TempDir()
 	rows := chainedExportTestRows(t, 2)
 	pub := writeSignedExportTestBundle(t, dir, rows)

@@ -1,0 +1,78 @@
+package servercli
+
+import (
+	"crypto/ed25519"
+	"crypto/x509"
+	"encoding/pem"
+	"errors"
+	"fmt"
+	"log/slog"
+	"os"
+
+	"goodkind.io/tack/internal/audit"
+)
+
+var (
+	errSigningKeyNotEd25519       = errors.New("audit key is not ed25519")
+	errSigningKeyNotPEM           = errors.New("audit key is not PEM")
+	errSigningKeyPathMissing      = errors.New("AUDIT_SIGNING_KEY_PATH not set")
+	errSigningPublicKeyNotEd25519 = errors.New("audit key public half is not ed25519")
+)
+
+// loadAuditKey reads the ed25519 private key and derives its key id. The path
+// is an operator-supplied signing key location.
+func loadAuditKey(path string) (ed25519.PrivateKey, string, error) {
+	if path == "" {
+		return nil, "", errSigningKeyPathMissing
+	}
+
+	raw, err := os.ReadFile(path) // #nosec G304,G703 operator-provided audit signing key path
+	if err != nil {
+		slog.Error("audit.key_read_failed", slog.Any("err", err))
+
+		return nil, "", fmt.Errorf("read audit key: %w", err)
+	}
+
+	block, _ := pem.Decode(raw)
+	if block == nil {
+		return nil, "", errSigningKeyNotPEM
+	}
+
+	parsed, err := x509.ParsePKCS8PrivateKey(block.Bytes)
+	if err != nil {
+		slog.Error("audit.key_parse_failed", slog.Any("err", err))
+
+		return nil, "", fmt.Errorf("parse audit key: %w", err)
+	}
+
+	priv, valid := parsed.(ed25519.PrivateKey)
+	if !valid {
+		return nil, "", errSigningKeyNotEd25519
+	}
+
+	pub, valid := priv.Public().(ed25519.PublicKey)
+	if !valid {
+		return nil, "", errSigningPublicKeyNotEd25519
+	}
+
+	// The identifier is the audit package's, so an export manifest names its
+	// signer the way audit.notarizations and the valid signer set do
+	// (TACK-437). Manifests written before this named the key by its first
+	// raw bytes instead; a signer set never lists those.
+	return priv, audit.KeyIdentifier(pub), nil
+}
+
+// loadAuditPublic reads the ed25519 public key from a private key PEM file.
+func loadAuditPublic(path string) (ed25519.PublicKey, error) {
+	priv, _, err := loadAuditKey(path)
+	if err != nil {
+		return nil, err
+	}
+
+	pub, ok := priv.Public().(ed25519.PublicKey)
+	if !ok {
+		return nil, errSigningPublicKeyNotEd25519
+	}
+
+	return pub, nil
+}

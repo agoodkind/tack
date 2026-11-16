@@ -1,8 +1,5 @@
-// backup_restore_drill_yb_rows.go asserts the restored auth tables came back
-// holding rows. The count is parsed rather than compared as text: an exec that
-// exits zero having printed nothing is indistinguishable from a healthy table
-// under a string comparison, so a count the drill cannot read fails the drill
-// here instead of passing it.
+// Restored authentication tables must contain rows. Numeric parsing rejects
+// empty or malformed output that a string comparison against "0" could accept.
 
 package ops
 
@@ -18,12 +15,12 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// drillAuthTables are the auth tables a restore must bring back with rows.
-// Without them nobody can authenticate against the recovered host, whatever
-// else came back.
+var errCountQueryResultMissing = errors.New("the count query did not print a result")
+
+// drillAuthTables lists restored tables required for authentication.
 var drillAuthTables = []string{"users", "api_tokens", "org_members"}
 
-// assertYBDrillRows fails unless every restored auth table holds rows.
+// assertYBDrillRows requires a positive row count in each authentication table.
 func assertYBDrillRows(ctx context.Context, r *restoreDrillCtx, container, database string) error {
 	logger := telemetry.L(ctx)
 
@@ -53,8 +50,8 @@ func assertYBDrillRows(ctx context.Context, r *restoreDrillCtx, container, datab
 	return nil
 }
 
-// readYBDrillRowCount counts the rows one restored table holds. A count that
-// cannot be read is an error, not a zero and not a pass.
+// readYBDrillRowCount counts one restored table and rejects unreadable output
+// rather than assuming an empty or populated table.
 func readYBDrillRowCount(
 	ctx context.Context,
 	r *restoreDrillCtx,
@@ -104,17 +101,13 @@ func readYBDrillRowCount(
 	return count, nil
 }
 
-// parseYBDrillRowCount reads the number out of one `ysqlsh -tAc "select
-// count(*)"` result. Everything that is not a count fails: empty output, which
-// is what an exec that exited zero having printed nothing leaves behind; text,
-// which means the query did not answer; and a negative number, which no
-// count(*) can be and so means this is not a count at all. A count nobody
-// could read says nothing about whether the table came back, so it can never
-// be treated as one that did.
+// parseYBDrillRowCount accepts only a nonnegative integer from ysqlsh
+// count(*). Empty output, text, and negative numbers cannot establish a
+// table's row count.
 func parseYBDrillRowCount(out string) (int64, error) {
 	trimmed := strings.TrimSpace(out)
 	if trimmed == "" {
-		return 0, errors.New("the count query printed no result")
+		return 0, errCountQueryResultMissing
 	}
 
 	count, err := strconv.ParseInt(trimmed, 10, 64)

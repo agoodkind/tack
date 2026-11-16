@@ -1,7 +1,5 @@
-// backup_restore_drill_fdb_target.go handles the moment an operator asks the
-// FoundationDB restore drill to reach: reading it off the flag, rendering it
-// for the engine, and refusing one the engine cannot express or the backup
-// cannot reach. Assembling the commands themselves lives beside the restore.
+// The FoundationDB restore drill validates the requested target time against
+// the engine's timestamp format and the backup's restorable window.
 
 package ops
 
@@ -10,20 +8,13 @@ import (
 	"time"
 )
 
-// fdbTimestampArgForm is the only form fdbrestore's --timestamp accepts, quoted
-// verbatim from `fdbrestore --help` on foundationdb 7.4.6. It has no
-// fractional-second field, so a target is refused rather than rounded when it
-// names one.
+// fdbTimestampArgForm quotes the format from `fdbrestore --help` on
+// FoundationDB 7.4.6. The format does not support fractional seconds.
 const fdbTimestampArgForm = "YYYY/MM/DD.HH:MI:SS[+/-]HHMM"
 
-// parseFDBTargetTime reads the operator's --fdb-target-time. Both accepted
-// forms carry an explicit UTC offset, so a target time can never mean two
-// moments depending on where it was typed. RFC 3339 is the form an operator
-// writes; the FoundationDB form is the one they can copy straight out of
-// `fdbbackup describe` or `fdbbackup status` output.
-//
-// A moment fdbrestore cannot express is refused here, at the flag, so the
-// operator hears about it before the drill boots a container rather than after.
+// parseFDBTargetTime accepts RFC 3339 or the FoundationDB status timestamp
+// format. Both require an explicit UTC offset. Validation rejects unsupported
+// precision before the drill starts a container.
 func parseFDBTargetTime(value string) (time.Time, error) {
 	for _, layout := range []string{time.RFC3339, fdbStatusTimestampLayout} {
 		at, parseErr := time.Parse(layout, value)
@@ -46,33 +37,24 @@ func parseFDBTargetTime(value string) (time.Time, error) {
 	)
 }
 
-// fdbRestoreTimestampArg renders a target as fdbrestore's --timestamp argument,
-// and refuses a moment that argument cannot carry.
-//
-// foundationdb 7.4.6 accepts only whole seconds there. [time.Parse] accepts a
-// fraction after the seconds even when the layout omits one, so a sub-second
-// target arrives here from both input forms the drill takes. Rendering it would
-// drop the fraction and restore the whole second before the moment the operator
-// named, so the fraction stops the drill instead.
+// fdbRestoreTimestampArg renders a whole-second target for --timestamp.
+// [time.Parse] accepts fractional seconds even when the layout omits them.
+// Rejecting fractions prevents rounding down to an earlier restore time.
 func fdbRestoreTimestampArg(at time.Time) (string, error) {
 	if at.Nanosecond() != 0 {
-		return "", fmt.Errorf(
-			"restore target %s names a fraction of a second, which FoundationDB's"+
-				" --timestamp form %s cannot carry: name a whole second, and note that"+
-				" %s is the whole second before the moment given",
-			at.UTC().Format(time.RFC3339Nano),
-			fdbTimestampArgForm,
-			formatFDBTime(at),
-		)
+		return "", fractionalRestoreTargetError{
+			Target: at.UTC().Format(time.RFC3339Nano),
+			Format: fdbTimestampArgForm,
+			Before: formatFDBTime(at),
+		}
 	}
 
 	return formatFDBTime(at), nil
 }
 
-// assertTargetWithinWindow refuses a target the backup cannot reach, naming the
-// window so the operator can pick a moment that works. Handing an out-of-window
-// time to fdbrestore is exactly what this guard exists for: the restore would
-// otherwise produce data from some other moment and report success.
+// assertTargetWithinWindow rejects targets outside the backup's restorable
+// window and reports its bounds. Otherwise fdbrestore could restore another
+// moment and report success.
 func assertTargetWithinWindow(target time.Time, window fdbRestorableWindow) error {
 	if target.Before(window.Min) || target.After(window.Max) {
 		return fmt.Errorf(
@@ -86,8 +68,25 @@ func assertTargetWithinWindow(target time.Time, window fdbRestorableWindow) erro
 	return nil
 }
 
-// formatFDBTime renders a moment the way FoundationDB's own tools print and
-// accept it, in UTC so a drill's logs and errors read the same everywhere.
+// formatFDBTime renders a FoundationDB timestamp in UTC for consistent logs
+// and errors across hosts.
 func formatFDBTime(at time.Time) string {
 	return at.UTC().Format(fdbStatusTimestampLayout)
+}
+
+type fractionalRestoreTargetError struct {
+	Target string
+	Format string
+	Before string
+}
+
+func (failure fractionalRestoreTargetError) Error() string {
+	return fmt.Sprintf(
+		"restore target %s includes a fraction of a second, which FoundationDB's "+
+			"--timestamp form %s cannot express: use a whole second, and note that %s is the "+
+			"whole second before the moment given",
+		failure.Target,
+		failure.Format,
+		failure.Before,
+	)
 }

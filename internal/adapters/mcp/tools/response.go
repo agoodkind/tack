@@ -84,7 +84,8 @@ func permissionDenied(ctx context.Context) *mcp.CallToolResult {
 		Content: []mcp.Content{
 			mcp.TextContent{
 				Type: "text",
-				Text: "#### Permission denied\n\nThe caller is not a member of the org that holds this data.\n\nNext step: Yield to the user.",
+				Text: "#### Permission denied\n\nThe caller does not belong to the org that owns this data." +
+					"\n\nNext step: Yield to the user.",
 			},
 		},
 	}

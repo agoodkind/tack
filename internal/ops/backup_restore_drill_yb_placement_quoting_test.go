@@ -6,11 +6,8 @@ import (
 	"testing"
 )
 
-// TestYBPlacementHandlesConfiguredPathsWithASpace proves a configured directory
-// carrying a space places every tablet. Unquoted, the export root split the
-// source path into two words so no tablet was ever found, and the ledger paths
-// bound only their first word, which under bash is an ambiguous redirect that
-// loses every record the placement writes.
+// TestYBPlacementHandlesConfiguredPathsWithASpace checks that placement copies
+// every tablet and records each copy when configured directories contain spaces.
 func TestYBPlacementHandlesConfiguredPathsWithASpace(t *testing.T) {
 	eachPlacementShell(
 		t,
@@ -48,22 +45,16 @@ func TestYBPlacementHandlesConfiguredPathsWithASpace(t *testing.T) {
 				if _, err := os.Stat(
 					filepath.Join(fixture.placedTabletDir(remap, newSnap), "CURRENT"),
 				); err != nil {
-					t.Fatalf("tablet %s did not land under a path with a space: %v", remap.new, err)
+					t.Fatalf("tablet %s is missing from the path with a space: %v", remap.new, err)
 				}
 			}
 		},
 	)
 }
 
-// TestYBPlacementTreatsTabletIdsAsData proves the ids the placement builds its
-// paths from are data. They are fields of `yb-admin import_snapshot` output,
-// and the placement itself matches them against no pattern, so metadata
-// reaching them is a path to execution: Go's %q wrapped them in double quotes,
-// which a shell still expands, leaving $(...) and backticks live inside a
-// container holding the cluster's data. The parser now refuses ids outside the
-// engine's form before they get here; the payloads below bypass it to prove the
-// placement holds on its own, must land as directory names, and their canaries
-// must not exist.
+// TestYBPlacementTreatsTabletIdsAsData bypasses import-output validation with
+// shell command substitutions in tablet IDs. Placement must preserve the literal
+// directory names without executing either substitution or creating its file.
 func TestYBPlacementTreatsTabletIdsAsData(t *testing.T) {
 	eachPlacementShell(
 		t,
@@ -73,8 +64,12 @@ func TestYBPlacementTreatsTabletIdsAsData(t *testing.T) {
 			substitution := filepath.Join(root, "substituted")
 			backtick := filepath.Join(root, "backticked")
 			remaps := []ybTabletRemap{
-				{table: "table00", old: "old00", new: "new$(touch " + substitution + ")00"},
-				{table: "table01", old: "old01", new: "new`touch " + backtick + "`01"},
+				{
+					table: "table00",
+					old:   "old00",
+					new:   "new$(printf injected >" + substitution + ")00",
+				},
+				{table: "table01", old: "old01", new: "new`printf injected >" + backtick + "`01"},
 			}
 
 			fixture := newPlacementFixtureFor(t, shell, root, remaps)
@@ -88,17 +83,17 @@ func TestYBPlacementTreatsTabletIdsAsData(t *testing.T) {
 
 			for _, canary := range []string{substitution, backtick} {
 				if _, err := os.Stat(canary); err == nil {
-					t.Fatalf("a tablet id ran as shell: it created %s", canary)
+					t.Fatalf("a tablet ID executed as shell and created %s", canary)
 				}
 			}
 
 			if len(defects) != 0 {
-				t.Fatalf("ids handled as data must still place: %+v", defects)
+				t.Fatalf("placement must accept literal tablet IDs: %+v", defects)
 			}
 
 			if audit.Expected != 2 || audit.Placed != 2 {
 				t.Fatalf(
-					"audit = expected %d, placed %d; want both ids handled as data",
+					"audit = expected %d, placed %d; want both literal tablet IDs",
 					audit.Expected,
 					audit.Placed,
 				)
@@ -108,7 +103,7 @@ func TestYBPlacementTreatsTabletIdsAsData(t *testing.T) {
 				if _, err := os.Stat(
 					filepath.Join(fixture.placedTabletDir(remap, newSnap), "CURRENT"),
 				); err != nil {
-					t.Fatalf("tablet %q did not land under its literal id: %v", remap.new, err)
+					t.Fatalf("tablet %q is missing from its literal directory: %v", remap.new, err)
 				}
 			}
 		},

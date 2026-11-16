@@ -8,10 +8,8 @@ import (
 	"time"
 )
 
-// TestBackupStatusMarkerRoundTrip writes a marker through the production writer
-// into the object store and reads it back through the production reader, so
-// the two can never disagree on the key or the field names. The stored bytes
-// are asserted too, because the marker is an operator-readable artifact.
+// TestBackupStatusMarkerRoundTrip checks the production writer and reader
+// against stored bytes, object keys, and operator-readable JSON fields.
 func TestBackupStatusMarkerRoundTrip(t *testing.T) {
 	ctx := context.Background()
 	store := newBackupTestStore(t, nil)
@@ -29,7 +27,7 @@ func TestBackupStatusMarkerRoundTrip(t *testing.T) {
 
 	body, ok := store.object("backup-status/rehearsal.json")
 	if !ok {
-		t.Fatal("marker landed under an unexpected key")
+		t.Fatal("the writer did not create the expected marker key")
 	}
 
 	wantBody := `{"at":"2026-08-29T03:30:00Z","detail":"restore drill rt20260829T033000Z passed: fdb, yugabyte"}`
@@ -43,7 +41,7 @@ func TestBackupStatusMarkerRoundTrip(t *testing.T) {
 	}
 
 	if !found {
-		t.Fatal("the marker just written must be found")
+		t.Fatal("the reader did not find the newly written marker")
 	}
 
 	if !marker.At.Equal(at) {
@@ -55,10 +53,9 @@ func TestBackupStatusMarkerRoundTrip(t *testing.T) {
 	}
 }
 
-// TestBackupStatusMarkerWrittenInUTC proves a marker written by a host on a
-// non-UTC clock still stores an absolute UTC instant, so ages computed against
-// it are comparable across hosts.
-func TestBackupStatusMarkerWrittenInUTC(t *testing.T) {
+// TestBackupStatusMarkerStoresUTC checks absolute UTC storage and equivalent
+// instants when the writer uses another time zone.
+func TestBackupStatusMarkerStoresUTC(t *testing.T) {
 	ctx := context.Background()
 	store := newBackupTestStore(t, nil)
 	zone := time.FixedZone("PDT", -7*60*60)
@@ -94,8 +91,8 @@ func TestBackupStatusMarkerWrittenInUTC(t *testing.T) {
 	}
 }
 
-// TestReadBackupStatusMarkerAbsent proves a mechanism that never recorded a
-// success reads as absent rather than as an error or a zero-time success.
+// TestReadBackupStatusMarkerAbsent checks an absent marker without a read
+// error or a zero-time success claim.
 func TestReadBackupStatusMarkerAbsent(t *testing.T) {
 	marker, found, err := readBackupStatusMarker(
 		context.Background(),
@@ -107,18 +104,16 @@ func TestReadBackupStatusMarkerAbsent(t *testing.T) {
 	}
 
 	if found {
-		t.Fatal("no marker was written, so none may be found")
+		t.Fatal("the reader must not find an absent marker")
 	}
 
 	if !marker.At.IsZero() {
-		t.Fatalf("absent marker carries a timestamp: %s", marker.At)
+		t.Fatalf("an absent marker must not include a timestamp: %s", marker.At)
 	}
 }
 
-// TestReadBackupStatusMarkerRejectsUndatedMarker proves a marker that decodes
-// but carries no timestamp is refused. Accepting it would report a success at
-// the zero time, which reads as an enormous age rather than as the corruption
-// it is.
+// TestReadBackupStatusMarkerRejectsUndatedMarker checks that valid JSON
+// without a timestamp fails instead of indicating success at the zero time.
 func TestReadBackupStatusMarkerRejectsUndatedMarker(t *testing.T) {
 	store := newBackupTestStore(t, nil)
 	store.put(backupStatusKey(backupStalenessReplicationName), []byte(`{"detail":"no timestamp"}`))
@@ -132,10 +127,8 @@ func TestReadBackupStatusMarkerRejectsUndatedMarker(t *testing.T) {
 	}
 }
 
-// TestGetObjectBytesRefusesAnOversizedObject proves an object past the
-// in-memory limit is refused rather than buffered. The staleness check is what
-// reports silence, so a corrupted or hostile marker must not be able to take
-// the check itself down; the run instead fails loudly with the size named.
+// TestGetObjectBytesRefusesAnOversizedObject checks bounded memory reads at
+// and above the limit. Hostile or corrupt markers must not exhaust the checker.
 func TestGetObjectBytesRefusesAnOversizedObject(t *testing.T) {
 	ctx := context.Background()
 	const key = "backup-status/oversized.json"
@@ -152,14 +145,14 @@ func TestGetObjectBytesRefusesAnOversizedObject(t *testing.T) {
 	client, cfg := store.client, store.config()
 
 	if _, err := getObjectBytes(ctx, client, cfg.BackupS3BucketMain, key); err == nil {
-		t.Fatal("an object past the in-memory limit must be refused")
+		t.Fatal("an object above the memory limit must fail")
 	} else if !strings.Contains(err.Error(), "larger than") {
-		t.Fatalf("the error must name the limit, got: %v", err)
+		t.Fatalf("the error must identify the limit, got: %v", err)
 	}
 
 	body, err := getObjectBytes(ctx, client, cfg.BackupS3BucketMain, "backup-status/2")
 	if err != nil {
-		t.Fatalf("an object exactly at the limit must still read: %v", err)
+		t.Fatalf("an object exactly at the limit must remain readable: %v", err)
 	}
 
 	if len(body) != smallObjectMaxBytes {
@@ -167,11 +160,9 @@ func TestGetObjectBytesRefusesAnOversizedObject(t *testing.T) {
 	}
 }
 
-// TestRestoreDrillRehearsalMarkerIsReadBackByTheCheck proves the two halves of
-// the rehearsal metric meet: the marker a passing drill records is the marker
-// the staleness check dates the rehearsal from, at the same key, carrying the
-// drill's run id and the legs it proved.
-func TestRestoreDrillRehearsalMarkerIsReadBackByTheCheck(t *testing.T) {
+// TestStalenessCheckReadsRehearsalMarker checks that drill recording and
+// staleness measurement use the same marker key, time, run, and verified legs.
+func TestStalenessCheckReadsRehearsalMarker(t *testing.T) {
 	drilledAt := time.Date(2026, 8, 29, 6, 0, 0, 0, time.UTC)
 	nowFunc = func() time.Time { return drilledAt }
 	t.Cleanup(func() { nowFunc = time.Now })
@@ -200,7 +191,7 @@ func TestRestoreDrillRehearsalMarkerIsReadBackByTheCheck(t *testing.T) {
 		t.Fatalf("marker detail = %q", marker.Detail)
 	}
 
-	// The age the report would show comes straight off that marker.
+	// Report age uses the recorded success time.
 	metric := knownBackupStalenessMetric(
 		ctx,
 		backupStalenessRehearsalName,
@@ -210,11 +201,11 @@ func TestRestoreDrillRehearsalMarkerIsReadBackByTheCheck(t *testing.T) {
 		marker.Detail,
 	)
 	if metric.stale() {
-		t.Fatal("a drill two hours old must not read as stale")
+		t.Fatal("a two-hour-old drill must remain fresh")
 	}
 }
 
-// TestBackupStatusKey pins the object keys the writers and the check share.
+// TestBackupStatusKey checks shared object keys for writers and readers.
 func TestBackupStatusKey(t *testing.T) {
 	tests := map[string]string{
 		backupStalenessRehearsalName:   "backup-status/rehearsal.json",

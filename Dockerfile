@@ -56,9 +56,8 @@ RUN set -eux \
     && apt-get remove -y curl && apt-get autoremove -y \
     && rm -rf /var/lib/apt/lists/*
 
-# The binary is `tack`; `/server` stays a symlink to it so existing deploy and
-# compose invocations that call `/server ...` (and the `/server` entrypoint)
-# keep working unchanged.
+# The /server symlink invokes tack for existing deploy and compose commands
+# and for the image entrypoint.
 COPY --from=builder /bin/tack /usr/local/bin/tack
 RUN ln -s /usr/local/bin/tack /server
 ENTRYPOINT ["/server"]

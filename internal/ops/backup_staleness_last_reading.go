@@ -1,14 +1,8 @@
-// backup_staleness_last_reading.go remembers, on this guest, each mechanism's
-// newest success the check could read and when it read it, so a reading that
-// cannot be taken is dated from the last one that was (TACK-515). A store
-// that stops answering for a few minutes then leaves every mechanism fresh
-// until its threshold, counted from the last success this guest saw, has
-// passed; only then could the mechanism have gone stale unseen, and only then
-// does the unreadable reading count as stale. A mechanism this guest never
-// read has nothing to date it, so its unreadable reading stays stale at once.
-// The record is a file under the backup root rather than part of the shared
-// alarm memory, because the shared copy lives in the object store, which is
-// exactly what cannot be read during the outages this record covers.
+// Local last-reading records preserve each mechanism's observed success and
+// observation time during store or probe outages (TACK-515). Unreadable readings
+// become stale only after age exceeds the threshold, unless this guest never
+// observed success. The cache must remain local because shared alarm state
+// depends on the unavailable object store.
 
 package ops
 
@@ -26,26 +20,22 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// backupLastReadingFile is the file under the backup root that holds the last
-// readable success of each mechanism.
+// backupLastReadingFile identifies cached successes under the backup root.
 const backupLastReadingFile = "staleness-last-reading.json"
 
-// backupLastReading is one mechanism's newest readable success: when the
-// mechanism last succeeded and when this guest read that.
+// backupLastReading records success time and this guest's observation time.
 type backupLastReading struct {
 	SucceededAt time.Time `json:"succeeded_at"`
 	ReadAt      time.Time `json:"read_at"`
 }
 
-// backupLastReadings is the whole record, keyed by metric name.
+// backupLastReadings indexes cached observations by metric name.
 type backupLastReadings struct {
 	Readings map[string]backupLastReading `json:"readings"`
 }
 
-// lastBackupStalenessSuccess is the newest success this guest could read for
-// one mechanism. The ledger cluster's leg reads it directly, because that
-// mechanism's age is this guest's own last healthy observation rather than
-// anything the shared store holds (backup_staleness_replication.go).
+// lastBackupStalenessSuccess returns a cached local success. Replication uses
+// this observation rather than another guest's shared health marker.
 func lastBackupStalenessSuccess(
 	ctx context.Context,
 	cfg *config.Config,
@@ -59,11 +49,9 @@ func lastBackupStalenessSuccess(
 	return last.SucceededAt.UTC(), true
 }
 
-// rememberBackupStalenessReadings records every reading taken this run and
-// dates every reading that could not be taken from the record. A reading that
-// proves no success exists removes the record, so a later outage is not dated
-// from a success the store has since denied. A reading that already carries an
-// age was dated from this record by the leg that took it, so it is left alone.
+// rememberBackupStalenessReadings records current successes, removes successes
+// that the store explicitly denies, and dates unreadable metrics from cache.
+// Already dated metrics retain the age that their probe calculated.
 func rememberBackupStalenessReadings(
 	ctx context.Context,
 	cfg *config.Config,
@@ -92,9 +80,8 @@ func rememberBackupStalenessReadings(
 	return remembered
 }
 
-// rememberedBackupStalenessMetric dates an unreadable metric from its last
-// readable success. The cause stays, so the report and the mail still say the
-// reading could not be taken; the detail keeps the failure for the journal.
+// rememberedBackupStalenessMetric calculates age from the cached success
+// while preserving the unreadable cause and failure detail for reporting.
 func rememberedBackupStalenessMetric(
 	ctx context.Context,
 	metric backupStalenessMetric,
@@ -119,14 +106,14 @@ func rememberedBackupStalenessMetric(
 	return metric
 }
 
-// backupLastReadingPath is where the record lives for this configuration.
+// backupLastReadingPath returns the configured local cache path.
 func backupLastReadingPath(cfg *config.Config) string {
 	return filepath.Join(cfg.BackupRoot, backupLastReadingFile)
 }
 
-// loadBackupLastReadings reads the record. An absent file is a guest that has
-// read nothing yet; a damaged one is logged and read as empty, which dates
-// nothing and so leaves every unreadable reading stale.
+// loadBackupLastReadings treats absent files as initial empty state. Read or
+// decode failures log the cause and return empty state, leaving unreadable
+// metrics stale rather than trusting a damaged historical record.
 func loadBackupLastReadings(ctx context.Context, cfg *config.Config) backupLastReadings {
 	empty := backupLastReadings{Readings: map[string]backupLastReading{}}
 	path := backupLastReadingPath(cfg)
@@ -165,10 +152,9 @@ func loadBackupLastReadings(ctx context.Context, cfg *config.Config) backupLastR
 	return record
 }
 
-// saveBackupLastReadings replaces the record through a rename, the same way
-// the alarm state is written. A write that fails is logged and the check
-// continues: the next outage is then dated from an older reading, or from
-// none, which alarms sooner rather than later.
+// saveBackupLastReadings atomically replaces cached state through a rename.
+// Failures log the cause without stopping the check. An older or absent cache
+// can only trigger an earlier alarm during the next outage.
 func saveBackupLastReadings(ctx context.Context, cfg *config.Config, record backupLastReadings) {
 	logger := telemetry.L(ctx)
 	path := backupLastReadingPath(cfg)
@@ -208,7 +194,7 @@ func saveBackupLastReadings(ctx context.Context, cfg *config.Config, record back
 	}
 
 	if err := os.Rename(partial, path); err != nil {
-		// The temporary is this invocation's own, so removing it is safe.
+		// Only this invocation's temporary file requires cleanup.
 		_ = os.Remove(partial)
 		renameErr := fmt.Errorf("rename %s into place: %w", partial, err)
 		logger.ErrorContext(

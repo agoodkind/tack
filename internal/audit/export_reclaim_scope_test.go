@@ -1,6 +1,5 @@
-// export_reclaim_scope_test.go covers which files a later export is allowed to
-// free: every file this exporter wrote that no manifest names, and nothing an
-// operator left beside the bundle.
+// export_reclaim_scope_test.go checks removal of unreferenced exporter files
+// and preservation of operator files beside a bundle.
 
 package audit
 
@@ -16,16 +15,10 @@ import (
 	"github.com/google/uuid"
 )
 
-// TestAnExportReclaimsTheRowsNoManifestNames pins the reclaim rule. A process
-// killed mid-export leaves a rows file behind, and naming those files per
-// export means no later run overwrites one, so without a reclaim they
-// accumulate a ledger-sized file per interruption.
-//
-// The rule is exact rather than a guess about age: a bundle is a manifest and
-// the rows it names, so every other file this exporter wrote is free. The
-// superseded rows of the directory's previous bundle are covered by the same
-// rule and are freed by the same pass.
-func TestAnExportReclaimsTheRowsNoManifestNames(t *testing.T) {
+// TestExportReclaimsUnreferencedFiles checks removal of interrupted
+// export files and superseded rows after publication. Reclamation uses manifest
+// references and exporter ownership rather than file age.
+func TestExportReclaimsUnreferencedFiles(t *testing.T) {
 	dir := t.TempDir()
 	orgID := uuid.Must(uuid.NewV7())
 	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
@@ -33,9 +26,7 @@ func TestAnExportReclaimsTheRowsNoManifestNames(t *testing.T) {
 		t.Fatalf("generate key: %v", err)
 	}
 
-	// Everything an interrupted export can leave: a rows file named for the
-	// export that abandoned it, the staged rows name earlier revisions wrote,
-	// and a staged manifest.
+	// Include current rows, earlier staged rows, and staged manifests left by interruption.
 	abandoned := []string{
 		exportEventsFileName(uuid.Must(uuid.NewV7())),
 		legacyExportEventsFile + "." + uuid.Must(uuid.NewV7()).String() + stagedSuffix,
@@ -73,8 +64,7 @@ func TestAnExportReclaimsTheRowsNoManifestNames(t *testing.T) {
 		t.Fatalf("the export reclaimed the rows its own manifest names: %v", statErr)
 	}
 
-	// A second export supersedes the first, so the first's rows stop being named
-	// and the same rule frees them.
+	// Publication of the second manifest makes the first export's rows reclaimable.
 	secondManifest, err := Export(
 		context.Background(),
 		exportTestRows(t, orgID, 25, nil),
@@ -107,21 +97,10 @@ func TestAnExportReclaimsTheRowsNoManifestNames(t *testing.T) {
 	assertDirectoryHoldsOnlyItsBundle(t, dir)
 }
 
-// TestTheReclaimSparesFilesThisExporterDidNotWrite pins the limit of the
-// reclaim rule. A bundle directory is somewhere an operator also works, and the
-// reclaim unlinks without asking, so what counts as this exporter's file has to
-// be the names it actually produces rather than the shape those names have.
-//
-// Every name in the operator group used to be reclaimed: the rule was a prefix
-// and a suffix with anything at all between them, so a file an auditor left
-// beside the bundle was deleted by the next export purely for being called
-// something of that form. Each name here is one an export cannot have written,
-// because this exporter puts the id of the export into every name it writes and
-// renders it one way.
-//
-// The exporter group is the control. Without it a predicate that simply stopped
-// reclaiming anything would pass this test while breaking the reclaim.
-func TestTheReclaimSparesFilesThisExporterDidNotWrite(t *testing.T) {
+// TestExportReclamationPreservesOperatorFiles checks canonical export IDs
+// rather than prefix and suffix matches alone. Operator files must survive;
+// genuine unreferenced exporter files must disappear to verify reclamation.
+func TestExportReclamationPreservesOperatorFiles(t *testing.T) {
 	dir := t.TempDir()
 	orgID := uuid.Must(uuid.NewV7())
 	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)

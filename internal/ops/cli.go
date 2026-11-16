@@ -61,14 +61,14 @@ var (
 	}
 )
 
-// noInput is the input for commands that take no flags or positional args.
+// noInput represents commands without flags or positional arguments.
 type noInput struct {
 	clispec.InputMarker
 }
 
-// RegisterCommands adds the whole `ops` family to reg: the declared leaf
-// operations plus the hand-written backup subtree, whose bare command rejects
-// invocation.
+// RegisterCommands adds the declared ops commands and handwritten backup
+// commands to reg. The backup parent command rejects invocation without a
+// subcommand.
 func RegisterCommands(reg *clispec.Registry, f *cli.Factory) {
 	clispec.Register(reg, inspectReadOp(f))
 	clispec.Register(reg, inspectFindOp(f))

@@ -1,7 +1,5 @@
-// export_manifest_binding_test.go covers the binding between a manifest and the
-// rows it names: the name is inside the signature, so neither repointing a
-// manifest at another export's rows nor adding or stripping its name survives
-// verification.
+// export_manifest_binding_test.go checks signature coverage of the rows file
+// name, including substitution, addition, and removal.
 
 package audit
 
@@ -16,13 +14,9 @@ import (
 	"github.com/google/uuid"
 )
 
-// TestAManifestRepointedAtAnotherExportsRowsFailsItsSignature is the reason the
-// events file name has to be signed. Verification opens the file the manifest
-// names, so an unsigned name would let anyone holding a genuine signed manifest
-// present it over a different export's rows and have the pair read as a bundle.
-// The name is inside what the signature covers, so the repointed manifest is
-// refused on the signature, before any question of what the rows contain.
-func TestAManifestRepointedAtAnotherExportsRowsFailsItsSignature(t *testing.T) {
+// TestVerifyBundleRejectsRowsFileSubstitution changes only the selected rows
+// file after signing. Verification must reject the manifest signature.
+func TestVerifyBundleRejectsRowsFileSubstitution(t *testing.T) {
 	orgID := uuid.Must(uuid.NewV7())
 	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
@@ -64,16 +58,14 @@ func TestAManifestRepointedAtAnotherExportsRowsFailsItsSignature(t *testing.T) {
 
 	if report.RowsScanned != foreignRows {
 		t.Fatalf(
-			"rows scanned = %d, want the %d rows the name points at; the manifest's name is what is read",
+			"rows scanned = %d, want the %d rows selected by the edited manifest",
 			report.RowsScanned,
 			foreignRows,
 		)
 	}
 
 	if report.SignatureOK {
-		t.Fatal(
-			"a manifest repointed at another export's rows verified, so the name is outside the signature",
-		)
+		t.Fatal("the manifest signature accepted a substituted rows file name")
 	}
 
 	if report.Err() == nil {
@@ -81,14 +73,11 @@ func TestAManifestRepointedAtAnotherExportsRowsFailsItsSignature(t *testing.T) {
 	}
 }
 
-// TestNamingItsOwnRowsIsPartOfWhatAManifestSigns pins the binding in both
-// directions on a bundle nothing else is wrong with. The name added below
-// resolves to the very file the manifest already described, so the rows, the
-// digest, and the row count all still agree; only the signature can fail, and
-// it must, because the name is covered whether it is present or absent.
-func TestNamingItsOwnRowsIsPartOfWhatAManifestSigns(t *testing.T) {
+// TestVerifyBundleRejectsRowsFileFieldChanges checks addition and removal
+// while preserving the actual rows, digest, and count to isolate the signature.
+func TestVerifyBundleRejectsRowsFileFieldChanges(t *testing.T) {
 	t.Run(
-		"a name added to a manifest that had none",
+		"verifier rejects added file name",
 		func(t *testing.T) {
 			dir := t.TempDir()
 			pub := writeSignedExportTestBundle(t, dir, chainedExportTestRows(t, 3))
@@ -106,7 +95,7 @@ func TestNamingItsOwnRowsIsPartOfWhatAManifestSigns(t *testing.T) {
 
 			if !report.FileSHA256OK || report.HashMatches != report.RowsScanned {
 				t.Fatalf(
-					"digest=%v hashes=%d/%d: every other check must pass so the signature is the one under test",
+					"digest=%v hashes=%d/%d: digest and row hashes must pass before checking the signature",
 					report.FileSHA256OK,
 					report.HashMatches,
 					report.RowsScanned,
@@ -114,15 +103,13 @@ func TestNamingItsOwnRowsIsPartOfWhatAManifestSigns(t *testing.T) {
 			}
 
 			if report.SignatureOK {
-				t.Fatal(
-					"a name added after signing verified, so an unsigned name can decide which rows are read",
-				)
+				t.Fatal("the manifest signature accepted a file name added after signing")
 			}
 		},
 	)
 
 	t.Run(
-		"a name stripped from a manifest that had one",
+		"verifier rejects removed file name",
 		func(t *testing.T) {
 			dir := t.TempDir()
 			orgID := uuid.Must(uuid.NewV7())
@@ -143,9 +130,8 @@ func TestNamingItsOwnRowsIsPartOfWhatAManifestSigns(t *testing.T) {
 				t.Fatalf("export: %v", err)
 			}
 
-			// The rows are placed under the name the fallback resolves to as well, so
-			// stripping the name leaves the digest and the count intact and the
-			// signature alone decides.
+			// Preserve identical content under the legacy fallback name to
+			// isolate signature failure after removing events_file.
 			copyBundleRows(t, dir, dir, manifest.EventsFile)
 			rows, err := os.ReadFile(filepath.Join(dir, manifest.EventsFile))
 			if err != nil {
@@ -169,7 +155,7 @@ func TestNamingItsOwnRowsIsPartOfWhatAManifestSigns(t *testing.T) {
 
 			if !report.FileSHA256OK || report.HashMatches != report.RowsScanned {
 				t.Fatalf(
-					"digest=%v hashes=%d/%d: every other check must pass so the signature is the one under test",
+					"digest=%v hashes=%d/%d: digest and row hashes must pass before checking the signature",
 					report.FileSHA256OK,
 					report.HashMatches,
 					report.RowsScanned,
@@ -177,9 +163,7 @@ func TestNamingItsOwnRowsIsPartOfWhatAManifestSigns(t *testing.T) {
 			}
 
 			if report.SignatureOK {
-				t.Fatal(
-					"a manifest with its name stripped verified, so the name is outside the signature",
-				)
+				t.Fatal("the manifest signature accepted removal of its rows file name")
 			}
 		},
 	)

@@ -1,7 +1,6 @@
-// ledger_node_prepare_integration_test.go proves the saved-config round trip
-// against a real container: the file comes out, the rewrite goes back in
-// under the same owner and mode, and a missing file reads as absent. It needs
-// a Docker daemon, which testenv.RequireDocker demands.
+// ledger_node_prepare_integration_test.go checks config reads and writes with
+// a real Docker container. Rewrites must preserve owner and mode. Missing files
+// must report absence. testenv.RequireDocker requires the daemon.
 
 package ops
 
@@ -17,7 +16,7 @@ import (
 	"goodkind.io/tack/internal/testenv"
 )
 
-func TestLauncherConfigRoundTripsThroughTheContainer(t *testing.T) {
+func TestLauncherConfigRewritePreservesContainerFileMetadata(t *testing.T) {
 	testenv.RequireDocker(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
@@ -33,11 +32,9 @@ func TestLauncherConfigRoundTripsThroughTheContainer(t *testing.T) {
 		t.Fatalf("ensure %s: %v", image, err)
 	}
 
-	// The file is written by uid 1000 the way the launcher, which runs as
-	// the yugabyte user, writes its own; the round trip must keep that owner
-	// or the launcher can no longer save its config after the rewrite. The
-	// file is staged and moved into place after its owner and mode are set,
-	// so the read below never sees it half made.
+	// Match the launcher's uid 1000 ownership. Rewrites must preserve it to
+	// permit later launcher writes. Set owner and mode before publishing the
+	// staged file to prevent a read of an incomplete config.
 	configPath := ledgerLauncherConfigDir + "/" + ledgerLauncherConfigName
 	script := "mkdir -p " + ledgerLauncherConfigDir + " && printf '%s' \"$CONF\" > " + configPath + ".staged" +
 		" && chown 1000:1000 " + configPath + ".staged" +
@@ -135,11 +132,11 @@ func TestLauncherConfigRoundTripsThroughTheContainer(t *testing.T) {
 	}
 
 	if !strings.Contains(string(after.content), `"join": "yb2"`) {
-		t.Fatal("the rewrite must carry the other keys through")
+		t.Fatal("the rewrite must preserve the other keys")
 	}
 
-	// A container that exists but has never started the launcher has no
-	// saved config: that reads as absent, not as an error.
+	// A container that has not started the launcher does not have a saved
+	// config. The read must report absence rather than an error.
 	res, err := containerExec(
 		ctx,
 		cli,

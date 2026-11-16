@@ -2,223 +2,190 @@
 
 ## Summary
 
-A human-readable node reference such as `FAN-13` is a derived string, recomputed
-on every read from two properties, with no stored record that the name is taken.
-Nothing refuses to issue the same reference twice and nothing detects that it
-already has. Two nodes can therefore share a reference, and the resolver returns
-whichever it encounters first while the other node becomes unreachable by name.
+The existing reader derives a human-readable reference such as `FAN-13` from two
+properties on every read without recording which node claims the reference. The
+writer does not reject duplicate references, and the resolver returns its first
+match. A second node with the same reference cannot use that address.
 
-This design makes uniqueness a constraint declared as data on a NodeType,
-enforced inside the same FoundationDB transaction as the write. One declaration
-serves four purposes at once: it renders the reference, parses the reference,
-defines the uniqueness key, and is the lookup index. Because there is one
-declaration, the printed name and the guarantee cannot disagree.
-
-A sequence counter becomes one way to populate a property that a constraint
-covers, not a special case with its own rules.
+Declare uniqueness as NodeType metadata and enforce it in the FoundationDB write
+transaction. One declaration renders and parses the reference and defines its
+uniqueness and lookup keys. A sequence counter populates a property covered by
+that constraint rather than requiring separate reference rules.
 
 ## The engine and one instance of its data
 
-The engine holds no reference shape. It reads templates from NodeType metadata
-and does what they say. A NodeType with no template carries no constraint and
-renders no reference. There is no built-in template, no implicit part, no
-fallback, and no code path that supplies one.
+The engine renders references and enforces constraints from templates in NodeType
+metadata. It does not define a reference shape. A NodeType without a template does
+not impose a constraint or render a reference. The engine must not supply a
+built-in template, implicit part, or fallback.
 
-Everything concrete in this document, `FAN-13`, `TACK-26`, a hyphen separator, a
-property named `sequence`, a project as the enclosing scope, is data from one
-deployment. Another deployment declares different types, different separators,
-different generated properties, and a different idea of what a scope is, and the
-engine behaves identically.
-
-Read every named reference below as an observation of one board, used as
-evidence that the engine currently permits a collision. None of it is a
-requirement on the engine.
+`FAN-13`, `TACK-26`, the hyphen separator, the `sequence` property, and project
+scope are examples from one deployment, not engine requirements. Another
+deployment can declare different types, separators, generated properties, and
+scopes without changing the engine's template interpretation.
 
 ## Problem
 
-The engine permits two nodes to render the same reference. The section below
-evidences that with one deployment's data.
+`FAN-13` identifies two issues in the FAN project. `tack_get_issue` with
+`node_id=FAN-13` returns one. MCP tools resolve references the same way and cannot
+read, update, or transition the other issue by that reference.
 
-`FAN-13` names two issues in the FAN project. `tack_get_issue` with
-`node_id=FAN-13` returns one of them. The other cannot be read, updated, or
-transitioned through any MCP tool, because every tool path that accepts a
-reference resolves it the same way.
+State updates for four intended issues changed four different issues to Done
+and reported success instead of an error. TACK-342 (`Duplicate sequence numbers
+make issues unaddressable through MCP tools`, high, Todo) records the incident.
 
-The failure is a silent wrong-target write, not an error. Setting state on four
-issues moved four different issues to Done and reported success. TACK-342
-(`Duplicate sequence numbers make issues unaddressable through MCP tools`, high,
-Todo) records that incident.
-
-Eight references in the FAN project name two nodes each: 4, 6, 7, 8, 13, 14, 15,
-and 16. `tack_list_issues` for project FAN returns 40 issues across two
-overlapping runs of sequence numbers. TACK-342 documents four of the eight.
+Eight references in FAN identify two nodes each: 4, 6, 7, 8, 13, 14, 15, and 16.
+`tack_list_issues` for FAN returns 40 issues across overlapping sequence ranges.
+TACK-342 documents four of the eight duplicates.
 
 ### Why it happens
 
-Two mechanisms produce duplicates. Both exploit the same gap: a sequence number
-is allocated once, stored as a plain property, and never bound to the scope it
-was allocated from.
+The writer allocates a sequence once and stores it as a plain property without
+binding it to the allocation scope. Duplicates arise through two operations.
 
-**Type-scoped counter, type-agnostic reference.** `sequenceKey` in
-`internal/adapters/foundationdb/keys.go` keys the counter by
+#### Type-scoped counter, type-agnostic reference
+
+`sequenceKey` in `internal/adapters/foundationdb/keys.go` keys the counter by
 `(orgID, scopeNodeID, nodeType)`. `referenceIdentifierFor` in
 `internal/adapters/mcp/tools/render_scope.go` renders
-`<scopeIdentifier>-<sequence>` and omits the type. Every NodeType declaring
-`ReferenceScopedSequence` under one scope runs its own counter from 1, and all of
-them render into one flat namespace. Epic `FAN-1` and issue `FAN-1` both exist,
-as do `FAN-2` and `FAN-5`.
+`<scopeIdentifier>-<sequence>` without the type. Every NodeType declaring
+`ReferenceScopedSequence` under one scope starts its own counter at 1 but uses
+the same reference namespace. Epic and issue `FAN-1` both exist, as do `FAN-2`
+and `FAN-5`.
 
-Node types are user-extensible, so the count of colliding counters is unbounded
-and grows whenever an operator adds a type declaring that strategy.
+Each user-defined type with this strategy adds another potentially colliding
+counter without a fixed upper bound.
 
-**Scope rewritten without renumbering.** The `repair.sequence_scope_ids`
-operation in `internal/ops/repair_sequence_scope_ids.go` derives a canonical
-`scope_id` from the parent chain and writes it. It never reads or writes
-`sequence`. A node moved into a scope whose counter already issued its number
-collides, and the counter cannot detect it because the number was issued
+#### Scope rewritten without renumbering
+
+`repair.sequence_scope_ids` in `internal/ops/repair_sequence_scope_ids.go`
+derives and writes canonical `scope_id` from the parent chain without reading
+or writing `sequence`. Moving a node into a scope that already issued its number
+creates a collision. The destination counter cannot detect a number allocated
 elsewhere.
 
 ### Why resolution cannot catch it
 
 `resolveSequenceNodeID` in `internal/adapters/mcp/tools/resolve_typed.go` scans
-the `sequence` property index, then filters candidates in Go by walking the
-parent chain, and returns the first match. Every other reference strategy funnels
-through `uniqueMatch` (`internal/adapters/mcp/tools/resolve_reference_helpers.go`
-lines 99 to 109), which returns `matched multiple nodes` when a lookup is
-ambiguous. The sequence path is the only strategy that resolves ambiguity by
-picking one.
+the `sequence` property index, filters candidates in Go by walking the parent
+chain, and returns the first match. Other reference strategies use `uniqueMatch`
+in `internal/adapters/mcp/tools/resolve_reference_helpers.go` lines 99 to 109,
+which returns `matched multiple nodes` for an ambiguous lookup. Only the sequence
+strategy selects one ambiguous candidate.
 
-Uniqueness is unenforceable in the current shape because no key exists to collide
-on. `keys.go` declares ten key families. `node_by_property` is keyed
-`(orgID, nodeType, propName, encodedValue, nodeID)` with no scope component.
-`sequence` holds only the counter. Nothing maps a reference to a node.
+`keys.go` declares ten key families without a reference-to-node key that could
+enforce uniqueness. `node_by_property` uses
+`(orgID, nodeType, propName, encodedValue, nodeID)` without a scope component.
+`sequence` stores only the counter.
 
 ## Goals
 
-Engine goals:
+The engine must satisfy these requirements:
 
-- A rendered reference resolves to exactly one node, guaranteed by the storage
-  layer at write time, for any template any operator declares.
-- The uniqueness domain is declared as data by the operator. It is never
-  inferred from a hardcoded type name, a hardcoded property name, or a built-in
-  template. The seed writes a starting suggestion, not a default.
-- Resolving a reference is one point read.
-- An operator who wants two kinds of node to number independently declares it in
-  the template, and the rendered reference distinguishes them. An operator who
-  wants them to share one pool declares that instead. Neither is privileged.
-- A detect operation and a repair operation work against whatever templates a
-  deployment declares.
+- The storage layer guarantees that every rendered reference resolves to exactly
+  one node at write time, for any operator-declared template.
+- The operator declares the uniqueness domain as data. The engine must not infer
+  it from hardcoded type or property names or built-in templates. The seed
+  supplies an editable starting suggestion, not a default.
+- A reference lookup requires one point read.
+- Templates can declare independent numbering for distinct node kinds and render
+  distinguishable references, or declare shared numbering. Neither strategy has
+  special treatment.
+- Detect and repair operations interpret each deployment's templates.
 
-Instance goals for this deployment, achieved by running those operations:
-
-- The eight duplicated references in the FAN project are repaired.
-- Every project in every org is audited for the same condition.
+For this deployment, those operations must repair the eight FAN duplicates and
+audit every project in every org for the same condition.
 
 ## Non-goals
 
-- Changing the reference format the seed writes. `FAN-13` keeps its shape.
-  Individual values change only for the nodes the repair reassigns.
-- A forwarding record from an old reference to a new one. See the repair
-  section, and TACK-365 (`Optional reference forwarding for nodes that move
-  between scopes`, low, Todo).
-- Reference history or an audit of reference changes beyond the ledger entry the
-  repair operation already writes.
-- Changing the UUID as canonical identity. References are addressing, not
-  identity.
+- Do not change the reference format the seed writes. `FAN-13` keeps its shape;
+  only repaired nodes change reference values.
+- Do not add forwarding records from old references to new ones. The repair
+  section explains this decision. TACK-365 (`Optional reference forwarding for
+  nodes that move between scopes`, low, Todo) tracks forwarding separately.
+- Do not add reference history beyond the repair operation's ledger entry.
+- Keep UUIDs as canonical identity. References provide addresses, not identity.
 
 ## Verified facts
 
-Each was read from the source named.
+The source review established these facts:
 
-- `sequenceKey(orgID, scopeNodeID, nodeType)` at `keys.go` lines 135 to 137. The
-  comment at lines 43 to 46 states `scopeNodeID is the container that defines
-  uniqueness`, while the packed key also includes `nodeType`.
-- `keys.go` declares ten key families at lines 16 to 60. None maps a reference to
-  a node.
+- `sequenceKey(orgID, scopeNodeID, nodeType)` at `keys.go` lines 135 to 137
+  includes `nodeType`, although the comment at lines 43 to 46 states
+  `scopeNodeID is the container that defines uniqueness`.
+- The ten key families at `keys.go` lines 16 to 60 do not map references to nodes.
 - `referenceIdentifierFor` in `render_scope.go` formats `%s-%d` from the scope
-  identifier and `nodeType.Reference.Property`, with no type component.
+  identifier and `nodeType.Reference.Property`, omitting the type component.
 - `resolveSequenceNodeID` in `resolve_typed.go` returns the first candidate
-  satisfying `nodeBelongsToScope`, and passes the string literal `"sequence"` to
-  `ListByProperty` rather than `nt.Reference.Property`.
-- `allocateCreateSequence` in `internal/service/node_create_prepare.go` writes the
-  string literal `props["sequence"]`, also ignoring `nt.Reference.Property`.
+  satisfying `nodeBelongsToScope` and passes literal `"sequence"` to
+  `ListByProperty` instead of `nt.Reference.Property`.
+- `allocateCreateSequence` in `internal/service/node_create_prepare.go` writes
+  literal `props["sequence"]`, also ignoring `nt.Reference.Property`.
 - `uniqueMatch` at `resolve_reference_helpers.go` lines 99 to 109 returns
-  `ErrInvalidArgument` for more than one match. `resolveDirectNodeUnderParent` in
-  `resolve_scope_reference.go` uses it. The sequence path does not.
-- `PropertyDef` at `internal/domain/node/types.go` lines 254 to 274 already
-  carries storage and validation obligations as data: `Indexed` (line 263),
-  `Required` (line 265), and `AppliesToFeatures` (line 261). The doc comment at
-  lines 252 to 253 states `PropertyDefs are never scoped by hardcoded NodeType
-  name lists`.
-- `ReferenceConfig{Strategy, Property}` at `types.go` lines 117 to 120. Strategies
-  are `uuid_only`, `scoped_sequence`, `scoped_property` (`types.go` lines 109 to
-  113) and `direct_property` (`internal/domain/node/reference.go` line 9).
+  `ErrInvalidArgument` for multiple matches. `resolveDirectNodeUnderParent` in
+  `resolve_scope_reference.go` uses this helper; the sequence path does not.
+- `PropertyDef` at `internal/domain/node/types.go` lines 254 to 274 declares
+  storage and validation requirements through `Indexed` (line 263), `Required`
+  (line 265), and `AppliesToFeatures` (line 261). The comment at lines 252 to 253
+  states `PropertyDefs are never scoped by hardcoded NodeType name lists`.
+- `ReferenceConfig{Strategy, Property}` at `types.go` lines 117 to 120 supports
+  `uuid_only`, `scoped_sequence`, and `scoped_property` (lines 109 to 113), plus
+  `direct_property` in `internal/domain/node/reference.go` line 9.
 - `FeatureIsScope` at `types.go` line 38 means `defines an FDB key scope level`.
-- `writeNodeRecords` at `internal/adapters/foundationdb/node.go` line 191 is
-  shared by `Set` (line 71) and `UpdateAtomic` (line 96). `CreateAtomic` at line
-  302 does not call it and inlines the same primary, resolve, and view writes at
-  lines 328 to 352. `Delete` at line 220 clears them and walks `n.Props` to clear
-  property indexes, noting at lines 286 to 288 that no per-node reverse index
-  exists.
-- `NodeRepository` at `internal/domain/node/repository.go` lines 84 to 86 states
-  that the caller resolves `indexedProps` from the PropertyDef registry and that
-  the storage layer does not read PropertyDefs.
-- `NodeService.Create` at `internal/service/node_create.go` line 97 calls
+- `Set` (line 71) and `UpdateAtomic` (line 96) share `writeNodeRecords` in
+  `internal/adapters/foundationdb/node.go` line 191. `CreateAtomic` at line 302
+  duplicates the primary, resolve, and view writes at lines 328 to 352 instead
+  of calling `writeNodeRecords`. `Delete` at line 220 clears those records and
+  walks `n.Props` to clear property indexes. Its comment at lines 286 to 288
+  notes the absence of a per-node reverse index.
+- `NodeRepository` in `internal/domain/node/repository.go` lines 84 to 86
+  requires the caller to resolve `indexedProps` from the PropertyDef registry.
+  The storage layer does not read PropertyDefs.
+- `NodeService.Create` in `internal/service/node_create.go` line 97 calls
   `s.indexedPropNames` and passes the result to `createNodeAtomic`. Reference
-  keys follow the same path.
-- `ParseNodeIdentifier` at `internal/adapters/mcp/tools/resolve_parse.go` splits
-  on the last hyphen and requires a positive integer suffix. It is hardcoded to
-  the one shape `PROJECT-N`.
-- `reconcilePropertyIndexes` at `node.go` line 108 clears the old index entry and
-  writes the new one for each changed indexed property, inside the same
-  transaction.
-- Relationships are keyed by UUID at `keys.go` lines 125 to 132. Container,
-  parent, and workflow-state pointers are UUID-valued properties. No internal
-  record addresses a node by its rendered reference.
-- `PropertyDefaultReference.Reference` at
+  keys use the same service-to-storage contract.
+- `ParseNodeIdentifier` in `internal/adapters/mcp/tools/resolve_parse.go` splits
+  on the last hyphen and requires a positive integer suffix, hardcoding
+  `PROJECT-N`.
+- `reconcilePropertyIndexes` at `node.go` line 108 clears each changed indexed
+  property's old entry and writes its new entry in the same transaction.
+- Relationships use UUID keys at `keys.go` lines 125 to 132. Container, parent,
+  and workflow-state pointers use UUID-valued properties. Internal records do
+  not address nodes by rendered reference.
+- `PropertyDefaultReference.Reference` in
   `internal/domain/node/default_reference.go` lines 15 to 20 stores a string
   resolved at create time, not a UUID. `resolveCreateDefaultReference` in
-  `internal/service/node_defaults.go` rejects any target type whose reference
-  strategy is not `ReferenceScopedProperty`, and
-  `resolveDefaultScopedPropertyReference` matches it against children of the
-  create scope by property value. A default therefore holds a scope-local value
-  such as `Todo` and can never hold a `scoped_sequence` reference such as
-  `FAN-13`. No rendered sequence reference is persisted anywhere.
+  `internal/service/node_defaults.go` accepts only `ReferenceScopedProperty`
+  target strategies. `resolveDefaultScopedPropertyReference` matches children
+  of the create scope by property value. A default stores a scope-local value
+  such as `Todo`, not a `scoped_sequence` reference such as `FAN-13`. The system
+  does not persist rendered sequence references.
 - `uniqueDefaultReferenceMatch` in `node_defaults.go` returns
-  `matched multiple nodes` for an ambiguous default. It is the third
-  fail-loud-on-ambiguity helper in the codebase, alongside `uniqueMatch`. The
-  sequence resolution path is the only lookup that resolves ambiguity by
-  selecting one candidate.
-- `ops.Register(Operation{Name, Description, Run})` at `internal/ops/ops.go`
-  lines 39 to 43 and 88 to 99 is the maintenance-operation registry.
-- New entities use UUIDv7, which is time-sortable, per the durable invariants in
-  `AGENTS.md`.
-- Rendered list and search output omits raw cross-reference UUIDs by design.
-  `internal/adapters/mcp/tools/render_test.go` asserts that no cross-reference
-  UUID appears in a rendered body.
+  `matched multiple nodes` for ambiguous defaults. It also rejects ambiguity,
+  like `uniqueMatch`. Only sequence resolution selects one ambiguous candidate.
+- `ops.Register(Operation{Name, Description, Run})` in `internal/ops/ops.go`
+  lines 39 to 43 and 88 to 99 registers maintenance operations.
+- New entities use time-sortable UUIDv7 per `AGENTS.md`.
+- Rendered list and search output omits raw cross-reference UUIDs.
+  `internal/adapters/mcp/tools/render_test.go` asserts this behavior.
 
 ## Design
 
 ### The declaration
 
-A NodeType carries an ordered list of reference key templates. Each template has
-a name, unique within its NodeType, which identifies it in the storage key and in
-error messages. Each template declares an ordered list of parts and produces one
-string. Exactly one template is marked as the human-facing reference.
+A NodeType declares an ordered list of reference key templates. Each template
+has a NodeType-local unique name for storage keys and errors, plus an ordered
+list of parts that produces one string. Exactly one template serves as the
+human-facing reference.
 
-A template is the whole contract. It renders the reference, parses an incoming
-reference, forms the uniqueness key, and forms the index key. There is one
-declaration, so those four cannot drift apart.
-
-A per-property boolean flag is insufficient. It expresses only single-value
-uniqueness, and the reference is already a composite of a scope identifier and a
-number. A list of templates on the NodeType also supports a type needing more
-than one guarantee, such as a unique reference alongside a unique external
-tracker identifier.
+Each template renders and parses references and defines both uniqueness and
+lookup keys. A per-property Boolean cannot express the composite scope identifier
+and number. Multiple templates support additional constraints, such as a unique
+external tracker identifier alongside the human-readable reference.
 
 ### Part kinds
 
-Four part kinds express every reference in the product.
+The template supports four part kinds:
 
 | Part kind | Renders |
 | --- | --- |
@@ -227,11 +194,10 @@ Four part kinds express every reference in the product.
 | `node_type` | The node's own `TypeKey`. Present only when an operator wants each kind numbered and addressed separately. |
 | `literal` | Fixed text used as a prefix or separator. |
 
-`scope_ref` names its domain by feature, not by type key, matching how
-`PropertyDef.AppliesToFeatures` already scopes a property definition. The seeded
-value is `FeatureIsScope`.
+`scope_ref` selects its domain by feature, not type key, matching
+`PropertyDef.AppliesToFeatures`. The seed uses `FeatureIsScope`.
 
-The four current strategies express as templates:
+The current strategies correspond to these templates:
 
 | Strategy | Template |
 | --- | --- |
@@ -242,240 +208,211 @@ The four current strategies express as templates:
 
 ### The counter derivation rule
 
-A value generator derives its key from the template, minus the part it fills.
+A value generator derives its key from the template except the part it fills.
+For a counter filling `property(sequence)` in
+`scope_ref(is_scope), literal("-"), property(sequence)`, the resolved scope node
+is the counter key. A template without `node_type` omits it from the counter key;
+a template with `node_type` includes it. The declaration determines numbering,
+lookup, and rendered reference together.
 
-For a counter filling `property(sequence)` in the template
-`scope_ref(is_scope), literal("-"), property(sequence)`, the counter key is the
-resolved scope node. `nodeType` is absent from the template, so `nodeType` is
-absent from the counter key. Adding `node_type` to the template adds it to the
-counter key.
-
-This rule is what makes the operator's declaration authoritative over both the
-numbering and the lookup. Whatever appears in the template appears in the
-counter and in the rendered reference, without exception.
-
-Deriving the counter key from the template changes its encoding, and an unseen
-counter key starts at zero. The repair pass therefore seeds each counter key to
-the highest value it observes in that scope before any new node is created
-against it. Without that step the counter reissues values already in use.
+The new derivation changes key encoding, and an unseen counter starts at zero.
+Before creating nodes with the new keys, the repair pass seeds each counter to
+the highest value it observes in that scope. Otherwise, counters reissue values
+already in use.
 
 ### Enforcement
 
-Two generic key families carry the constraint:
+The forward and reverse key families enforce the constraint:
 
 ```
 (node_reference,       orgID, templateName, encodedKey) -> nodeID
 (node_reference_owned, orgID, nodeID, templateName)     -> encodedKey
 ```
 
-`encodedKey` is the tuple-packed rendered parts. The forward family enforces
-uniqueness and answers lookups. The reverse family lets a node's prior keys be
-found from its identifier alone, which `Delete` and `UpdateAtomic` need because
-neither can render a key without NodeType metadata. `relationship_reverse` exists
-for the same reason, and `Delete` currently carries a comment noting the absence
-of a per-node reverse index for property values.
+`encodedKey` consists of tuple-packed rendered parts. The forward family enforces
+uniqueness and answers lookups. The reverse family locates a node's prior keys
+by identifier for `Delete` and `UpdateAtomic`, which cannot render keys without
+NodeType metadata. `relationship_reverse` serves the same purpose for
+relationships. The `Delete` comment notes the missing per-node reverse index for
+property values. Both new families interpret metadata without special cases for
+concrete node types.
 
-Both families are generic over NodeType metadata and privilege no concrete type.
+`CreateAtomic` writes primary, resolve, and view records directly. `Set` and
+`UpdateAtomic` share `writeNodeRecords`. `Delete` clears node records. Each path
+writes or clears reference keys in its existing transaction. Primary records,
+views, resolve records, property indexes, and reference keys commit or fail
+together.
 
-Four write paths carry reference keys. `CreateAtomic` inlines its own primary,
-resolve, and view writes. `Set` and `UpdateAtomic` share `writeNodeRecords`.
-`Delete` clears the node's records. Each writes or clears reference keys inside
-the transaction it already opens, so a node's primary record, view, resolve
-record, property indexes, and reference keys commit or fail together.
+The write transaction first reads the forward key. If it identifies another
+node, the transaction fails with a conflict error identifying both nodes.
+An existing key for the same node does not require a change.
 
-On write the transaction reads the forward key first. A key already held by a
-different node fails the transaction with a conflict error naming both nodes. A
-key held by the same node is a no-op.
+On update, the transaction reads prior keys from the reverse range, clears the
+old forward keys, and writes new keys, like `reconcilePropertyIndexes`.
+Moving a node into a scope with a conflicting rendered reference fails.
 
-On update the reverse range yields the node's prior keys. Those forward keys are
-cleared and the new ones written, mirroring `reconcilePropertyIndexes`. This
-closes the second duplicate mechanism: moving a node into a scope where its
-rendered reference is taken fails instead of silently colliding.
-
-The storage layer never reads PropertyDefs or NodeTypes, per the existing
-contract on `NodeRepository`. The service renders the keys and passes them in,
-exactly as it already passes `indexedProps`.
+The service renders keys and supplies them to storage, as it supplies
+`indexedProps`. The storage layer must not read PropertyDefs or NodeTypes under
+the `NodeRepository` contract.
 
 ### Resolution
 
-`resolveSequenceNodeID` becomes a point read on the reference key. Parsing an
-incoming reference walks the same template that renders it, so the parse and the
-render cannot disagree.
-
-Resolution stops scanning `node_by_property`, stops walking the parent chain in
-Go for each candidate, and stops looping over every sequence-bearing type per
+`resolveSequenceNodeID` uses a point read on the reference key. Parsing uses the
+same template as rendering. Resolution must not scan `node_by_property`, walk
+parent chains for candidates in Go, or loop over sequence-bearing types per
 workspace.
 
-For a node predating the reference key, the point read misses. The resolver then
-falls back to the existing scan path and routes the result through `uniqueMatch`,
-so an unrepaired duplicate raises `matched multiple nodes` with both UUIDs rather
-than resolving to one. The fallback is removed after the repair operation reports
-zero duplicates across every org.
+A node created before reference keys existed can miss the point read. The
+resolver then uses the existing scan with `uniqueMatch`, which rejects duplicates
+with `matched multiple nodes` and both UUIDs. Remove this fallback after repair
+reports zero duplicates across every org.
 
 ### What the seed writes
 
-No template is built into the code. A NodeType with no template carries no
-constraint and gets no rendered reference. There is no fallback template, no
-implicit part, and no code path that supplies one.
+The engine must not supply a built-in or fallback template or implicit part.
+A NodeType without a template does not impose a constraint or render a reference.
 
-The seed writes a starting suggestion the operator owns and may edit or delete.
-It gives `issue`, `epic`, `cycle`, and `module` the template
-`scope_ref(is_scope), literal("-"), property(sequence)`, omitting `node_type`.
-`FAN-13` then names exactly one node across every work-item type, matching what
-the rendered string already implies to a reader.
+The seed supplies an editable, removable starting suggestion. For `issue`,
+`epic`, `cycle`, and `module`, it writes
+`scope_ref(is_scope), literal("-"), property(sequence)` without `node_type`.
+`FAN-13` identifies exactly one node across work-item types. This template
+invalidates the epic/issue pairs sharing `FAN-1`, `FAN-2`, and `FAN-5`; repair
+reassigns one node in each pair.
 
-That template makes the existing epic and issue sharing `FAN-1` invalid, along
-with `FAN-2` and `FAN-5`. The repair operation reassigns one node in each pair.
+TACK has the same collision across more references. Its epic counter is 26 and
+its issue counter exceeds 369. Each epic reference from `TACK-1` to `TACK-26`
+also identifies an issue. Repair reassigns epics because issues are older and the
+retention policy keeps the older node. On 2026-08-05, `tack_get_epic` and
+`tack_get_issue` each resolved `TACK-26` correctly using their own type keys.
+`tack_list_relationships` resolved it to the epic. Untyped relationship tools
+could address only that member of the pair.
 
-The TACK project carries the same collision at scale. Its epic counter reaches
-26 while its issue counter passes 369, so every epic reference from `TACK-1` to
-`TACK-26` names an issue as well. The repair reassigns the epics, because the
-issues are older and the retention policy keeps the older node. Verified
-2026-08-05: `tack_get_epic` and `tack_get_issue` each resolve `TACK-26`
-correctly because typed resolution passes only its own type key, while
-`tack_list_relationships` resolves it to the epic, so the untyped relationship
-tools reach only one of the pair.
-
-A deployment wanting independent numbering per type declares `node_type` in its
-own template instead. Both nodes then keep separate counters and render
-distinguishable references. The engine enforces either declaration identically;
-neither shape is the engine's opinion.
+A deployment can include `node_type` for independent numbering per type.
+The nodes then use separate counters and distinguishable references. The engine
+enforces both template shapes without special treatment.
 
 ## Repair
 
 ### Detect
 
-A maintenance operation registered through `ops.Register` reports, for every org
-and every NodeType carrying a template, each rendered reference held by more than
-one node, with every candidate UUID and creation time.
+Register a maintenance operation through `ops.Register`. For every org and
+NodeType with a template, report each duplicated rendered reference with all
+candidate UUIDs and creation times.
 
-Detection is a read-class operation. Under the ops audit contract in
-`docs/operator-identity-and-audit.md`, a read records one access event before it
-runs and fails closed if that event cannot be written.
-
-The first run answers whether projects beyond FAN carry duplicates. That scope is
-currently unknown; the eight confirmed duplicates are all in FAN.
+Detection is a read-class operation under `docs/operator-identity-and-audit.md`.
+It records an access event before reading and refuses to run if recording fails.
+The first run establishes whether projects beyond FAN contain duplicates; the
+eight confirmed duplicates are all in FAN.
 
 ### Renumber
 
-Renumbering changes a rendered reference that a person may have written down.
-The operation prints the complete old-to-new mapping and writes it into the audit
-ledger before applying anything.
+Renumbering changes references that people may have written down. Print the
+complete old-to-new mapping and record it in the audit ledger before applying
+changes.
 
-Grouping is by rendered reference. Every node in a group except the retained one
-draws a fresh value from the counter, which sits at the high-water mark for that
-scope.
+Group nodes by rendered reference. Every node except the retained one receives
+a fresh counter value above the scope's highest allocated value.
 
-Which node is retained is a policy of this operation, not a rule in the storage
-layer. The enforcement path rejects a duplicate and holds no opinion about which
-node should win. The operation takes a `--keep` flag with values `oldest` and
-`newest`, defaulting to `oldest`. `oldest` orders by UUIDv7, which sorts by
-creation time and needs no additional stored data, and leaves a stale reference
-pointing at the older node, which is the more probable referent of older text.
+The operation selects which node to retain; storage enforcement only rejects
+duplicates. `--keep` accepts `oldest` or `newest` and defaults to `oldest`.
+`oldest` orders by time-sortable UUIDv7 without additional stored data. A stale
+reference continues to identify the older node, the more probable target of
+older text.
 
-The same pass writes the reference key for every node it visits, so one run both
-repairs duplicates and backfills enforcement data for nodes created before the
-template existed.
-
-Renumbering is an FDB mutation. Under the ops audit contract it declares an
-audit specification with `Atomic` set, so its ledger event commits in the same
-transaction as the change and the two cannot disagree.
+Write a reference key for every visited node in the same pass to repair
+duplicates and populate keys for nodes created before templates existed.
+Renumbering declares `Atomic` in its audit specification and commits the audit
+event and FDB mutation in one transaction.
 
 ### No forwarding record
 
 A forwarding record maps one prior reference to one successor node. A duplicated
-reference had two referents, so a forward from it has two candidate targets and
-no rule for choosing between them. Building one would restore the ambiguity this
-design removes.
+reference identifies two nodes without a rule for selecting a successor.
+Forwarding would recreate the ambiguity this design removes.
 
-Forwarding is well defined for a different operation, moving a single node
-between scopes, where the prior reference had one meaning and one successor.
-That operation is out of scope here and is tracked as an optional feature request
-on TACK-365 (`Optional reference forwarding for nodes that move between scopes`,
-low, Todo).
+Moving a single node between scopes differs: its prior reference identifies one
+node and one successor. TACK-365 (`Optional reference forwarding for nodes that
+move between scopes`, low, Todo) tracks that optional feature outside this repair.
 
-Once uniqueness is enforced at write time, a rename caused by a duplicate can
-occur only during this one-time repair. A one-time event does not justify a
-permanent structure in the data model.
-
-The audit ledger entry is the recovery path for a stale reference. A stale
-reference resolves to the node that kept it, which is the older node, and
-therefore the more probable referent of older text.
-
-No internal record addresses a node by its rendered reference, so relationships,
-comments, activity, workflow-state pointers, and audit rows are unaffected by a
-rename.
+After write-time enforcement, duplicate-driven renames occur only during the
+one-time repair and do not require a permanent data structure. The ledger entry
+provides the recovery mapping for a stale reference. Internal records use UUIDs,
+not rendered references; renames do not change relationships, comments, activity,
+workflow-state pointers, or audit rows.
 
 ## Testing
 
-Reproduce through real code paths so the tests prove the defect rather than
-restate it.
+Reproduce defects through production code paths.
 
-**Cross-type reproduction.** Create a project, then an epic, then an issue.
-Both receive sequence 1 and render the same reference. Two ordinary create calls.
+### Reproduce cross-type duplicates
 
-**Same-type reproduction.** Create issues under two separate scopes, then run
-`repair.sequence_scope_ids`, which rewrites `scope_id` and leaves `sequence`
-untouched. A node arrives in a scope whose counter already issued its number.
+Create a project, an epic, and an issue with ordinary create calls. Both work
+items receive sequence 1 and render the same reference.
 
-**Tooling.** Run detect and assert both duplicate groups appear with their
-UUIDs. Run renumber with the execute gate and assert the printed mapping matches
-the ledger entry.
+### Reproduce same-type duplicates
 
-**Post-repair assertions.** Every rendered reference resolves to exactly one
-node. A fresh create in the repaired project receives a value above the previous
-high-water mark. Repeating the cross-type reproduction fails the create with an
-invalid-argument error rather than producing a duplicate.
+Create issues under separate scopes, then run `repair.sequence_scope_ids`.
+It rewrites `scope_id` without changing `sequence`. The destination scope has
+already issued the moved node's number.
 
-**Template-driven assertions.** A NodeType whose template declares
-`property(number)` allocates into `number`, renders from `number`, and resolves
-by `number`, with no code path reading the literal `sequence`. A NodeType whose
-template includes `node_type` permits an epic and an issue at the same numeric
-value and renders them distinguishably.
+### Verify detect and renumber
 
-Unit tests cover template rendering, template parsing, and counter-key derivation
-with no database. Integration tests run through `make test-integration`, which
-brings up single-node FoundationDB and YugabyteDB in containers.
+Assert that detect reports both duplicate groups with their UUIDs. Run renumber
+with the execute gate and compare its printed mapping with the ledger entry.
+
+### Verify repaired references
+
+Assert that each reference resolves to exactly one node and that a fresh create
+in the repaired project receives a value above the prior maximum. Repeating the
+cross-type reproduction must fail with an invalid-argument error instead of
+creating a duplicate.
+
+### Verify template interpretation
+
+A NodeType declaring `property(number)` must allocate, render, and resolve
+`number` without reading literal `sequence`. A template including `node_type`
+must allow an epic and issue with the same number and render distinct references.
+
+Unit tests verify rendering, parsing, and counter-key derivation without a
+database. `make test-integration` runs integration tests with single-node
+FoundationDB and YugabyteDB containers.
 
 ## Rollout
 
-1. Land the template declaration, the reference key family, and the enforcement
-   in the shared write path, with the scan fallback in place. Existing behavior
-   is unchanged for non-duplicate references.
-2. Land detect. Run it against QA and against production read-only to establish
-   the true blast radius across every project.
-3. Land renumber. Validate on QA, which is disposable and recreated to mirror
-   production, per the QA-first requirement in `AGENTS.md`.
-4. Run renumber against production with the execute gate. Record the mapping in
-   the ticket.
-5. Seed the default templates for the built-in work-item types and run renumber
-   again to resolve the cross-type collisions the new default creates.
-6. Remove the scan fallback once detect reports zero duplicates across every org.
+1. Add the template declaration, reference key family, and shared-write
+   enforcement with the scan fallback. Preserve non-duplicate reference behavior.
+2. Add detect and run it read-only against QA and production to establish the
+   affected projects.
+3. Add renumber and validate it on disposable QA recreated to match production,
+   per `AGENTS.md`.
+4. Run renumber against production with the execute gate and record the mapping
+   in the ticket.
+5. Seed templates for built-in work-item types and rerun renumber to resolve the
+   cross-type collisions those templates expose.
+6. Remove the scan fallback after detect reports zero duplicates across all orgs.
 
 ## Work breakdown
 
-One epic with the following tasks.
+Create one epic with these tasks:
 
-1. Reference key template types on `NodeType`, with render, parse, and
-   counter-key derivation. Unit tested, no storage change.
-2. The `node_reference` key family and enforcement inside `writeNodeRecords`,
-   including clearing the prior key on update.
-3. Point-read resolution with the scan fallback routed through `uniqueMatch`.
-4. Replace the literal `"sequence"` in `allocateCreateSequence` and
-   `resolveSequenceNodeID` with the property the template names.
-5. Detect operation, read-class, registered through `ops.Register`.
-6. Audit every project in every org for duplicate references, using detect.
-   Record the results on TACK-342.
-7. Renumber operation, atomic mutation class, with the `--keep` flag.
-8. Seeded default templates for `issue`, `epic`, `cycle`, and `module`.
-9. Integration regression covering both reproductions and the post-repair
-   assertions.
+1. Add reference key template types to `NodeType`, with unit-tested rendering,
+   parsing, and counter-key derivation, without storage changes.
+2. Add the `node_reference` family and enforcement in `writeNodeRecords`,
+   including clearing prior keys on update.
+3. Add point-read resolution with the scan fallback using `uniqueMatch`.
+4. Replace literal `"sequence"` in `allocateCreateSequence` and
+   `resolveSequenceNodeID` with the template-declared property.
+5. Register the read-class detect operation through `ops.Register`.
+6. Audit every project in every org for duplicate references using detect and
+   record results on TACK-342.
+7. Add atomic renumber with `--keep`.
+8. Seed templates for `issue`, `epic`, `cycle`, and `module`.
+9. Add integration regressions for both reproductions and post-repair assertions.
 10. Remove the scan fallback.
 
-TACK-342 is the existing ticket for the defect. Its description records four
-duplicate references; the verified count in FAN is eight.
+TACK-342 records four duplicate references. The verified FAN count is eight.
 
 ## Open questions
 
-None blocking. Forwarding is settled as no forwarding record, for the reason
-given in the repair section.
+The design does not have blocking questions. The repair section explains the
+decision against forwarding records.

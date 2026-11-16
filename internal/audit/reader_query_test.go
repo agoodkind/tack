@@ -49,13 +49,11 @@ func TestBuildAuditQueryFiltersContextCorrelation(t *testing.T) {
 	}
 }
 
-// TestBuildAuditQueryWithoutALimitAsksForEveryRow pins the statement the
-// streaming export runs. A zero limit must not fall back to a page, or the
-// bundle stops short of the ledger; and it must not carry an ORDER BY, because
-// no index serves event_time order under an org-only filter, so ordering an
-// unbounded result makes the database hold every matching row before it returns
-// the first one.
-func TestBuildAuditQueryWithoutALimitAsksForEveryRow(t *testing.T) {
+// TestBuildAuditQueryOmitsLimitAndOrderingForExport checks that a streaming export
+// selects every matching row without LIMIT or ORDER BY. An org-only filter
+// cannot use an index for event_time order. Sorting would require the database
+// to read every matching row before returning the first.
+func TestBuildAuditQueryOmitsLimitAndOrderingForExport(t *testing.T) {
 	filter := QueryFilter{
 		OrgID:     uuid.Must(uuid.NewV7()),
 		Oldest:    time.Unix(10, 0).UTC(),
@@ -71,11 +69,11 @@ func TestBuildAuditQueryWithoutALimitAsksForEveryRow(t *testing.T) {
 	query, args := buildAuditQuery(filter)
 
 	if strings.Contains(query, "LIMIT") {
-		t.Fatalf("a whole-range export carries a LIMIT:\n%s", query)
+		t.Fatalf("a whole-range export includes a LIMIT:\n%s", query)
 	}
 
 	if strings.Contains(query, "ORDER BY") {
-		t.Fatalf("a whole-range export carries an ORDER BY:\n%s", query)
+		t.Fatalf("a whole-range export includes an ORDER BY:\n%s", query)
 	}
 
 	if len(args) != 3 {

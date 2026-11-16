@@ -12,9 +12,8 @@ import (
 	"goodkind.io/tack/internal/config"
 )
 
-// TestDeployVerifyTargetsFollowTheRenderedTag pins the two images a deploy
-// rolls, at the tag the environment pins unless the operator names one, so
-// the check reads the same references the compose file resolves.
+// TestDeployVerifyTargetsFollowTheRenderedTag checks image references for both
+// services with the configured tag and an explicit operator override.
 func TestDeployVerifyTargetsFollowTheRenderedTag(t *testing.T) {
 	cfg := &config.Config{DeployRegistry: "ghcr.io/agoodkind/", DeployImageTag: "a6af885"}
 	got := deployVerifyTargets(cfg, "", []string{appService, auditConsumerService})
@@ -56,7 +55,7 @@ func TestCompareDigestsEqual(t *testing.T) {
 	}
 }
 
-func TestCompareDigestsBareHexEqualsAlgoPrefix(t *testing.T) {
+func TestCompareDigestsAcceptsAlgorithmPrefixAndBareHex(t *testing.T) {
 	hex := "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcd00"
 	err := compareDigests("tack-app-1", "sha256:"+hex, hex)
 	if err != nil {

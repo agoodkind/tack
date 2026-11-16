@@ -2,13 +2,14 @@
 
 > Use `subagent-driven-development` to implement these tasks. Track completion with checkbox syntax.
 
-**Goal:** Every person-callable MCP tool, public API, and operator command produces complete, durable audit evidence with accurate identity, targets, changes and outcomes.
+Every person-callable MCP tool, public API, and operator command must produce
+complete, durable evidence of identity, targets, changes, and outcomes. Extend
+existing operation definitions, transactional outboxes, relay, and consumer.
+Mutations commit evidence with their changes. Reads save durable pending state before reading, then
+finalize one event before returning results.
 
-**Architecture:** Extend the existing operation definitions, transactional outboxes, relay and consumer. Mutations commit evidence with their changes. Reads save pending state and then one final event before releasing results.
-
-**Tech Stack:** Go, FoundationDB, YugabyteDB, Kafka, MCP, the existing container test runner and Tack OpenTofu provider.
-
-**Spec:** Read the [runtime audit design](../specs/2026-10-21-audit-completeness-design.md) with this plan.
+Use Go, FoundationDB, YugabyteDB, Kafka, MCP, the existing container test runner,
+and the Tack OpenTofu provider. Follow the [runtime audit design](../specs/2026-10-21-audit-completeness-design.md).
 
 ## Global constraints
 
@@ -175,7 +176,7 @@ Modify [users](../../../internal/adapters/postgres/user.go), [tokens](../../../i
 
 ## Task 6: Record public reads and rejections
 
-Modify [MCP dispatch](../../../internal/adapters/mcp/server.go), [tool wrapping](../../../internal/adapters/mcp/tools/helpers.go), [authentication](../../../internal/auth/middleware.go) and [HTTP registration](../../../cmd/server/server_runtime.go). Add `internal/audit/read_executor.go` and `internal/adapters/mcp/audit_request.go`.
+Modify [MCP dispatch](../../../internal/adapters/mcp/server.go), [tool wrapping](../../../internal/adapters/mcp/tools/helpers.go), [authentication](../../../internal/auth/middleware.go) and [HTTP registration](../../../internal/servercli/server_runtime.go). Add `internal/audit/read_executor.go` and `internal/adapters/mcp/audit_request.go`.
 
 Define `ExecuteRead[T any](ctx context.Context, store ReadLifecycle, admission ReadAdmission, read func(context.Context) (ReadResult[T], error)) (EncodedRead, error)`. `ReadResult[T]` contains `Value T`, `Targets []Target`, `Count uint64` and `Encode func(io.Writer, T) error`. `EncodedRead` contains `Payload []byte`, `ContentType string` and `Evidence ReadEvidence`. The encoder serializes the actual result once into the existing response buffer while computing its digest. The transport emits those saved payload bytes without serializing the result again; transport envelopes remain outside the declared payload format. Apply the same contract to each publicly emitted stream chunk.
 

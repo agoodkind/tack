@@ -102,11 +102,10 @@ func TestResourceReadRecordsTheRead(t *testing.T) {
 	}
 }
 
-// TestResourceReadCarriesTheReadersSoleOrg is TACK-477. A resource read does
-// not resolve a workspace, and the event used to carry the nil org. A reader
-// with exactly one org gets that org, and a reader with zero or two orgs gets
-// the nil org.
-func TestResourceReadCarriesTheReadersSoleOrg(t *testing.T) {
+// TestResourceReadRecordsOrgForSingleMembership checks org attribution without
+// a workspace scope. The event records the caller's sole org or nil when
+// membership does not identify exactly one org (TACK-477).
+func TestResourceReadRecordsOrgForSingleMembership(t *testing.T) {
 	orgID := uuid.New()
 
 	cases := map[string]struct {

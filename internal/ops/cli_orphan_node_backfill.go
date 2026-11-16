@@ -31,7 +31,8 @@ func orphanNodeBackfillOp(f *cli.Factory) clispec.Operation[noInput] {
 		Group: opsGroup,
 		Short: "Delete the nodes without a hierarchy parent and remove extra child_of edges",
 		Long: "The command scans the nodes of every organization for nodes of a type that lists CanLiveUnder types " +
-			"and has no child_of edge to an existing parent, and for child_of edges that do not target their node's parent_id. " +
+			"and does not have a child_of edge to an existing parent, and for child_of edges " +
+			"that do not target their node's parent_id. " +
 			"A dry run reports the counts, the node IDs, and the edges. " +
 			"With --execute, the command removes each of those edges and deletes each of those nodes with its hierarchy descendants. " +
 			"A second run reports zero orphans and zero extra edges.",

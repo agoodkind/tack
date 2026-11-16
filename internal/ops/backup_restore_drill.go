@@ -1,9 +1,6 @@
-// backup_restore_drill.go runs the recovery drill: it restores each engine's
-// backup into a throwaway container, asserts the restored data is both present
-// and sound, and tears the scratch resources down. It proves the documented
-// recovery procedure works against real backups, rather than that an artifact
-// is merely well-formed. For the audit ledger, sound means its hash chain
-// verifies and not merely that rows came back.
+// Recovery drills restore real backups into scratch containers and verify
+// restored data before removing resources. Ledger verification includes hash
+// chains rather than only checking that rows exist.
 
 package ops
 
@@ -21,32 +18,27 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// restoreDrillCtx bundles per-run state. The unique RunID namespaces every
-// scratch container and scratch directory so a drill never collides with the
-// live stack or a parallel drill, and the tracked names let teardown remove
-// them even on partial failure or interrupt.
+// restoreDrillCtx stores one run's state. Unique IDs isolate scratch resources
+// from the live stack and concurrent drills. Tracked containers permit cleanup
+// after partial failure or interruption.
 type restoreDrillCtx struct {
 	Cfg   *config.Config
 	Cli   *client.Client
 	RunID string
-	// YBPass is the throwaway YSQL password for the scratch yugabyted,
-	// derived per run so no credential literal lives in source. The scratch
-	// container is destroyed at teardown, so it is not a real secret.
+	// YBPass derives a temporary password per scratch run without a literal
+	// credential in source. Teardown destroys the database that accepts it.
 	YBPass string
-	// YBRunKey is the yugabyte export run the operator explicitly asked to
-	// drill (--yb-run-key). Empty means discover the newest complete run; an
-	// explicit key is refused if that run is incomplete.
+	// YBRunKey selects an explicit export and rejects an incomplete run.
+	// Empty values select the newest complete export.
 	YBRunKey string
-	// FDBTargetTime is the moment the FoundationDB leg restores to
-	// (--fdb-target-time). Nil restores the latest restorable point. Presence
-	// carries the operator's choice, so no moment they can name reads as
-	// having named none.
+	// FDBTargetTime preserves explicit targeting, including the zero time.
+	// Nil selects the latest restorable point.
 	FDBTargetTime  *time.Time
 	containerNames []string
-	// scratchImage is the engine image teardown removes the run's scratch
-	// directory with. Empty means no engine wrote into the scratch directory.
+	// scratchImage selects the engine image for deleting its scratch directory.
+	// An empty value indicates that an engine has not written there.
 	scratchImage string
-	// runLock holds this run's scratch directory locked; see claimDrillRun.
+	// runLock locks this run's scratch directory until cleanup finishes.
 	runLock *os.File
 }
 
@@ -54,12 +46,9 @@ func (r *restoreDrillCtx) trackContainer(name string) {
 	r.containerNames = append(r.containerNames, name)
 }
 
-// cleanupRestoreDrill force-removes every scratch container, then the run's
-// scratch directory, on best effort, and releases the run's lock last. The
-// containers go first so no engine is still writing into the directory, and
-// the lock goes last so no sweep removes a directory teardown is removing. It
-// derives a non-cancellable context so teardown still runs after a SIGINT
-// cancels the parent.
+// cleanupRestoreDrill removes containers before directories to stop engine
+// writes, and releases the lock last to exclude concurrent orphan sweeps.
+// A context independent of parent cancellation permits teardown after SIGINT.
 func cleanupRestoreDrill(ctx context.Context, r *restoreDrillCtx) {
 	bg, cancel := context.WithTimeout(context.WithoutCancel(ctx), 90*time.Second)
 	defer cancel()
@@ -72,32 +61,26 @@ func cleanupRestoreDrill(ctx context.Context, r *restoreDrillCtx) {
 	releaseDrillRun(r)
 }
 
-// RestoreDrillOptions carries the operator's per-leg targeting choices. Its
-// zero value runs the plain drill.
+// RestoreDrillOptions configures per-engine targets. Zero values select the
+// latest restorable FoundationDB point and newest complete SQL export.
 type RestoreDrillOptions struct {
-	// YBRunKey pins the yugabyte leg to one export run, which is refused if
-	// incomplete. Empty means the newest complete run.
+	// YBRunKey selects an explicit export, rejecting incomplete runs.
+	// Empty values select the newest complete run.
 	YBRunKey string
-	// FDBTargetTime restores FoundationDB to that moment instead of the latest
-	// restorable point, and is refused when it falls outside the backup's
-	// restorable window. Nil means the latest. It is a pointer so that a
-	// moment carrying no information, such as the zero time, is still an
-	// explicit target and is still checked against the window.
+	// FDBTargetTime selects a moment within a backup's restorable window.
+	// The pointer distinguishes explicit zero time from an absent target.
 	FDBTargetTime *time.Time
 }
 
-// RunBackupRestoreDrill restores FoundationDB (from the continuous backup) and
-// YugabyteDB (from the distributed-snapshot export) into throwaway containers
-// and verifies data in each restored store. The YugabyteDB leg also verifies
-// the restored audit ledger's hash chain. RunBackupRestoreDrill returns an
-// error when any attempted leg fails. Each leg runs even after another leg
-// fails. The final result reports every failing leg. RestoreDrillOptions can
-// pin the YugabyteDB leg to one export run and the FoundationDB leg to one
-// moment. A fully passing drill records a rehearsal marker in the object store.
-// A failed marker write fails the drill without rerunning either restore leg.
-// The marker write uses its own retry policy. `ops backup staleness-check`
-// reads the marker's date. The drill first removes resources left by killed
-// runs.
+// RunBackupRestoreDrill attempts FoundationDB restoration when continuous
+// backup is enabled and always attempts YugabyteDB restoration. It verifies
+// restored data, including the SQL audit hash chain. Each leg runs despite
+// other leg failures; the final error lists every failed leg. Targets can
+// select one SQL export and a FoundationDB moment. The run first removes
+// abandoned resources.
+//
+// Passing legs require a dated rehearsal marker for staleness checks. Marker
+// writes retry independently and can fail the drill without repeating restores.
 func RunBackupRestoreDrill(
 	ctx context.Context,
 	cfg *config.Config,
@@ -194,7 +177,7 @@ func RunBackupRestoreDrill(
 	return nil
 }
 
-// devNull discards writes; used when an exec's stdout is irrelevant.
+// devNull discards irrelevant container stdout.
 type devNull struct{}
 
 func (devNull) Write(p []byte) (int, error) { return len(p), nil }

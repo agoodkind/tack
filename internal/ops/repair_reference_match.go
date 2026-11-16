@@ -142,7 +142,7 @@ func (c referenceMatchContext) matchScopeReference(ctx context.Context, scopeRef
 	if c.scopeID == uuid.Nil {
 		return loggedRepairError(
 			ctx,
-			fmt.Sprintf("scoped reference %q has no repair scope", scopeRef),
+			fmt.Sprintf("scoped reference %q does not have a repair scope", scopeRef),
 			domain.ErrInvalidArgument,
 		)
 	}
@@ -208,7 +208,7 @@ func (c referenceMatchContext) resolveHumanReference(
 	if len(matched) == 0 {
 		return nil, loggedRepairError(
 			ctx,
-			fmt.Sprintf("reference %q matched no %s nodes", ref, nodeTypeKey(c.targetType)),
+			fmt.Sprintf("reference %q did not match any %s nodes", ref, nodeTypeKey(c.targetType)),
 			domain.ErrNotFound,
 		)
 	}

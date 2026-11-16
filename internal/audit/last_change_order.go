@@ -7,10 +7,9 @@ import (
 	"github.com/google/uuid"
 )
 
-// changeCandidates stores the successful changes of one entry that can still
-// be the latest one. A commit version orders rows only within the
-// FoundationDB outbox, so versioned keeps the highest versioned change, and
-// unversioned keeps every change without a commit version.
+// changeCandidates stores possible latest successful changes for one entry.
+// versioned keeps the highest commit version within the FoundationDB outbox.
+// unversioned retains every change without a comparable commit version.
 type changeCandidates struct {
 	versioned   *LastChange
 	unversioned []LastChange
@@ -120,7 +119,7 @@ type readCoverage struct {
 
 // resolveEntry sets the status, change, and evidence of entry from the
 // candidates of the entry and the legacy rows of the node. It returns false
-// when the entry has no evidence and the rows read cover the node's history.
+// when the entry does not have evidence and the read covers the node's history.
 //
 // A truncated read reads rows by event time, and a row that it did not read
 // can have an older event time and a later commit version. After a truncated

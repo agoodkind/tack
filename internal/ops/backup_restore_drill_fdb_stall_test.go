@@ -7,9 +7,8 @@ import (
 	"testing"
 )
 
-// TestAwaitFDBRestoreFailsARestoreThatStopsMoving proves the replacement
-// failure mode: a restore that stops advancing fails, and the failure names
-// how long nothing moved and where the counters got to.
+// TestAwaitFDBRestoreFailsARestoreThatStopsMoving checks that a stall reports
+// the inactivity duration and last counter values.
 func TestAwaitFDBRestoreFailsARestoreThatStopsMoving(t *testing.T) {
 	advanceClockPerRead(t, testClockStep)
 	wedged := fdbStatusLine(7, 900, 4, 28672, 0)
@@ -31,20 +30,18 @@ func TestAwaitFDBRestoreFailsARestoreThatStopsMoving(t *testing.T) {
 		t.Fatal("a restore that stopped making progress must fail the drill")
 	}
 
-	if !strings.Contains(err.Error(), "made no progress for") {
-		t.Fatalf("the failure must say the restore stopped, got: %v", err)
+	if !strings.Contains(err.Error(), "did not make progress for") {
+		t.Fatalf("the failure must report inactivity, got: %v", err)
 	}
 
 	if !strings.Contains(err.Error(), "blocks=7") ||
 		!strings.Contains(err.Error(), "byteswritten=28672") {
-		t.Fatalf("the failure must name where the counters got to, got: %v", err)
+		t.Fatalf("the failure must report the last counter values, got: %v", err)
 	}
 }
 
-// TestAwaitFDBRestoreIgnoresBlocksInProgress proves a field that moves in no
-// fixed direction is not read as progress. BlocksInProgress rises and falls as
-// blocks are dispatched and retired, so a wedged restore whose only moving
-// field is that one must still fail.
+// TestAwaitFDBRestoreIgnoresBlocksInProgress checks that an oscillating
+// BlocksInProgress counter cannot prevent stall detection.
 func TestAwaitFDBRestoreIgnoresBlocksInProgress(t *testing.T) {
 	const polls = 60
 	advanceClockPerRead(t, testClockStep)
@@ -64,20 +61,17 @@ func TestAwaitFDBRestoreIgnoresBlocksInProgress(t *testing.T) {
 		testProbeTimeout,
 	)
 	if err == nil {
-		t.Fatal("a field that rises and falls is not evidence the restore moved")
+		t.Fatal("an oscillating counter must not indicate restore progress")
 	}
 
-	if !strings.Contains(err.Error(), "made no progress for") {
-		t.Fatalf("the failure must say the restore stopped, got: %v", err)
+	if !strings.Contains(err.Error(), "did not make progress for") {
+		t.Fatalf("the failure must report inactivity, got: %v", err)
 	}
 }
 
-// TestAwaitFDBRestoreCountsAFallingApplyVersionLagAsProgress is the defect this
-// case exists for. Applying the backup's mutation log is the phase where no new
-// block lands and no new byte is written, so every rising counter stands still
-// while ApplyVersionLag falls. Reading only rises there killed a healthy large
-// restore for being quiet in its last phase: the run below covers days of
-// wall-clock time with blocks and bytes frozen and must finish cleanly.
+// TestAwaitFDBRestoreCountsAFallingApplyVersionLagAsProgress checks that
+// decreasing lag prevents a stall while block and byte counts remain constant
+// during mutation log application, even across days of simulated time.
 func TestAwaitFDBRestoreCountsAFallingApplyVersionLagAsProgress(t *testing.T) {
 	const polls = 200
 	advanceClockPerRead(t, testClockStep)
@@ -97,7 +91,7 @@ func TestAwaitFDBRestoreCountsAFallingApplyVersionLagAsProgress(t *testing.T) {
 		testProbeTimeout,
 	)
 	if err != nil {
-		t.Fatalf("a restore still applying its mutation log must not read as stalled: %v", err)
+		t.Fatalf("a restore still applying its mutation log must not count as stalled: %v", err)
 	}
 
 	if exitCode != 0 {
@@ -105,15 +99,12 @@ func TestAwaitFDBRestoreCountsAFallingApplyVersionLagAsProgress(t *testing.T) {
 	}
 
 	if !strings.Contains(progress.summary(), "applyversionlag=1") {
-		t.Fatalf("progress must carry how far the lag came down, got %q", progress.summary())
+		t.Fatalf("progress must report the minimum lag, got %q", progress.summary())
 	}
 }
 
-// TestAwaitFDBRestoreIgnoresAnApplyVersionLagThatClimbs proves the falling
-// counter is read in one direction only, which is what stops it ratcheting a
-// wedged restore forward forever. The lag below oscillates and ends higher than
-// it started, and its low-water mark absorbs the first excursion, so nothing
-// after that reads as movement and the drill still fails.
+// TestAwaitFDBRestoreIgnoresAnApplyVersionLagThatClimbs checks that lag
+// oscillation above the initial minimum does not prevent stall detection.
 func TestAwaitFDBRestoreIgnoresAnApplyVersionLagThatClimbs(t *testing.T) {
 	const polls = 60
 	advanceClockPerRead(t, testClockStep)
@@ -133,17 +124,16 @@ func TestAwaitFDBRestoreIgnoresAnApplyVersionLagThatClimbs(t *testing.T) {
 		testProbeTimeout,
 	)
 	if err == nil {
-		t.Fatal("a lag that climbs back up is not evidence the restore moved")
+		t.Fatal("lag above the recorded minimum must not indicate restore progress")
 	}
 
-	if !strings.Contains(err.Error(), "made no progress for") {
-		t.Fatalf("the failure must say the restore stopped, got: %v", err)
+	if !strings.Contains(err.Error(), "did not make progress for") {
+		t.Fatalf("the failure must report inactivity, got: %v", err)
 	}
 }
 
-// TestAwaitFDBRestoreReportsAStatusItCannotRead proves a status the drill can
-// never parse ends as a named stall carrying the read failure, rather than as
-// a wait with no bound at all.
+// TestAwaitFDBRestoreReportsAStatusItCannotRead checks that unreadable status
+// ends in a stall with the last read failure rather than an unbounded wait.
 func TestAwaitFDBRestoreReportsAStatusItCannotRead(t *testing.T) {
 	advanceClockPerRead(t, testClockStep)
 	watch := fdbRestoreWatch{
@@ -161,14 +151,17 @@ func TestAwaitFDBRestoreReportsAStatusItCannotRead(t *testing.T) {
 		testProbeTimeout,
 	)
 	if err == nil {
-		t.Fatal("a status the drill can never read must not wait forever")
+		t.Fatal("unreadable status must not cause an unbounded wait")
 	}
 
-	if !strings.Contains(err.Error(), "no progress counters were ever readable") {
-		t.Fatalf("the failure must say no counter was ever read, got: %v", err)
+	if !strings.Contains(
+		err.Error(),
+		"fdbrestore status never reported readable progress counters",
+	) {
+		t.Fatalf("the failure must report unreadable counters, got: %v", err)
 	}
 
 	if !strings.Contains(err.Error(), "connection refused") {
-		t.Fatalf("the failure must carry the last status read failure, got: %v", err)
+		t.Fatalf("the failure must include the last status read error, got: %v", err)
 	}
 }

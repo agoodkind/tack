@@ -38,7 +38,7 @@ func redactionIdentities() Identities {
 	}
 }
 
-func TestAuditRedactionDryRunPlansAndCallsNothing(t *testing.T) {
+func TestAuditRedactionDryRunLogsPlanWithoutRedacting(t *testing.T) {
 	output := captureLogs(t)
 	generator := &Generator{
 		driver:         NewDriver(nil, true, 245),

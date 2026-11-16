@@ -13,9 +13,9 @@ import (
 )
 
 // PIIRefsForActor returns every audit.pii reference that an event in orgID
-// recorded for actorID. The reader role holds SELECT on audit.events and the
-// redactor role does not, so the org-scoped lookup lives here and the redactor
-// only ever sees the references it is handed.
+// recorded for actorID. The reader role can SELECT from audit.events; the
+// redactor role cannot. The redactor receives references without reading the
+// ledger.
 func (r *Reader) PIIRefsForActor(
 	ctx context.Context,
 	orgID uuid.UUID,

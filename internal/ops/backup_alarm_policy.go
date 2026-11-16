@@ -1,15 +1,10 @@
-// backup_alarm_policy.go decides when the staleness alarm mails: once per
-// mechanism, on the run that first finds it stale, and never again while it
-// stays stale. A mechanism that comes back is logged and forgotten, so its next
-// fault mails again; a reading that could not be taken never counts as coming
-// back, even while this guest's last reading still dates it as fresh. The memory is the state file in backup_alarm_state.go
-// and the copy both checkers share in the object store, reconciled by
-// generation (backup_alarm_memory.go), so a fault the other checker mailed is
-// held here too and a clear it recorded is honored here. A mechanism is
-// recorded only after the transport accepted its mail, so a mail that did not
-// go out is retried on the next run. A deputy checker first asks the ledger whether the
-// primary has run recently (backup_alarm_primary_ledger.go) and, while it has,
-// neither mails nor records the new faults.
+// Staleness alarms send one email per mechanism when it first becomes stale.
+// Recovery clears the recorded fault only after a fresh reading confirms it.
+// Unreadable readings cannot clear a fault, even with a recent historical age.
+// Local and shared state reconcile by generation to recognize other checkers'
+// emails and recoveries. State records new faults only after mail acceptance;
+// failed mail retries on the next run. Deputies defer new faults while the
+// audit ledger confirms recent primary activity.
 
 package ops
 
@@ -23,9 +18,8 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// alarmBackupStalenessTransitions mails the mechanisms that became stale on
-// this run and updates the alarm's memory. It returns nothing: the stale
-// verdict is the run's result whatever the mail or the memory did.
+// alarmBackupStalenessTransitions sends new fault emails and updates alarm
+// state. Mail and state failures do not change the run's staleness verdict.
 func alarmBackupStalenessTransitions(
 	ctx context.Context,
 	cfg *config.Config,
@@ -52,8 +46,7 @@ func alarmBackupStalenessTransitions(
 		case metric.stale():
 			held = append(held, metric.Name)
 		case alarmed && metric.Unknown != backupStalenessAgeKnown:
-			// A reading dated from an earlier one proves nothing new, so it
-			// holds the fault rather than clearing it.
+			// A historical reading cannot establish current recovery.
 			held = append(held, metric.Name)
 		case alarmed:
 			cleared = append(cleared, metric.Name)

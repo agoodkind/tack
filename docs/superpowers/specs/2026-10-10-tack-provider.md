@@ -22,8 +22,7 @@ containers, databases, Kafka, search, object storage, proxies, certificates, and
 schedules.
 
 Configs defines the combined deployment, while Tack supplies application-specific
-resources. Those resources use the existing Proxmox guest API when guest execution
-is needed. This transport does not require a new guest agent or management
+resources. Those resources use the existing Proxmox guest API for guest execution. This transport does not require a new guest agent or management
 service, and a complete plan includes changes from every participating provider.
 
 For example, Docker packages use the existing guest resource. This excerpt omits
@@ -80,7 +79,7 @@ the provider reads that object and identifies the changes needed to satisfy the
 declaration. A command invocation is not a substitute for the object's state.
 
 Refresh must use authenticated interfaces and distinguish an absent object from
-an object that cannot be read because a service or permission check failed. An
+an object it cannot read after a service or permission failure. An
 unreadable object must produce an error without removing its recorded resource.
 Refresh and planning must not initialize or repair stores, rotate credentials,
 restart services, or otherwise change managed deployment state.
@@ -98,8 +97,8 @@ triggers, ignored changes, and [provisioners](https://opentofu.org/docs/language
 do not satisfy planning for the objects they change.
 
 Generated values may remain [unknown before creation](https://opentofu.org/docs/language/expressions/references/#values-not-yet-known),
-but plans must show that uncertainty and reject changes when a required condition
-cannot be checked. Secret values must remain absent from state, plans, logs, and
+but plans must show that uncertainty and reject changes when the provider
+cannot check a required condition. Secret values must remain absent from state, plans, logs, and
 diagnostics; plans explain credential updates through references and rotation
 versions.
 
@@ -159,6 +158,6 @@ new resources.
 | Interrupted apply | The next apply recognizes completed work and finishes pending work without repeating destructive initialization. |
 
 Acceptance must also verify engine compatibility and Tack's audit requirements.
-Planning must change no deployed state, and a completed apply must produce a
-subsequent plan with no changes. A second apply must perform no extra work when
-the declaration already matches the system.
+Planning must not change deployed state. After a completed apply, require the
+next plan to report zero changes and a second apply to avoid extra work when
+the declaration matches the system.

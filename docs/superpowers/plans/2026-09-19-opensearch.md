@@ -105,7 +105,7 @@ Complete the remaining deployment and live verification work in release Phase A.
 
 Each higher slice calls interfaces or production paths created by the slice below it. Each branch must pass `make build` at its stack position. Keep every test in the branch that adds the behavior.
 
-Create `[TACK-540] Provision one initial OpenSearch guest per environment` as one independent Configs pull request after the Tack container contract is committed. A branch in another repository cannot join the Tack Graphite stack.
+Commit the Tack container contract before creating the independent Configs pull request `[TACK-540] Provision one initial OpenSearch guest per environment`. A branch in another repository cannot join the Tack Graphite stack.
 
 Before creating the stack, save dirty work under `refs/backup/`, fetch `origin`, identify the worktree that owns `main`, and run Graphite MCP `state --no-interactive` with the absolute Tack worktree path. Do not move `main` from another worktree. Confirm `commit.gpgSign=true` and `rebase.gpgSign=true` before Graphite creates or rewrites commits.
 
@@ -119,7 +119,7 @@ Sol validates the stack tip with the independent Configs pull request. Apply eac
 
 | Slice | Production entry point | Durable output |
 | --- | --- | --- |
-| Removal | MCP registration and normal graph startup | Exact unavailable response with no Meilisearch dependency |
+| Removal | MCP registration and normal graph startup | Exact unavailable response without a Meilisearch dependency |
 | Native control | Registered `ops search provision` and `ops search verify` | Pinned client, model, mapping, alias, and topology checks |
 | Metadata | Property-definition writes and registered expiring backfill | Complete explicit projection declarations |
 | Indexing | Node mutations and runtime worker loops | Bounded page documents and resumable work in FoundationDB |

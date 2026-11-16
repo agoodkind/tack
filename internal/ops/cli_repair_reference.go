@@ -15,10 +15,8 @@ import (
 	"goodkind.io/tack/internal/clock"
 )
 
-// repairRecordTimeout bounds the audit write that runs after the repair. The
-// write is mandatory and detached from the caller's cancellation, so it needs
-// its own deadline: an interrupted command must still end rather than hang on
-// an unreachable ledger.
+// repairRecordTimeout limits mandatory audit writes after a repair. Recording
+// ignores command cancellation but must end if the ledger remains unavailable.
 const repairRecordTimeout = 30 * time.Second
 
 type repairReferenceUniquenessInput struct {
@@ -27,19 +25,17 @@ type repairReferenceUniquenessInput struct {
 	FailAfterRenames int
 }
 
-// repairReferenceRenameResult is one planned or applied reference change. An
-// operator reads these before executing, because a reference is something a
-// person may have written down.
+// repairReferenceRenameResult reports a planned or applied reference change.
+// Operators must review the mapping before changing references people may use.
 type repairReferenceRenameResult struct {
 	NodeID string `json:"node_id"`
 	From   string `json:"from"`
 	To     string `json:"to"`
 }
 
-// repairReferenceUniquenessResult reports what a run changed, or what a dry
-// run would change. Every count is a change: a counter already at its scope's
-// highest number and a key its node already holds are re-asserted but not
-// counted, so a run over repaired data reports zeros and records nothing.
+// repairReferenceUniquenessResult counts actual or planned changes, excluding
+// counters already at their maximum and existing claims for the same node.
+// Reasserting those values does not require a mutation event.
 type repairReferenceUniquenessResult struct {
 	clispec.ResultMarker
 	Command        string                        `json:"command"`
@@ -60,9 +56,9 @@ func repairReferenceUniquenessOp(f *cli.Factory) clispec.Operation[repairReferen
 		Aliases:  nil,
 		Hidden:   false,
 		Short:    "Renumber duplicated references, seed counters, and backfill the uniqueness index",
-		Long: "Prints every planned rename and changes nothing until --execute is " +
-			"passed. Renumbering changes a reference a person may have written " +
-			"down, so read the printed mapping first.",
+		Long: "Print every planned rename without changing state unless --execute is present. " +
+			"Renumbering changes references people may have written down. " +
+			"Review the printed mapping before execution.",
 		Examples: nil,
 		Args:     nil,
 		Params: []clispec.Param[repairReferenceUniquenessInput]{
@@ -75,9 +71,8 @@ func repairReferenceUniquenessOp(f *cli.Factory) clispec.Operation[repairReferen
 			),
 			clispec.IntParam(
 				"fail-after-renames",
-				"testbed only: stop the run after this many renames to prove a partway "+
-					"failure still records what it applied; refused unless "+
-					"TACK_DATAGEN_ALLOW_TARGET is qa or local",
+				"testbed only: stop after this many renames to test audit recording of partial repairs; "+
+					"TACK_DATAGEN_ALLOW_TARGET must be qa or local",
 				0,
 				func(input *repairReferenceUniquenessInput, value int) { input.FailAfterRenames = value },
 			),
@@ -89,10 +84,8 @@ func repairReferenceUniquenessOp(f *cli.Factory) clispec.Operation[repairReferen
 				FailAfterRenames: 0,
 			}
 		},
-		// The global --execute is the only action gate. Declaring a second flag
-		// of that name here would take the name over, leave the audit
-		// choke-point reading false, and make the command unable to apply
-		// anything (TACK-449).
+		// The audit mechanism reads the global --execute flag. A local flag
+		// would override it and prevent execution (TACK-449).
 		DryRun: func(
 			ctx context.Context,
 			input repairReferenceUniquenessInput,
@@ -195,11 +188,8 @@ func runRepairReferenceUniquenessCommand(
 	return nil
 }
 
-// checkRepairFaultAllowed refuses the fault flag anywhere but a testbed. The
-// flag exists to leave a repair half applied on purpose, which is a thing to
-// do to a disposable environment and never to production, so it reuses the
-// same marker the QA data generator gates its writes on: an environment that
-// does not opt in cannot be made to fail this way.
+// checkRepairFaultAllowed permits deliberate partial repairs only on disposable
+// QA or local targets. It uses the QA generator's write-approval marker.
 func checkRepairFaultAllowed(
 	ctx context.Context,
 	factory *cli.Factory,
@@ -232,28 +222,14 @@ func checkRepairFaultAllowed(
 	return err
 }
 
-// repairRecordOutcome records what the run applied and returns the error the
-// operator has to act on, or nil when the run succeeded and was recorded.
+// repairRecordOutcome records applied changes even after execution fails
+// (TACK-452). Event identities derive from the changes, and the outbox inserts
+// only absent events. Repeated recording does not create duplicate rows.
 //
-// The recording happens whether or not the run failed, because a run that
-// failed partway has already written its renames, counter seeds, and key
-// claims to FoundationDB; returning the error without recording leaves those
-// mutations with no ledger row naming them, which is the 2026-08-07 hole in
-// miniature (TACK-452). Recording twice is safe: event identities are derived
-// from the facts and the outbox writes only if absent, so a later successful
-// rerun re-records the same work rather than doubling it.
-//
-// When both the run and the recording fail, both errors are returned joined.
-// The run failure is what an operator acts on, so it must not be replaced; the
-// recording failure must not vanish either, because it means applied changes
-// are still unrecorded and a rerun cannot rediscover them. Every applied
-// change is also logged by identity, so a ledger that was unreachable leaves
-// the operator something to reconcile from rather than a count.
-//
-// The recording runs on a context detached from cancellation. A run that
-// failed because the command was interrupted or timed out would otherwise hand
-// the same dead context to the audit write, guaranteeing the record fails
-// exactly when it matters most.
+// A combined execution and recording failure returns both errors. Recording
+// failures also log every applied identity for reconciliation; a rerun cannot
+// rediscover renamed nodes. Recording uses a context independent of command
+// cancellation to preserve evidence after interruptions and timeouts.
 func repairRecordOutcome(
 	ctx context.Context,
 	report RepairReferenceReport,
@@ -294,18 +270,14 @@ func repairRecordOutcome(
 	return wrapped
 }
 
-// unrecordedBatchSize is how many identities one fallback log line carries.
-// Every identity is logged; the batching bounds the size of each line rather
-// than the number of identities, because a renamed node cannot be rediscovered
-// by a rerun and the command returns before writing its own report, so a
-// dropped identity is gone. One line per item was the other failure: a
-// production-sized repair during an outbox outage is a log storm that outlives
-// the command's own deadline.
+// unrecordedBatchSize bounds identities per fallback log line, not the total.
+// Log every identity because a rerun cannot recover renamed nodes and a
+// recording failure prevents writing the command report. Batches avoid the
+// cost of a separate log line for every change during a large repair.
 const unrecordedBatchSize = 50
 
-// logUnrecordedRepair names every change that is applied and unrecorded. A
-// count cannot be reconciled against the store later; an identity can, which is
-// why the identities are logged at all rather than the totals alone.
+// logUnrecordedRepair logs every applied, unrecorded change by identity.
+// Reconciliation requires identities rather than counts.
 func logUnrecordedRepair(ctx context.Context, report RepairReferenceReport, recordErr error) {
 	slog.ErrorContext(
 		ctx,
@@ -339,9 +311,8 @@ func logUnrecordedRepair(ctx context.Context, report RepairReferenceReport, reco
 	logUnrecordedClass(ctx, "reference keys", keys, recordErr)
 }
 
-// logUnrecordedClass writes every identity in a class across bounded batches,
-// each line naming its position so a reader can tell a truncated log from a
-// complete one.
+// logUnrecordedClass logs every identity in bounded batches. Each line includes
+// its batch position and count to permit detecting truncated output.
 func logUnrecordedClass(ctx context.Context, class string, identities []string, recordErr error) {
 	total := len(identities)
 	if total == 0 {
@@ -365,8 +336,8 @@ func logUnrecordedClass(ctx context.Context, class string, identities []string, 
 	}
 }
 
-// recordRepairReferenceRun puts one ledger row behind every reference the run
-// changed, every counter it seeded, and every key it claimed.
+// recordRepairReferenceRun records each reference change, counter seed, and
+// key claim.
 func recordRepairReferenceRun(
 	ctx context.Context,
 	factory *cli.Factory,

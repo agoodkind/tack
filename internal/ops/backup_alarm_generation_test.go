@@ -13,8 +13,8 @@ import (
 	"goodkind.io/tack/internal/config"
 )
 
-// readBackupAlarmStateFile reads a guest's whole state file, generation
-// included. found is false when no file exists.
+// readBackupAlarmStateFile reads local state, including its generation, or
+// returns found=false when the file does not exist.
 func readBackupAlarmStateFile(t *testing.T, cfg *config.Config) (state backupAlarmState, found bool) {
 	t.Helper()
 	body, err := os.ReadFile(backupAlarmStatePath(cfg))
@@ -30,8 +30,8 @@ func readBackupAlarmStateFile(t *testing.T, cfg *config.Config) (state backupAla
 	return state, true
 }
 
-// readSharedBackupAlarmMemory reads the whole shared memory object from
-// store, generation included. found is false when absent.
+// readSharedBackupAlarmMemory reads shared state, including its generation,
+// or returns found=false when the object does not exist.
 func readSharedBackupAlarmMemory(t *testing.T, store *backupTestStore) (
 	state backupAlarmState,
 	found bool,
@@ -47,8 +47,8 @@ func readSharedBackupAlarmMemory(t *testing.T, store *backupTestStore) (
 	return state, true
 }
 
-// rehearsalFaultObjects is a store where only the restore rehearsal is at
-// fault: a fresh export run and a fresh replication marker, no rehearsal.
+// rehearsalFaultObjects provides fresh export and replication records without
+// a successful rehearsal marker.
 func rehearsalFaultObjects(t *testing.T, now time.Time) map[string][]byte {
 	t.Helper()
 	objects := ybExportRunObjects(
@@ -70,11 +70,9 @@ func rehearsalFaultObjects(t *testing.T, now time.Time) map[string][]byte {
 	return objects
 }
 
-// TestBackupStalenessAlarmAdoptsAClearTheOtherCheckerRecorded is the case a
-// union cannot carry: the owner mails the rehearsal fault, only the deputy
-// sees the drill pass and removes the fault from the store, and the owner's
-// file still holds it when the drill fails again. The store's generation is
-// past the file's, so the owner adopts the store and mails the new fault.
+// TestBackupStalenessAlarmAdoptsAClearTheOtherCheckerRecorded checks that a
+// newer shared generation replaces a stale local fault before another failure.
+// Union alone would incorrectly suppress the second fault's email.
 func TestBackupStalenessAlarmAdoptsAClearTheOtherCheckerRecorded(t *testing.T) {
 	now := time.Date(2026, 9, 6, 1, 25, 0, 0, time.UTC)
 	fixBackupStalenessClock(t, now)
@@ -87,11 +85,11 @@ func TestBackupStalenessAlarmAdoptsAClearTheOtherCheckerRecorded(t *testing.T) {
 
 	runStaleBackupStalenessCheck(t, owner)
 	if len(captured.messages) != 1 {
-		t.Fatalf("the first fault must mail once, sent %d", len(captured.messages))
+		t.Fatalf("the first fault must email once, sent %d", len(captured.messages))
 	}
 	ownerFile, _ := readBackupAlarmStateFile(t, owner)
 	if ownerFile.Generation != 1 || len(ownerFile.Alarmed) != 1 {
-		t.Fatalf("the owner's file must sync with the store at generation 1, got %+v", ownerFile)
+		t.Fatalf("local owner state must match shared generation 1, got %+v", ownerFile)
 	}
 
 	store.put(
@@ -101,7 +99,7 @@ func TestBackupStalenessAlarmAdoptsAClearTheOtherCheckerRecorded(t *testing.T) {
 	var out bytes.Buffer
 	if err := RunBackupStalenessCheck(context.Background(), deputy, &out); err != nil {
 		t.Fatalf(
-			"every mechanism is fresh, so the deputy's check must pass: %v\n%s",
+			"the deputy's check must pass with every mechanism fresh: %v\n%s",
 			err,
 			out.String(),
 		)
@@ -109,7 +107,7 @@ func TestBackupStalenessAlarmAdoptsAClearTheOtherCheckerRecorded(t *testing.T) {
 	shared, _ := readSharedBackupAlarmMemory(t, store)
 	if shared.Generation != 2 || len(shared.Alarmed) != 0 {
 		t.Fatalf(
-			"the deputy's clear must advance the store to generation 2 with nothing alarmed, got %+v",
+			"deputy recovery must produce shared generation 2 with an empty fault map, got %+v",
 			shared,
 		)
 	}
@@ -118,30 +116,28 @@ func TestBackupStalenessAlarmAdoptsAClearTheOtherCheckerRecorded(t *testing.T) {
 	logs := runStaleDeputyCheck(t, owner)
 	if len(captured.messages) != 2 {
 		t.Fatalf(
-			"the owner must adopt the clear from the store and mail the second fault, sent %d in total",
+			"the owner must adopt shared recovery and email the second fault, sent %d total",
 			len(captured.messages),
 		)
 	}
 	if !strings.Contains(logs, "msg=backup.staleness.alarm_memory_adopted") ||
 		!strings.Contains(logs, "generation=2 local_generation=1") {
-		t.Fatalf("the owner must log that it adopted the newer store copy:\n%s", logs)
+		t.Fatalf("the owner must log adoption of newer shared state:\n%s", logs)
 	}
 	shared, _ = readSharedBackupAlarmMemory(t, store)
 	ownerFile, _ = readBackupAlarmStateFile(t, owner)
 	if shared.Generation != 3 || ownerFile.Generation != 3 || len(shared.Alarmed) != 1 {
 		t.Fatalf(
-			"the second mail must land in the store at generation 3 and sync the file, store %+v file %+v",
+			"the second email must update shared and local state to generation 3, shared %+v local %+v",
 			shared,
 			ownerFile,
 		)
 	}
 }
 
-// TestBackupStalenessAlarmHoldsFromTheCacheWhenTheStoreTurnsUnreadable proves
-// a held fault is cached: the owner mails, the deputy holds the fault it read
-// from the store, and when the deputy's next read fails the fault is still in
-// its own file, so it holds rather than mailing the fault again.
-func TestBackupStalenessAlarmHoldsFromTheCacheWhenTheStoreTurnsUnreadable(t *testing.T) {
+// TestBackupAlarmCacheSuppressesDuplicatesDuringSharedOutage checks local
+// caching of shared fault state before a subsequent shared read failure.
+func TestBackupAlarmCacheSuppressesDuplicatesDuringSharedOutage(t *testing.T) {
 	fixBackupStalenessClock(t, time.Date(2026, 9, 6, 1, 25, 0, 0, time.UTC))
 	captured := captureBackupAlarmSends(t, nil)
 	store := newBackupTestStore(t, nil)
@@ -152,14 +148,14 @@ func TestBackupStalenessAlarmHoldsFromTheCacheWhenTheStoreTurnsUnreadable(t *tes
 	runStaleDeputyCheck(t, deputy)
 	if len(captured.messages) != 1 {
 		t.Fatalf(
-			"the owner mails once and the deputy holds, sent %d in total",
+			"shared state must suppress the deputy's duplicate email, sent %d total",
 			len(captured.messages),
 		)
 	}
 	cached, found := readBackupAlarmStateFile(t, deputy)
 	if !found || len(cached.Alarmed) != 3 || cached.Generation != 1 {
 		t.Fatalf(
-			"the deputy must cache the held claims at the store's generation, found = %v state = %+v",
+			"the deputy must cache shared faults at the shared generation, found = %v state = %+v",
 			found,
 			cached,
 		)
@@ -169,22 +165,19 @@ func TestBackupStalenessAlarmHoldsFromTheCacheWhenTheStoreTurnsUnreadable(t *tes
 	logs := runStaleDeputyCheck(t, deputy)
 	if len(captured.messages) != 1 {
 		t.Fatalf(
-			"a deputy that cached the claims must hold them while the store is unreadable, sent %d in total",
+			"cached faults must suppress email during a shared read failure, sent %d total",
 			len(captured.messages),
 		)
 	}
 	if !strings.Contains(logs, "msg=backup.staleness.alarm_memory_unreadable") ||
 		!strings.Contains(logs, "msg=backup.staleness.alarm_held") {
-		t.Fatalf("the unreadable store and the held fault must both be logged:\n%s", logs)
+		t.Fatalf("logs must report unreadable shared state and alarm suppression:\n%s", logs)
 	}
 }
 
-// TestBackupStalenessAlarmWritesTheStoreOnTheRunAfterAFailedPut covers a
-// store that serves reads but refuses writes, which the engine does for the
-// identity it lets only read: the mail is recorded in the file at the store's
-// old generation, and the next run, signing as the writer again and still
-// without the fault, unions the file back in, writes the store, and mails
-// nothing.
+// TestBackupStalenessAlarmWritesTheStoreOnTheRunAfterAFailedPut checks local
+// recording at the old shared generation after a refused write. Restoring writer
+// access must merge and upload that record without repeating the email.
 func TestBackupStalenessAlarmWritesTheStoreOnTheRunAfterAFailedPut(t *testing.T) {
 	fixBackupStalenessClock(t, time.Date(2026, 9, 6, 1, 25, 0, 0, time.UTC))
 	captured := captureBackupAlarmSends(t, nil)
@@ -201,21 +194,21 @@ func TestBackupStalenessAlarmWritesTheStoreOnTheRunAfterAFailedPut(t *testing.T)
 	logs := runStaleDeputyCheck(t, cfg)
 	if len(captured.messages) != 1 {
 		t.Fatalf(
-			"the fault must mail once whatever the store does with the record, sent %d",
+			"refused state writes must not prevent the first fault email, sent %d",
 			len(captured.messages),
 		)
 	}
 	if !strings.Contains(logs, "level=ERROR msg=backup.staleness.alarm_memory_write_failed") ||
 		!strings.Contains(logs, "AccessDenied") {
-		t.Fatalf("the refused put must be logged at error with its cause:\n%s", logs)
+		t.Fatalf("the error log must include the refused write and its cause:\n%s", logs)
 	}
 	if _, found := readSharedBackupAlarmMemory(t, store); found {
-		t.Fatal("a refused put must leave no memory object in the store")
+		t.Fatal("a refused write must not create a shared state object")
 	}
 	file, found := readBackupAlarmStateFile(t, cfg)
 	if !found || len(file.Alarmed) != 3 || file.Generation != 0 {
 		t.Fatalf(
-			"the file must record the mail at the store's old generation, found = %v state = %+v",
+			"local state must record email at the previous shared generation, found = %v state = %+v",
 			found,
 			file,
 		)
@@ -225,19 +218,19 @@ func TestBackupStalenessAlarmWritesTheStoreOnTheRunAfterAFailedPut(t *testing.T)
 	runStaleDeputyCheck(t, cfg)
 	if len(captured.messages) != 1 {
 		t.Fatalf(
-			"the next run must hold the fault from the file, sent %d in total",
+			"local state must suppress duplicate email on retry, sent %d total",
 			len(captured.messages),
 		)
 	}
 	shared, found := readSharedBackupAlarmMemory(t, store)
 	if !found || len(shared.Alarmed) != 3 || shared.Generation != 1 {
 		t.Fatalf(
-			"the next run must write the unioned file into the store at generation 1, found = %v state = %+v",
+			"retry must upload merged state at generation 1, found = %v state = %+v",
 			found,
 			shared,
 		)
 	}
 	if file, _ := readBackupAlarmStateFile(t, cfg); file.Generation != 1 {
-		t.Fatalf("the file must sync with the store it just wrote, got %+v", file)
+		t.Fatalf("local state must match the successful shared write, got %+v", file)
 	}
 }

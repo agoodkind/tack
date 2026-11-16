@@ -73,16 +73,11 @@ func (o *PoolOutbox) WriteOutbox(ctx context.Context, event Event) error {
 	return nil
 }
 
-// WriteOutboxIfAbsent writes event unless an event with its identity already
-// exists. It returns true when it inserted a row.
-//
-// The insert carries no ON CONFLICT clause on purpose. Postgres resolves a
-// conflict target by reading the conflicting row, so that clause needs SELECT
-// on the table, and an operator command holds INSERT and nothing else exactly
-// so it cannot read pending events. The primary key reports the duplicate
-// through SQLSTATE 23505 instead, which needs no read: reconstruction stayed
-// idempotent while the command kept the narrowest grant it can run with
-// (TACK-450).
+// WriteOutboxIfAbsent inserts event unless its identity already exists and
+// reports whether it inserted a row. It omits ON CONFLICT because resolving
+// a conflict target requires SELECT. Operator commands have only INSERT and
+// must not read pending events. A duplicate-key error (SQLSTATE 23505) provides
+// idempotence without that read privilege (TACK-450).
 func (o *PoolOutbox) WriteOutboxIfAbsent(ctx context.Context, event Event) (bool, error) {
 	eventJSON, err := marshalOutboxEvent(ctx, event)
 	if err != nil {
@@ -121,8 +116,8 @@ func (o *PoolOutbox) WriteOutboxIfAbsent(ctx context.Context, event Event) (bool
 	return true, nil
 }
 
-// isOutboxDuplicate reports whether err is the primary key rejecting an event
-// identity the outbox already holds.
+// isOutboxDuplicate reports whether the primary key rejected an existing
+// event ID.
 func isOutboxDuplicate(err error) bool {
 	var postgresError *pgconn.PgError
 	return errors.As(err, &postgresError) && postgresError.Code == uniqueViolationSQLState
@@ -157,10 +152,9 @@ func marshalOutboxEvent(ctx context.Context, event Event) ([]byte, error) {
 	return eventJSON, nil
 }
 
-// ReadBatch reads up to limit events in creation order. The event id breaks
-// ties: now() is stable within a transaction, so two rows can share a
-// creation time, and without the tie-break the drain order would vary between
-// runs over the same data.
+// ReadBatch reads up to limit events by creation time, then event ID. The
+// timestamp from now() stays fixed within a transaction. Event IDs order rows
+// with equal timestamps consistently across reads.
 func (o *PoolOutbox) ReadBatch(ctx context.Context, limit int) ([]OutboxRow, error) {
 	var batch []OutboxRow
 	err := pgx.BeginTxFunc(

@@ -1,22 +1,8 @@
-// Package ops is the registry for one-off and scheduled maintenance
-// operations that run against a live Tack server. Every op shares the same
-// environment (config, postgres pool, FDB stores) so a new operation is just
-// a function plus an init() registration.
-//
-// Two callers exist today.
-//
-// First, the cmd/server ops subcommand. It accepts an op name on the command
-// line, looks the op up in the registry, opens the shared env, runs the op,
-// and closes everything cleanly. This is the path used for ad-hoc backfills
-// and reindexes from the deploy host.
-//
-// Second, future schedulers. A cron job inside the app container can pick an
-// op by name and dispatch through the same Run path so periodic maintenance
-// stays out of the request hot path.
-//
-// Naming. Op names are lowercase, dot-separated (e.g. reindex,
-// backfill.default_children) so they can be consistently logged and
-// discovered via ops list.
+// Package ops registers and runs maintenance operations against Tack stores.
+// The CLI selects operations by lowercase, dot-separated names such as
+// reindex and backfill.default_children. Run initializes shared
+// configuration, a Postgres pool, and FDB stores before execution, then
+// closes the environment.
 package ops
 
 import (
@@ -36,8 +22,8 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// Operation describes a single maintenance op. Run is invoked with a fully
-// initialised Env; the framework owns lifecycle, the op owns logic.
+// Operation defines a maintenance operation. The framework initializes Env
+// before calling Run and closes it afterward.
 type Operation struct {
 	Name        string
 	Lifetime    clispec.Lifetime
@@ -49,10 +35,8 @@ type Operation struct {
 	DryRun func(ctx context.Context, env *Env) error `exhaustruct:"optional"`
 }
 
-// Env is the shared dependency bundle every op receives. Stores and Pool are
-// opened by NewEnv and closed by Env.Close. Add more fields here when a new
-// op needs them; the entry-point pays the cost of openers it does not need
-// to keep all ops uniform.
+// Env provides shared dependencies for an operation. NewEnv opens Stores and
+// Pool; Env.Close releases the pool after execution.
 type Env struct {
 	Cfg    *config.Config
 	Pool   *pgxpool.Pool
@@ -60,7 +44,7 @@ type Env struct {
 	Log    *slog.Logger
 }
 
-// Close releases the pool. FDB has no per-process close in the bindings.
+// Close releases the pool. The FDB bindings do not provide a per-process close.
 func (e *Env) Close() {
 	if e == nil || e.Pool == nil {
 		return
@@ -97,8 +81,7 @@ func NewEnv(ctx context.Context, cfg *config.Config) (*Env, error) {
 
 var registry = map[string]Operation{}
 
-// Register installs op into the registry. Panics on duplicate names so a
-// double-registration is caught at init time, not at first dispatch.
+// Register installs op and panics on duplicate names during initialization.
 func Register(op Operation) {
 	if op.Name == "" {
 		panic("ops.Register: name required")
@@ -154,7 +137,7 @@ func RunDryRun(ctx context.Context, cfg *config.Config, name string) error {
 	}
 
 	if op.DryRun == nil {
-		return fmt.Errorf("op %s declares no dry run", name)
+		return dryRunUndeclaredError{Operation: name}
 	}
 
 	return runOperation(ctx, cfg, op, op.DryRun)
@@ -196,4 +179,12 @@ func runOperation(
 	env.Log.InfoContext(ctx, "ops.completed", slog.String("op", op.Name))
 
 	return nil
+}
+
+type dryRunUndeclaredError struct {
+	Operation string
+}
+
+func (failure dryRunUndeclaredError) Error() string {
+	return fmt.Sprintf("op %s does not declare a dry run", failure.Operation)
 }

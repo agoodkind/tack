@@ -13,11 +13,9 @@ import (
 	"goodkind.io/tack/internal/config"
 )
 
-// TestBuildAuditRecorderRefusesUnreachableBrokers is TACK-439's core case: a
-// server whose ledger backend is unreachable used to start anyway and record
-// nothing, and a caller could not tell. The producer connects lazily, so the
-// refusal has to come from a real reachability check rather than from
-// construction.
+// TestBuildAuditRecorderRefusesUnreachableBrokers checks that startup rejects
+// unavailable Kafka brokers after a real readiness check. Client construction
+// alone does not connect to a broker (TACK-439).
 func TestBuildAuditRecorderRefusesUnreachableBrokers(t *testing.T) {
 	t.Parallel()
 	cfg := &config.Config{
@@ -29,11 +27,11 @@ func TestBuildAuditRecorderRefusesUnreachableBrokers(t *testing.T) {
 
 	recorder, err := buildAuditRecorder(context.Background(), cfg)
 	if err == nil {
-		t.Fatal("a server that cannot reach its brokers must refuse to start")
+		t.Fatal("startup must reject brokers that cannot accept connections")
 	}
 
 	if recorder != nil {
-		t.Fatalf("recorder = %T, want none: a failed backend must never yield a sink", recorder)
+		t.Fatalf("recorder = %T, want nil after backend setup failure", recorder)
 	}
 
 	if !strings.Contains(err.Error(), "refusing to serve unrecorded") {
@@ -41,8 +39,8 @@ func TestBuildAuditRecorderRefusesUnreachableBrokers(t *testing.T) {
 	}
 }
 
-// TestBuildAuditRecorderRefusesUnreachableWriter covers the same failure on
-// the Yugabyte path, which is what a deployment without Kafka runs.
+// TestBuildAuditRecorderRefusesUnreachableWriter checks startup rejection
+// when the synchronous Yugabyte writer cannot connect.
 func TestBuildAuditRecorderRefusesUnreachableWriter(t *testing.T) {
 	t.Parallel()
 	cfg := &config.Config{
@@ -51,27 +49,26 @@ func TestBuildAuditRecorderRefusesUnreachableWriter(t *testing.T) {
 
 	recorder, err := buildAuditRecorder(context.Background(), cfg)
 	if err == nil {
-		t.Fatal("an unreachable audit writer must refuse to start")
+		t.Fatal("startup must reject an unavailable audit writer")
 	}
 
 	if recorder != nil {
-		t.Fatalf("recorder = %T, want none", recorder)
+		t.Fatalf("recorder = %T, want nil", recorder)
 	}
 }
 
-// TestBuildAuditRecorderRefusesUnconfigured pins that an absent backend is a
-// refusal rather than a warning. The previous behavior logged one line at
-// startup and served every request unrecorded afterwards.
+// TestBuildAuditRecorderRefusesUnconfigured checks that startup rejects
+// missing audit configuration instead of serving unaudited requests.
 func TestBuildAuditRecorderRefusesUnconfigured(t *testing.T) {
 	t.Parallel()
 
 	recorder, err := buildAuditRecorder(context.Background(), &config.Config{})
 	if err == nil {
-		t.Fatal("no configured backend must refuse to start")
+		t.Fatal("startup must reject missing audit backend configuration")
 	}
 
 	if recorder != nil {
-		t.Fatalf("recorder = %T, want none", recorder)
+		t.Fatalf("recorder = %T, want nil", recorder)
 	}
 
 	if !strings.Contains(err.Error(), "AUDIT_ALLOW_UNRECORDED") {
@@ -79,9 +76,8 @@ func TestBuildAuditRecorderRefusesUnconfigured(t *testing.T) {
 	}
 }
 
-// TestBuildAuditRecorderAllowsAcknowledgedUnrecorded pins the one path to a
-// discarding recorder: the operator declaring it. Without this the change
-// would make a deliberately unaudited local environment unstartable.
+// TestBuildAuditRecorderAllowsAcknowledgedUnrecorded checks that an explicit
+// operator setting permits a deployment without audit recording.
 func TestBuildAuditRecorderAllowsAcknowledgedUnrecorded(t *testing.T) {
 	t.Parallel()
 
@@ -98,10 +94,8 @@ func TestBuildAuditRecorderAllowsAcknowledgedUnrecorded(t *testing.T) {
 	}
 }
 
-// TestUnwiredRecorderRefusesInsteadOfDiscarding pins the second half of the
-// defect: both request boundaries defaulted to a recorder that dropped events
-// and returned success, so a missed installation was indistinguishable from a
-// working ledger.
+// TestUnwiredRecorderRefusesInsteadOfDiscarding checks that a boundary without
+// an installed recorder returns an error instead of discarding evidence.
 func TestUnwiredRecorderRefusesInsteadOfDiscarding(t *testing.T) {
 	t.Parallel()
 
@@ -111,16 +105,12 @@ func TestUnwiredRecorderRefusesInsteadOfDiscarding(t *testing.T) {
 	}
 }
 
-// TestBuildKafkaRecorderWaitsForASlowBroker pins that the refusal does not
-// punish a cold start. The broker here answers only after the first attempt
-// would have failed, which is what compose does when it brings Kafka up
-// alongside the app; refusing on the first attempt would crash-loop a healthy
-// deployment.
+// TestBuildKafkaRecorderWaitsForASlowBroker checks startup retries while
+// a broker starts alongside the app.
 func TestBuildKafkaRecorderWaitsForASlowBroker(t *testing.T) {
 	t.Parallel()
-	// The port stays held until the moment the broker binds it. Releasing it up
-	// front leaves a window where another process can take it, which would fail
-	// this test for a reason that has nothing to do with the readiness budget.
+	// Reserve the port until immediately before broker startup to prevent
+	// another process from allocating it during the delay.
 	reservation, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("reserve port: %v", err)
@@ -187,10 +177,8 @@ func portOf(t *testing.T, address string) int {
 	return number
 }
 
-// TestBuildAuditRecorderRefusesAMissingTopic answers the review finding that a
-// broker answering is not the same as a ledger that can be written. This
-// cluster is up and healthy at the connection level and has no audit topic, so
-// every Record would fail while the old check passed.
+// TestBuildAuditRecorderRefusesAMissingTopic checks that a connected broker
+// without the required audit topic cannot pass startup readiness.
 func TestBuildAuditRecorderRefusesAMissingTopic(t *testing.T) {
 	t.Parallel()
 	cluster, err := kfake.NewCluster(kfake.NumBrokers(1))
@@ -200,12 +188,8 @@ func TestBuildAuditRecorderRefusesAMissingTopic(t *testing.T) {
 
 	t.Cleanup(cluster.Close)
 
-	// The ready budget is generous because the assertion is on the reason
-	// for the refusal, not on the refusal itself. Under a loaded runner the
-	// fake broker's first metadata answer can take longer than a couple of
-	// seconds, and a budget that expires first turns a missing-topic refusal
-	// into a deadline refusal, which is the wrong thing proven for the wrong
-	// reason.
+	// Allow metadata discovery to finish before the startup timeout.
+	// This test checks a missing-topic error rather than a deadline error.
 	recorder, err := buildAuditRecorder(
 		context.Background(),
 		&config.Config{
@@ -220,7 +204,7 @@ func TestBuildAuditRecorderRefusesAMissingTopic(t *testing.T) {
 	}
 
 	if recorder != nil {
-		t.Fatalf("recorder = %T, want none", recorder)
+		t.Fatalf("recorder = %T, want nil", recorder)
 	}
 
 	if !strings.Contains(err.Error(), "audit.events.v1") {

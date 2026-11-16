@@ -6,9 +6,8 @@ import (
 	"sort"
 )
 
-// newChainLink copies a row's chain coordinates into the fixed-width record
-// the link pass reads. A hash of unexpected length copies as far as it fits;
-// the row's own hash check has already reported that row.
+// newChainLink copies chain coordinates and hashes into fixed-width storage.
+// The row hash check already reports invalid hash lengths.
 func newChainLink(row Row) chainLink {
 	link := chainLink{
 		Shard:    row.Shard,
@@ -23,8 +22,8 @@ func newChainLink(row Row) chainLink {
 	return link
 }
 
-// verifyChainLinks walks the links in per-shard sequence order and reports a
-// break wherever a row's prev_hash does not name its immediate predecessor.
+// verifyChainLinks checks ascending per-shard sequences and immediate
+// predecessor hashes.
 func verifyChainLinks(report *VerifyReport, links []chainLink) {
 	sort.SliceStable(
 		links,
@@ -42,9 +41,7 @@ func verifyChainLinks(report *VerifyReport, links []chainLink) {
 
 	for _, link := range links {
 		if seenShard[link.Shard] {
-			// A sequence that does not advance is a repeated or replayed row.
-			// A gap-tolerant walk would count it as a gap and wave it through,
-			// so it is named as a break instead.
+			// Repeated or decreasing sequences are breaks, not filtered gaps.
 			if link.Seq <= lastSeqByShard[link.Shard] {
 				report.ChainBreaks = append(
 					report.ChainBreaks,
@@ -57,9 +54,7 @@ func verifyChainLinks(report *VerifyReport, links []chainLink) {
 				)
 			}
 
-			// A gap is counted, not reported as a break. An export is
-			// filtered, so missing sequence numbers are the normal case and
-			// say nothing about tampering.
+			// Filtered exports can skip sequences without indicating tampering.
 			if link.Seq > lastSeqByShard[link.Shard]+1 {
 				report.ChainGapCount++
 			}
@@ -73,11 +68,8 @@ func verifyChainLinks(report *VerifyReport, links []chainLink) {
 			}
 		}
 
-		// Tracking advances for every row, matched or not. Advancing only on
-		// a match would make the next row compare itself against a row that
-		// is not its predecessor, so one edited row would report every row
-		// after it as broken too, and a reader could not tell how much of the
-		// bundle was actually altered.
+		// Track every row, even after a hash mismatch. The next row must compare
+		// against its actual predecessor instead of reporting a cascade of failures.
 		lastSeqByShard[link.Shard] = link.Seq
 		lastHashByShard[link.Shard] = link.RowHash
 		seenShard[link.Shard] = true

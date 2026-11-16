@@ -77,7 +77,7 @@ type PageWriter interface { Put(context.Context, WriteIntent) error; UpdateAcces
 
 - [ ] **Compile indexed access as opaque values.** Register `org-scope-v1` through `PolicySet`. `Index` returns sorted versions and keys for a resource. `EncodeKey` length-prefixes the version and byte parts, hashes them with SHA-256, and returns `version + ":" + base64url(hash)`. Search code never decodes a key. A later policy registers another compiler without changing documents, mapping fields, or work records.
 
-- [ ] **Store bounded work in source transactions.** Add desired generation, event, claim, cursor, error, issued-ID, scan, and class-age keys to the central catalog. Stable hash buckets distribute organizations and nodes. Node create, edit, ancestry change, and delete schedule content work in the caller's transaction. Resource visibility changes schedule access work. Principal membership changes schedule no document work. Metadata and policy changes schedule bounded scans.
+- [ ] **Store bounded work in source transactions.** Add desired generation, event, claim, cursor, error, issued-ID, scan, and class-age keys to the central catalog. Stable hash buckets distribute organizations and nodes. Node create, edit, ancestry change, and delete schedule content work in the caller's transaction. Resource visibility changes schedule access work. Principal membership changes do not schedule document work. Metadata and policy changes schedule bounded scans.
 
 - [ ] **Claim work safely after failures.** Verify desired generation, owner, lease, revision, projection version, access-state generation, write versions, and target index when registering each page. Return `ErrWorkChanged` for stale state. Keep live, access, cleanup, rescan, and rebuild work in separate classes. Remove obsolete claims, cursors, errors, events, and issued IDs after convergence.
 
@@ -89,7 +89,7 @@ type PageWriter interface { Put(context.Context, WriteIntent) error; UpdateAcces
 
 - [ ] **Update access without embedding text.** Read at most 100 issued document IDs. Submit partial updates containing only `search_generation` and `access`. Do not call `Content`, send text, or invoke the model. Undeploy the model in the integration test and require access updates to preserve source text, chunks, and sparse weights byte for byte.
 
-- [ ] **Retire replaced and deleted pages.** Replace each issued document with a text-free `retired:true` record at the current generation. Process at most 100 IDs per cleanup slice. Keep retirement records until the physical index is deleted. Require every delayed older write to conflict.
+- [ ] **Retire replaced and deleted pages.** Replace each issued document with a text-free `retired:true` record at the current generation. Process at most 100 IDs per cleanup slice. Keep retirement records until cleanup deletes the physical index. Require every delayed older write to conflict.
 
 - [ ] **Register production workers.** Add explicit page-size, lease, timeout, concurrency, and class scheduling configuration. Construct the reader, policy set, work store, writer, cleanup service, and worker loops in `internal/runtime/graph.go`. Recover every worker goroutine, return startup errors, use the injected clock, and stop all loops on context cancellation. Failed work remains pending. Source writes succeed while OpenSearch is unavailable.
 

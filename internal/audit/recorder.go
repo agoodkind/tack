@@ -1,10 +1,6 @@
-// Package audit defines the audit ledger contract: a single Recorder that
-// every state change and every meaningful read funnels through. Storage
-// backends (Yugabyte, FDB-intent, in-memory) live in sibling files.
-//
-// The recorder layer is dual-track with telemetry: every Record call still
-// emits a structured slog line. Audit is for legal evidence; slog is for
-// operations. They are independent and both required.
+// Package audit defines the Recorder contract for evidence of state changes
+// and reads. Audit records provide legal evidence; structured slog records
+// support operations. Both records remain required and independent.
 package audit
 
 import (
@@ -15,24 +11,21 @@ import (
 	"github.com/google/uuid"
 )
 
-// Recorder accepts one audit event and either persists it (production) or
-// captures it (tests). Implementations are responsible for hash chaining,
-// sequence allocation, and durability guarantees appropriate to the verb
-// class (state-change verbs commit synchronously with the operation;
-// read verbs may batch through a WAL).
+// Recorder accepts an audit event for durable storage in production or
+// capture in tests. Implementations provide hash chaining, sequence allocation,
+// and durability for the verb class. State-change verbs commit synchronously
+// with the operation; read verbs may batch using a write-ahead log.
 type Recorder interface {
 	Record(ctx context.Context, ev Event) error
 }
 
-// Event is the canonical record shape. Field names match the on-disk JSONB
-// columns in audit.events so callers can serialize without translation.
+// Event defines the canonical audit record fields for JSON serialization.
 type Event struct {
 	Verb string `json:"verb"`
-	// EventID is the canonical event identity, assigned by the producer at
-	// the recording call site. The Kafka producer keys the partition by the
-	// shard derived from this id, and the consumer reuses it for the chain
-	// row and the idempotency index. It must be stable from record time so a
-	// redelivered Kafka record reconstructs the same row.
+	// EventID identifies the event. The producer assigns it at the recording
+	// call site and derives the Kafka partition shard from it. The consumer
+	// reuses it for the chain row and idempotency index. Preserve this identity
+	// during redelivery to reconstruct the same row.
 	EventID        uuid.UUID       `json:"event_id"`
 	Actor          Actor           `json:"actor"`
 	Entity         Entity          `json:"entity"`
@@ -48,8 +41,9 @@ type Event struct {
 	Protected []ProtectedValue `json:"protected,omitempty" exhaustruct:"optional"`
 }
 
-// Actor is who triggered the event. PII fields (Email, Name, IP, UA) are
-// snapshots at event time; GDPR redaction lives in audit.pii (see TACK-178).
+// Actor identifies who triggered the event. Personal data fields (Email, Name,
+// IP, UA) record event-time snapshots. Redaction erases them in audit.pii
+// (TACK-178).
 type Actor struct {
 	Type          ActorType `json:"type"`
 	ID            uuid.UUID `json:"id"`
@@ -87,8 +81,8 @@ type Entity struct {
 	Name       string    `json:"name,omitempty"`
 }
 
-// EventContext carries scope and provenance. OrgID is mandatory; the recorder
-// uses it for sharding, RLS, and chain isolation.
+// EventContext records scope and provenance. OrgID is mandatory for sharding,
+// row-level security, and chain isolation.
 type EventContext struct {
 	OrgID       uuid.UUID `json:"org_id"`
 	WorkspaceID uuid.UUID `json:"workspace_id,omitempty"`
@@ -101,12 +95,11 @@ type EventContext struct {
 	RPC         string    `json:"rpc,omitempty"`
 	Reason      string    `json:"reason,omitempty"`
 
-	// APITokenID names the token that authenticated the request, on the
-	// auth event that accepted it. The audit-consumer projects the token's
-	// last use from it, so the app never writes the token table on the
-	// request path (TACK-502). omitzero, not omitempty: encoding/json never
-	// omits an array under omitempty, and a zero id written into every other
-	// event's context changed the bytes those rows' hashes covered (TACK-514).
+	// APITokenID identifies the token that authenticated the request on the
+	// accepting auth event. The audit-consumer updates the token's last use
+	// from that event instead of the app updating it during the request
+	// (TACK-502). omitzero omits zero UUID arrays; omitempty does not. Preserve
+	// omission to avoid changing context bytes in row hashes (TACK-514).
 	APITokenID uuid.UUID `json:"api_token_id,omitzero" exhaustruct:"optional"`
 
 	// CommitVersion is the FoundationDB outbox entry's versionstamp encoded as
@@ -128,9 +121,9 @@ type EventContext struct {
 	Target             *Target        `json:"target,omitempty" exhaustruct:"optional"`
 	Read               *ReadEvidence  `json:"read,omitempty" exhaustruct:"optional"`
 	CommittedSteps     []string       `json:"committed_steps,omitempty" exhaustruct:"optional"`
-	// Selection records the normalized arguments of a read, HTTPMethod the
-	// checked HTTP method, and RequestPath the checked request path. JSON
-	// encoding omits each empty value, so earlier rows keep their hashes.
+	// Selection records normalized read arguments. HTTPMethod and RequestPath
+	// record the checked HTTP method and request path. JSON encoding omits empty
+	// values to preserve earlier rows' context hashes.
 	Selection   *ReadSelection `json:"selection,omitempty" exhaustruct:"optional"`
 	HTTPMethod  string         `json:"http_method,omitempty" exhaustruct:"optional"`
 	RequestPath string         `json:"request_path,omitempty" exhaustruct:"optional"`
@@ -163,11 +156,10 @@ const (
 	OutcomeError Outcome = "error"
 	// OutcomeAttempted records access before execution.
 	OutcomeAttempted Outcome = "attempted"
-	// OutcomePending is carried by intent rows until the outcome row lands.
+	// OutcomePending marks intent rows before the writer records an outcome.
 	OutcomePending Outcome = "pending"
-	// OutcomeUnrecorded is what a read returns for a row written before the
-	// ledger stored outcomes at all. It is never written, and it is distinct
-	// from OutcomeOK on purpose: nobody observed those events succeeding.
+	// OutcomeUnrecorded marks rows from before the ledger stored outcomes.
+	// Readers return it, but writers never store it. It does not imply success.
 	OutcomeUnrecorded Outcome = "unrecorded"
 
 	// OutcomeCompleted is a format 2 terminal outcome when an operation

@@ -1,5 +1,4 @@
-// export_stream_paging_test.go covers paging and limit semantics: a zero-limit
-// export reads every row past every page size the ledger reads by.
+// export_stream_paging_test.go checks that zero-limit exports exceed ledger page limits.
 
 package audit
 
@@ -13,24 +12,12 @@ import (
 	"github.com/google/uuid"
 )
 
-// exportPageSpanRows is larger than every page size the ledger reads by, so an
-// export that silently inherited one would come back short. DefaultQueryPageLimit
-// is 100 and MaxQueryPageLimit is 1000.
+// exportPageSpanRows exceeds both DefaultQueryPageLimit and MaxQueryPageLimit.
 const exportPageSpanRows = 2500
 
-// TestExportWritesEveryRowPastEveryPageSize covers the page-size half of the
-// defect this file exists for. The export used to read its rows through the
-// page-sized query, which defaults a zero limit to one page, so a whole-range
-// export came back holding a page and the bundle still read as complete: the
-// manifest counts what was written, the digest covers what was written, and
-// nothing in the bundle records what was left behind. The fixture honours the
-// filter's limit, so an export that asked for a page gets a page and fails here.
-//
-// The other half of that defect, holding every row before writing any of them,
-// is invisible to every assertion below: an export that collected its rows first
-// writes the same bytes and signs the same manifest. It is a memory property, and
-// TestExportPeakMemoryIsFlatInRowCount is what pins it, by sampling the heap
-// while the export is still running.
+// TestExportWritesEveryRowPastEveryPageSize checks complete zero-limit exports
+// using a source that honors requested limits. Memory accumulation requires
+// the separate TestExportHeapMeetsBudgetAcrossRowCounts measurements.
 func TestExportWritesEveryRowPastEveryPageSize(t *testing.T) {
 	dir := t.TempDir()
 	orgID := uuid.Must(uuid.NewV7())
@@ -85,10 +72,7 @@ func TestExportWritesEveryRowPastEveryPageSize(t *testing.T) {
 		t.Fatalf("sequence gaps = %d in a whole-ledger export, want 0", report.ChainGapCount)
 	}
 
-	// The manifest is signed over the row count and the digest, so a bundle that
-	// verifies is one whose count and digest both describe the rows the file
-	// actually holds, rather than a manifest signed for a read that came back
-	// short.
+	// Require the signed count and digest to agree with the actual file.
 	if !report.FileSHA256OK || !report.SignatureOK {
 		t.Fatalf(
 			"digest ok = %v, signature ok = %v, want both true",

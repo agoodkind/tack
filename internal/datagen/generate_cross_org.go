@@ -60,8 +60,8 @@ func (g *Generator) probeCrossOrgIsolation(ctx context.Context) error {
 	return nil
 }
 
-// foreignWorkspace returns the first workspace whose org differs from the
-// first workspace's org, or nil when every workspace shares one org.
+// foreignWorkspace returns the first workspace with actors in a different org
+// from the first workspace. It returns nil if a matching workspace does not exist.
 func (g *Generator) foreignWorkspace() *WorkspaceIdentity {
 	if len(g.identities.Workspaces) == 0 {
 		return nil

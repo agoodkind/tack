@@ -11,17 +11,13 @@ import (
 	"goodkind.io/tack/internal/config"
 )
 
-// The bodies behind `ops store`. Each one issues one fdbcli command and
-// reports what the cluster answered, so an operator running the migration
-// reads the same words the cluster printed.
+// Store commands run fdbcli and print the cluster's response for operator review.
 
-// errEmptyExcludeList is what an exclusion with no usable address returns.
+// errEmptyExcludeList reports an exclusion without usable addresses.
 var errEmptyExcludeList = errors.New("no addresses to exclude")
 
-// RunStoreStatus prints the cluster's own status. It is the reading criterion
-// 9 is judged from: process count, redundancy mode, coordinator count, and
-// backup agent count all come from here rather than from what a deploy
-// intended.
+// RunStoreStatus prints the observed cluster status, including process count,
+// redundancy mode, coordinator count, and backup agent count.
 func RunStoreStatus(ctx context.Context, cfg *config.Config, sink clispec.ResultSink) error {
 	output, err := runStoreCLI(ctx, cfg, "status details")
 	if err != nil {
@@ -31,10 +27,8 @@ func RunStoreStatus(ctx context.Context, cfg *config.Config, sink clispec.Result
 	return writeStoreOutput(ctx, sink, output)
 }
 
-// RunStoreSetRedundancy raises or lowers how many copies of every key the
-// cluster keeps. double is the mode three data guests run: it survives one
-// guest, where triple needs all three live and would turn one guest's loss
-// into an outage.
+// RunStoreSetRedundancy changes the number of copies of each key. On three
+// data guests, double tolerates one guest failure; triple requires all three.
 func RunStoreSetRedundancy(
 	ctx context.Context,
 	cfg *config.Config,
@@ -61,11 +55,10 @@ func RunStoreSetRedundancy(
 	return writeStoreOutput(ctx, sink, output)
 }
 
-// RunStoreSetCoordinators replaces the cluster's coordinator list. The cluster
-// writes the new list into every connected client's cluster file itself, so a
-// client with a writable file needs no restart. A client that mounts the file
-// read-only keeps the old list and stops finding the cluster once the last old
-// coordinator stops.
+// RunStoreSetCoordinators replaces the coordinator list. The cluster updates
+// each connected client's writable cluster file without requiring a restart.
+// A read-only file retains the old list; its client loses cluster access when
+// the last old coordinator stops.
 func RunStoreSetCoordinators(
 	ctx context.Context,
 	cfg *config.Config,
@@ -89,10 +82,9 @@ func RunStoreSetCoordinators(
 	return writeStoreOutput(ctx, sink, output)
 }
 
-// RunStoreExclude takes a process out of service. The cluster moves every copy
-// of a key off the excluded address first and the command returns only once it
-// has, so the address can then be stopped without losing a copy. This is how
-// the store leaves the guest it started on.
+// RunStoreExclude excludes processes and waits until the cluster replicates
+// their keys on other addresses. Stop those processes only after it returns
+// successfully to preserve every copy during store relocation.
 func RunStoreExclude(
 	ctx context.Context,
 	cfg *config.Config,
@@ -116,9 +108,8 @@ func RunStoreExclude(
 	return writeStoreOutput(ctx, sink, output)
 }
 
-// writeStoreOutput prints what the cluster answered. A failed write is logged
-// and returned, because an operator running a migration step reads the
-// cluster's own words to decide whether to take the next one.
+// writeStoreOutput prints the cluster's response and logs and returns output
+// failures. Operators require that response before continuing a migration.
 func writeStoreOutput(ctx context.Context, sink clispec.ResultSink, output string) error {
 	if err := sink.WriteText(ctx, output); err != nil {
 		slog.ErrorContext(ctx, "ops.store.write_failed", slog.String("err", err.Error()))
@@ -128,9 +119,8 @@ func writeStoreOutput(ctx context.Context, sink clispec.ResultSink, output strin
 	return nil
 }
 
-// parseExcludeAddresses reads the same address list the coordinator command
-// takes, without the odd-count rule: exclusion names the processes that are
-// leaving, and that count has no quorum meaning.
+// parseExcludeAddresses parses process addresses without the coordinator
+// command's odd-count requirement. Exclusion counts do not determine quorum.
 func parseExcludeAddresses(list string) ([]string, error) {
 	fields := strings.Split(list, ",")
 

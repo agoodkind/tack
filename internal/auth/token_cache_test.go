@@ -13,8 +13,7 @@ import (
 	"goodkind.io/tack/internal/domain/token"
 )
 
-// countingValidator answers one token record per bearer and counts how many
-// times it was asked, which is the number the token cache exists to reduce.
+// countingValidator returns token records by bearer and counts validation calls.
 type countingValidator struct {
 	records map[string]*token.Token
 	calls   atomic.Int64
@@ -43,9 +42,9 @@ func liveToken(expiresAt *time.Time) *token.Token {
 	}
 }
 
-// TestCachedTokenValidatorAsksOncePerLifetime pins TACK-504: the second
-// lookup within the lifetime costs no call to the store, and the record
-// comes back unchanged.
+// TestCachedTokenValidatorAsksOncePerLifetime checks that repeated validation
+// within the cache lifetime queries the store once and returns matching IDs
+// (TACK-504).
 func TestCachedTokenValidatorAsksOncePerLifetime(t *testing.T) {
 	store := &countingValidator{records: map[string]*token.Token{"tack_a": liveToken(nil)}}
 	cached := NewCachedTokenValidator(store, time.Minute, 16)
@@ -70,9 +69,8 @@ func TestCachedTokenValidatorAsksOncePerLifetime(t *testing.T) {
 	}
 }
 
-// TestCachedTokenValidatorForgetsAfterTheLifetime pins that the lifetime is
-// the revocation bound: after it, the store is asked again and a token it no
-// longer holds is refused.
+// TestCachedTokenValidatorForgetsAfterTheLifetime checks that validation
+// queries the store again after cache expiry and rejects a deleted token.
 func TestCachedTokenValidatorForgetsAfterTheLifetime(t *testing.T) {
 	store := &countingValidator{records: map[string]*token.Token{"tack_b": liveToken(nil)}}
 	cached := NewCachedTokenValidator(store, 40*time.Millisecond, 16)
@@ -93,8 +91,8 @@ func TestCachedTokenValidatorForgetsAfterTheLifetime(t *testing.T) {
 	}
 }
 
-// TestCachedTokenValidatorHonorsTheTokensOwnExpiry pins that a cached record
-// whose expires_at passes is refused at once, whatever the cache lifetime.
+// TestCachedTokenValidatorHonorsTheTokensOwnExpiry checks that validation
+// rejects an expired token before its cache lifetime ends.
 func TestCachedTokenValidatorHonorsTheTokensOwnExpiry(t *testing.T) {
 	expiresAt := time.Now().Add(30 * time.Millisecond)
 	store := &countingValidator{records: map[string]*token.Token{"tack_c": liveToken(&expiresAt)}}
@@ -112,8 +110,8 @@ func TestCachedTokenValidatorHonorsTheTokensOwnExpiry(t *testing.T) {
 	}
 }
 
-// TestCachedTokenValidatorNeverCachesARefusal pins that a token created after
-// a refusal is accepted on the next request.
+// TestCachedTokenValidatorNeverCachesARefusal checks that validation accepts
+// a newly created token immediately after rejecting its previously unknown bearer.
 func TestCachedTokenValidatorNeverCachesARefusal(t *testing.T) {
 	store := &countingValidator{records: map[string]*token.Token{}}
 	cached := NewCachedTokenValidator(store, time.Minute, 16)
@@ -129,8 +127,8 @@ func TestCachedTokenValidatorNeverCachesARefusal(t *testing.T) {
 	}
 }
 
-// TestCachedTokenValidatorStaysBounded pins the size bound: the cache never
-// holds more than it was sized for.
+// TestCachedTokenValidatorStaysBounded checks that the cache stores at most
+// the configured number of entries.
 func TestCachedTokenValidatorStaysBounded(t *testing.T) {
 	store := &countingValidator{records: map[string]*token.Token{}}
 
@@ -149,12 +147,12 @@ func TestCachedTokenValidatorStaysBounded(t *testing.T) {
 	size := cached.cache.order.Len()
 	cached.cache.mu.Unlock()
 	if size > 4 {
-		t.Fatalf("cache holds %d entries, want at most 4", size)
+		t.Fatalf("cache stores %d entries, want at most 4", size)
 	}
 }
 
-// TestBearerRefusesAWrappedUnauthenticated pins that the middleware still
-// answers 401 when the refusal arrives wrapped by the cache.
+// TestBearerRefusesAWrappedUnauthenticated checks that the middleware returns
+// HTTP 401 when the cache wraps an authentication refusal.
 func TestBearerRefusesAWrappedUnauthenticated(t *testing.T) {
 	store := &countingValidator{records: map[string]*token.Token{}}
 	cached := NewCachedTokenValidator(store, time.Minute, 16)

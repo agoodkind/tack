@@ -24,7 +24,7 @@ and measurements. QA must pass before production.
 ## Meilisearch removal and temporary search outage
 
 - Ship removal before any OpenSearch application path. Delete the Meilisearch client, adapters, dependency, configuration, startup setup, indexing hooks, batch reindex operation, Meilisearch test environment, deployed service, credentials, and operational documentation.
-- Keep `tack_search` registered. Call it with an exact node reference, an exact title, ordinary words, and filters. Every call must return exactly `Search is temporarily unavailable.` The response must not mention either search engine, replacement work, or future availability.
+- Keep `tack_search` registered. Invoke `tack_search` with an exact node reference, an exact title, ordinary words, and filters. Every call must return exactly `Search is temporarily unavailable.` The response must not mention either search engine, replacement work, or future availability.
 - Run one real scenario for every registered non-search MCP tool with real FoundationDB. Assert that the scenario list exactly matches the non-search tool registry. Every scenario must work while every `tack_search` call returns the temporary unavailable response.
 - Remove successful-search assertions from QA data generation and soak checks for this release. Preserve non-search coverage and assert the exact unavailable response. Build and start Tack without a Meilisearch endpoint, key, client library, service, image, or runtime dependency.
 - Inspect rendered QA and production configuration and the live deployments. Neither environment may contain a Meilisearch process, container, service, secret, endpoint, or dependency. Treat deletion of the old volume as a separate authorized operation. Its presence must not start or configure Meilisearch.
@@ -45,16 +45,16 @@ and measurements. QA must pass before production.
 - Update built-in seeds and QA data generation with explicit declarations. Search
   behavior must remain identical when tests replace all identifiers and omit seeds.
 - Run the expiring one-time backfill in dry-run mode against existing metadata.
-  Require a complete manifest, no writes, bounded output, and an error for missing,
-  duplicate, unknown, or conflicting entries. Then execute the same manifest twice
-  and require the second run to make no changes.
+  Require a complete manifest and bounded output without writes. Require errors
+  for missing, duplicate, unknown, or conflicting entries. Then execute the same
+  manifest twice and require the second run to leave state unchanged.
 - Run readiness checks before `ops search provision`, `ops search reindex`, and
   `ops search verify`. Require each command to refuse to proceed while a stored
   declaration is invalid or a definition lacks both a declaration and a default.
   Verify zero such definitions in QA and production before each environment's
   rebuild.
-- Load only the metadata and authentication required for the test. Load no product
-  seeds. Create unfamiliar node types, property types, property identifiers, and
+- Load only the metadata and authentication required for the test. Do not load
+  product seeds. Create unfamiliar node types, property types, property identifiers, and
   hierarchy definitions through public operations.
 - Define included, excluded, absent, scalar, structured, and labeled values. Search
   must index only declared text. Name-only nodes must remain searchable.
@@ -96,8 +96,8 @@ A lexical-only control must miss at least one non-overlapping pair that the comb
 
 ## Complete page processing
 
-- Use the real reader with a small page-byte setting. Indexing must start before the
-  final page is read and continue until the explicit completion value. Change page
+- Use the real reader with a small page-byte setting. The worker must start indexing before reading the
+  final page and continue until the explicit completion value. Change page
   counts between reads without changing search configuration.
 - Put targets at the beginning, middle, page boundary, and final page. Include a
   name and value spanning many pages. A final-page semantic target must rank within
@@ -115,7 +115,7 @@ A lexical-only control must miss at least one non-overlapping pair that the comb
 - Create matching nodes in two organizations and sibling scopes. Search must return only nodes allowed by resolved membership, entry point, scope, and optional type.
 - Capture the query. It must apply access, type, and retirement filters as structured JSON. Quotes and JSON-like input cannot change filter meaning.
 - Corrupt indexed access keys. Current authoritative checks must still withhold the node, including UUID-like queries and stale cursors.
-- Empty and oversized queries must fail before inference. Every accepted query must be processed completely. Missing models, invalid mappings, unavailable engines, deleted points in time, and failed authoritative reads must return explicit errors.
+- Empty and oversized queries must fail before inference. Search must process every accepted query completely. Missing models, invalid mappings, unavailable engines, deleted points in time, and failed authoritative reads must return explicit errors.
 
 ## Permission expansion
 
@@ -171,14 +171,14 @@ A lexical-only control must miss at least one non-overlapping pair that the comb
   Old text must not reappear.
 - Give one node enough pages to exceed a work slice. Each claim must stop admitting
   work after 32 pages, 5 MiB, or the two-second start deadline. Delay one engine
-  request past two seconds. The worker must start no later operation, must stop the
-  request at ten seconds, and must checkpoint before its next claim. Other live nodes
+  request past two seconds. The worker must not start another operation. It must
+  stop the request at ten seconds and checkpoint before its next claim. Other live nodes
   must make progress. Cleanup must yield after 100 document IDs.
 - Run live mutations, cleanup, a metadata rescan, and a rebuild together. Measure
   oldest work age for each class. No class may consume every worker.
 - After convergence and session expiry, count FDB records by search key family.
-  Repeat many edits. Completed work, old generations, issued IDs, replay records,
-  and rebuild journals must be removed. State must not grow with edit history.
+  Repeat many edits. Cleanup must remove completed work, old generations, issued IDs, replay records,
+  and rebuild journals. State must not grow with edit history.
 
 ## Index replacement lifecycle
 
@@ -227,7 +227,7 @@ A lexical-only control must miss at least one non-overlapping pair that the comb
 - Record the corpus, write rate, query mix, duration, and concurrency before each run. Record the Tack revision, image digests, search configuration, model inputs, and corpus with each result.
 - Write a unique revision marker into each created and edited node. Search for the marker during ingestion. Measure freshness lag from the write commit to the first search that returns the marker.
 - Search and replay a continuation of an open session while indexing work for a deleted node or a revoked permission remains pending. Fail the run if any result contains a deleted node or a node the principal can no longer read.
-- Run one bulk import alongside ordinary edits and sustained queries. Continue measurements after the import stops until the oldest pending search work is processed.
+- Run one bulk import alongside ordinary edits and sustained queries. Continue measurements after the import stops until workers complete the oldest pending search work.
 - Include lexical and semantic query variation, large and small documents, principals from several tenants, index maintenance, and an isolated search outage in the workload.
 - Count offered and completed searches separately from ingestion operations.
 - Reuse the session and update machinery of `make test-search-host-group GROUP=throughput-with-server-processes` for reads of 140 unchanged nodes and updates to separate nodes.

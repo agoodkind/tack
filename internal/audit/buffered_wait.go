@@ -1,8 +1,8 @@
-// buffered_wait.go admits a read-class event when the buffered recorder has
-// no overflow and its queue is full. Record waits for room for at most
-// queueWaitTimeout and does not hold the stop lock while it waits. It refuses
-// the event at once when the flusher retains undelivered events, because room
-// opens only after a delivery succeeds (TACK-583).
+// buffered_wait.go admits read-class events when the queue is full and the
+// buffered recorder does not use overflow. Record waits for queue capacity
+// for at most queueWaitTimeout without locking shutdownMutex. It refuses events
+// immediately when the flusher retains undelivered events. Another delivery
+// must succeed before admission in that case (TACK-583).
 
 package audit
 
@@ -14,8 +14,7 @@ import (
 	"time"
 )
 
-// queueWaitTimeout bounds how long Record waits for queue room when the
-// buffered recorder has no overflow.
+// queueWaitTimeout bounds the queue admission wait without overflow.
 const queueWaitTimeout = 10 * time.Second
 
 var (
@@ -34,14 +33,14 @@ func (b *BufferedRecorder) waitForRoom(ctx context.Context, ev Event) error {
 	defer deadline.Stop()
 
 	for {
-		b.stopping.RLock()
+		b.shutdownMutex.RLock()
 		if b.closed {
-			b.stopping.RUnlock()
+			b.shutdownMutex.RUnlock()
 			return b.recordThrough(ctx, ev)
 		}
 
 		result, opened := b.room.admitOrWait(ev)
-		b.stopping.RUnlock()
+		b.shutdownMutex.RUnlock()
 		switch result {
 		case admitted:
 			return nil

@@ -13,35 +13,30 @@ import (
 	"goodkind.io/tack/internal/config"
 )
 
-// The product store's cluster commands. Each one runs fdbcli in a one-shot
-// container that mounts this guest's cluster file, rather than exec-ing into a
-// store container, because the guest that orchestrates a change runs no store
-// process once the store is on the data guests (TACK-408).
+// Cluster commands run fdbcli in one-shot containers with this guest's cluster
+// file. They do not require a local store process; data guests run the store
+// after relocation (TACK-408).
 
 const (
-	// storeClusterMountPath is where the one-shot mounts the host directory
-	// that contains the cluster file every client on this guest reads. The
-	// mount is writable, because fdbcli records a coordinator change in it.
+	// storeClusterMountPath mounts the host cluster directory. Write access
+	// permits fdbcli to save coordinator changes for clients on this guest.
 	storeClusterMountPath = "/etc/foundationdb"
 	// storeClusterFile is the path inside the one-shot.
 	storeClusterFile = storeClusterMountPath + "/fdb.cluster"
-	// storeCLITimeoutSeconds bounds one fdbcli invocation. An unreachable
-	// cluster otherwise leaves the one-shot waiting with nothing to report.
+	// storeCLITimeoutSeconds limits waiting for an unavailable cluster.
 	storeCLITimeoutSeconds = 30
-	// storeDefaultPort is the port a coordinator address takes when the
-	// operator names an address without one.
+	// storeDefaultPort applies when an address omits its port.
 	storeDefaultPort = 4500
 )
 
-// storeRedundancyModes is the closed set of redundancy words. The value
-// becomes a word in an fdbcli command, so nothing outside this set reaches it.
+// storeRedundancyModes restricts values interpolated into fdbcli commands.
 var storeRedundancyModes = map[string]bool{"single": true, "double": true, "triple": true}
 
-// storeStorageEngine is the engine every tack cluster is configured with. It
-// is not an operator choice: changing it rewrites every storage file.
+// storeStorageEngine specifies the required storage engine. Changing it
+// rewrites every storage file; operators cannot select another engine here.
 const storeStorageEngine = "ssd"
 
-// validateRedundancyMode refuses a mode outside the closed set.
+// validateRedundancyMode refuses a mode outside the accepted set.
 func validateRedundancyMode(mode string) error {
 	if !storeRedundancyModes[mode] {
 		return fmt.Errorf("redundancy mode %q is not one of single, double, triple", mode)
@@ -50,12 +45,10 @@ func validateRedundancyMode(mode string) error {
 	return nil
 }
 
-// parseCoordinatorAddresses turns the operator's comma-separated list into the
-// bracketed host:port words fdbcli takes, and refuses anything it cannot read
-// as an address. Every address is a guest's pinned address from the service
-// inventory: a container address would name a coordinator that disappears on
-// the next container recreate, and a name would leave for site DNS, where the
-// wildcard record answers as the proxy.
+// parseCoordinatorAddresses validates a comma-separated list and returns fdbcli
+// host:port values. Addresses must identify guests from the service inventory.
+// Container addresses change on recreation, and site DNS resolves node names
+// to the proxy through a wildcard record.
 func parseCoordinatorAddresses(list string) ([]string, error) {
 	fields := strings.Split(list, ",")
 
@@ -88,8 +81,8 @@ func parseCoordinatorAddresses(list string) ([]string, error) {
 	return addresses, nil
 }
 
-// normalizeCoordinatorAddress accepts an IP literal with or without a port and
-// returns the bracketed form fdbcli takes.
+// normalizeCoordinatorAddress accepts an IP literal with an optional port and
+// returns the bracketed form fdbcli accepts.
 func normalizeCoordinatorAddress(value string) (string, error) {
 	host, port, err := net.SplitHostPort(value)
 	if err != nil {
@@ -106,7 +99,7 @@ func normalizeCoordinatorAddress(value string) (string, error) {
 
 	portNumber, convErr := strconv.Atoi(port)
 	if convErr != nil || portNumber <= 0 || portNumber > 65535 {
-		return "", fmt.Errorf("coordinator %q has no usable port", value)
+		return "", coordinatorPortMissingError{Address: value}
 	}
 
 	if strings.Contains(host, ":") {
@@ -116,10 +109,9 @@ func normalizeCoordinatorAddress(value string) (string, error) {
 	return host + ":" + port, nil
 }
 
-// runStoreCLI runs one fdbcli command against this guest's cluster file and
-// returns what it printed. A nonzero exit is an error, because every caller
-// here changes cluster configuration and a silent failure would report a
-// change that never happened.
+// runStoreCLI runs fdbcli against this guest's cluster file and returns its
+// output. A nonzero exit returns an error rather than reporting a successful
+// configuration change.
 func runStoreCLI(ctx context.Context, cfg *config.Config, command string) (string, error) {
 	cli, err := newDockerClient(ctx)
 	if err != nil {
@@ -138,8 +130,7 @@ func runStoreCLI(ctx context.Context, cfg *config.Config, command string) (strin
 	return runStoreCLIWith(ctx, cli, cfg, command)
 }
 
-// runStoreCLIWith is runStoreCLI against a Docker client the caller owns, so a
-// command issuing several fdbcli calls opens one client.
+// runStoreCLIWith runs a command using a caller-owned Docker client.
 func runStoreCLIWith(
 	ctx context.Context,
 	cli *client.Client,
@@ -167,11 +158,9 @@ func runStoreCLIWith(
 	return output, nil
 }
 
-// readStoreCLI runs one fdbcli command and returns what it printed with the
-// exit code beside it. The two are separate answers. fdbcli exits nonzero when
-// it is asked about a cluster it cannot reach or one that was never
-// configured, and that is a reading. The error here is a container that could
-// not run at all.
+// readStoreCLI returns fdbcli output and exit status separately. An unavailable
+// or unconfigured cluster can produce a nonzero status. Only a failure to run
+// the container returns an error here.
 func readStoreCLI(
 	ctx context.Context,
 	cli *client.Client,
@@ -193,8 +182,7 @@ func readStoreCLI(
 	return strings.TrimSpace(res.Stdout + res.Stderr), res.ExitCode, nil
 }
 
-// storeCLIOptions builds the one-shot that runs one fdbcli command against the
-// cluster file in TACK_OPS_FDB_CLUSTER_DIR.
+// storeCLIOptions builds a one-shot command using TACK_OPS_FDB_CLUSTER_DIR.
 func storeCLIOptions(cfg *config.Config, command string) runOneShotOptions {
 	return runOneShotOptions{
 		Image:      cfg.BackupFDBImage,
@@ -215,9 +203,16 @@ func storeCLIOptions(cfg *config.Config, command string) runOneShotOptions {
 	}
 }
 
-// fdbClusterReadOnlyBind mounts the directory in TACK_OPS_FDB_CLUSTER_DIR at
-// /etc/foundationdb without write access, for the fdbbackup one-shots that only
-// read the cluster file.
+// fdbClusterReadOnlyBind mounts TACK_OPS_FDB_CLUSTER_DIR at /etc/foundationdb
+// without write access for fdbbackup commands that only read the cluster file.
 func fdbClusterReadOnlyBind(cfg *config.Config) string {
 	return cfg.OpsFDBClusterDir + ":" + storeClusterMountPath + ":ro"
+}
+
+type coordinatorPortMissingError struct {
+	Address string
+}
+
+func (failure coordinatorPortMissingError) Error() string {
+	return fmt.Sprintf("coordinator %q does not specify a usable port", failure.Address)
 }

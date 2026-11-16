@@ -63,7 +63,7 @@ func (b *BufferedRecorder) flush(ctx context.Context, batch []Event) {
 		return
 	}
 
-	if b.attempts > 0 && clock.Now().Before(b.retryAt) {
+	if b.attempts > 0 && clock.Now().Before(b.nextAttemptAt) {
 		b.room.setRetained(len(b.retained))
 		return
 	}
@@ -154,7 +154,7 @@ func (b *BufferedRecorder) settle(ctx context.Context, failed []Event, err error
 	}
 
 	b.attempts++
-	b.retryAt = clock.Now().Add(retryBackoff(b.attempts))
+	b.nextAttemptAt = clock.Now().Add(retryBackoff(b.attempts))
 	if b.attempts == 1 {
 		slog.ErrorContext(
 			ctx,

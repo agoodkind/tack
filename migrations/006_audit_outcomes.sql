@@ -2,12 +2,10 @@
 -- Every statement is idempotent because YugabyteDB keeps completed DDL when a
 -- migration transaction rolls back.
 
--- The outcome column is deliberately nullable with no default. Every row
--- written from now on carries a value, but a row that predates this migration
--- never had its outcome recorded, and a default would assert success for an
--- event nobody observed succeeding. Those rows read back as unrecorded, which
--- is the truth. Their hash also predates outcome coverage, so a stored default
--- would be an unverifiable claim sitting in a tamper-evident table.
+-- The outcome column allows NULL and does not define a default. New rows
+-- include an outcome. Earlier rows retain NULL because their events did not
+-- record outcomes and their hashes did not cover outcomes. A default would
+-- assert success without evidence and without hash verification.
 
 -- +goose Up
 -- +goose StatementBegin

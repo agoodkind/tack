@@ -1,8 +1,7 @@
 # This module builds terraform-provider-postgresql from a pinned upstream
 # revision plus role-state.patch. make build and make release run the shared
 # go-makefile pipeline. The generate hook below fetches the pinned revision,
-# applies the patch into src, and go-makefile routes the build to src through
-# a generated go.work.
+# applies the patch in src, and builds src using a generated go.work.
 
 BINARY := terraform-provider-postgresql
 CMD    := .

@@ -1,89 +1,71 @@
-# Tack MCP Output Bounds and Search Implementation Plan
+# Bound MCP output and implement keyword search
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+Use `superpowers:subagent-driven-development` or `superpowers:executing-plans`
+to implement these tasks and track checkboxes. Add cursor paging to node reads,
+short write confirmations, explicit search failures, metadata-defined text
+indexing, and organization-owned synonym nodes.
 
-**Goal:** Tack MCP tools return bounded, paginated output, and `tack_search` finds tickets by keyword and by per-org synonyms.
+Use Go, FoundationDB Go bindings, `mark3labs/mcp-go`, `meilisearch-go` v0.36.3,
+Meilisearch v1.12, and the Docker Compose test stack.
 
-**Architecture:** FoundationDB gains a cursor-paged read (`NodeReader.ListPage`) that every MCP list tool uses. Write tools return a short confirmation instead of the full node. Meilisearch search reports an error when it is unavailable, gets a backfill command and metadata-driven searchable fields, and expands queries with synonym nodes that each org owns.
+The phases have these ticket dependencies:
 
-**Tech Stack:** Go, FoundationDB Go bindings, `mark3labs/mcp-go`, `meilisearch-go` v0.36.3, Meilisearch v1.12, Docker Compose test stack.
+| Phase | Ticket | Priority | Dependency |
+|---|---|---|---|
+| A: Bound output | TACK-508 | high | none |
+| B: Keyword search | TACK-509 | urgent | Task 1 harness |
+| C: Organization synonyms | TACK-510 | medium | TACK-509 |
 
-**Spec:** this plan. Tickets: TACK-508 (Phase A), TACK-509 (Phase B), TACK-510 (Phase C).
+Use `tack_set_issue_state` to set `TACK::In Progress` at the first task and
+`TACK::Done` only after production acceptance.
 
-## Tickets
+## Verified defects and implementation constraints
 
-| Phase | Ticket | Priority | Depends on |
-| --- | --- | --- | --- |
-| A. Bound MCP tool output | TACK-508 | high | none |
-| B. Make keyword search work | TACK-509 | urgent | Task 1 (test harness) |
-| C. Per-org synonyms | TACK-510 | medium | TACK-509 |
+The source review found these defects:
 
-Move each ticket to `TACK::In Progress` when its first task starts and to `TACK::Done` after its acceptance checks pass on production. Use `tack_set_issue_state`.
+- `listHandler` omits limit/cursor (`node_list_create.go:31-56`), and
+  `ViewStore.List` reads full ranges (`view.go:152-214`). Schemas lack paging inputs.
+- Writes return `renderNode`, including complete descriptions
+  (`node_list_create.go:168`, `node_read_update_delete.go:130`,
+  `reference_property_tool.go:160`, `render_node.go:40-56`).
+- Workspace describe scans every organization child (`workspace.go:86-91`).
+- Comment/activity output repeats names when a type lacks a reference
+  (`render_collection.go:89-97`).
+- On 2026-09-18, production search returned 0 matches for `backup` and
+  `Temporal-DB WAL archive`. Exact-reference lookup in FDB returned 1 for
+  `TACK-275` (`search.go:51`).
+- `buildSearcher` substitutes `searchadapter.Noop{}` after setup failure;
+  `Noop.Search` returns an empty result without error (`graph.go:132-144`,
+  `search.go:15-20`). The system does not provide an FDB-to-Meilisearch backfill.
 
-## Verified causes
+Keep implementation files at most 200 lines. Existing `view.go` already has
+300; put new FDB behavior in separate files. Interpret NodeType/PropertyDef
+metadata rather than matching concrete type/property literals outside seed.go.
+Use real dependencies through `make test-unit` and `make test-integration` in
+`docker-compose.test.yml`. Do not add mocks or fakes; extend existing tool
+fakes only with compiler-required methods. Add QA datagen for each public change.
+Register ops through clispec without a separate execute flag. Log through
+`telemetry.L(ctx)` with `noun.verb` and slog attributes. Include identifiers and
+wrapped errors, such as `fmt.Errorf("list page %s: %w", nodeType, err)`.
+Build with `make build`, not `go build`. Sign imperative commits with the ticket
+in parentheses and `Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>`.
+Validate QA before production and deploy main only after fetch confirms
+`HEAD == origin/main`.
 
-1. List tools return every row. `listHandler` never sets `NodeListQuery.Limit` or `Cursor` (`internal/adapters/mcp/tools/node_list_create.go:31-56`). `ViewStore.List` reads full ranges with `fdb.RangeOptions{}` (`internal/adapters/foundationdb/view.go:152-214`). No tool schema has `limit` or `cursor`.
-2. Create, update, and `tack_set_*` return `renderNode`, which prints every property including the full description (`node_list_create.go:168`, `node_read_update_delete.go:130`, `reference_property_tool.go:160`, `render_node.go:40-56`).
-3. `tack_describe_workspace` lists every child with an org-wide scan (`workspace.go:86-91`).
-4. Comment and activity rows print the name twice because `nodeListItem` uses the name as the title when the type has no reference (`render_collection.go:89-97`).
-5. `tack_search` returned 0 results in production on 2026-09-18 for `backup` and for the exact title text `Temporal-DB WAL archive`. `TACK-275` returned 1 result because the exact-reference step reads FDB (`search.go:51`).
-6. `buildSearcher` falls back to `searchadapter.Noop{}` on setup failure, and `Noop.Search` returns no results and no error (`internal/runtime/graph.go:132-144`, `internal/adapters/search/search.go:15-20`). No command backfills Meilisearch from FDB.
+## Task 1: Add a real MCP harness
 
-## Global Constraints
+Create `internal/test/integration/mcp_harness.go` and its test. Reuse
+`datagen.Driver` JSON-RPC tools/call requests through `graph.MCPHandler` with
+real tokens. The existing integration suite does not invoke MCP tools.
+Read `internal/datagen/session.go` first and copy current RunSeed commit-mode
+signatures for config loading, `runtime.BuildGraph`, `BootstrapIdentities`, and
+`NewDriver`. Expose `func NewMCPHarness(t *testing.T) *MCPHarness`,
+`func (h *MCPHarness) Call(t *testing.T, toolName string, args datagen.ToolArguments) datagen.Result`,
+and `func (h *MCPHarness) CallExpectError(t *testing.T, toolName string, args datagen.ToolArguments) string`,
+with `Workspace string` and `Project string` fields.
 
-- No file exceeds 200 lines. `view.go` is already 300 lines, so new FDB code goes in new files.
-- Behavior follows NodeType and PropertyDef metadata. Never compare a type key or property name to a string literal outside `internal/service/seed.go`.
-- Build with `make build`. Never run `go build` directly.
-- Tests use the real stack through `docker-compose.test.yml`: `make test-unit` and `make test-integration`. No mocks or fakes in new tests. Existing fakes in `internal/adapters/mcp/tools/*_test.go` only gain the methods the compiler requires.
-- Every new user-visible path adds `ops qa datagen` coverage in the same change.
-- Every `./server ops` command registers through the `clispec` audit choke-point. Commands never declare their own `execute` flag.
-- Log with `telemetry.L(ctx)` and `noun.verb` message names with named `slog.Attr` fields.
-- Errors include context and an identifier: `fmt.Errorf("list page %s: %w", nodeType, err)`.
-- Commit with `git commit -S`, subject in imperative mood with the ticket in parentheses, ending with `Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>`.
-- Validate on QA before production. Deploy only from `main` after `git fetch` confirms `HEAD == origin/main`.
-
-## File structure
-
-| File | Change | Responsibility |
-| --- | --- | --- |
-| `internal/domain/node/cursor.go` | create | Encode and decode an opaque page cursor |
-| `internal/domain/node/reader.go` | modify | Add `NodePage` and `NodeReader.ListPage` |
-| `internal/adapters/foundationdb/view_page.go` | create | Cursor-paged FDB reads |
-| `internal/test/integration/mcp_harness.go` | create | Call MCP tools through the production HTTP handler |
-| `internal/adapters/mcp/tools/list_page_args.go` | create | Parse `limit` and `cursor` tool arguments |
-| `internal/adapters/mcp/tools/node_tool_schema.go` | modify | Add `limit` and `cursor` to list tool schemas |
-| `internal/adapters/mcp/tools/node_list_create.go` | modify | Use `ListPage`; short create confirmation |
-| `internal/adapters/mcp/tools/render_write.go` | create | Short confirmation for create, update, and set |
-| `internal/adapters/mcp/tools/templates/collection.md.tmpl` | modify | Print the next cursor |
-| `internal/adapters/mcp/tools/workspace.go` | modify | Count children per type |
-| `internal/adapters/mcp/tools/response.go` | modify | Byte cap on success text |
-| `internal/domain/search/searcher.go` | modify | `ErrUnavailable`, `IndexBatch`, `SearchVariants` |
-| `internal/adapters/search/meilisearch.go` | modify | Searchable attributes, batch index |
-| `internal/adapters/search/meilisearch_multi.go` | create | Federated multi-search |
-| `internal/service/search_doc.go` | create | Build a search document from a view and property defs |
-| `internal/ops/search_reindex.go` | create | Backfill Meilisearch from FDB |
-| `internal/adapters/mcp/tools/search_synonyms.go` | create | Expand a query with org synonym nodes |
-| `internal/datagen/generate_search_checks.go` | create | Datagen search assertions |
-| `docker-compose.test.yml` | modify | Add Meilisearch to the test stack |
-
----
-
-## Phase A: Bound MCP tool output (TACK-508)
-
-### Task 1: MCP integration test harness
-
-The integration suite has no test that calls MCP tools. `datagen.Driver` already sends JSON-RPC `tools/call` requests to `graph.MCPHandler` with real tokens (`internal/datagen/driver.go`, `internal/datagen/session.go` `RunSeed` commit branch). The harness reuses that path.
-
-**Files:**
-- Create: `internal/test/integration/mcp_harness.go`
-- Test: `internal/test/integration/mcp_harness_test.go`
-
-**Interfaces:**
-- Produces: `func NewMCPHarness(t *testing.T) *MCPHarness`, `func (h *MCPHarness) Call(t *testing.T, toolName string, args datagen.ToolArguments) datagen.Result`, `func (h *MCPHarness) CallExpectError(t *testing.T, toolName string, args datagen.ToolArguments) string`, fields `Workspace string` and `Project string`.
-
-- [ ] **Step 1: Read the identity bootstrap.** Open `internal/datagen/session.go` and copy the exact calls the commit branch of `RunSeed` makes: `config.Load` (or the equivalent), `runtime.BuildGraph`, `BootstrapIdentities`, and `NewDriver`. Use the same signatures in Step 3.
-
-- [ ] **Step 2: Write the failing test**
+- [ ] Add the failing test and run `make test-integration`, requiring
+  `undefined: NewMCPHarness`:
 
 ```go
 package integration
@@ -106,14 +88,7 @@ func TestMCPHarnessListsWorkspaces(t *testing.T) {
 }
 ```
 
-- [ ] **Step 3: Run it to confirm it fails**
-
-Run: `make test-integration`
-Expected: FAIL with `undefined: NewMCPHarness`.
-
-- [ ] **Step 4: Implement the harness**
-
-Build the graph from the test environment variables, bootstrap one user, one org, one workspace, and one project through MCP create tools, and keep the token. Use the Step 1 signatures. The shape is:
+- [ ] Implement the harness from current production signatures:
 
 ```go
 package integration
@@ -127,8 +102,8 @@ import (
 	appruntime "goodkind.io/tack/internal/runtime"
 )
 
-// MCPHarness calls MCP tools through the production HTTP handler with a real
-// bearer token, so each call runs auth, org membership, audit, and rendering.
+// MCPHarness invokes production HTTP tools with real bearer authentication,
+// membership checks, audit recording, and rendering.
 type MCPHarness struct {
 	ctx       context.Context
 	driver    *datagen.Driver
@@ -137,8 +112,7 @@ type MCPHarness struct {
 	Project   string
 }
 
-// NewMCPHarness builds the runtime graph against the test stack and creates a
-// fresh workspace and project for the calling test.
+// NewMCPHarness creates a test workspace and project against the real stack.
 func NewMCPHarness(t *testing.T) *MCPHarness {
 	t.Helper()
 	requireIntegration(t)
@@ -159,43 +133,35 @@ func NewMCPHarness(t *testing.T) *MCPHarness {
 	harness := &MCPHarness{
 		ctx:    ctx,
 		driver: datagen.NewDriver(graph.MCPHandler, false, 1),
-		token:  identities.Token, // Step 1 field name
+		token:  identities.Token, // Use the verified bootstrap token field.
 	}
 	harness.createWorkspaceAndProject(t)
 	return harness
 }
 ```
 
-`requireIntegration` wraps the existing `TACK_INTEGRATION` skip in `setup.go`; extract it there if it is inline. `createWorkspaceAndProject` calls `tack_create_project` with a unique identifier built from `t.Name()` and stores the printed references. `Call` fails the test when `driver.Call` returns an error. `CallExpectError` fails the test when the call succeeds and returns the error text.
+Bootstrap one user, org, workspace, and project using MCP creation and retain
+the token. Extract `requireIntegration` from setup.go's `TACK_INTEGRATION` skip
+if necessary. Create project identifiers from `t.Name()` and save rendered
+references. Implement `Call(t, toolName, args) datagen.Result` to fail on driver
+errors and `CallExpectError(t, toolName, args) string` to fail on success and
+return error text. Use `datagen.ToolArguments` for arguments.
 
-- [ ] **Step 5: Run the test to confirm it passes**
-
-Run: `make test-integration`
-Expected: PASS for `TestMCPHarnessListsWorkspaces`.
-
-- [ ] **Step 6: Commit**
+- [ ] Require the harness test to pass, then commit:
 
 ```bash
 git add internal/test/integration/mcp_harness.go internal/test/integration/mcp_harness_test.go internal/test/integration/setup.go
 git commit -S -m "Add MCP integration harness that calls tools through the HTTP handler (TACK-508)"
 ```
 
-### Task 2: Cursor-paged FDB reads
+## Task 2: Page FDB reads
 
-**Files:**
-- Create: `internal/domain/node/cursor.go`
-- Modify: `internal/domain/node/reader.go:64-80`
-- Create: `internal/adapters/foundationdb/view_page.go`
-- Modify: every `NodeReader` implementation the compiler reports (known: `internal/adapters/mcp/tools/resolve_typed_test.go` `resolverReader`, `render_test.go` `fakeReader`, `internal/ops/repair_console_fakes_test.go` `repairReader`)
-- Test: `internal/test/integration/view_page_test.go`
+Create `internal/domain/node/cursor.go`, `internal/adapters/foundationdb/view_page.go`,
+`view_page_batch.go`, and `internal/test/integration/view_page_test.go`.
+Extend reader.go:64-80 and each compiler-reported NodeReader implementation,
+including resolverReader, fakeReader, and repairReader in their existing tests.
 
-**Interfaces:**
-- Produces:
-  - `type NodePage struct { Views []*NodeView; NextCursor string }`
-  - `NodeReader.ListPage(ctx context.Context, q NodeListQuery) (NodePage, error)`. It requires `q.Limit > 0`. It supports `ByProperty` and the full type scan. It returns `domain.ErrInvalidArgument` for relation scans.
-  - `func EncodeCursor(lastID uuid.UUID) string`, `func DecodeCursor(cursor string) (uuid.UUID, error)`
-
-- [ ] **Step 1: Write the failing test**
+- [ ] Add this regression and require missing ListPage compilation failure:
 
 ```go
 package integration
@@ -255,16 +221,11 @@ func TestListPageReturnsEveryIssueOnce(t *testing.T) {
 }
 ```
 
-Add `createTestProject` and `createTestIssue` to `internal/test/integration/setup_nodes.go` using `env.NodeSvc.Create(env.Ctx, service.CreateInput{...})` the way `audit_intent_test.go:26-28` creates a workspace. The type key literals are allowed here because test fixtures mirror the seed.
+Add createTestProject/createTestIssue in setup_nodes.go using
+`env.NodeSvc.Create(env.Ctx, service.CreateInput{...})`, matching workspace
+creation in audit_intent_test.go:26-28. Fixture type literals mirror the seed.
 
-- [ ] **Step 2: Run it to confirm it fails**
-
-Run: `make test-integration`
-Expected: FAIL with `env.Stores.Views.ListPage undefined`.
-
-- [ ] **Step 3: Add the domain types**
-
-`internal/domain/node/cursor.go`:
+- [ ] Implement opaque cursor encoding and decoding:
 
 ```go
 package node
@@ -277,13 +238,12 @@ import (
 	"goodkind.io/tack/internal/domain"
 )
 
-// EncodeCursor returns the opaque cursor that resumes a paged list after
-// lastID. Callers must treat the value as opaque.
+// EncodeCursor returns an opaque continuation after lastID.
 func EncodeCursor(lastID uuid.UUID) string {
 	return base64.RawURLEncoding.EncodeToString(lastID[:])
 }
 
-// DecodeCursor returns the node ID a cursor resumes after.
+// DecodeCursor returns the last node ID from an opaque cursor.
 func DecodeCursor(cursor string) (uuid.UUID, error) {
 	raw, err := base64.RawURLEncoding.DecodeString(cursor)
 	if err != nil {
@@ -297,28 +257,24 @@ func DecodeCursor(cursor string) (uuid.UUID, error) {
 }
 ```
 
-Add to `reader.go` after `NodeStreamResult`:
+Add after NodeStreamResult and in NodeReader respectively:
 
 ```go
-// NodePage is one page of a ListPage call. NextCursor is empty on the last
-// page.
+// NodePage contains one ListPage result; the final page has an empty NextCursor.
 type NodePage struct {
 	Views      []*NodeView
 	NextCursor string
 }
 ```
 
-Add to the `NodeReader` interface:
-
 ```go
-	// ListPage returns at most q.Limit views after q.Cursor, in node ID
-	// order. It supports ByProperty and full type scans.
+	// ListPage returns at most q.Limit views after q.Cursor in ID order.
+	// It supports ByProperty and full type scans.
 	ListPage(ctx context.Context, q NodeListQuery) (NodePage, error)
 ```
 
-- [ ] **Step 4: Implement `ListPage` in FDB**
-
-`internal/adapters/foundationdb/view_page.go`:
+- [ ] Implement production paging, requiring positive limits and rejecting
+  relation scans with `domain.ErrInvalidArgument`:
 
 ```go
 package foundationdb
@@ -336,8 +292,7 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// pageBatchSize bounds each FDB range read so one transaction stays well
-// under the 5 second and 10 MB limits.
+// pageBatchSize bounds FDB reads below transaction time and size limits.
 const pageBatchSize = 256
 
 type pageEntry struct {
@@ -345,8 +300,7 @@ type pageEntry struct {
 	view *node.NodeView
 }
 
-// ListPage reads batches in key order until it has q.Limit matching views
-// plus one more, which proves another page exists.
+// ListPage reads matching views plus one to detect another page.
 func (s *ViewStore) ListPage(ctx context.Context, q node.NodeListQuery) (page node.NodePage, err error) {
 	defer telemetry.FDBOp(ctx, "store.view.list_page")(&err)
 	if q.Limit <= 0 {
@@ -427,14 +381,14 @@ func matchesPageFilters(view *node.NodeView, q node.NodeListQuery) bool {
 }
 ```
 
-Put `readPageBatch` in `internal/adapters/foundationdb/view_page_batch.go` to keep each file under 200 lines:
+Use a separate view_page_batch.go for the batch implementation. The 256-key
+read bound stays below FDB's 5-second and 10 MB transaction limits:
 
 ```go
 package foundationdb
 
-// readPageBatch reads one batch of at most pageBatchSize keys and returns the
-// decoded entries plus the last raw key read. For ByProperty scans it reads
-// the view for each index entry; for full scans the value is the view.
+// readPageBatch returns decoded entries and the last key from one bounded read.
+// Property scans resolve each indexed view; full scans decode values directly.
 func (s *ViewStore) readPageBatch(q node.NodeListQuery, keyRange fdb.SelectorRange) ([]pageEntry, fdb.Key, error) {
 	result, err := s.db.ReadTransact(func(tr fdb.ReadTransaction) (any, error) {
 		kvs, err := tr.GetRange(keyRange, fdb.RangeOptions{Limit: pageBatchSize}).GetSliceWithError()
@@ -499,36 +453,25 @@ func decodePageEntry(tr fdb.ReadTransaction, q node.NodeListQuery, kv fdb.KeyVal
 }
 ```
 
-An index entry whose view is missing yields `view == nil`. `ListPage` skips it but still advances past its key.
+A missing indexed view produces `view == nil`. Skip it while advancing the key.
 
-- [ ] **Step 5: Add `ListPage` to each fake the compiler names.** Each fake returns `node.NodePage{Views: <its List result truncated to q.Limit>}`. Run `make build` until it compiles.
-
-- [ ] **Step 6: Run the test to confirm it passes**
-
-Run: `make test-integration`
-Expected: PASS for `TestListPageReturnsEveryIssueOnce`.
-
-- [ ] **Step 7: Commit**
+- [ ] Extend existing fakes with `node.NodePage{Views: <its List result truncated to q.Limit>}`.
+  Run `make build` and `make test-integration`; require compilation and the
+  150-issue, six-page regression to pass. Commit:
 
 ```bash
 git add internal/domain/node internal/adapters/foundationdb/view_page.go internal/adapters/foundationdb/view_page_batch.go internal/test/integration internal/adapters/mcp/tools internal/ops
 git commit -S -m "Add cursor-paged NodeReader.ListPage for property and type scans (TACK-508)"
 ```
 
-### Task 3: `limit` and `cursor` on MCP list tools
+## Task 3: Expose list limit and cursor
 
-**Files:**
-- Create: `internal/adapters/mcp/tools/list_page_args.go`
-- Modify: `internal/adapters/mcp/tools/node_tool_schema.go:11-20`
-- Modify: `internal/adapters/mcp/tools/node_list_create.go:31-65`
-- Modify: `internal/adapters/mcp/tools/render_collection.go:11-18`, `collection_template.go` (the file that defines `collectionTemplateData`), `templates/collection.md.tmpl`
-- Test: `internal/test/integration/mcp_list_page_test.go`
+Create tools/list_page_args.go. Update node_tool_schema.go:11-20,
+node_list_create.go:31-65, render_collection.go:11-18, collection_template.go,
+and templates/collection.md.tmpl. Add integration/mcp_list_page_test.go.
 
-**Interfaces:**
-- Consumes: `NodeReader.ListPage`, `NewMCPHarness`.
-- Produces: `func pageArgs(args argMap) (limit int, cursor string, err error)`, `const defaultListLimit = 25`, `const maxListLimit = 100`, `func pageSchemaFields() []schemaField`, `collectionTemplateData.NextCursor string`.
-
-- [ ] **Step 1: Write the failing test**
+- [ ] Add these tests and require `make test-integration` to fail because
+  schemas do not accept cursor and limit:
 
 ```go
 package integration
@@ -594,14 +537,7 @@ func TestListIssuesRejectsLimitAboveMaximum(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run to confirm failure**
-
-Run: `make test-integration`
-Expected: FAIL. `tack_list_issues` rejects `cursor` and `limit` as unknown arguments.
-
-- [ ] **Step 3: Add argument parsing**
-
-`list_page_args.go`:
+- [ ] Implement argument parsing and schema fields:
 
 ```go
 package tools
@@ -618,15 +554,14 @@ const (
 	maxListLimit     = 100
 )
 
-// pageSchemaFields are the paging inputs every list-style tool accepts.
 func pageSchemaFields() []schemaField {
 	return []schemaField{
-		{Name: "limit", Type: schemaInteger, Desc: fmt.Sprintf("Rows per page, 1 to %d. Default %d.", maxListLimit, defaultListLimit)},
-		{Name: "cursor", Type: schemaString, Desc: "Cursor printed at the end of the previous page. Omit for the first page."},
+		{Name: "limit", Type: schemaInteger, Desc: fmt.Sprintf("Return 1 to %d rows per page. The default is %d.", maxListLimit, defaultListLimit)},
+		{Name: "cursor", Type: schemaString, Desc: "Use the cursor from the previous page. Omit for the first page."},
 	}
 }
 
-// pageArgs reads limit and cursor. An absent limit returns defaultListLimit.
+// pageArgs reads limit and cursor, defaulting an omitted limit to defaultListLimit.
 func pageArgs(args argMap) (int, string, error) {
 	limit := defaultListLimit
 	if raw, ok := args["limit"]; ok && len(raw) > 0 {
@@ -641,7 +576,8 @@ func pageArgs(args argMap) (int, string, error) {
 }
 ```
 
-- [ ] **Step 4: Wire the schema and handler.** In `listTool`, append `pageSchemaFields()...` after the `filters` field. In `listHandler`, after building `q`:
+- [ ] Append `pageSchemaFields()...` after listTool's filters. After constructing
+  `q` in listHandler, use:
 
 ```go
 		limit, cursor, err := pageArgs(args)
@@ -657,8 +593,7 @@ func pageArgs(args argMap) (int, string, error) {
 ```
 
 Replace `renderList(rc, plural, views)` with `renderListPage(rc, plural, page)`.
-
-- [ ] **Step 5: Render the cursor.** Add `NextCursor string` to `collectionTemplateData`. Add to `render_collection.go`:
+Add `NextCursor string` to collectionTemplateData and render:
 
 ```go
 func renderListPage(rc *renderCtx, kind string, page node.NodePage) string {
@@ -671,7 +606,7 @@ func renderListPage(rc *renderCtx, kind string, page node.NodePage) string {
 }
 ```
 
-Replace `collection.md.tmpl` with:
+Replace the collection template with:
 
 ```
 #### {{.Heading}}
@@ -690,29 +625,23 @@ More results exist. Next cursor: `{{.NextCursor}}`
 {{- end}}
 ```
 
-- [ ] **Step 6: Run the tests to confirm they pass**
-
-Run: `make test-integration && make test-unit`
-Expected: PASS. Update any existing test that asserts `found.` to assert `shown.`.
-
-- [ ] **Step 7: Commit**
+- [ ] Run `make test-integration && make test-unit` and require success.
+  Update old `found.` assertions to `shown.`. Commit:
 
 ```bash
 git add internal/adapters/mcp/tools internal/test/integration
 git commit -S -m "Add limit and cursor inputs to generated MCP list tools (TACK-508)"
 ```
 
-### Task 4: Short confirmations from write tools
+## Task 4: Return short write confirmations
 
-**Files:**
-- Create: `internal/adapters/mcp/tools/render_write.go`
-- Modify: `node_list_create.go:168`, `node_read_update_delete.go:130`, `reference_property_tool.go:160`
-- Test: `internal/test/integration/mcp_write_confirmation_test.go`
+Create tools/render_write.go and integration/mcp_write_confirmation_test.go.
+Update create at node_list_create.go:168, update at node_read_update_delete.go:130,
+and the reference setter at reference_property_tool.go:160.
 
-**Interfaces:**
-- Produces: `func renderWriteConfirmation(rc *renderCtx, verb string, view *node.NodeView, changedFields []string) string`
-
-- [ ] **Step 1: Write the failing test**
+- [ ] Add the regression and a matching TestUpdateIssueReturnsShortConfirmation
+  through tack_update_issue. Require integration failure from the existing
+  description response exceeding 10 KB:
 
 ```go
 package integration
@@ -746,14 +675,7 @@ func TestCreateIssueReturnsShortConfirmation(t *testing.T) {
 }
 ```
 
-Add `TestUpdateIssueReturnsShortConfirmation` with the same shape through `tack_update_issue`.
-
-- [ ] **Step 2: Run to confirm failure**
-
-Run: `make test-integration`
-Expected: FAIL. The response is over 10 KB because it repeats the description.
-
-- [ ] **Step 3: Implement the renderer**
+- [ ] Implement the renderer:
 
 ```go
 package tools
@@ -767,8 +689,7 @@ import (
 	"goodkind.io/tack/internal/domain/node"
 )
 
-// renderWriteConfirmation reports a successful write without repeating
-// property values. Callers read the full node with tack_get_*.
+// renderWriteConfirmation omits property values; tack_get_* returns the full node.
 func renderWriteConfirmation(rc *renderCtx, verb string, view *node.NodeView, changedFields []string) string {
 	reference := identifierFor(view, rc)
 	if reference == "" {
@@ -800,32 +721,27 @@ func changedFieldNames(name *string, props map[string]json.RawMessage) []string 
 }
 ```
 
-- [ ] **Step 4: Use it.** In `createHandler` return `successText(renderWriteConfirmation(rc, "Created", result.View, changedFieldNames(&name, rawProps)), instr)`. In `updateHandler` return `renderWriteConfirmation(rc, "Updated", view, changedFieldNames(in.Name, rawProps))`. In the reference setter return `renderWriteConfirmation(rc, "Updated", view, []string{def.Name})`.
+Use `successText(renderWriteConfirmation(rc, "Created", result.View,
+changedFieldNames(&name, rawProps)), instr)` for create,
+`renderWriteConfirmation(rc, "Updated", view, changedFieldNames(in.Name, rawProps))`
+for update, and `renderWriteConfirmation(rc, "Updated", view, []string{def.Name})`
+for the reference setter.
 
-- [ ] **Step 5: Run the tests to confirm they pass**
-
-Run: `make test-integration && make test-unit`
-Expected: PASS. Update unit tests that asserted full-node output from create or update to assert the confirmation.
-
-- [ ] **Step 6: Commit**
+- [ ] Require `make test-integration && make test-unit` success. Update tests
+  that require full-node write output to require confirmation. Commit:
 
 ```bash
 git add internal/adapters/mcp/tools internal/test/integration
 git commit -S -m "Return short confirmations from MCP create, update, and set tools (TACK-508)"
 ```
 
-### Task 5: Bounded describe, single name, byte cap, and guide text
+## Task 5: Bound describe and response text
 
-**Files:**
-- Modify: `internal/adapters/mcp/tools/workspace.go:72-93`, `render_collection.go:20-41,89-106`, `templates/workspace_describe.md.tmpl`
-- Modify: `internal/adapters/mcp/tools/response.go:13-24`
-- Modify: `internal/adapters/mcp/tools/templates/getting_started.md.tmpl`
-- Test: `internal/test/integration/mcp_describe_test.go`
+Update workspace.go:72-93, render_collection.go:20-41,89-106,
+workspace_describe.md.tmpl, response.go:13-24, and getting_started.md.tmpl.
+Add integration/mcp_describe_test.go.
 
-**Interfaces:**
-- Produces: `const maxSuccessTextBytes = 32 * 1024`, `func capText(text string) string`, `nodeTypeSummary.ChildCount int`
-
-- [ ] **Step 1: Write the failing tests**
+- [ ] Add these tests and require integration failure:
 
 ```go
 func TestDescribeWorkspaceCountsChildrenPerType(t *testing.T) {
@@ -865,16 +781,12 @@ func TestListCommentsPrintsNameOnce(t *testing.T) {
 }
 ```
 
-Add `CreateIssue(t, name) string` to the harness; it returns the printed reference from the confirmation.
-
-- [ ] **Step 2: Run to confirm failure**
-
-Run: `make test-integration`
-Expected: FAIL on both tests.
-
-- [ ] **Step 3: Count children per type.** In the describe handler, replace the org-wide `reader.List` with one `ListPage` per summarized type, `ByProperty` `parent_id` equal to the workspace ID and `Limit: maxListLimit`. Store `len(page.Views)` in `ChildCount` and print `Direct children: N` (or `N+` when `NextCursor` is set) in each type item. Remove the `Children` section from `workspace_describe.md.tmpl` and `renderWorkspaceDescribe`.
-
-- [ ] **Step 4: Print the name once.** In `nodeListItem`, add the `Name` field only when the title came from a reference:
+Add harness `CreateIssue(t, name) string`, returning its confirmation reference.
+For each summarized type, replace org-wide List with ListPage using `ByProperty`
+`parent_id` equal to workspace ID and `Limit: maxListLimit`. Store
+`len(page.Views)` in `nodeTypeSummary.ChildCount int`. Print `Direct children: N`
+or `N+` with a nonempty NextCursor. Remove the Children template section and
+renderWorkspaceDescribe code. Add the Name field only when the title uses a reference:
 
 ```go
 	fields := []markdownField{markdownCodeFieldValue("Type", view.NodeType)}
@@ -886,12 +798,10 @@ Expected: FAIL on both tests.
 	}
 ```
 
-- [ ] **Step 5: Add the byte cap**
+- [ ] Add the response byte cap:
 
 ```go
-// maxSuccessTextBytes bounds every tool response. Paging keeps normal output
-// far below it; the cap stops a single oversized property from flooding an
-// agent's context.
+// maxSuccessTextBytes limits tool text, including oversized individual properties.
 const maxSuccessTextBytes = 32 * 1024
 
 const truncationNotice = "\n\nOutput truncated at 32 KB. Narrow the request, lower `limit`, or use `cursor`."
@@ -908,54 +818,46 @@ func capText(text string) string {
 }
 ```
 
-Call `capText(text)` in `successText` before building the result. Add `TestGetIssueCapsHugeDescription` that creates an issue with a 100 KB description, calls `tack_get_issue`, and asserts the text ends with the truncation notice and is at most `32*1024 + len(notice)` bytes.
+Invoke capText in successText before constructing results. Test a 100 KB issue
+description through tack_get_issue. Require the notice suffix and at most
+`32*1024 + len(notice)` bytes.
 
-- [ ] **Step 6: Update the guide.** In `getting_started.md.tmpl`:
-  1. Under "Read workflows", state that list tools return 25 rows by default, accept `limit` up to 100, and print `Next cursor` when more rows exist; pass it back as `cursor`.
-  2. Under "Response format", state that create, update, and set tools return a short confirmation, and `tack_get_<tool-token>` returns the full node.
-  3. In "Orientation sequence" step 2, replace "the direct `children` of the workspace" with "a count of direct children per node type".
-  Update the string assertions in `mcp_ergonomics_test.go:62-79,119-132` to match.
-
-- [ ] **Step 7: Run all tests**
-
-Run: `make build && make test-unit && make test-integration`
-Expected: PASS.
-
-- [ ] **Step 8: Commit**
+- [ ] Update getting-started guidance: lists default to 25, accept up to 100,
+  and print Next cursor for continuation as cursor. Writes return short
+  confirmations; tack_get_<tool-token> returns full nodes. Replace orientation
+  step 2's direct children enumeration with counts by node type. Update
+  mcp_ergonomics_test.go:62-79,119-132.
+- [ ] Require `make build && make test-unit && make test-integration` success
+  and commit:
 
 ```bash
 git add internal/adapters/mcp/tools internal/test/integration
 git commit -S -m "Count workspace children, print comment names once, and cap MCP response size (TACK-508)"
 ```
 
-### Task 6: Datagen coverage and release (TACK-508)
+## Task 6: Generate paging checks and release TACK-508
 
-- [ ] **Step 1: Add datagen paging coverage.** In `internal/datagen/generate_search_checks.go` add `func (g *Generator) verifyListPaging(ctx context.Context, workspace WorkspaceIdentity, projectReference string) error`. It calls `tack_list_issues` with `limit: 5`, requires `Next cursor` in the text when the project has more than 5 issues, calls again with that cursor, and returns an error when the second page repeats a reference from the first. Call it from `Generator.Run` after issues are generated.
-- [ ] **Step 2: Run datagen locally**
+- [ ] In generate_search_checks.go, add
+  `func (g *Generator) verifyListPaging(ctx context.Context, workspace WorkspaceIdentity, projectReference string) error`.
+  Request tack_list_issues with limit 5. Above five issues, require Next cursor,
+  continue once, and reject repeated references. Invoke verifyListPaging from
+  Generator.Run after issue creation.
+- [ ] With `TACK_DATAGEN_ALLOW_TARGET=local`, require exit 0 from
+  `docker compose -f docker-compose.test.yml run --rm app ops qa datagen seed --scale small --commit`.
+- [ ] Commit, open a PR, and merge after CI. Deploy QA and run AGENTS.md datagen.
+  Verify one 25-row TACK issue page with a cursor through MCP. Deploy production
+  with `./server ops deploy`, repeat, then close TACK-508.
 
-Run: `docker compose -f docker-compose.test.yml run --rm app ops qa datagen seed --scale small --commit` with `TACK_DATAGEN_ALLOW_TARGET=local`.
-Expected: exit 0.
-- [ ] **Step 3: Commit, open a pull request, and merge after CI passes.**
-- [ ] **Step 4: Deploy to QA.** Run the QA datagen commands from AGENTS.md. On QA, call `tack_list_issues` for `TACK` through an MCP client and confirm one page of 25 rows and a cursor.
-- [ ] **Step 5: Deploy to production with `./server ops deploy`,** repeat the Step 4 check, and set TACK-508 to `TACK::Done`.
+## Task 7: Report search unavailability
 
----
+Update domain/search/searcher.go, adapters/search/search.go:12-20,
+tools/search.go:59-62, and response.go classifyError. Add
+`var ErrUnavailable = errors.New("search backend unavailable")` in domainsearch
+and integration/mcp_search_test.go. Before Task 9, the test stack lacks Meilisearch
+and BuildGraph selects Noop.
 
-## Phase B: Make keyword search work (TACK-509)
-
-### Task 7: Report an unavailable search backend
-
-**Files:**
-- Modify: `internal/domain/search/searcher.go`
-- Modify: `internal/adapters/search/search.go:12-20`
-- Modify: `internal/adapters/mcp/tools/search.go:59-62`
-- Modify: `internal/adapters/mcp/tools/response.go` `classifyError`
-- Test: `internal/test/integration/mcp_search_test.go`
-
-**Interfaces:**
-- Produces: `var ErrUnavailable = errors.New("search backend unavailable")` in `domainsearch`.
-
-- [ ] **Step 1: Write the failing test.** The test stack has no Meilisearch until Task 9, so `BuildGraph` returns `Noop`.
+- [ ] Add the test and require integration failure from the current successful
+  `0 results` response:
 
 ```go
 func TestSearchReportsUnavailableBackend(t *testing.T) {
@@ -973,37 +875,27 @@ func TestSearchReportsUnavailableBackend(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run to confirm failure**
-
-Run: `make test-integration`
-Expected: FAIL. The call succeeds with `0 results`.
-
-- [ ] **Step 3: Implement.** Add `ErrUnavailable` to `searcher.go`. Change `Noop.Search` to `return nil, nil, domainsearch.ErrUnavailable` and fix its doc comment to say search reports the backend as unavailable. Add a case to `classifyError`:
+- [ ] Make Noop.Search return `nil, nil, domainsearch.ErrUnavailable`, update
+  its comment, and classify it:
 
 ```go
 	case errors.Is(err, domainsearch.ErrUnavailable):
 		return recoverableError("Search is unavailable because the search backend is not connected. Use tack_list_<plural> with filters, or yield to the user")
 ```
 
-- [ ] **Step 4: Run to confirm pass,** then commit:
+- [ ] Require the test to pass and commit:
 
 ```bash
 git commit -S -m "Report an unavailable search backend from tack_search instead of zero results (TACK-509)"
 ```
 
-### Task 8: Metadata-driven search documents and searchable attributes
+## Task 8: Derive searchable text from metadata
 
-**Files:**
-- Create: `internal/service/search_doc.go`
-- Modify: `internal/service/node.go:345-359` (delete `searchDocFromView`), its callers in `node.go:151` and `node_create_effects.go:13-22`
-- Modify: `internal/adapters/search/meilisearch.go:32-53`
-- Modify: `internal/runtime/graph.go:132-144`
-- Test: `internal/service/search_doc_test.go`
+Create service/search_doc.go and search_doc_test.go. Delete searchDocFromView
+from node.go:345-359 and update calls at node.go:151 and
+node_create_effects.go:13-22. Update meilisearch.go:32-53 and graph.go:132-144.
 
-**Interfaces:**
-- Produces: `func SearchDocFromView(view *node.NodeView, defs []*node.PropertyDef) *domainsearch.NodeDoc` (exported for Task 10), `var searchableAttributes = []string{"name", "props"}`.
-
-- [ ] **Step 1: Write the failing test.** This is a pure function over real domain values, so no fakes are involved.
+- [ ] Add this real-domain-value test and require undefined SearchDocFromView:
 
 ```go
 func TestSearchDocKeepsTextPropertiesOnly(t *testing.T) {
@@ -1022,7 +914,7 @@ func TestSearchDocKeepsTextPropertiesOnly(t *testing.T) {
 	doc := SearchDocFromView(view, defs)
 
 	if _, ok := doc.Props["state_id"]; ok {
-		t.Fatal("uuid property was indexed")
+		t.Fatal("search indexed the UUID property")
 	}
 	if string(doc.Props["description"]) != `"Restore the ledger"` {
 		t.Fatalf("description = %s", doc.Props["description"])
@@ -1030,19 +922,15 @@ func TestSearchDocKeepsTextPropertiesOnly(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run to confirm failure**
+Use make test-unit, adding service packages if its selection only includes ops.
 
-Run: `make test-unit` (add `./internal/service/...` to the unit target if it only covers `./internal/ops/...`).
-Expected: FAIL with `undefined: SearchDocFromView`.
-
-- [ ] **Step 3: Implement**
+- [ ] Implement projection:
 
 ```go
 package service
 
-// searchablePropertyTypes are the property types whose values are words a
-// person would type into search. UUID, number, date, and checkbox values are
-// excluded because they never match a keyword query.
+// searchablePropertyTypes selects text-like values for keyword queries.
+// Keyword projection excludes UUID, number, date, and checkbox values.
 var searchablePropertyTypes = map[node.PropertyType]bool{
 	node.PropertyTypeText:        true,
 	node.PropertyTypeSelect:      true,
@@ -1050,8 +938,7 @@ var searchablePropertyTypes = map[node.PropertyType]bool{
 	node.PropertyTypeURL:         true,
 }
 
-// SearchDocFromView builds the search document for a view, keeping only
-// properties whose definition has a searchable type.
+// SearchDocFromView includes properties with searchable definition types.
 func SearchDocFromView(view *node.NodeView, defs []*node.PropertyDef) *domainsearch.NodeDoc {
 	doc := &domainsearch.NodeDoc{
 		ID:       view.ID.String(),
@@ -1078,9 +965,12 @@ func SearchDocFromView(view *node.NodeView, defs []*node.PropertyDef) *domainsea
 }
 ```
 
-In `NodeService.Update` and `indexCreateSearch`, load `s.propertyDefs.List(ctx, view.OrgID)` and call `SearchDocFromView`. Log and skip indexing on a property def read error, matching the existing warn-and-continue behavior.
-
-- [ ] **Step 4: Set searchable attributes.** Rename `EnsureIndex` parameters to `EnsureIndex(collection string, filterableAttributes, searchableAttributes []string) error`, and after the filterable update add:
+In NodeService.Update and indexCreateSearch, read
+`s.propertyDefs.List(ctx, view.OrgID)` and invoke SearchDocFromView. Preserve
+warn-and-skip behavior after definition read failure. Set
+`var searchableAttributes = []string{"name", "props"}`. Change EnsureIndex to
+`EnsureIndex(collection string, filterableAttributes, searchableAttributes []string) error`
+and add after filterable setup:
 
 ```go
 	searchable := append([]string(nil), searchableAttributes...)
@@ -1089,23 +979,22 @@ In `NodeService.Update` and `indexCreateSearch`, load `s.propertyDefs.List(ctx, 
 	}
 ```
 
-In `buildSearcher` pass `[]string{"name", "props"}`. The order ranks a name match above a property match.
+Pass `[]string{"name", "props"}` from buildSearcher to rank names above properties.
 
-- [ ] **Step 5: Run `make build && make test-unit`,** then commit:
+- [ ] Require `make build && make test-unit` success and commit:
 
 ```bash
 git commit -S -m "Index only searchable property types and rank name above properties (TACK-509)"
 ```
 
-### Task 9: Meilisearch in the test stack and an end-to-end search test
+## Task 9: Test real Meilisearch
 
-**Files:**
-- Modify: `docker-compose.test.yml`
-- Test: `internal/test/integration/mcp_search_test.go`
+Copy the service from docker-compose.yml:247-280 into the test stack without
+production volumes. Set `MEILI_ENV: development`, a test master key,
+`MEILI_URL: http://meilisearch:7700`, and MEILI_MASTER_KEY on the runner. Add
+service_healthy depends_on. Preserve the unavailable test's t.Setenv override.
 
-- [ ] **Step 1: Add the service.** Copy the `meilisearch` service block from `docker-compose.yml:247-280` into `docker-compose.test.yml`, drop production volumes, set `MEILI_ENV: development` and a test master key, and set `MEILI_URL: http://meilisearch:7700` and `MEILI_MASTER_KEY` on the runner. Add `meilisearch` to the runner's `depends_on` with `condition: service_healthy`. Keep `TestSearchReportsUnavailableBackend` working through its `t.Setenv` override.
-
-- [ ] **Step 2: Write the test**
+- [ ] Add and pass this integration test:
 
 ```go
 func TestSearchFindsIssueByTitleWord(t *testing.T) {
@@ -1126,32 +1015,23 @@ func TestSearchFindsIssueByTitleWord(t *testing.T) {
 }
 ```
 
-Meilisearch indexes asynchronously, so the test polls. Put `waitFor(t, timeout, check) bool` in `internal/test/integration/wait.go`; it retries `check` every 200 ms until it returns true or the timeout passes.
-
-- [ ] **Step 3: Run**
-
-Run: `make test-integration`
-Expected: PASS for both search tests.
-
-- [ ] **Step 4: Commit**
+Implement `waitFor(t, timeout, check) bool` in integration/wait.go with 200 ms
+polling until success or timeout, matching asynchronous indexing. Require both
+search tests to pass with make test-integration and commit:
 
 ```bash
 git commit -S -m "Add Meilisearch to the test stack and test tack_search end to end (TACK-509)"
 ```
 
-### Task 10: `ops search-reindex` backfill
+## Task 10: Backfill search
 
-**Files:**
-- Modify: `internal/domain/search/searcher.go`, `internal/adapters/search/meilisearch.go`, `internal/adapters/search/search.go`
-- Create: `internal/ops/search_reindex.go`
-- Modify: `internal/audit` verb list (add `VerbOpsSearchReindex` next to `VerbOpsReindex`)
-- Test: `internal/test/integration/search_reindex_test.go`
+Extend the Searcher interface, meilisearch.go, and Noop with IndexBatch. Add
+ops/search_reindex.go, VerbOpsSearchReindex beside VerbOpsReindex, and
+integration/search_reindex_test.go. Register `search-reindex` as
+`./server ops batch search-reindex --execute`.
 
-**Interfaces:**
-- Consumes: `NodeReader.ListPage`, `service.SearchDocFromView`.
-- Produces: `Searcher.IndexBatch(ctx context.Context, collection string, docs []*NodeDoc) error`; ops operation `search-reindex`, run as `./server ops batch search-reindex --execute`.
-
-- [ ] **Step 1: Write the failing test.** Create an issue with `noopSearcher`, so Meilisearch never sees it, then run the operation and search.
+- [ ] Create through noopSearcher, then backfill and query. Require the test
+  to fail initially with unknown operation:
 
 ```go
 func TestSearchReindexIndexesExistingNodes(t *testing.T) {
@@ -1182,16 +1062,11 @@ func TestSearchReindexIndexesExistingNodes(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run to confirm failure**
-
-Run: `make test-integration`
-Expected: FAIL with an unknown operation error.
-
-- [ ] **Step 3: Add `IndexBatch`.** Add it to the `Searcher` interface. `Noop.IndexBatch` returns `ErrUnavailable`. The Meilisearch client:
+- [ ] Add `Searcher.IndexBatch(ctx context.Context, collection string, docs []*NodeDoc) error`.
+  Noop returns ErrUnavailable. Implement the client:
 
 ```go
-// IndexBatch adds or replaces docs in one task and waits for the task, so a
-// backfill reports rejected documents instead of dropping them silently.
+// IndexBatch waits for completion and reports rejected document tasks.
 func (c *Client) IndexBatch(ctx context.Context, collection string, docs []*domainsearch.NodeDoc) error {
 	if len(docs) == 0 {
 		return nil
@@ -1213,9 +1088,11 @@ func (c *Client) IndexBatch(ctx context.Context, collection string, docs []*doma
 }
 ```
 
-Check `WaitForTask` and `TaskStatusSucceeded` names against `/Users/agoodkind/go/pkg/mod/github.com/meilisearch/meilisearch-go@v0.36.3` before writing; set `indexTaskPollInterval = 250 * time.Millisecond`. Add `IndexBatch` to `internal/test/integration/noop_searcher.go`.
+Check API declarations against
+`/Users/agoodkind/go/pkg/mod/github.com/meilisearch/meilisearch-go@v0.36.3`.
+Set `indexTaskPollInterval = 250 * time.Millisecond` and extend noop_searcher.go.
 
-- [ ] **Step 4: Implement the operation** in `internal/ops/search_reindex.go`, following `reindex.go`:
+- [ ] Implement the operation following reindex.go:
 
 ```go
 const searchReindexPageSize = 500
@@ -1289,43 +1166,40 @@ func reindexTypeSearch(ctx context.Context, env *Env, searcher *searchadapter.Cl
 }
 ```
 
-Unlike `reindex.go`, this returns the first error instead of logging and continuing, so an operator sees a partial backfill as a failure. Split into `search_reindex.go` and `search_reindex_type.go` if the file passes 200 lines. Confirm the operation appears in `./server ops batch --help` and that running it without `--execute` prints a dry run and writes nothing.
+Return the first failure rather than logging and continuing. Split into
+search_reindex.go and search_reindex_type.go before exceeding 200 lines.
+Check registration with `./server ops batch --help`; without --execute,
+require a printed dry run without writes.
 
-- [ ] **Step 5: Run to confirm pass**
-
-Run: `make build && make test-unit && make test-integration`
-Expected: PASS, including `cli_execute_gate_test.go`.
-
-- [ ] **Step 6: Commit**
+- [ ] Require `make build && make test-unit && make test-integration`, including
+  cli_execute_gate_test.go, and commit:
 
 ```bash
 git commit -S -m "Add ops batch search-reindex to backfill Meilisearch from FoundationDB (TACK-509)"
 ```
 
-### Task 11: Datagen search check and release (TACK-509)
+## Task 11: Generate search checks and release TACK-509
 
-- [ ] **Step 1: Add the check.** In `generate_search_checks.go` add `func (g *Generator) verifySearchFindsIssue(ctx context.Context, token string, workspace WorkspaceIdentity, reference, titleWord string) error`. It calls `tack_search` with `query: titleWord` up to 20 times, 500 ms apart, and returns an error naming the reference when the result text never contains it. Call it once per project after issues are generated, using the first word of the first issue name.
-- [ ] **Step 2: Run datagen locally** as in Task 6 Step 2. Expected: exit 0.
-- [ ] **Step 3: Commit, open a pull request, merge after CI passes.**
-- [ ] **Step 4: Find the production cause.** Read the app logs on production for `meilisearch.connected` or `meilisearch.setup_failed` since the last restart, and record which one appears in the TACK-509 description.
-- [ ] **Step 5: Deploy to QA.** Run `docker compose run --rm app ops batch search-reindex --execute`. Confirm `tack_search` for `backup` returns backup tickets.
-- [ ] **Step 6: Deploy to production,** run the same reindex command, repeat the Step 5 check, and set TACK-509 to `TACK::Done`.
+Add `func (g *Generator) verifySearchFindsIssue(ctx context.Context, token string,
+workspace WorkspaceIdentity, reference, titleWord string) error` in
+generate_search_checks.go. Query tack_search up to 20 times, 500 ms apart,
+and report the reference on failure. Invoke verifySearchFindsIssue once after
+issue creation per project using the first issue name's first word.
+Run Task 6's local datagen, commit, open a PR, and merge after CI.
+Read production logs since restart for `meilisearch.connected` or
+`meilisearch.setup_failed` and record the observed cause on TACK-509.
+On QA, run `docker compose run --rm app ops batch search-reindex --execute`
+and require backup matches. Deploy production, repeat the command and query,
+and set the ticket Done.
 
----
+## Task 12: Seed organization synonym nodes
 
-## Phase C: Per-org synonyms (TACK-510)
+Update domain/node/types.go and service/seed.go:14-29,75+,306-318. Add
+integration/mcp_synonym_set_test.go. Define node type synonym_set, list token
+synonym_sets, feature has_synonyms, and a text terms property applicable to
+that feature. Terms stores comma-separated equivalents, such as `db, database`.
 
-### Task 12: `synonym_set` node type
-
-**Files:**
-- Modify: `internal/domain/node/types.go` (add `FeatureHasSynonyms`)
-- Modify: `internal/service/seed.go:14-29,75+,306-318`
-- Test: `internal/test/integration/mcp_synonym_set_test.go`
-
-**Interfaces:**
-- Produces: node type key `synonym_set` (tools `tack_create_synonym_set` and siblings, list token `synonym_sets`), feature `has_synonyms`, property `terms` of type `text` that applies to `has_synonyms`. `terms` holds comma-separated equivalent terms, for example `db, database`.
-
-- [ ] **Step 1: Write the failing test**
+- [ ] Add the failing unknown-tool regression:
 
 ```go
 func TestCreateSynonymSetThroughMCP(t *testing.T) {
@@ -1343,15 +1217,13 @@ func TestCreateSynonymSetThroughMCP(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run to confirm failure.** Expected: FAIL with an unknown tool.
-
-- [ ] **Step 3: Seed it.** Add `FeatureHasSynonyms Feature = "has_synonyms"` beside the other feature constants. In `seed.go` add `nodeTypeSynonymSet = "synonym_set"`, add `nodeTypeSynonymSet` to the workspace `canContain`, and add the spec row:
+- [ ] Add `FeatureHasSynonyms Feature = "has_synonyms"`,
+  `nodeTypeSynonymSet = "synonym_set"`, and workspace containment for that type.
+  Add the seed row and definition:
 
 ```go
 		{"synonym_set", "synonym_sets", "Synonym Set", nodeTypeSynonymSet, node.Features{node.FeatureHasSynonyms}, scopedName, nil, []string{nodeTypeWorkspace}, nil},
 ```
-
-Add the property def:
 
 ```go
 		{
@@ -1364,28 +1236,27 @@ Add the property def:
 		},
 ```
 
-- [ ] **Step 4: Re-seed existing orgs.** `Seeder.SeedOrg` is idempotent. Find the command that calls `SeedOrg` for existing orgs with `search_code` on this repository ("call SeedOrg for existing orgs"). If none exists, add `ops batch seed-orgs` in `internal/ops/seed_orgs.go` following Task 10 Step 4: it lists orgs with `listOrgIDs` and calls `service.NewSeeder(env.Stores.PropertyDefs, env.Stores.NodeTypes).SeedOrg` for each.
+Find existing-org SeedOrg invocation through search_code. If absent, add
+`ops batch seed-orgs` in ops/seed_orgs.go using listOrgIDs and
+`service.NewSeeder(env.Stores.PropertyDefs, env.Stores.NodeTypes).SeedOrg`.
+Seeder.SeedOrg permits identical reruns.
 
-- [ ] **Step 5: Run to confirm pass,** then commit:
+- [ ] Require success and commit:
 
 ```bash
 git commit -S -m "Add synonym_set node type with a terms property to the org seed (TACK-510)"
 ```
 
-### Task 13: Expand search queries with synonyms
+## Task 13: Expand synonym queries
 
-**Files:**
-- Create: `internal/adapters/mcp/tools/search_synonyms.go`
-- Create: `internal/adapters/search/meilisearch_multi.go`
-- Modify: `internal/domain/search/searcher.go`, `internal/adapters/search/search.go`, `internal/test/integration/noop_searcher.go`
-- Modify: `internal/adapters/mcp/tools/search.go:55-65`
-- Test: `internal/test/integration/mcp_search_synonyms_test.go`
+Create tools/search_synonyms.go and adapters/search/meilisearch_multi.go.
+Update the Searcher interface, Noop, integration noop_searcher.go, and
+tools/search.go:55-65. Add integration/mcp_search_synonyms_test.go.
+Declare `Searcher.SearchVariants(ctx context.Context, collection string, queries []string, filters map[string]string, limit int) ([]NodeDoc, error)`.
 
-**Interfaces:**
-- Consumes: `NodeReader.ListPage`, `FeatureHasSynonyms`.
-- Produces: `Searcher.SearchVariants(ctx context.Context, collection string, queries []string, filters map[string]string, limit int) ([]NodeDoc, error)`, `func expandQuery(query string, synonymSets [][]string) []string`, `const maxQueryVariants = 8`.
-
-- [ ] **Step 1: Write the failing tests**
+- [ ] Add these tests. Require TestSearchUsesOrgSynonyms to fail initially.
+  Ensure each NewMCPHarness creates a distinct org, correcting shared bootstrap
+  if necessary:
 
 ```go
 func TestSearchUsesOrgSynonyms(t *testing.T) {
@@ -1438,21 +1309,15 @@ func TestSynonymsDoNotCrossOrgs(t *testing.T) {
 }
 ```
 
-`NewMCPHarness` must create a separate org per call for the second test. Confirm that in Task 1 and adjust it if `BootstrapIdentities` reuses one org.
-
-- [ ] **Step 2: Run to confirm failure.** Expected: `TestSearchUsesOrgSynonyms` FAILS.
-
-- [ ] **Step 3: Add query expansion**
+- [ ] Implement bounded expansion:
 
 ```go
 package tools
 
-// maxQueryVariants bounds the federated search fan-out so a large synonym
-// set cannot multiply query cost.
+// maxQueryVariants limits the number of synonym queries per search.
 const maxQueryVariants = 8
 
-// expandQuery returns the original query plus one variant per synonym
-// substitution of a whole query word, up to maxQueryVariants.
+// expandQuery adds whole-word substitutions up to maxQueryVariants.
 func expandQuery(query string, synonymSets [][]string) []string {
 	variants := []string{query}
 	seen := map[string]bool{strings.ToLower(query): true}
@@ -1491,13 +1356,19 @@ func containsFold(terms []string, word string) bool {
 }
 ```
 
-Add `loadSynonymSets(ctx, resolver, workspace) ([][]string, error)`. It finds node types whose `Features` include `FeatureHasSynonyms` in `resolver.typeIndex`, and for each calls `ListPage` with `ByProperty` `parent_id` equal to the workspace ID and `Limit: maxListLimit`. It finds the property to read by listing the org's property defs and taking the one whose `AppliesToFeatures` includes `has_synonyms`. It splits the value on commas and trims spaces. Multi-word terms are skipped because `expandQuery` substitutes single words.
+Implement `loadSynonymSets(ctx, resolver, workspace) ([][]string, error)`.
+Select types in resolver.typeIndex with FeatureHasSynonyms and call ListPage
+for each with parent_id equal to the workspace and Limit maxListLimit.
+Select the org property definition with has_synonyms in AppliesToFeatures.
+Split its value on commas, trim spaces, and omit multi-word terms because
+expandQuery replaces single words.
 
-- [ ] **Step 4: Add federated search.** In `meilisearch_multi.go`:
+- [ ] Implement SearchVariants and extract buildFilter/decodeHits from Search
+  into the same file. Both search methods use those helpers. Noop.SearchVariants
+  returns ErrUnavailable:
 
 ```go
-// SearchVariants runs one federated multi-search with one query per variant
-// and returns hits merged and ranked by Meilisearch.
+// SearchVariants submits variants together; Meilisearch merges and ranks hits.
 func (c *Client) SearchVariants(ctx context.Context, collection string, queries []string, filters map[string]string, limit int) ([]domainsearch.NodeDoc, error) {
 	filter := buildFilter(filters)
 	requests := make([]*meilisearch.SearchRequest, 0, len(queries))
@@ -1515,9 +1386,7 @@ func (c *Client) SearchVariants(ctx context.Context, collection string, queries 
 }
 ```
 
-Move the filter-string loop and hit decoding out of `Search` into `buildFilter` and `decodeHits` in the same file, and have `Search` call them. `Noop.SearchVariants` returns `ErrUnavailable`.
-
-- [ ] **Step 5: Use it in `tack_search`.** Replace the `searcher.Search` call:
+Replace tack_search's searcher.Search invocation with:
 
 ```go
 			synonymSets, err := loadSynonymSets(ctx, resolver, ws)
@@ -1527,23 +1396,21 @@ Move the filter-string loop and hit decoding out of `Search` into `buildFilter` 
 			docs, err := searcher.SearchVariants(ctx, "nodes", expandQuery(query, synonymSets), filters, maxListLimit)
 ```
 
-The Task 3 `limit` argument can replace `maxListLimit` here if Task 3 added paging to `tack_search`.
+Use Task 3's limit rather than maxListLimit if public search gains paging there.
 
-- [ ] **Step 6: Run to confirm pass**
-
-Run: `make build && make test-unit && make test-integration`
-Expected: PASS.
-
-- [ ] **Step 7: Commit**
+- [ ] Require `make build && make test-unit && make test-integration` success
+  and commit:
 
 ```bash
 git commit -S -m "Expand tack_search queries with org synonym sets through federated search (TACK-510)"
 ```
 
-### Task 14: Datagen, guide, and release (TACK-510)
+## Task 14: Generate synonym checks and release TACK-510
 
-- [ ] **Step 1: Add datagen coverage.** In `generate_search_checks.go` add `verifySynonymSearch`: create a synonym set `db, database` in each workspace, create an issue named `Database datagen check`, and require that `tack_search` for `db` returns it within 10 seconds.
-- [ ] **Step 2: Update the guide.** Add a sentence to the "Search" section of `getting_started.md.tmpl`: `tack_search` also matches words listed together in the workspace's synonym sets, which are managed with `tack_create_synonym_set`.
-- [ ] **Step 3: Run datagen locally, commit, open a pull request, merge after CI passes.**
-- [ ] **Step 4: Deploy to QA.** Re-seed orgs (Task 12 Step 4), create a synonym set, and confirm the synonym search works.
-- [ ] **Step 5: Deploy to production,** re-seed orgs, repeat the check, and set TACK-510 to `TACK::Done`.
+Add verifySynonymSearch in generate_search_checks.go. Create `db, database`
+synonyms per workspace and an issue `Database datagen check`. Require a db
+query to find it within ten seconds. Explain synonym-set matching and
+`tack_create_synonym_set` in getting_started.md.tmpl's Search section.
+Run local datagen, commit, open a PR, and merge after CI. Reseed QA orgs with
+Task 12, create a synonym set, and verify search. Deploy production, reseed,
+repeat the check, and set TACK-510 Done.

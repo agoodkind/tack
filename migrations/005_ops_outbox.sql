@@ -1,16 +1,13 @@
--- The ops outbox is transactional, so an operator command's audit event
--- commits with the command's own work and the two can never disagree. A relay
--- inside the audit-consumer drains committed rows to Kafka, and the consumer
--- projects them into the ledger as the only writer of audit.events.
+-- An operator command commits its audit event and database changes in one
+-- transaction. The audit-consumer relay publishes committed outbox events to
+-- Kafka. The consumer writes those events to audit.events as its only writer.
 --
--- Privileges are split so an operator cannot erase their own audit record
--- before it ships. The table belongs to audit_writer, which is a NOLOGIN role
--- no command authenticates as. A command may only INSERT. The relay logs in as
--- tack_audit_writer, inherits audit_writer, and so may read and delete.
+-- Operator commands can INSERT but cannot change or delete pending events.
+-- The NOLOGIN audit_writer role owns the table. The relay logs in as
+-- tack_audit_writer and inherits audit_writer's read and delete permissions.
 --
--- Every statement is idempotent. YugabyteDB keeps completed DDL when a
--- transaction rolls back, so an interrupted migration can leave some of these
--- objects behind, and a retry must reconcile rather than fail.
+-- Every statement supports retries. YugabyteDB keeps completed DDL when a
+-- transaction rolls back. A retry must reconcile any existing objects.
 
 -- +goose Up
 -- +goose StatementBegin

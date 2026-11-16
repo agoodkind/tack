@@ -12,26 +12,20 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// smallObjectMaxBytes bounds what getObjectBytes will hold in memory. Its
-// callers read status markers, which are a few hundred bytes of JSON, so this
-// is generous by four orders of magnitude and still small enough that a
-// corrupted or hostile object cannot exhaust the process. A record with a
-// larger known bound reads through getObjectBytesUpTo with that bound; use
-// [getObjectToFile] for artifacts that are legitimately large.
+// smallObjectMaxBytes limits memory use for small records such as JSON
+// status markers. Larger bounded records use getObjectBytesUpTo; large
+// artifacts use getObjectToFile. The limit prevents hostile or corrupt
+// objects from exhausting the staleness check's memory.
 const smallObjectMaxBytes = 64 * 1024
 
-// getObjectBytes downloads a small bucket/key into memory. A missing key comes
-// back as a NotFound-wrapped error without an error log, because callers probe
-// for optional objects and treat absence as a state rather than a failure. A
-// body past smallObjectMaxBytes is refused rather than read: the staleness
-// check is the mechanism that reports silence, so it must not be the thing an
-// oversized object takes down.
+// getObjectBytes downloads a small object into memory. Missing optional keys
+// return a wrapped NotFound error without an error log. Oversized objects fail
+// instead of exhausting the process that checks backup health.
 func getObjectBytes(ctx context.Context, client *s3.Client, bucket, key string) ([]byte, error) {
 	return getObjectBytesUpTo(ctx, client, bucket, key, smallObjectMaxBytes)
 }
 
-// getObjectBytesUpTo is getObjectBytes with the in-memory limit set to
-// maxBytes.
+// getObjectBytesUpTo downloads an object with the caller's memory limit.
 func getObjectBytesUpTo(
 	ctx context.Context,
 	client *s3.Client,
@@ -56,8 +50,8 @@ func getObjectBytesUpTo(
 		return nil, wrapped
 	}
 	defer out.Body.Close()
-	// Read one byte past the limit so an object sitting exactly at it still
-	// reads cleanly while anything larger is detectable without buffering it.
+	// One extra byte distinguishes an exact-limit object from a larger one
+	// without reading the entire oversized body.
 	body, err := io.ReadAll(io.LimitReader(out.Body, int64(maxBytes)+1))
 	if err != nil {
 		wrapped := fmt.Errorf("read object %s/%s: %w", bucket, key, err)

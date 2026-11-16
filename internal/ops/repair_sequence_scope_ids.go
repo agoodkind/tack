@@ -31,10 +31,11 @@ func runRepairSequenceScopeIDs(ctx context.Context, env *Env) error {
 	return err
 }
 
-// RepairSequenceScopeIDs derives each sequence-bearing node's scope_id from its parent_id
-// chain and reclaims each moved node's rendered reference keys. The function counts writes
-// that fail with domain.ErrConflict as refused. When the count exceeds zero, the function
-// returns an error that wraps domain.ErrConflict and states the refused count.
+// RepairSequenceScopeIDs derives each sequence-bearing node's scope_id from
+// its parent_id chain and reclaims each updated node's rendered reference
+// keys. The function counts writes that fail with domain.ErrConflict as
+// refused. When the count exceeds zero, the function returns an error that
+// wraps domain.ErrConflict and states the refused count.
 func RepairSequenceScopeIDs(ctx context.Context, env *Env) (int, int, error) {
 	orgIDs, err := listOrgIDs(ctx, env)
 	if err != nil {
@@ -168,10 +169,9 @@ func repairTypeScopeIDs(
 			CreatedAt: currentNode.CreatedAt,
 			UpdatedAt: currentNode.UpdatedAt,
 		}
-		// Moving the scope changes what the node's reference renders to, so
-		// claim the keys the new scope produces. Passing none would leave the
-		// node holding its old value while nothing holds the new one, which is
-		// the silent collision this repair would otherwise create.
+		// A scope change changes the rendered reference. Claim the new scope's
+		// keys to prevent collisions. Omitting those claims would retain the
+		// old claims without reserving the new reference.
 		referenceKeys, keyErr := referenceKeysForRepairedView(
 			ctx,
 			env,

@@ -13,9 +13,9 @@ import (
 )
 
 const (
-	// networkName is the bridge every engine joins. The test process reaches
-	// an engine at its address on this network: directly from a Linux host,
-	// and by joining the network when the process itself runs in a container.
+	// networkName identifies the bridge every engine joins. Test processes
+	// connect to engine addresses directly from Linux hosts. Containerized
+	// test processes join the network before connecting.
 	networkName = "tack-testenv"
 	// managedLabel marks the network and the containers this package owns, so
 	// Down finds every engine whatever process started it.
