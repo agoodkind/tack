@@ -22,8 +22,10 @@ Complete the Phase 1 WAL correction before replacing it with a broker. Preserve
 YugabyteDB recording until the broker provides equivalent behavior. The original
 state-change requirement persists audit rows synchronously without depending
 on broker availability. The original read-class design uses asynchronous broker
-consumption. Current [audit delivery](../audit-delivery.md) uses database
-outboxes and Kafka, with audit-consumer as the sole ledger writer.
+consumption.
+
+Current [audit delivery](../audit-delivery.md) uses database outboxes and Kafka.
+Only `audit-consumer` writes the permanent ledger.
 
 ## Component relationships
 
@@ -246,8 +248,8 @@ can advance concurrently. `audit.consumer_offsets` stores
 
 ## Record events at either size
 
-Both classes publish to Kafka, and audit-consumer alone writes ledger rows
-and chain heads.
+Read and state-change events both publish to Kafka. Only `audit-consumer` writes
+ledger rows and chain heads.
 
 The original state-change sequence is:
 

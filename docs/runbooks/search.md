@@ -82,7 +82,7 @@ worker and target identities before the first member stop and after each restart
 Shard health alone does not satisfy this validation requirement. Save the first
 public error during a member stop, even if a later request succeeds.
 
-## Run the complete acceptance gates
+## Run the complete acceptance tests
 
 1. Run the complete suite against the
    [search acceptance criteria](../superpowers/specs/2026-09-19-search-acceptance.md)
@@ -95,9 +95,8 @@ public error during a member stop, even if a later request succeeds.
        -run '^TestSearch' ./internal/test/integration
    ```
 
-2. Repeat the concurrency and replacement checks three times. Use the focused
-   runner procedure with each selection and timeout below, replacing `-count=1`
-   with `-count=3`. Run these groups serially.
+2. Repeat the concurrency and replacement checks with the focused runner.
+   Use `-count=3` with each selection and timeout below. Run these groups serially.
 
    Repeated checks:
 
@@ -107,14 +106,15 @@ public error during a member stop, even if a later request succeeds.
    | Replacement and restore | `85m` | `^TestSearch(Rebuild(ExcludesOrphanNodes\|StepFitsLease\|FailsAfterPauseLimit\|DuringChanges)\|RestoreRejectsCursors\|Split(DuringChanges\|WithoutModel))$` |
    | Access, cursors, and workers | `50m` | `^TestSearch(Access(DependentsSurviveEdit\|UpdatesOlderActiveRevision\|VersionWithoutRebuild\|MembershipQueryOnly\|ResourceRefresh\|RolloutRecovery\|OnlyUpdateWithoutModel\|ChangeKeepsPendingContent)\|Cursor(ExactSortValues\|ReplayAndConcurrency\|ActualOSProcesses)\|FiltersForbiddenPagesBeforeRanking\|FinalCheckRejectsCorruptIndexedAccess\|RevokedAccessRejectsLaterResultsAndReplay\|DelayedWriter\|RuntimeIndexesThroughGraph)$` |
 
-   These selections include 24 tests and require 72 passing executions.
-   Run `^TestSearchActualOSProcessThroughput$` once with `-timeout 45m`
-   using the focused runner.
-3. Verify the terminal results for every required group. Compilation, a skipped
-   cluster group, or a successful startup does not establish search acceptance.
-   Require fixed-client throughput measurements with indexed mutations and
-   complete search sessions, zero errors, and a two-process gain above
-   unchanged-control variation before claiming a speedup.
+   Require all 24 selected tests to pass three times, for 72 executions.
+
+3. Run `^TestSearchActualOSProcessThroughput$` once with `-timeout 45m`
+   using the focused runner. Require fixed-client measurements with indexed
+   mutations and complete search sessions, zero errors, and a two-process gain
+   above unchanged-control variation before claiming a speedup.
+4. Verify the terminal results for every required group. Require every selected
+   test to execute and pass. Compilation, a skipped cluster group, or a successful
+   startup does not establish search acceptance.
 
 ## Prepare the required QA cohorts
 

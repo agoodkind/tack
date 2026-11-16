@@ -1,55 +1,73 @@
 # Audit policy
 
-Tack audits actions requested through its public interfaces. This includes
-requests from people, agents, and API tokens.
+Tack records actions that people or agents request through its APIs and operator
+commands, including requests authenticated with API tokens. Audit records
+identify who requested an action and preserve evidence of any resulting data
+changes.
 
 ## Audited actions
 
-Tack audits these classes of requested action:
+Tack audits these requested actions:
 
-- Access to user data, including reading, listing, searching, and exporting.
-- Changes to user data, relationships, accounts, credentials, and permissions.
-- Administrative actions invoked through public APIs or operator commands.
+- Reading, listing, searching, or exporting user data.
+- Changing user data, relationships, accounts, credentials, or permissions.
+- Performing administrative work through public APIs or operator commands.
 
-Each attempt record identifies the caller, requested action, target, and time
-of the attempt. An attempt record does not claim that the action succeeded.
-Audit records do not require success or failure outcomes.
+## Attempt records
+
+Before executing an audited action, Tack saves an attempt record with:
+
+- The caller who requested the action.
+- The requested action.
+- The target data or resource.
+- The time of the attempt.
+
+Tack refuses execution if it cannot save this record. An attempt record does
+not establish that the action succeeded, and audit records do not require
+success or failure outcomes.
 
 ## Data changes
 
-For each audited action that changes data, Tack preserves the affected
-records and their actual old and new values, including removals. Tack commits
-the change evidence with the database change.
+Change evidence includes the affected records and their actual old and new
+values, including removals. Tack saves a database change and its evidence
+together or saves neither.
 
-When a job performs work for a requested action, Tack retains the original
-caller and operation. Tack associates the resulting data changes with that
-operation.
+Jobs that perform a requested action associate resulting data changes with
+the original caller and action.
+
+An example request changes the title of issue 123:
+
+| Evidence | Example |
+| --- | --- |
+| Attempt | Sam requests renaming issue 123 at 10:00. |
+| Data change | Tack saves the old title “Draft” and new title “Ready” with the change. |
 
 ## Internal work
 
 Tack does not audit internal work that runs or maintains its services.
 Examples include:
 
-- Autonomous background jobs.
+- Background jobs that Tack starts without a caller's request.
 - Calls between internal services.
 - Search indexing.
-- Retries and polling.
-- Health checks and protocol discovery.
+- Internal retries and repeated checks for new work, called polling.
+- Service health checks and discovery of available protocol methods or tools.
 
 This exclusion also applies when internal work reads user data.
 
-## Recording requirements
+## Initial installation
 
-Tack saves the attempt before executing the requested action. It refuses
-execution when it cannot save the required attempt record.
+Initial installation may defer recording while it creates the required audit
+storage. Operator identity remains required during installation. Authentication
+or storage failures during ordinary operation do not qualify for this exception.
 
-Initial installation may defer recording while it creates the required
-audit storage. Operator identity remains required. Ordinary runtime
-authentication or storage failures do not qualify for this exception.
+## Protected data
 
-Audit records do not include credentials or secret values. Tack protects
-and redacts personal data according to the existing requirements.
+Audit records do not include credentials or secret values. Existing personal
+data protection and redaction requirements continue to apply.
 
-Tack preserves historical records and their verification rules. It does not
-rewrite earlier records to match this policy or reconstruct missing
-historical values.
+## Historical records
+
+Earlier audit records retain their original verification rules. Tack does not
+rewrite these records to match this policy or reconstruct historical values
+it never recorded.

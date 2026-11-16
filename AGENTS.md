@@ -55,11 +55,11 @@ Use one deploy path:
   Validate every migration, seed, backfill, and restore on QA before prod; QA is
   a fresh host with vault-sourced secrets and does not require live state
   protection.
-- The audit ledger keeps one `audit.events` table. The
-  `audit-consumer` is the single writer and continues the existing
-  per-`(org, shard)` hash chain through `audit.chain_heads`. Do not rename the
-  table, add an archive table, or create `events_v2`. Follow
-  [the audit delivery explanation](docs/audit-delivery.md).
+- Keep `audit.events` as the only permanent ledger table and `audit-consumer`
+  as its only writer. Preserve the per-`(org, shard)` hash chain through
+  `audit.chain_heads`. Do not rename the table, add an archive table, or create
+  `events_v2`. Use the [audit delivery explanation](docs/audit-delivery.md)
+  when changing event delivery.
 - Run migrations via `./server migrate` only, never on HTTP startup.
 - Build with `make build`. It runs the go-makefile pipeline (vet, golangci,
   staticcheck-extra, govulncheck) against the baseline. Do not call `go build`
@@ -273,7 +273,7 @@ running or requires recreation each time.
 3. Record every `./server ops` command through the one `clispec` audit
    choke-point; do not weaken it or bypass it per command. Keep operator
    identity pluggable via `audit.OperatorIdentitySource`. Do not add recording
-   opt-outs. Follow
+   opt-outs. Follow the
    [operator identity and audit requirements](docs/operator-identity-and-audit.md).
 4. Add `ops qa datagen` coverage in the same change for every new node type,
    property type, relationship shape, audit verb, or user-visible code path.
@@ -298,12 +298,13 @@ running or requires recreation each time.
 
 ## Auditability gate
 
-Follow the [audit policy](docs/audit.md). Before merging or releasing a change
-that affects a public operation covered by this policy, verify compliance through
-that operation and inspect its permanent audit records. Include the evidence and
-relevant test results in the PR. Require the existing `runtime audit coverage`
-check and applicable integration checks to pass before merge. Verify the accepted
-behavior on QA before production release.
+Verify changes to audited public operations against the [audit policy](docs/audit.md).
+
+1. Exercise the affected public operation and inspect its permanent audit records.
+2. Include the evidence and relevant test results in the PR.
+3. Require `runtime audit coverage` and applicable integration checks to pass
+   before merge.
+4. Verify the accepted behavior on QA before production release.
 
 ## No config files
 

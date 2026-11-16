@@ -83,7 +83,10 @@ Ordinary node updates, repairs, and fixed-metadata corrections must record chang
 
 Build the delta from the committed mutation, including transaction retries and normalized values. A rejected request must not appear as an applied value. Commit the event intent with the FoundationDB mutation; retain the existing relay, Kafka, single consumer writer, ledger identity, and hash chain.
 
-Follow the [audit policy](../../audit.md) and preserve [operator identity](../../operator-identity-and-audit.md). Keep applicable data-protection rules and secret handling. Do not rewrite historical ledger rows or fabricate missing property timestamps, authors, or values. Future recording cannot reconstruct absent history.
+Follow the [audit policy](../../audit.md) and require
+[operator identity](../../operator-identity-and-audit.md). Existing records may
+lack property timestamps, authors, or values. Future recording cannot reconstruct
+that history.
 
 ## Repair existing data separately
 

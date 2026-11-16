@@ -1,37 +1,63 @@
 # Audit delivery
 
-Tack publishes audit events from database outboxes to Apache Kafka.
-An outbox stores events that await publication. The `audit-consumer` service
-runs the relay and consumer, writes the permanent ledger in YugabyteDB, and
-updates its hash chains.
+Tack saves audit evidence as events in database outboxes, queues of events
+awaiting publication. A relay publishes these events to Apache Kafka. A consumer
+reads Kafka messages and saves the audit ledger, Tack's permanent audit records
+in YugabyteDB. Both the relay and consumer run in the `audit-consumer` service.
 
-## Outbox delivery
+```mermaid
+flowchart LR
+    Outbox["Database outbox<br/>Events awaiting publication"]
+    Kafka["Kafka<br/>Published messages"]
+    Ledger["YugabyteDB ledger<br/>Permanent audit records"]
+    Outbox -->|Relay publishes| Kafka
+    Kafka -->|Consumer saves| Ledger
+```
 
-After Kafka acknowledges publication, the relay removes accepted entries from
-the FoundationDB and YugabyteDB outboxes. Publication failures leave entries
-available for retry. Kafka acknowledgment confirms publication. Consumers
-commit the permanent ledger record afterward.
+## Publication and recording
 
-Tack configures its Kafka producer to wait for all in-sync replicas to
-acknowledge each write.
-Retries preserve event identifiers. Each ledger transaction claims an event
-identifier before appending its record. Redelivery does not append a duplicate.
+Outboxes in FoundationDB and YugabyteDB retain events until Kafka acknowledges
+publication. Tack waits for acknowledgment from every Kafka replica that
+currently keeps a synchronized copy. Publication failures leave events in the
+outbox for retry. Kafka acknowledgment confirms publication, not permanent
+ledger recording.
 
-## Chain integrity
+Retries preserve the event identifier. When saving an event, the consumer stores
+its identifier and ledger record in one database transaction, which saves both
+or neither. If the consumer has already recorded an identifier, it does not
+append another ledger record for that event, even if Kafka delivers it again.
 
-Each hash chain belongs to one organization and shard. Kafka uses that pair as
-the partition key. Consumers in the same group divide partitions among
-themselves. Before appending a record, each consumer checks the previous chain
-head and retries its batch if another writer has advanced that head.
+## Record order and integrity
 
-Ledger transactions commit ordinary event records and their database delivery
-offset together. Consumers store rejected ordinary records and their rejection
-reasons in the dead-letter table. A connection failure stops the batch for retry.
+Tack divides each organization's audit history into shards, separate sequences
+of records. Each sequence forms a hash chain: every record stores a calculated
+value, or hash, that depends on its contents and the preceding record's hash.
+Verification checks these links to detect changes to recorded history.
 
-## Large events
+Kafka uses the organization and shard to assign messages to a partition, an
+ordered sequence of messages. Consumers in one group divide these partitions
+among themselves.
 
-Large events use transport parts and a manifest that identifies the complete
-event. Consumers save received parts and delivery offsets together, then verify
-and reconstruct the complete event before appending it to the ledger. Missing
-parts leave the assembly available for completion. Committing the completed
-event removes its temporary assembly data.
+A chain head stores the sequence number and hash of the latest ledger record.
+Consumers check that the head has not changed when they append a record and
+update the head. If another writer has advanced it, the consumer retries its
+batch against the updated head.
+
+For events that fit in one message, a ledger transaction also saves the delivery
+offset, the consumer's position in the Kafka partition. A connection failure
+stops the batch for retry.
+
+Consumers save rejected messages and their rejection reasons in a dead-letter
+table for investigation instead of appending them to the ledger.
+
+## Events split into parts
+
+Large events use several messages. A manifest identifies the parts needed to
+reconstruct the event. Consumers save received parts and delivery offsets
+together, then verify and reconstruct the event after every required part
+arrives. Missing parts leave the saved event incomplete; the consumer does not
+append a partial event to the ledger.
+
+Consumers save the permanent record and remove its temporary parts in one
+transaction. A failure before that transaction commits leaves the saved parts
+available for retry.
