@@ -191,13 +191,18 @@ func readYBArchivedFiles(
 func ybArchivedPath(name string) (string, error) {
 	path := strings.TrimPrefix(name, "./")
 	if path == "" || strings.ContainsAny(path, "\t\n") {
-		return "", fmt.Errorf(
-			"tablet inventory cannot encode archive entry %q",
-			name,
-		)
+		return "", tabletArchivePathInvalidError{Entry: name}
 	}
 
 	return path, nil
+}
+
+type tabletArchivePathInvalidError struct {
+	Entry string
+}
+
+func (failure tabletArchivePathInvalidError) Error() string {
+	return fmt.Sprintf("tablet inventory cannot encode archive entry %q", failure.Entry)
 }
 
 type tabletArchiveEmptyError struct {

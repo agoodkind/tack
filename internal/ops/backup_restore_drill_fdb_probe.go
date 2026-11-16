@@ -179,13 +179,29 @@ func fdbRestoreBlindError(
 	progress *fdbRestoreProgress,
 	lastErr string,
 ) error {
-	return fmt.Errorf(
+	return fdbRestoreObservationError{
+		Polls:        polls,
+		ProbeTimeout: probeTimeout,
+		Progress:     progress.summary(),
+		LastError:    lastErr,
+	}
+}
+
+type fdbRestoreObservationError struct {
+	Polls        int
+	ProbeTimeout time.Duration
+	Progress     string
+	LastError    string
+}
+
+func (failure fdbRestoreObservationError) Error() string {
+	return fmt.Sprintf(
 		"the FoundationDB restore could not be observed: %d consecutive polls had a probe"+
 			" that did not answer within %s; current progress is unknown; recorded counter extremes:"+
 			" %s; the last probe failed: %s",
-		polls,
-		probeTimeout,
-		progress.summary(),
-		lastErr,
+		failure.Polls,
+		failure.ProbeTimeout,
+		failure.Progress,
+		failure.LastError,
 	)
 }
