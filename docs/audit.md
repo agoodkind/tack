@@ -27,10 +27,16 @@ operation.
 
 ## Internal work
 
-Internal work does not create additional compliance actions. Tack excludes
-autonomous background jobs, internal service calls, indexing, retries,
-polling, health checks, and protocol discovery. This exclusion includes
-internal reads of user data.
+Tack does not audit internal work that runs or maintains its services.
+Examples include:
+
+- Autonomous background jobs.
+- Calls between internal services.
+- Search indexing.
+- Retries and polling.
+- Health checks and protocol discovery.
+
+This exclusion also applies when internal work reads user data.
 
 ## Recording requirements
 
