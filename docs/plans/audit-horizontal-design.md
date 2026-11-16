@@ -22,8 +22,8 @@ Complete the Phase 1 WAL correction before replacing it with a broker. Preserve
 YugabyteDB recording until the broker provides equivalent behavior. The original
 state-change requirement persists audit rows synchronously without depending
 on broker availability. The original read-class design uses asynchronous broker
-consumption. The later [cutover plan](audit-kafka-cutover.md) supersedes the
-original dual-write rollout and makes audit-consumer the sole ledger writer.
+consumption. Current [audit delivery](../audit-delivery.md) uses database
+outboxes and Kafka, with audit-consumer as the sole ledger writer.
 
 ## Component relationships
 
@@ -246,9 +246,8 @@ can advance concurrently. `audit.consumer_offsets` stores
 
 ## Record events at either size
 
-The cutover plan supersedes the state-change and read-class sequences below.
-After cutover, both classes publish to Kafka, and audit-consumer alone writes
-ledger rows and chain heads.
+Both classes publish to Kafka, and audit-consumer alone writes ledger rows
+and chain heads.
 
 The original state-change sequence is:
 
@@ -426,7 +425,3 @@ monitoring. Dedicated controllers can follow the initial combined-role broker.
   Replication at N=many corrects that failure exposure.
 - Test restores for every broker and SeaweedFS backup. Prior backups silently
   contained empty data; the defect can recur in new stores.
-
-The cutover plan replaces the earlier shadow-recorder and sibling-table file
-inventory. The consumer binary is `cmd/audit-consumer`. Do not add a shadow
-recorder or an `events_v2` table.

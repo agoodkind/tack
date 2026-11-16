@@ -84,17 +84,32 @@ public error during a member stop, even if a later request succeeds.
 
 ## Run the complete acceptance gates
 
-1. Follow the ordered groups, complete suite, and repeated tail in the
-   [final validation plan](../superpowers/plans/2026-09-19-opensearch-final-validation.md).
-   Use its timeouts and count requirements unchanged, and allow no skipped test.
-   On macOS, run each group with `make test-search-group TEST_SEARCH_RUNNER=mac`
-   and set `GROUP`, `MAC_RUNNER_IMAGE`, and `MAC_RUNNER_EVIDENCE_DIR` for that
-   invocation. This mode uses the existing native executable and local image.
-2. Use `TACK_SEARCH_CLUSTER=1 make test-search` for the standard container search
-   target. This target supplies the source revision and search integration
-   opt-in, but its 90-minute timeout does not replace the plan's 45-minute gate.
-   The host equivalent is `TACK_SEARCH_CLUSTER=1 make test-search-host`; it also
-   requires the local FoundationDB client library.
+1. Run the complete suite against the
+   [search acceptance criteria](../superpowers/specs/2026-09-19-search-acceptance.md)
+   with the environment from the preparation step. Include the runtime audit
+   tests and require every selected test to pass without a skip.
+
+   ```sh
+   docker compose -f docker-compose.test.yml --profile runner run --rm tests \
+       test -tags runtimeaudit -count=1 -timeout 90m -v \
+       -run '^TestSearch' ./internal/test/integration
+   ```
+
+2. Repeat the concurrency and replacement checks three times. Use the focused
+   runner procedure with each selection and timeout below, replacing `-count=1`
+   with `-count=3`. Run these groups serially.
+
+   Repeated checks:
+
+   | Check | Timeout | Test selection |
+   | --- | --- | --- |
+   | Complete continuation | `180m` | `^TestSearchContinuationTraversesDuplicateHeavyCorpus$` |
+   | Replacement and restore | `85m` | `^TestSearch(Rebuild(ExcludesOrphanNodes\|StepFitsLease\|FailsAfterPauseLimit\|DuringChanges)\|RestoreRejectsCursors\|Split(DuringChanges\|WithoutModel))$` |
+   | Access, cursors, and workers | `50m` | `^TestSearch(Access(DependentsSurviveEdit\|UpdatesOlderActiveRevision\|VersionWithoutRebuild\|MembershipQueryOnly\|ResourceRefresh\|RolloutRecovery\|OnlyUpdateWithoutModel\|ChangeKeepsPendingContent)\|Cursor(ExactSortValues\|ReplayAndConcurrency\|ActualOSProcesses)\|FiltersForbiddenPagesBeforeRanking\|FinalCheckRejectsCorruptIndexedAccess\|RevokedAccessRejectsLaterResultsAndReplay\|DelayedWriter\|RuntimeIndexesThroughGraph)$` |
+
+   These selections include 24 tests and require 72 passing executions.
+   Run `^TestSearchActualOSProcessThroughput$` once with `-timeout 45m`
+   using the focused runner.
 3. Verify the terminal results for every required group. Compilation, a skipped
    cluster group, or a successful startup does not establish search acceptance.
    Require fixed-client throughput measurements with indexed mutations and

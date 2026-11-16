@@ -1,101 +1,53 @@
-# Operator identity and the ops audit choke-point
+# Operator identity and audit choke point
 
-TACK-328 requires ops commands to record an audit trail before TACK-327 restricts
-production data-plane access to those commands.
+Operator commands resolve the person or service requesting an action before
+displaying a dry run or executing the command. Installation commands require
+identity before creating audit storage.
 
-## The choke-point (binding, do not weaken)
+## Shared audit choke point
 
-The shared `RunE` handler in `internal/clispec` (`cobra.go` / `audit.go`) records
-every CLI ops command. Every command, including `serve`, declares a static audit spec
-with a verb. An empty verb fails the gate and the coverage test fails the build.
-Commands cannot opt out.
+Operator commands use one shared audit gate, or choke point, before executing
+their work. For ordinary commands, the gate determines which identity to record
+and saves the required attempt record before execution. A missing identity or a
+failure to save the required record prevents ordinary command execution.
 
-Do not weaken or bypass it:
+Commands declare their audited action through the shared command registry.
+Individual commands do not bypass the gate or disable recording. Commands write
+audit events to database outboxes, which store events awaiting delivery, rather
+than writing the permanent audit ledger directly.
 
-- Commands must write events to a FoundationDB or YugabyteDB outbox, not Kafka or
-  `audit.events`. The relay publishes outbox events to Kafka. The audit-consumer
-  remains the only ledger writer.
-- Every mutating or reading command must declare an `AuditSpec` verb.
-- Preserve the gate sequence: resolve identity, record, then run. FDB ops record
-  the event and change in one transaction.
-- Do not add a per-command flag or environment variable that disables recording.
+Identity lookup uses the shared `audit.OperatorIdentitySource` interface. Adding
+an identity source does not require each command to implement its own lookup.
 
-The command records the operator, action, target, time, and request correlation
-before execution. External commands also record the attempted action for each
-step. Tack records access denials separately. FoundationDB mutations
-record the actual changes in the transaction that commits them.
+## Dry runs
 
-## Identity is pluggable (binding, keep it pluggable)
+Without `--execute`, an audited command displays the operator identity and
+previews its action. A preview that reads system state requires an access
+attempt record before reading. A dry run that only prints the proposed action does not
+access system state. Both preview and execution require operator identity.
 
-The choke-point resolves operator identity through `audit.OperatorIdentitySource`,
-an interface in `internal/audit`. Keep it pluggable:
+## Asserted identity
 
-- Never inline an identity lookup into the choke-point or a command.
-- Add identity mechanisms as new source types, selected at the one construction
-  site, never by editing the choke-point's logic.
+Tack accepts operator identity from global Git configuration or command-line
+flags. These sources assert an identity without authenticating it with an
+identity provider. Displaying an identity during a dry run does not verify it.
 
-The audit actor kind for an operator is `operator`. The principal's `Source`
-field records which mechanism resolved it (`git`, `flag`, `oidc`).
+Git identity uses the configured name and email address. Explicit operator
+identity uses a UUID, email address, and optional display name. Service identity
+uses a service name and optional session identifier. Tack prefers service
+identity, then explicit operator identity, then Git identity. A session
+identifier requires a service name.
 
-## Identity sources: local git config and flags
+Tack rejects explicit operator identities with a missing email address or an
+invalid or all-zero UUID.
 
-One source records the operator's local git identity (`user.name`, `user.email`)
-from the gitconfig file. It derives a stable UUIDv5 actor id from the email
-without a registry.
+## Attribution
 
-Another source reads `--operator-id`, `--operator-email`, and `--operator-name`
-flags for containers without gitconfig. Identity must not use an environment
-variable or a hardcoded field in `config.Config`.
+Operator events record the resolved actor, identity source, operation identifier,
+and request correlation. Service events can also identify an accountable human
+operator through an operator UUID, email address, and service session identifier.
+This attribution does not grant permission to perform an action.
 
-Both sources are self-asserted: they trust the local config or the typed flag.
-The dry-run gate requires the operator to confirm the identity before acting.
-An additional OIDC source can verify identity through an identity provider (IdP)
-using the same interface, alongside the git and flag sources.
-
-## Dry-run by default (binding)
-
-Every audited command defaults to a dry run. The command prints the operator
-identity and the action it would take. A preview that reads system state
-records the access attempt before reading. A dry run that only prints the
-proposed action does not access system state.
-
-Pass `--execute` to perform the requested action.
-
-## Event organization
-
-Global ops (migrate, seed-roles, provision, deploy, backup, reindex, backfill)
-record on the reserved system org. Entity ops (repair apply) resolve the target
-node's real org and record the operator action on that customer's per-org chain.
-The design doc specifies the constant and resolver.
-
-## Additional identity source: OIDC / SSO / IdP
-
-A verified source confirms a signed token. Production can require this verified
-identity and forbid self-asserted sources. Implement it with a new source type,
-IdP config, and a selector without changing the choke-point, commands, event
-shape, or `AuditSpec`.
-
-An OIDC source must define:
-
-1. The token source: an `--operator-token` flag or a short-lived token cached by
-   a `tack login` device-authorization flow (RFC 8628), not an environment variable.
-2. IdP config (infrastructure, like the Kafka broker address): issuer URL, allowed
-   audience (client id), JWKS URI discovered from
-   `<issuer>/.well-known/openid-configuration`, and an authorization claim
-   (for example, `groups` must contain `tack-operators`).
-3. `Resolve` verification: JWT signature against cached JWKS (RS256 or ES256),
-   `iss`, `aud`, `exp`/`nbf`/`iat` within skew, and the operator authorization
-   claim. Authentication alone is insufficient.
-4. Claim mapping to `OperatorPrincipal`: `ID` is a stable UUIDv5 from `iss` plus
-   `sub`; `Email` from a verified `email`; `Name` from `name`; `Source` is `oidc`.
-   Store `Issuer`, `Subject`, and `SessionID` as verified provenance.
-
-Automation (CI deploy) uses a workload identity (client-credentials or
-SPIFFE/mTLS) mapped to the `service` actor kind, not a human OIDC token.
-Per-command authorization determines which operators may run which verbs and
-requires a later implementation beyond the first OIDC step.
-
-## Implement the audit contract
-
-Follow the [operator audit design and implementation plan](superpowers/2026-06-08-audit-ops-commands.md)
-for operation classes, bootstrap behavior, and implementation requirements.
+Recorded identity sources distinguish Git, flag, and service assertions.
+Verified identity requires authentication evidence beyond these assertions.
+Tack does not currently verify operator identity through an OpenID Connect token.

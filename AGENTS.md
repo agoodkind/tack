@@ -55,11 +55,11 @@ Use one deploy path:
   Validate every migration, seed, backfill, and restore on QA before prod; QA is
   a fresh host with vault-sourced secrets and does not require live state
   protection.
-- The audit ledger keeps one `audit.events` table. The Kafka cutover makes
-  the `audit-consumer` the single writer and continues the existing
+- The audit ledger keeps one `audit.events` table. The
+  `audit-consumer` is the single writer and continues the existing
   per-`(org, shard)` hash chain through `audit.chain_heads`. Do not rename the
   table, add an archive table, or create `events_v2`. Follow
-  [the audit Kafka cutover design](docs/plans/audit-kafka-cutover.md).
+  [the audit delivery explanation](docs/audit-delivery.md).
 - Run migrations via `./server migrate` only, never on HTTP startup.
 - Build with `make build`. It runs the go-makefile pipeline (vet, golangci,
   staticcheck-extra, govulncheck) against the baseline. Do not call `go build`
@@ -272,7 +272,8 @@ running or requires recreation each time.
    this repository's canonical lint and quality checks.
 3. Record every `./server ops` command through the one `clispec` audit
    choke-point; do not weaken it or bypass it per command. Keep operator
-   identity pluggable via `audit.OperatorIdentitySource`. Follow
+   identity pluggable via `audit.OperatorIdentitySource`. Do not add recording
+   opt-outs. Follow
    [operator identity and audit requirements](docs/operator-identity-and-audit.md).
 4. Add `ops qa datagen` coverage in the same change for every new node type,
    property type, relationship shape, audit verb, or user-visible code path.
@@ -297,48 +298,12 @@ running or requires recreation each time.
 
 ## Auditability gate
 
-Require complete audit evidence before merging or releasing any new or changed
-operation that reads, lists, searches, exports, creates, updates, deletes, or
-otherwise processes user data. Apply this gate to person-callable public APIs, generated tools, and operator
-commands, including calls from agents and API tokens. Internal first-party code,
-autonomous jobs, internal service calls, indexing, retries, polling, health checks,
-diagnostics, and protocol discovery use operational logs instead of separate
-compliance events.
-
-Follow the [complete audit recording contract](docs/superpowers/specs/2026-10-21-audit-completeness-design.md)
-through the existing shared operation definitions, transactional outboxes, and
-permanent ledger. Apply it to custom node types and relationships.
-
-1. Record the verified actor or explicit unauthenticated identity, operation,
-   complete targets, original time, committed order, and outcome. Retain the
-   initiating identity, operation, user-data changes, and final result when a job
-   completes user-requested work. Do not create separate internal job actions. Record
-   refusals, failures, partial work, and interruptions.
-2. Record actual old and new values for every changed field and relationship,
-   including removals. Commit change evidence atomically with database changes.
-   Record complete relationship identities and apply existing protected-value
-   storage and redaction rules.
-3. Admit reads durably and finalize their evidence before returning data,
-   including each streaming page or chunk. Record returned identities, result
-   counts, selection criteria, and payload fingerprints through the shared read
-   contract. A fingerprint does not reconstruct the returned content.
-4. Refuse unaudited operations when required identity or recording fails. Do not
-   release a read result or commit a database change without its required audit
-   evidence. Record external-operation intent before effects and verify actual
-   state during recovery.
-5. Add regression coverage through the affected public operation with real
-   dependencies. Inspect permanent audit records for the actual actor, targets,
-   outcomes, change values, and read manifests and fingerprints. Exercise
-   authorization refusals and recording failures; declarations and log messages
-   alone do not prove coverage.
-6. Include the audit evidence and test results in the PR. Require the existing
-   `runtime audit coverage` check and applicable integration checks to pass before
-   merge. Verify the accepted behavior on QA before production release.
-
-Do not add recording opt-outs, exclude person-callable operations from coverage, weaken audit
-assertions, bypass required checks, or defer recording to a follow-up ticket.
-Treat an unaudited existing implementation as a defect, not an exception to this
-gate. A healthy deployment or a passing unrelated test does not satisfy it.
+Follow the [audit policy](docs/audit.md). Before merging or releasing a change
+that affects a public operation covered by this policy, verify compliance through
+that operation and inspect its permanent audit records. Include the evidence and
+relevant test results in the PR. Require the existing `runtime audit coverage`
+check and applicable integration checks to pass before merge. Verify the accepted
+behavior on QA before production release.
 
 ## No config files
 

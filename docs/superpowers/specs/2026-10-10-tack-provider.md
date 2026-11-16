@@ -107,7 +107,7 @@ versions.
 Apply must obey OpenTofu's [state locks](https://opentofu.org/docs/language/state/locking/)
 and existing deployment locks. Before making an incompatible change, apply must
 reject changed conditions that invalidate the saved plan. Tack operations must
-also follow the existing [operator identity and audit contract](../../operator-identity-and-audit.md).
+also follow the [audit policy](../../audit.md) and preserve [operator identity](../../operator-identity-and-audit.md).
 
 Apply must verify the resulting state before reporting completion. After an
 interruption, the provider must read completed and unfinished work so another
