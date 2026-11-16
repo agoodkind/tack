@@ -4,7 +4,7 @@
 
 The backup orchestrator failed after startup when `TACK_BACKUP_TEMPORAL_DB_PASSWORD` was missing, then failed again when `YUGABYTE_PASSWORD` was missing. Compose detected the missing `KAFKA_CLUSTER_ID` only when the operator ran a compose command. The 2026-05-09 audit-WAL drop bug also silently degraded when an upstream condition failed. Required variables must fail validation at startup, not during later work.
 
-`config.Load()` runs once at `cmd/server/main.go:32-36` before dispatch, but only `DATABASE_URL` has the `,required` tag in `internal/config/config.go:14`. Backup checks required variables later in `internal/ops/backup_run.go:33-41`; seed checks them in `cmd/server/seed.go:67-71`. Other code branches on empty strings without reporting them. The binary does not implement `help` or `version` subcommands. They fall through to `runServer` in `cmd/server/main.go:63-93`, preventing configuration inspection without starting the HTTP server.
+`config.Load()` runs once at `cmd/server/main.go:32-36` before dispatch, but only `DATABASE_URL` has the `,required` tag in `internal/config/config.go:14`. Backup checks required variables later in `internal/ops/backup_run.go:33-41`; seed checks them in [seed.go](../../internal/servercli/seed.go). Other code branches on empty strings without reporting them. The binary does not implement `help` or `version` subcommands. They fall through to `runServer` in `cmd/server/main.go:63-93`, preventing configuration inspection without starting the HTTP server.
 
 Validate required variables before work starts and add a smoke-test subcommand to inspect configuration without launching the app.
 
@@ -55,7 +55,7 @@ Validate required variables before work starts and add a smoke-test subcommand t
 
    Expand tier 2 to AUDIT_WRITER_DSN, AUDIT_READER_DSN, AUDIT_REDACTOR_DSN, AUDIT_SIGNING_KEY_PATH, and YUGABYTE_PASSWORD.
 
-   Tier 3 includes TACK_BACKUP_TEMPORAL_DB_PASSWORD, SEED_EMAIL, and SEED_NAME. Only seed requires `SEED_EMAIL` and `SEED_NAME`, which it already validates at `cmd/server/seed.go:67-71`.
+   Tier 3 includes TACK_BACKUP_TEMPORAL_DB_PASSWORD, SEED_EMAIL, and SEED_NAME. Only seed requires `SEED_EMAIL` and `SEED_NAME`, which `seedOp` already validates.
 
 3. **Subcommand-scoped required via embedded config structs.**
 
@@ -166,7 +166,7 @@ Validate required variables before work starts and add a smoke-test subcommand t
 - `internal/config/config.go` (required, default, or neither for each field's tag)
 - `internal/ops/command.go` (per-subcommand RequiredEnv pattern; lines 28-64 dispatcher)
 - `internal/ops/backup_run.go:33-41` (existing one-off checks; consolidate into RequiredEnv)
-- `cmd/server/seed.go:67-71` (existing one-off checks; consolidate into RequiredEnv)
+- `seedOp` (existing one-off checks; consolidate into RequiredEnv)
 - `docker-compose.yml` (compose-side `:?` enforcement; sweep all `${VAR}` references)
 - `.env.example` (every required var documented)
 - `AGENTS.md` (codified rules section)

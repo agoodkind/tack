@@ -175,7 +175,7 @@ Modify [users](../../../internal/adapters/postgres/user.go), [tokens](../../../i
 
 ## Task 6: Record public reads and rejections
 
-Modify [MCP dispatch](../../../internal/adapters/mcp/server.go), [tool wrapping](../../../internal/adapters/mcp/tools/helpers.go), [authentication](../../../internal/auth/middleware.go) and [HTTP registration](../../../cmd/server/server_runtime.go). Add `internal/audit/read_executor.go` and `internal/adapters/mcp/audit_request.go`.
+Modify [MCP dispatch](../../../internal/adapters/mcp/server.go), [tool wrapping](../../../internal/adapters/mcp/tools/helpers.go), [authentication](../../../internal/auth/middleware.go) and [HTTP registration](../../../internal/servercli/server_runtime.go). Add `internal/audit/read_executor.go` and `internal/adapters/mcp/audit_request.go`.
 
 Define `ExecuteRead[T any](ctx context.Context, store ReadLifecycle, admission ReadAdmission, read func(context.Context) (ReadResult[T], error)) (EncodedRead, error)`. `ReadResult[T]` contains `Value T`, `Targets []Target`, `Count uint64` and `Encode func(io.Writer, T) error`. `EncodedRead` contains `Payload []byte`, `ContentType string` and `Evidence ReadEvidence`. The encoder serializes the actual result once into the existing response buffer while computing its digest. The transport emits those saved payload bytes without serializing the result again; transport envelopes remain outside the declared payload format. Apply the same contract to each publicly emitted stream chunk.
 

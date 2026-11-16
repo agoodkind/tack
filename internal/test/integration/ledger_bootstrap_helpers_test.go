@@ -30,7 +30,7 @@ const (
 	// bootstrapProbeTimeout bounds the audit infrastructure probe.
 	bootstrapProbeTimeout = 5 * time.Second
 	// bootstrapInfrastructureQuery is the server root command's audit
-	// infrastructure probe (cmd/server/commands.go).
+	// probe (internal/servercli/audit_infrastructure_probe.sql).
 	bootstrapInfrastructureQuery = "SELECT to_regclass('public.ops_outbox') IS NOT NULL, " +
 		"EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'tack_audit_operator')"
 )
