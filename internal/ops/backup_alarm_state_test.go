@@ -86,10 +86,10 @@ func TestBackupStalenessAlarmLeavesAnotherRunsTemporary(t *testing.T) {
 	}
 }
 
-// TestBackupStalenessAlarmInterleavedSavesPreserveBothWrites stages overlapping
+// TestBackupStalenessAlarmInterleavedSavesKeepLastCommit stages overlapping
 // saves and commits them in reverse order. Each rename must use its own bytes.
 // The final state must match the last commit without retaining temporary files.
-func TestBackupStalenessAlarmInterleavedSavesPreserveBothWrites(t *testing.T) {
+func TestBackupStalenessAlarmInterleavedSavesKeepLastCommit(t *testing.T) {
 	ctx := context.Background()
 	cfg := unreachableBackupStalenessConfig(t, "backups@example.test")
 	path := backupAlarmStatePath(cfg)
