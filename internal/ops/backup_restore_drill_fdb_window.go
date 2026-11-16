@@ -32,7 +32,8 @@ const (
 
 // fdbRestorableWindowFromDescribe reads the window from
 // fdbbackup describe --version-timestamps. Invalid or missing bounds must stop
-// the restore rather than restore the latest data, not the requested time.
+// the restore to prevent selecting the latest data instead of data at the
+// requested time.
 // Do not log raw output: it includes the URL and blobstore credentials.
 // Errors quote only window lines, which do not include credentials.
 func fdbRestorableWindowFromDescribe(describe string) (fdbRestorableWindow, error) {

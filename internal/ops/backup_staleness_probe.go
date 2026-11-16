@@ -172,7 +172,8 @@ func fetchYBMasterHealth(ctx context.Context, url string) ([]byte, error) {
 }
 
 // ybClusterHealthFromBody requires every node alive and every tablet fully
-// replicated. Missing health lists return an error instead of a healthy verdict.
+// replicated. Missing health lists return an error instead of a healthy
+// verdict.
 func ybClusterHealthFromBody(
 	ctx context.Context,
 	body []byte,

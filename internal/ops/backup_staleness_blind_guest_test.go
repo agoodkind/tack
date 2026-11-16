@@ -135,11 +135,7 @@ func TestGuestAlarmsWithoutLocalHealthDespiteFreshSharedMarker(t *testing.T) {
 
 	for _, claim := range []string{"unhealthy", "never been seen", "under-replicated", "dead nodes"} {
 		if strings.Contains(message.Subject+message.Body, claim) {
-			t.Errorf(
-				"failed master observations must not establish %q:\n%s",
-				claim,
-				message.Body,
-			)
+			t.Errorf("failed master observations must not establish %q:\n%s", claim, message.Body)
 		}
 	}
 
@@ -151,10 +147,7 @@ func TestGuestAlarmsWithoutLocalHealthDespiteFreshSharedMarker(t *testing.T) {
 		store,
 		backupStalenessReplicationName,
 	); !marker.At.Equal(deputySawCluster) {
-		t.Errorf(
-			"the shared marker must retain the other guest's observation, got %s",
-			marker.At,
-		)
+		t.Errorf("the shared marker must retain the other guest's observation, got %s", marker.At)
 	}
 
 	fixBackupStalenessClock(t, blindAt.Add(6*time.Minute))

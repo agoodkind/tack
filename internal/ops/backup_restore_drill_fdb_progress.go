@@ -34,7 +34,8 @@ type fdbRestoreWatch struct {
 // awaitFDBRestore waits for exit or inactivity without limiting total work.
 // Probe deadlines permit stall checks despite an unanswered exec. Consecutive
 // probe timeouts fail observation after fdbDrillProbeTimeoutTolerance polls
-// rather than falsely reporting a restore stall that monitoring did not observe.
+// rather than falsely reporting a restore stall that monitoring did not
+// observe.
 func awaitFDBRestore(
 	ctx context.Context,
 	watch fdbRestoreWatch,
@@ -112,8 +113,8 @@ func fdbRestoreWaitCancelled(ctx context.Context, progress *fdbRestoreProgress) 
 	return wrapped
 }
 
-// fdbRestoreStallError reports inactivity, counter extremes, and the last status
-// read failure to distinguish stopped work from unreadable status.
+// fdbRestoreStallError reports inactivity, counter extremes, and the last
+// status read failure to distinguish stopped work from unreadable status.
 func fdbRestoreStallError(
 	stalled time.Duration,
 	progress *fdbRestoreProgress,

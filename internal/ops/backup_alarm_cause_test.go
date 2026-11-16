@@ -102,10 +102,7 @@ func TestBackupAlarmReportsMissingSuccessRecords(t *testing.T) {
 
 	if strings.Contains(body, "This guest could not date the nightly ledger export") ||
 		strings.Contains(body, "This guest could not read the restore rehearsal's last pass") {
-		t.Errorf(
-			"readable empty store records must not use unreadable-record wording:\n%s",
-			body,
-		)
+		t.Errorf("readable empty store records must not use unreadable-record wording:\n%s", body)
 	}
 
 	assertBackupAlarmPlainWords(t, captured.messages[0].Subject, body, cfg.BackupS3Endpoint)

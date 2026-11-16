@@ -65,15 +65,15 @@ var backupAlarmVocabulary = map[string]backupAlarmWords{
 		},
 	},
 	backupStalenessReplicationName: {
-		phraseKnown:            "Ledger cluster unhealthy for %s",
-		phraseNeverRecorded:    "This guest has never observed a healthy ledger cluster",
-		phraseUnreadable:       "This guest could not read ledger cluster health status",
-		paragraphKnown:         backupAlarmReplicationNoun + " was last healthy" + backupAlarmKnownFact,
-		paragraphKnownDetail:   backupAlarmLastCheck,
+		phraseKnown:          "Ledger cluster unhealthy for %s",
+		phraseNeverRecorded:  "This guest has never observed a healthy ledger cluster",
+		phraseUnreadable:     "This guest could not read ledger cluster health status",
+		paragraphKnown:       backupAlarmReplicationNoun + " was last healthy" + backupAlarmKnownFact,
+		paragraphKnownDetail: backupAlarmLastCheck,
 		paragraphNeverRecorded: "This guest has never observed the ledger cluster " +
 			"(logins and audit trail) healthy." + backupAlarmLastCheck,
-		paragraphUnreadable:    "This guest could not read the ledger cluster's last healthy observation.",
-		paragraphRemembered:    " This guest last recorded it healthy" + backupAlarmKnownFact,
+		paragraphUnreadable: "This guest could not read the ledger cluster's last healthy observation.",
+		paragraphRemembered: " This guest last recorded it healthy" + backupAlarmKnownFact,
 		steps: []string{
 			"Confirm every ledger guest is up.",
 			"On the owner guest, confirm every node is alive on the ledger master page.",

@@ -35,10 +35,7 @@ func TestBackupAlarmHandlesReportWriteFailure(t *testing.T) {
 	}
 
 	if len(captured.messages) != 1 {
-		t.Fatalf(
-			"report failure must not prevent fault email, sent %d",
-			len(captured.messages),
-		)
+		t.Fatalf("report failure must not prevent fault email, sent %d", len(captured.messages))
 	}
 
 	if alarmed, found := alarmedBackupMetrics(t, staleCfg); !found || len(alarmed) != 3 {
@@ -75,10 +72,7 @@ func TestBackupAlarmHandlesReportWriteFailure(t *testing.T) {
 	seesHealthyCluster(t, freshCfg)
 	err = RunBackupStalenessCheck(context.Background(), freshCfg, out)
 	if !errors.Is(err, writeErr) {
-		t.Fatalf(
-			"fresh runs must return the report write error, got %v",
-			err,
-		)
+		t.Fatalf("fresh runs must return the report write error, got %v", err)
 	}
 
 	if len(captured.messages) != 1 {

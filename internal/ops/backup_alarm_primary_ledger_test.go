@@ -302,10 +302,7 @@ func TestBackupStalenessDeputyEmailsAfterLedgerTimeout(t *testing.T) {
 	}
 
 	if ledger.blockedFor == 0 || ledger.blockedFor > time.Second {
-		t.Fatalf(
-			"query timeout must bound the read, observed duration %s",
-			ledger.blockedFor,
-		)
+		t.Fatalf("query timeout must bound the read, observed duration %s", ledger.blockedFor)
 	}
 
 	if !strings.Contains(logs, "msg=backup.staleness.primary_not_seen") ||

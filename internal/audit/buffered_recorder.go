@@ -169,7 +169,6 @@ func (b *BufferedRecorder) Record(ctx context.Context, event Event) error {
 	return b.overflowed(ctx, event)
 }
 
-// recordThrough calls the inner recorder synchronously for one event.
 func (b *BufferedRecorder) recordThrough(ctx context.Context, ev Event) error {
 	if err := b.inner.Record(ctx, ev); err != nil {
 		slog.ErrorContext(
