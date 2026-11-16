@@ -19,8 +19,8 @@ func SystemOrgID() uuid.UUID {
 
 // Spec declares an operator command's audit requirements. Mutates is true for
 // commands that change state. Atomic requires the event and FoundationDB change
-// to commit in one transaction. Reads is true for read-only commands that record
-// their access.
+// to commit in one transaction. Reads is true for read-only commands that
+// record their access.
 type Spec struct {
 	Verb    string
 	Mutates bool `exhaustruct:"optional"`
