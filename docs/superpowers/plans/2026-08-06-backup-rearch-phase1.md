@@ -215,7 +215,8 @@ Co-authored-by: Claude <noreply@anthropic.com>"
 ## Task 4: Add datastore health checks
 
 Create `cmd/server/health.go` and `health_test.go`. Register the handler beside
-MCP in `cmd/server/server_runtime.go:141-158`. Use the graph's FDB client and
+MCP in [server_runtime.go](../../../internal/servercli/server_runtime.go).
+Use the graph's FDB client and
 pgx pool after checking the current declarations.
 
 - [ ] Add failing tests:
