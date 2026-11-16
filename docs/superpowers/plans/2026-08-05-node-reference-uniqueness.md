@@ -1809,8 +1809,9 @@ func TestRepairReferenceUniquenessRenumbersAndHoldsTheLine(t *testing.T) {
 	_ = fresh
 }
 
-// TestRepairReferenceUniquenessDryRunChangesNothing verifies nonmutating reports.
-func TestRepairReferenceUniquenessDryRunChangesNothing(t *testing.T) {
+// TestRepairReferenceUniquenessDryRunPreservesDuplicateGroups verifies
+// nonmutating reports.
+func TestRepairReferenceUniquenessDryRunPreservesDuplicateGroups(t *testing.T) {
 	env := SetupTestEnv(t)
 	actor := uuid.New()
 	workspace := mustCreateScope(t, env, "workspace", "Main", env.OrgID, env.OrgID, actor)
