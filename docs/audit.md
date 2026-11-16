@@ -7,7 +7,8 @@ changes.
 
 ## Audited actions
 
-Tack audits these requested actions:
+Audited actions are requests to access or change user data, or administer Tack,
+through its public interfaces. They include:
 
 - Reading, listing, searching, or exporting user data.
 - Changing user data, relationships, accounts, credentials, or permissions.
@@ -15,7 +16,8 @@ Tack audits these requested actions:
 
 ## Attempt records
 
-Before executing an audited action, Tack saves an attempt record with:
+An attempt record is evidence that a caller requested an action. Before
+executing an audited action, Tack saves:
 
 - The caller who requested the action.
 - The requested action.
@@ -28,9 +30,10 @@ success or failure outcomes.
 
 ## Data changes
 
-Change evidence includes the affected records and their actual old and new
-values, including removals. Tack saves a database change and its evidence
-together or saves neither.
+Data changes are additions, updates, or removals of stored records. Change
+evidence includes the affected records and their actual old and new values,
+including removals. Tack saves a database change and its evidence together or
+saves neither.
 
 Jobs that perform a requested action associate resulting data changes with
 the original caller and action.
@@ -44,8 +47,8 @@ An example request changes the title of issue 123:
 
 ## Internal work
 
-Tack does not audit internal work that runs or maintains its services.
-Examples include:
+Internal work is activity Tack performs to run or maintain its services.
+Tack does not audit this work, even when it reads user data. Examples include:
 
 - Background jobs that Tack starts without a caller's request.
 - Calls between internal services.
@@ -53,21 +56,22 @@ Examples include:
 - Internal retries and repeated checks for new work, called polling.
 - Service health checks and discovery of available protocol methods or tools.
 
-This exclusion also applies when internal work reads user data.
-
 ## Initial installation
 
-Initial installation may defer recording while it creates the required audit
-storage. Operator identity remains required during installation. Authentication
-or storage failures during ordinary operation do not qualify for this exception.
+Initial installation is the setup of a new Tack environment, including creation
+of its audit storage. Tack may defer recording while it creates that storage.
+Operator identity remains required during installation. Authentication or
+storage failures during ordinary operation do not qualify for this exception.
 
 ## Protected data
 
-Audit records do not include credentials or secret values. Existing personal
-data protection and redaction requirements continue to apply.
+Protected data includes credentials, secret values, and personal data. Audit
+records do not include credentials or secret values. Existing personal data
+protection and redaction requirements continue to apply.
 
 ## Historical records
 
-Earlier audit records retain their original verification rules. Tack does not
-rewrite these records to match this policy or reconstruct historical values
+Historical records are audit records Tack created before this policy took
+effect. Tack preserves these records and their original verification rules.
+It does not rewrite them to match this policy or reconstruct historical values
 it never recorded.

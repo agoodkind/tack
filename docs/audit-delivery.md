@@ -16,11 +16,13 @@ flowchart LR
 
 ## Publication and recording
 
+Publication is the step when Kafka accepts an audit event. Ledger recording is
+the step when the consumer saves it permanently in YugabyteDB.
+
 Outboxes in FoundationDB and YugabyteDB retain events until Kafka acknowledges
 publication. Tack waits for acknowledgment from every Kafka replica that
 currently keeps a synchronized copy. Publication failures leave events in the
-outbox for retry. Kafka acknowledgment confirms publication, not permanent
-ledger recording.
+outbox for retry.
 
 Retries preserve the event identifier. When saving an event, the consumer stores
 its identifier and ledger record in one database transaction, which saves both
@@ -29,9 +31,10 @@ append another ledger record for that event, even if Kafka delivers it again.
 
 ## Record order and integrity
 
-Tack divides each organization's audit history into shards, separate sequences
-of records. Each sequence forms a hash chain: every record stores a calculated
-value, or hash, that depends on its contents and the preceding record's hash.
+A hash chain is an ordered sequence of audit records that links each record to
+the one before it. Tack divides each organization's audit history into separate
+sequences called shards. Every record stores a calculated value, or hash, that
+depends on its contents and the preceding record's hash.
 Verification checks these links to detect changes to recorded history.
 
 Kafka uses the organization and shard to assign messages to a partition, an
@@ -52,8 +55,9 @@ table for investigation instead of appending them to the ledger.
 
 ## Events split into parts
 
-Large events use several messages. A manifest identifies the parts needed to
-reconstruct the event. Consumers save received parts and delivery offsets
+Large events are audit events that require several Kafka messages. A manifest
+identifies the parts needed to reconstruct the event. Consumers save received
+parts and delivery offsets
 together, then verify and reconstruct the event after every required part
 arrives. Missing parts leave the saved event incomplete; the consumer does not
 append a partial event to the ledger.

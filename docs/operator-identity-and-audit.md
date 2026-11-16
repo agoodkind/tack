@@ -6,9 +6,9 @@ during initial installation, before audit storage exists.
 
 ## Shared audit choke point
 
-Operator commands use a shared audit gate, also called a choke point. For
-ordinary commands, Tack determines the operator identity and saves an attempt
-record before executing the action. Missing identity or a recording failure
+A shared audit choke point is the common check every operator command uses
+before running. For ordinary commands, Tack determines the operator identity
+and saves an attempt record before executing the action. Missing identity or a recording failure
 prevents execution.
 
 Every command declares its audited action through the shared command registry
@@ -17,7 +17,9 @@ recording.
 
 ## Identity sources
 
-Tack accepts identity from command options or global Git configuration. These
+An identity source is a method for identifying the person or service requesting
+a command.
+Tack reads identity from command options or global Git configuration. These
 sources supply asserted identities: they state who requested an action without
 proving that the person or service controls that identity. Verified identity
 requires authentication, which checks that proof.
@@ -35,17 +37,17 @@ not contain only zeros. A session identifier requires a service name.
 
 ## Attribution
 
-Audit records associate the chosen identity and its source with the command and
-request. When a service acts for a person, Tack can record both identities.
+Attribution is a record of the identity and identity source for each command
+and request. When a service acts for a person, Tack can record both identities.
 That pairing requires the person's operator UUID and email address together
 with the service's session identifier. Recording this attribution does not grant
 permission to perform an action.
 
 ## Dry runs
 
-A dry run previews a command without executing its action. Without `--execute`,
-an audited command displays its operator identity and proposed action. Both
-preview and execution require identity.
+A dry run is a command preview that does not execute the proposed action.
+Without `--execute`, an audited command displays its operator identity and
+proposed action. Both preview and execution require identity.
 
 A preview that reads system state requires an access-attempt record before
 reading. A preview that only prints the proposed action does not access system
