@@ -10,14 +10,19 @@ import (
 	"goodkind.io/tack/internal/domain/node"
 )
 
-// updateScopeID reads the scope a node's merged properties place it in. It
-// prefers the explicit scope pointer and falls back to the parent, matching
-// the
-// walk the create path performs.
-func updateScopeID(props map[string]json.RawMessage) uuid.UUID {
+// updateScopeID reads the scope property or uses the requested parent or
+// the stored parent.
+func updateScopeID(
+	props map[string]json.RawMessage,
+	parentID uuid.UUID,
+	change *node.ParentChange,
+) uuid.UUID {
 	scopeID := rawUUIDReferenceProperty(props, "scope_id")
 	if scopeID == uuid.Nil {
-		scopeID = rawUUIDReferenceProperty(props, "parent_id")
+		scopeID = parentID
+		if change != nil {
+			scopeID = change.TargetID
+		}
 	}
 
 	return scopeID

@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 
@@ -11,6 +12,11 @@ import (
 )
 
 const maxScopeWalkDepth = 32
+
+var (
+	errScopeMultipleParents = errors.New("has multiple parents")
+	errScopeDepthExceeded   = errors.New("scope walk exceeded ancestor limit")
+)
 
 func (s *NodeService) scopeRefsFor(
 	ctx context.Context,
@@ -25,6 +31,7 @@ func (s *NodeService) scopeRefsFor(
 	nodeTypes, err := s.nodeTypes.List(ctx, orgID)
 	if err != nil {
 		slog.ErrorContext(ctx, "node.reference.list_types_failed", slog.String("err", err.Error()))
+
 		return nil, fmt.Errorf("list node types for scope references: %w", err)
 	}
 
@@ -45,6 +52,7 @@ func (s *NodeService) scopeRefsFor(
 
 		if current == nil {
 			currentID = uuid.Nil
+
 			break
 		}
 
@@ -61,11 +69,21 @@ func (s *NodeService) scopeRefsFor(
 			}
 		}
 
-		currentID = rawUUIDReferenceProperty(current.Props, "parent_id")
+		parentID, parentErr := s.scopeParentID(ctx, orgID, currentID)
+		if parentErr != nil {
+			return nil, parentErr
+		}
+
+		currentID = parentID
 	}
 
 	if currentID != uuid.Nil {
-		err := fmt.Errorf("scope walk from %s exceeded %d ancestors", scopeID, maxScopeWalkDepth)
+		err := fmt.Errorf(
+			"scope walk from %s exceeded %d ancestors: %w",
+			scopeID,
+			maxScopeWalkDepth,
+			errScopeDepthExceeded,
+		)
 		slog.ErrorContext(
 			ctx,
 			"node.reference.scope_depth_exceeded",

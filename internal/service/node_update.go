@@ -41,20 +41,9 @@ func (s *NodeService) Update(ctx context.Context, in UpdateInput) (*node.NodeVie
 	ctx = telemetry.WithTraceLogger(ctx, slog.String("node_id", in.NodeID.String()))
 	log := telemetry.L(ctx)
 
-	existing, err := s.reader.Get(ctx, in.NodeID)
+	existing, err := s.readUpdateNode(ctx, in.NodeID)
 	if err != nil {
-		log.ErrorContext(
-			ctx,
-			"node.update_read_failed",
-			slog.String("node_id", in.NodeID.String()),
-			slog.String("err", err.Error()),
-		)
-
-		return nil, fmt.Errorf("read node %s for its update: %w", in.NodeID, err)
-	}
-
-	if existing == nil {
-		return nil, domain.ErrNotFound
+		return nil, err
 	}
 
 	snapshot, schema, err := s.readMutationSnapshot(ctx, existing.OrgID, in.NodeID)
@@ -97,7 +86,8 @@ func (s *NodeService) Update(ctx context.Context, in UpdateInput) (*node.NodeVie
 	// the merged properties and claims them. The store refuses a move to a
 	// claimed reference and does not leave a stale claim. A type without a
 	// template does not render keys, and the store keeps the stored claims.
-	referenceKeys, err := s.referenceKeysFor(ctx, source.OrgID, nt, updateScopeID(merged), merged)
+	scopeID := updateScopeID(merged, snapshot.ParentID, parent.Change)
+	referenceKeys, err := s.referenceKeysFor(ctx, source.OrgID, nt, scopeID, merged)
 	if err != nil {
 		return nil, err
 	}

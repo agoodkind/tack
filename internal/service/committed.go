@@ -11,7 +11,32 @@ import (
 	"github.com/google/uuid"
 	"goodkind.io/tack/internal/domain"
 	"goodkind.io/tack/internal/domain/node"
+	"goodkind.io/tack/internal/telemetry"
 )
+
+func (s *NodeService) readUpdateNode(
+	ctx context.Context,
+	nodeID uuid.UUID,
+) (*node.NodeView, error) {
+	log := telemetry.L(ctx)
+	existing, err := s.reader.Get(ctx, nodeID)
+	if err != nil {
+		log.ErrorContext(
+			ctx,
+			"node.update_read_failed",
+			slog.String("node_id", nodeID.String()),
+			slog.String("err", err.Error()),
+		)
+
+		return nil, fmt.Errorf("read node %s for its update: %w", nodeID, err)
+	}
+
+	if existing == nil {
+		return nil, domain.ErrNotFound
+	}
+
+	return existing, nil
+}
 
 // committedView reads the view of nodeID after a mutation commits.
 func (s *NodeService) committedView(ctx context.Context, nodeID uuid.UUID) (*node.NodeView, error) {
@@ -34,9 +59,8 @@ func (s *NodeService) committedView(ctx context.Context, nodeID uuid.UUID) (*nod
 	return view, nil
 }
 
-// mergedUpdateProps returns the properties after applying patch and parent
-// to
-// stored. A JSON null in patch removes the property.
+// mergedUpdateProps applies patch and parent to stored properties.
+// A JSON null in patch removes the property.
 func mergedUpdateProps(
 	stored map[string]json.RawMessage,
 	patch map[string]json.RawMessage,
