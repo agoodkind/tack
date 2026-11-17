@@ -2,14 +2,9 @@ package foundationdb
 
 import (
 	"context"
-	"encoding/json"
-	"fmt"
-	"log/slog"
 
 	"github.com/apple/foundationdb/bindings/go/src/fdb"
 	"github.com/google/uuid"
-	"goodkind.io/tack/internal/domain"
-	"goodkind.io/tack/internal/domain/node"
 	"goodkind.io/tack/internal/telemetry"
 )
 
@@ -35,14 +30,16 @@ type RepairNodeRecord struct {
 	ParentID uuid.UUID
 }
 
-// RepairEdgeRecord identifies a stored relationship to or from the repaired node.
+// RepairEdgeRecord identifies a stored relationship to or from the repaired
+// node.
 type RepairEdgeRecord struct {
 	SourceID     uuid.UUID
 	RelationType string
 	TargetID     uuid.UUID
 }
 
-// RepairEvidence contains the source state that a repair reads in one transaction.
+// RepairEvidence contains the source state that a repair reads in one
+// transaction.
 type RepairEvidence struct {
 	Node     RepairNodeRecord
 	Outgoing []RepairEdgeRecord
@@ -59,9 +56,12 @@ type RepairEvidence struct {
 	MetadataEpoch int64
 }
 
-// RepairEvidence reads the node's resolution, exact primary record, parent_id,
-// edges in both directions, organization metadata epoch, and parent_id ancestor
-// chain in one read transaction. It also reads primary records for edge ends,
+// RepairEvidence reads the node's resolution, exact primary record,
+// parent_id,
+// edges in both directions, organization metadata epoch, and parent_id
+// ancestor
+// chain in one read transaction. It also reads primary records for edge
+// ends,
 // requested related nodes, and ancestors within that transaction.
 // It returns an error that wraps [domain.ErrFailedPrecondition] if the edges
 // in either direction exceed one page.
@@ -74,9 +74,9 @@ func (s *RepairStore) RepairEvidence(
 		ctx,
 		s.db,
 		"read repair evidence of node "+request.NodeID.String(),
-		func(tr fdb.Transaction) error {
+		func(transaction fdb.Transaction) error {
 			var readErr error
-			evidence, readErr = readRepairEvidence(ctx, tr, request)
+			evidence, readErr = readRepairEvidence(ctx, transaction, request)
 
 			return readErr
 		},
@@ -87,7 +87,7 @@ func (s *RepairStore) RepairEvidence(
 
 func readRepairEvidence(
 	ctx context.Context,
-	tr fdb.Transaction,
+	transaction fdb.Transaction,
 	request RepairEvidenceRequest,
 ) (RepairEvidence, error) {
 	evidence := RepairEvidence{
@@ -106,23 +106,23 @@ func readRepairEvidence(
 		Cycle:         false,
 		MetadataEpoch: 0,
 	}
-	current, err := readRepairNode(ctx, tr, request.NodeID)
+	current, err := readRepairNode(ctx, transaction, request.NodeID)
 	if err != nil || !current.Found {
 		return evidence, err
 	}
 
 	evidence.Node = current
-	evidence.Outgoing, err = readRepairEdges(ctx, tr, current, false)
+	evidence.Outgoing, err = readRepairEdges(ctx, transaction, current, false)
 	if err != nil {
 		return evidence, err
 	}
 
-	evidence.Incoming, err = readRepairEdges(ctx, tr, current, true)
+	evidence.Incoming, err = readRepairEdges(ctx, transaction, current, true)
 	if err != nil {
 		return evidence, err
 	}
 
-	evidence.MetadataEpoch, err = readSearchCounter(ctx, tr, searchEpochKey(current.OrgID))
+	evidence.MetadataEpoch, err = readSearchCounter(ctx, transaction, searchEpochKey(current.OrgID))
 	if err != nil {
 		return evidence, err
 	}
@@ -146,19 +146,25 @@ func readRepairEvidence(
 		start = current.ParentID
 	}
 
-	evidence.Chain, evidence.Cycle, err = readRepairChain(ctx, tr, request.NodeID, start, related)
+	evidence.Chain, evidence.Cycle, err = readRepairChain(
+		ctx,
+		transaction,
+		request.NodeID,
+		start,
+		related,
+	)
 	if err != nil {
 		return evidence, err
 	}
 
-	evidence.Related, err = related.read(ctx, tr)
+	evidence.Related, err = related.read(ctx, transaction)
 
 	return evidence, err
 }
 
 func readRepairChain(
 	ctx context.Context,
-	tr fdb.Transaction,
+	transaction fdb.Transaction,
 	nodeID uuid.UUID,
 	start uuid.UUID,
 	related *repairRelatedSet,
@@ -173,7 +179,7 @@ func readRepairChain(
 
 		visited[ancestorID] = true
 		chain = append(chain, ancestorID)
-		ancestor, err := readRepairNode(ctx, tr, ancestorID)
+		ancestor, err := readRepairNode(ctx, transaction, ancestorID)
 		if err != nil {
 			return chain, false, err
 		}
@@ -187,96 +193,4 @@ func readRepairChain(
 	}
 
 	return chain, false, nil
-}
-
-func readRepairNode(
-	ctx context.Context,
-	tr fdb.Transaction,
-	nodeID uuid.UUID,
-) (RepairNodeRecord, error) {
-	record := RepairNodeRecord{
-		NodeID:   nodeID,
-		Found:    false,
-		OrgID:    uuid.Nil,
-		NodeType: "",
-		Primary:  nil,
-		ParentID: uuid.Nil,
-	}
-	resolveBytes, err := tr.Get(fdb.Key(nodeResolveKey(nodeID))).Get()
-	if err != nil {
-		return record, searchReadFailure(ctx, "read resolution of node "+nodeID.String(), err)
-	}
-
-	if len(resolveBytes) == 0 {
-		return record, nil
-	}
-
-	var resolve node.NodeResolve
-	if err := json.Unmarshal(resolveBytes, &resolve); err != nil {
-		return record, nodeOperationFailure(ctx, "decode resolution of node "+nodeID.String(), err)
-	}
-
-	primary, err := tr.Get(fdb.Key(nodeInstanceKey(resolve.OrgID, resolve.NodeType, nodeID))).Get()
-	if err != nil {
-		return record, searchReadFailure(ctx, "read primary record of node "+nodeID.String(), err)
-	}
-
-	if len(primary) == 0 {
-		return record, nil
-	}
-
-	var stored node.Node
-	if err := json.Unmarshal(primary, &stored); err != nil {
-		return record, nodeOperationFailure(
-			ctx,
-			"decode primary record of node "+nodeID.String(),
-			err,
-		)
-	}
-
-	record.Found, record.OrgID, record.NodeType, record.Primary = true, resolve.OrgID, resolve.NodeType, primary
-	var parentText string
-	if json.Unmarshal(stored.Props[parentIDProperty], &parentText) == nil {
-		if parentID, parseErr := uuid.Parse(parentText); parseErr == nil {
-			record.ParentID = parentID
-		}
-	}
-
-	return record, nil
-}
-
-func readRepairEdges(
-	ctx context.Context,
-	tr fdb.Transaction,
-	current RepairNodeRecord,
-	incoming bool,
-) ([]RepairEdgeRecord, error) {
-	edges, err := readDeleteEdges(ctx, tr, current.OrgID, current.NodeID, "", incoming)
-	if err != nil {
-		return nil, err
-	}
-
-	if len(edges) > maxDeleteEdgePage {
-		wrapped := fmt.Errorf(
-			"node %s has more than %d edges in one direction: %w",
-			current.NodeID,
-			maxDeleteEdgePage,
-			domain.ErrFailedPrecondition,
-		)
-		slog.ErrorContext(
-			ctx,
-			"repair.evidence.edges_exceeded",
-			slog.String("err", wrapped.Error()),
-			slog.String("node_id", current.NodeID.String()),
-		)
-
-		return nil, loggedSearchError{err: wrapped}
-	}
-
-	records := make([]RepairEdgeRecord, 0, len(edges))
-	for _, edge := range edges {
-		records = append(records, RepairEdgeRecord(edge))
-	}
-
-	return records, nil
 }
