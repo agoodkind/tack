@@ -59,8 +59,6 @@ func TestRestoreDrillRestoresLedgerWithSchemaGuard(t *testing.T) {
 	}
 }
 
-// TestRestoreDrillReportsMissingAuditPart restores a real snapshot with an incomplete
-// historical read and checks both the drill error and the stored recovery timestamp.
 func TestRestoreDrillReportsMissingAuditPart(t *testing.T) {
 	cfg, admin := newRestoreDrillLedger(t)
 	ctx := t.Context()

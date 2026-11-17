@@ -158,7 +158,6 @@ func RunBackupRestoreDrill(
 	return finishRestoreDrill(ctx, rctx, passed, failures, auditErr)
 }
 
-// finishRestoreDrill records recovery after all database checks pass.
 func finishRestoreDrill(
 	ctx context.Context,
 	drill *restoreDrillCtx,
