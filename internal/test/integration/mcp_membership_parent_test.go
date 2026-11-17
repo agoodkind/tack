@@ -10,16 +10,11 @@ import (
 	"goodkind.io/tack/internal/testenv"
 )
 
-// reservedParentText is part of the error tack_add_relationship returns for
-// the child_of relation type.
-const reservedParentText = "is reserved for the parent that parent_id sets"
-
 // TestMembershipEdgesAreNotParents creates an issue under the harness project
 // and adds member_of edges from it to a cycle, a module, and an epic through
 // tack_add_relationship. Only child_of edges define a hierarchy parent. The
 // issue must keep the project as its one hierarchy parent, and search access
-// must compile for it. tack_add_relationship must refuse a child_of edge with
-// the reserved relation type error and add no edge.
+// must compile for it. The child_of operation then changes its hierarchy parent.
 func TestMembershipEdgesAreNotParents(t *testing.T) {
 	harness := NewMCPHarness(t)
 	issue := harness.CreateIssue(t, "member issue")
@@ -59,18 +54,28 @@ func TestMembershipEdgesAreNotParents(t *testing.T) {
 		t.Errorf("search access of issue %s with member_of edges: %v", issueID, err)
 	}
 
-	refusal := harness.CallExpectError(
+	parents := harness.outgoingRelationships(t, issue, "child_of")
+	if !strings.Contains(parents, "- Target: `"+harness.Project+"`") {
+		t.Fatalf("membership changed the parent of issue %s:\n%s", issue, parents)
+	}
+
+	harness.Call(
 		t,
 		"tack_add_relationship",
 		relationshipToolArguments(issue, "child_of", containers[0]),
 	)
-	if !strings.Contains(refusal, reservedParentText) {
-		t.Fatalf("child_of add failed with %q, want the reserved relation type error", refusal)
+	parents = harness.outgoingRelationships(t, issue, "child_of")
+	if strings.Contains(parents, "- Target: `"+harness.Project+"`") {
+		t.Fatalf("issue %s kept its previous parent after the move:\n%s", issue, parents)
 	}
 
-	parents := harness.outgoingRelationships(t, issue, "child_of")
-	if strings.Contains(parents, containers[0]) ||
-		!strings.Contains(parents, "- Target: `"+harness.Project+"`") {
-		t.Fatalf("child_of edges of issue %s after the refused add:\n%s", issue, parents)
+	edges, err := stores.Relationships.ListBySource(
+		t.Context(),
+		harness.orgID,
+		uuid.MustParse(issueID),
+		"child_of",
+	)
+	if err != nil || len(edges) != 1 || edges[0].TargetID.String() != containers[0] {
+		t.Fatalf("parent edges after the move = %v, %v, want %s", edges, err, containers[0])
 	}
 }

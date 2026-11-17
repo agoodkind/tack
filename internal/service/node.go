@@ -66,8 +66,7 @@ func NewNodeService(
 }
 
 // AddRelationship adds a directed relationship from a node to a node or an
-// organization member. It returns [node.ErrReservedParentRelation] for a
-// child_of relationship. The parent_id field sets the parent.
+// organization member. A child_of relationship changes the parent with Update.
 // It stores a member relationship when the target is a member of rel.OrgID.
 // Otherwise, it adds a node relationship.
 func (s *NodeService) AddRelationship(ctx context.Context, rel *node.Relationship) error {
@@ -89,13 +88,20 @@ func (s *NodeService) AddRelationship(ctx context.Context, rel *node.Relationshi
 		slog.String("target_id", rel.TargetID.String()),
 	)
 	if rel.RelationType == node.RelChildOf {
-		err := fmt.Errorf(
-			"add relationship from %s to %s: %w",
-			rel.SourceID,
-			rel.TargetID,
-			node.ErrReservedParentRelation,
+		_, err := s.Update(
+			ctx,
+			UpdateInput{
+				NodeID: rel.SourceID,
+				Name:   nil,
+				Props:  nil,
+				RelationshipChanges: node.RelationshipChanges{
+					Add:    []*node.Relationship{rel},
+					Remove: nil,
+				},
+				ActorID: rel.CreatedBy,
+				ScopeID: uuid.Nil,
+			},
 		)
-		slog.ErrorContext(ctx, "node.relationship.add_refused", slog.String("err", err.Error()))
 
 		return err
 	}

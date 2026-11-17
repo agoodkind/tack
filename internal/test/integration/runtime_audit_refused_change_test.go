@@ -9,17 +9,16 @@ import (
 )
 
 const (
-	// reservedParentReason is part of the error that tack_add_relationship
-	// returns for the child_of relation type.
-	reservedParentReason = "the child_of relation type is reserved for the parent that parent_id sets"
+	// selfParentReason identifies the refusal of a node as its own parent.
+	selfParentReason = "is the node, one of its descendants, or in a"
 	// onlyParentReason is part of the error that tack_remove_relationship
 	// returns for the only hierarchy parent edge of a node.
 	onlyParentReason = "is its only hierarchy parent"
 )
 
-// TestRuntimeAuditRefusedRelationshipChanges creates a project, an epic, and
+// TestRuntimeAuditRefusedRelationshipChanges creates a project and
 // an issue under the project through the public MCP boundary. It calls
-// tack_add_relationship with child_of from the issue to the epic, and
+// tack_add_relationship with child_of from the issue to itself, and
 // tack_remove_relationship on the child_of edge from the issue to the
 // project. The server must refuse both calls and leave the child_of edges of
 // the issue unchanged. Each call must record authentication and an attempt.
@@ -39,7 +38,6 @@ func TestRuntimeAuditRefusedRelationshipChanges(t *testing.T) {
 		"workspace_reference": server.workspace,
 		"project_reference":   identifier,
 	}
-	epicID := server.createNode(t, "tack_create_epic", withName(inProject, "Refusal epic"))
 	issueID := server.createNode(t, "tack_create_issue", withName(inProject, "Refusal issue"))
 	parentsBefore := server.childOfEdges(t, issueID)
 
@@ -53,11 +51,11 @@ func TestRuntimeAuditRefusedRelationshipChanges(t *testing.T) {
 			"arguments": map[string]any{
 				"source_id":     issueID.String(),
 				"relation_type": "child_of",
-				"target_id":     epicID.String(),
+				"target_id":     issueID.String(),
 			},
 		},
 	)
-	requireToolRefusal(t, added, reservedParentReason)
+	requireToolRefusal(t, added, selfParentReason)
 	removed := server.rpc(
 		t,
 		removeID,
@@ -84,7 +82,7 @@ func TestRuntimeAuditRefusedRelationshipChanges(t *testing.T) {
 	addTarget := &audit.Target{
 		Kind:         audit.TargetKindRelationship,
 		SourceID:     issueID,
-		TargetID:     epicID,
+		TargetID:     issueID,
 		RelationType: "child_of",
 	}
 	removeTarget := &audit.Target{
