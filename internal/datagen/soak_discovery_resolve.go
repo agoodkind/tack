@@ -9,9 +9,10 @@ import (
 )
 
 type discoveryDefinition struct {
-	token     string
-	arguments ToolArguments
-	reference string
+	token           string
+	arguments       ToolArguments
+	reference       string
+	parentReference string
 }
 
 // resolveCollectionItem returns the raw ID of one listed node. A scoped
