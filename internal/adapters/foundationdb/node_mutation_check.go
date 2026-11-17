@@ -3,7 +3,6 @@ package foundationdb
 import (
 	"context"
 	"fmt"
-	"log/slog"
 
 	"github.com/apple/foundationdb/bindings/go/src/fdb"
 	"github.com/google/uuid"
@@ -11,7 +10,8 @@ import (
 	"goodkind.io/tack/internal/domain/node"
 )
 
-// checkSource compares expected with the source that tr read. It returns an
+// checkSource compares expected with the source that transaction read. It
+// returns an
 // error that wraps domain.ErrConflict if they differ.
 func checkSource(
 	ctx context.Context,
@@ -53,20 +53,21 @@ func checkSource(
 	return nil
 }
 
-// checkGraphRecords reads each record in expected inside tr, checks its
+// checkGraphRecords reads each record in expected inside transaction, checks
+// its
 // primary digest, and returns the sources by node ID. It returns an error
 // that wraps domain.ErrConflict if a record does not exist or its digest
 // differs.
 func checkGraphRecords(
 	ctx context.Context,
-	tr fdb.Transaction,
+	transaction fdb.Transaction,
 	orgID uuid.UUID,
 	nodeID uuid.UUID,
 	expected []node.GraphRecord,
 ) (map[uuid.UUID]mutationSource, error) {
 	sources := make(map[uuid.UUID]mutationSource, len(expected))
 	for _, record := range expected {
-		source, err := readMutationSource(ctx, tr, orgID, record.NodeID)
+		source, err := readMutationSource(ctx, transaction, orgID, record.NodeID)
 		if err != nil {
 			return nil, err
 		}
@@ -87,13 +88,15 @@ func checkGraphRecords(
 }
 
 // checkParentChain follows parent_id from parentID through the records that
-// checkGraphRecords verified. It returns an error that wraps domain.ErrConflict
-// if an ancestor exists in tr but does not appear in records. It stops at a
+// checkGraphRecords verified. It returns an error that wraps
+// domain.ErrConflict
+// if an ancestor exists in transaction but does not appear in records. It
+// stops at a
 // node without parent_id or a missing node. It returns an error that wraps
 // domain.ErrInvalidArgument if the chain includes nodeID or repeats a node.
 func checkParentChain(
 	ctx context.Context,
-	tr fdb.Transaction,
+	transaction fdb.Transaction,
 	orgID uuid.UUID,
 	nodeID uuid.UUID,
 	parentID uuid.UUID,
@@ -117,7 +120,7 @@ func checkParentChain(
 		visited[currentID] = true
 		ancestor, listed := records[currentID]
 		if !listed {
-			stored, err := readMutationSource(ctx, tr, orgID, currentID)
+			stored, err := readMutationSource(ctx, transaction, orgID, currentID)
 			if err != nil {
 				return err
 			}
@@ -147,64 +150,4 @@ func checkParentChain(
 	}
 
 	return nil
-}
-
-// scopeIDProperty is the property that stores the ID of a node's reference
-// and numbering scope.
-const scopeIDProperty = "scope_id"
-
-// checkMoveScope returns an error that wraps domain.ErrInvalidArgument when
-// plan changes a stored node's parent and the parent chain in records does
-// not contain the scope_id of result. It returns nil when result does not
-// have a scope_id or plan keeps the stored parent.
-func checkMoveScope(
-	ctx context.Context,
-	plan node.MutationPlan,
-	source mutationSource,
-	result node.Node,
-	records map[uuid.UUID]mutationSource,
-) error {
-	if plan.Parent == nil || !source.Exists {
-		return nil
-	}
-
-	parentID := plan.Parent.TargetID
-	scopeID := storedUUID(result.Props[scopeIDProperty])
-	if scopeID == uuid.Nil || parentID == storedUUID(source.Node.Props[parentIDProperty]) {
-		return nil
-	}
-
-	for currentID := parentID; currentID != uuid.Nil; {
-		if currentID == scopeID {
-			return nil
-		}
-
-		ancestor, listed := records[currentID]
-		if !listed {
-			break
-		}
-
-		currentID = storedUUID(ancestor.Node.Props[parentIDProperty])
-	}
-
-	return mutationRefusal(
-		ctx,
-		plan.NodeID,
-		"the parent chain of "+parentID.String()+" does not contain scope "+scopeID.String(),
-		domain.ErrInvalidArgument,
-	)
-}
-
-// mutationRefusal logs a refused mutation of nodeID with reason and returns an
-// error that wraps sentinel.
-func mutationRefusal(ctx context.Context, nodeID uuid.UUID, reason string, sentinel error) error {
-	wrapped := fmt.Errorf("mutate node %s: %s: %w", nodeID, reason, sentinel)
-	slog.WarnContext(
-		ctx,
-		"node.mutation_refused",
-		slog.String("err", wrapped.Error()),
-		slog.String("node_id", nodeID.String()),
-	)
-
-	return loggedSearchError{err: wrapped}
 }
