@@ -78,7 +78,6 @@ func ensureBootstrapNode(
 	props := map[string]json.RawMessage{"slug": json.RawMessage(strconv.Quote(input.Slug))}
 	relationships := make([]*node.Relationship, 0, 1)
 	if input.ParentID != uuid.Nil {
-		props["parent_id"] = json.RawMessage(strconv.Quote(input.ParentID.String()))
 		relationships = append(
 			relationships,
 			&node.Relationship{

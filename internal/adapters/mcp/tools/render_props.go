@@ -87,11 +87,10 @@ func propAsString(raw json.RawMessage) string {
 
 func sortedScalarPropKeys(view *node.NodeView) []string {
 	skip := map[string]struct{}{
-		scopedParentProperty: {},
-		"scope_id":           {},
-		"state_id":           {},
-		"identifier":         {},
-		"sequence":           {},
+		"scope_id":   {},
+		"state_id":   {},
+		"identifier": {},
+		"sequence":   {},
 	}
 
 	keys := make([]string, 0, len(view.Props))

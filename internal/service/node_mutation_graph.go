@@ -36,11 +36,10 @@ func (s *NodeService) readMutationSnapshot(
 	return snapshot, schema, nil
 }
 
-// parentGraph reads parentID and each ancestor along the child_of chain and
+// parentGraph reads parentID and each child_of ancestor and
 // returns their primary digests. It stops at a node without a parent or a
 // missing ancestor. It returns an error that wraps domain.ErrInvalidArgument
-// if parentID does not exist, the chain includes nodeID, or the chain
-// repeats
+// if parentID does not exist, the chain includes nodeID, or the chain repeats
 // a node.
 func (s *NodeService) parentGraph(
 	ctx context.Context,
@@ -98,8 +97,7 @@ func (s *NodeService) parentGraph(
 }
 
 // referenceGraph returns the primary digest of each stored node that a UUID
-// property in props references if the property definition declares a
-// reference
+// property in props references if the property definition declares a reference
 // target type.
 func (s *NodeService) referenceGraph(
 	ctx context.Context,
@@ -110,8 +108,7 @@ func (s *NodeService) referenceGraph(
 	records := []node.GraphRecord{}
 
 	for _, definition := range schema.Definitions {
-		if definition.ReferenceTargetTypeKey == "" || definition.Type != node.PropertyTypeUUID ||
-			definition.Name == "parent_id" {
+		if definition.ReferenceTargetTypeKey == "" || definition.Type != node.PropertyTypeUUID {
 			continue
 		}
 

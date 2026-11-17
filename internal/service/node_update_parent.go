@@ -21,21 +21,16 @@ type updateParent struct {
 }
 
 // parentChangeForUpdate returns the requested parent and the relationship
-// changes without child_of entries. A parent_id property or one added child_of
-// edge requests a parent. Removed child_of edges without another request
-// preserve the stored parent_id and remove the other child_of edges. The
-// checks run for every caller of Update. They return an error that wraps
-// domain.ErrInvalidArgument for a parent that is not a node in the organization,
-// a parent_id chain that includes the node, or conflicting requests (TACK-523).
+// changes without child_of entries. One added child_of edge requests a parent.
+// The checks reject missing parents, cycles, and conflicting requests.
 func (s *NodeService) parentChangeForUpdate(
 	ctx context.Context,
 	snapshot node.MutationSnapshot,
-	props map[string]json.RawMessage,
 	changes node.RelationshipChanges,
 ) (updateParent, node.RelationshipChanges, error) {
 	none := updateParent{Change: nil, Records: nil, Relationships: nil}
 	other, added, removed := splitChildOfChanges(changes)
-	requestedID, err := requestedParentID(ctx, snapshot, props, added, removed)
+	requestedID, err := requestedParentID(ctx, snapshot, added, removed)
 	if err != nil {
 		return none, other, err
 	}
@@ -56,38 +51,16 @@ func (s *NodeService) parentChangeForUpdate(
 	}, other, nil
 }
 
-// requestedParentID returns the parent that props, added, and removed request,
+// requestedParentID returns the parent that added and removed request,
 // or [uuid.Nil] if they do not request a parent.
 func requestedParentID(
 	ctx context.Context,
 	snapshot node.MutationSnapshot,
-	props map[string]json.RawMessage,
 	added []uuid.UUID,
 	removed []uuid.UUID,
 ) (uuid.UUID, error) {
 	nodeID := snapshot.Node.ID
 	requestedID := uuid.Nil
-	if raw, present := props["parent_id"]; present {
-		if isDeletedPropValue(raw) {
-			return uuid.Nil, parentRefusal(ctx, nodeID, "parent_id cannot be cleared")
-		}
-
-		value, isText := rawString(raw)
-		if !isText {
-			return uuid.Nil, parentRefusal(ctx, nodeID, "parent_id must be a node id string")
-		}
-
-		parsed, err := uuid.Parse(value)
-		if err != nil {
-			return uuid.Nil, parentRefusal(
-				ctx,
-				nodeID,
-				fmt.Sprintf("parent_id %q is not a node id", value),
-			)
-		}
-
-		requestedID = parsed
-	}
 
 	for _, targetID := range added {
 		if requestedID != uuid.Nil && requestedID != targetID {
@@ -102,12 +75,12 @@ func requestedParentID(
 	}
 
 	if requestedID == uuid.Nil && len(removed) > 0 {
-		requestedID = rawUUIDReferenceProperty(snapshot.Node.Props, "parent_id")
+		requestedID = snapshot.ParentID
 		if requestedID == uuid.Nil {
 			return uuid.Nil, parentRefusal(
 				ctx,
 				nodeID,
-				"removing a child_of edge requires a parent_id",
+				"removing a child_of edge requires a replacement parent",
 			)
 		}
 	}

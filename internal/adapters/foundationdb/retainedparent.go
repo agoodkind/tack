@@ -12,6 +12,8 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
+const parentIDProperty = "parent_id"
+
 // storedParentID reads the primary record of source inside transaction and
 // returns the
 // parent_id that the record stores. It returns [uuid.Nil] without an error

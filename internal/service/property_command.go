@@ -11,15 +11,12 @@ import (
 	"goodkind.io/tack/internal/domain/node"
 )
 
-// PropertyCommand separates canonical property data from command controls
-// that the node must not store directly.
+// PropertyCommand contains canonical property data.
 type PropertyCommand struct {
-	ParentID uuid.UUID
-	Props    map[string]json.RawMessage
+	Props map[string]json.RawMessage
 }
 
-// ReferenceResolver resolves a user-facing reference string to a canonical
-// node UUID.
+// ReferenceResolver resolves a user-facing reference string to a canonical node UUID.
 type ReferenceResolver func(
 	ctx context.Context,
 	orgID uuid.UUID,
@@ -28,8 +25,7 @@ type ReferenceResolver func(
 	ref string,
 ) (uuid.UUID, error)
 
-// CompileCreatePropertyCommand canonicalizes user-facing property input for
-// create.
+// CompileCreatePropertyCommand canonicalizes user-facing property input for create.
 func CompileCreatePropertyCommand(
 	ctx context.Context,
 	defs []*node.PropertyDef,
@@ -39,7 +35,6 @@ func CompileCreatePropertyCommand(
 	scopeID uuid.UUID,
 	props map[string]json.RawMessage,
 	resolveReference ReferenceResolver,
-	resolveParent ParentResolver,
 ) (*PropertyCommand, error) {
 	compiled, err := compilePropertyCommand(
 		ctx,
@@ -55,33 +50,10 @@ func CompileCreatePropertyCommand(
 		return nil, err
 	}
 
-	if compiled == nil {
-		return &PropertyCommand{ParentID: scopeID}, nil
-	}
-
-	if raw, ok := compiled["parent_id"]; ok && isDeletedPropValue(raw) {
-		// An absent or null parent on create means the scope itself.
-		delete(compiled, "parent_id")
-	}
-
-	parentID, present, err := resolveCommandParent(ctx, nt, orgID, scopeID, compiled, resolveParent)
-	if err != nil {
-		return nil, err
-	}
-
-	if !present {
-		parentID = scopeID
-	}
-
-	delete(compiled, "parent_id")
-
-	return &PropertyCommand{ParentID: parentID, Props: compiled}, nil
+	return &PropertyCommand{Props: compiled}, nil
 }
 
 // CompileUpdatePropertyCommand canonicalizes property input for update.
-// It resolves parent_id like create and stores the canonical UUID in Props
-// instead of the printed reference (TACK-523). It sets ParentID only when
-// input includes parent_id.
 func CompileUpdatePropertyCommand(
 	ctx context.Context,
 	defs []*node.PropertyDef,
@@ -91,7 +63,6 @@ func CompileUpdatePropertyCommand(
 	scopeID uuid.UUID,
 	props map[string]json.RawMessage,
 	resolveReference ReferenceResolver,
-	resolveParent ParentResolver,
 ) (*PropertyCommand, error) {
 	compiled, err := compilePropertyCommand(
 		ctx,
@@ -107,20 +78,7 @@ func CompileUpdatePropertyCommand(
 		return nil, err
 	}
 
-	if compiled == nil {
-		return &PropertyCommand{ParentID: uuid.Nil, Props: nil}, nil
-	}
-
-	parentID, present, err := resolveCommandParent(ctx, nt, orgID, scopeID, compiled, resolveParent)
-	if err != nil {
-		return nil, err
-	}
-
-	if present {
-		compiled["parent_id"] = mustRawString(parentID.String())
-	}
-
-	return &PropertyCommand{ParentID: parentID, Props: compiled}, nil
+	return &PropertyCommand{Props: compiled}, nil
 }
 
 func compilePropertyCommand(
@@ -183,12 +141,11 @@ func compilePropertyCommand(
 	return compiled, nil
 }
 
-func MustRawString(value string) json.RawMessage {
-	return mustRawString(value)
-}
-
 func mustRawString(value string) json.RawMessage {
 	raw, _ := json.Marshal(value)
-
 	return raw
+}
+
+func MustRawString(value string) json.RawMessage {
+	return mustRawString(value)
 }

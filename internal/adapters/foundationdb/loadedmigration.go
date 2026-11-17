@@ -11,6 +11,8 @@ import (
 
 type parentMigration struct {
 	current      *node.Node
+	view         *node.NodeView
+	source       []byte
 	relationship *node.Relationship
 }
 
@@ -46,8 +48,23 @@ func (s *NodeStore) readParentMigration(
 		return nil, err
 	}
 
-	if err := checkAdditiveParentParity(ctx, transaction, current, view); err != nil {
-		return nil, err
+	_, primaryHasParent := current.Props[legacyParentProperty]
+	viewHasParent := false
+	if view != nil {
+		_, viewHasParent = view.Props[legacyParentProperty]
+	}
+
+	if !primaryHasParent && !viewHasParent {
+		return nil, nil
+	}
+
+	if !primaryHasParent {
+		return nil, mutationRefusal(
+			ctx,
+			nodeID,
+			"only the read view stores a parent; repair the primary parent before migrating",
+			domain.ErrInvalidArgument,
+		)
 	}
 
 	relationship, err := s.legacyParentRelationship(ctx, transaction, current)
@@ -55,12 +72,10 @@ func (s *NodeStore) readParentMigration(
 		return nil, err
 	}
 
-	if relationship == nil {
-		return nil, nil
-	}
-
 	return &parentMigration{
 		current:      current,
+		view:         view,
+		source:       source.Encoding,
 		relationship: relationship,
 	}, nil
 }

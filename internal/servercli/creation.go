@@ -34,20 +34,6 @@ func createSeedNode(
 	now := clock.Now().UTC()
 	props := make(map[string]json.RawMessage)
 	props["slug"] = slugRaw
-	if parentID != uuid.Nil {
-		parentRaw, marshalErr := json.Marshal(parentID.String())
-		if marshalErr != nil {
-			slog.ErrorContext(
-				ctx,
-				"seed.encode_parent_failed",
-				slog.String("err", marshalErr.Error()),
-			)
-
-			return fmt.Errorf("seed: encode parent_id: %w", marshalErr)
-		}
-
-		props["parent_id"] = parentRaw
-	}
 
 	// A root node uses its own ID as OrgID. Other nodes use the parent ID
 	// supplied for this seed hierarchy, independently of the node type name.

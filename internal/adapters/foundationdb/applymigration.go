@@ -2,6 +2,8 @@ package foundationdb
 
 import (
 	"context"
+	"encoding/json"
+	"maps"
 
 	"github.com/apple/foundationdb/bindings/go/src/fdb"
 	"goodkind.io/tack/internal/domain/node"
@@ -13,9 +15,31 @@ func (s *NodeStore) applyParentMigration(
 	record *parentMigration,
 	changes *mutationAudit,
 ) error {
-	current := record.current
+	current, view := record.current, record.view
 	if _, err := s.fenceAttempt(ctx, transaction, current.OrgID, current.ID); err != nil {
 		return err
+	}
+
+	clearLegacyParentIndex(transaction, current, current.Props[legacyParentProperty])
+	current.Props = maps.Clone(current.Props)
+	delete(current.Props, legacyParentProperty)
+	if view != nil {
+		clearLegacyParentIndex(transaction, current, view.Props[legacyParentProperty])
+		view.Props = maps.Clone(view.Props)
+		delete(view.Props, legacyParentProperty)
+	}
+
+	encoded, err := writeNodeRecords(ctx, transaction, current, view)
+	if err != nil {
+		return err
+	}
+
+	if err := changes.record(nodeTarget(current), record.source, encoded); err != nil {
+		return nodeOperationFailure(
+			ctx,
+			"record parent migration of node "+current.ID.String(),
+			err,
+		)
 	}
 
 	var relationships []node.RelationshipChanges
@@ -59,4 +83,22 @@ func (s *NodeStore) scheduleParentMigration(
 	}
 
 	return scheduleRelatedSearchWork(ctx, transaction, now, relationships)
+}
+
+func clearLegacyParentIndex(transaction fdb.Transaction, current *node.Node, raw json.RawMessage) {
+	if len(raw) == 0 {
+		return
+	}
+
+	transaction.Clear(
+		fdb.Key(
+			nodeByPropertyKey(
+				current.OrgID,
+				current.NodeType,
+				legacyParentProperty,
+				encodePropertyValue(raw),
+				current.ID,
+			),
+		),
+	)
 }

@@ -1,7 +1,6 @@
 package integration_test
 
 import (
-	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -13,9 +12,12 @@ import (
 	"goodkind.io/tack/internal/test/integration"
 )
 
-// TestParentEdgeUpdateRefusesCyclicAncestry leaves the project in the legacy
-// properties and creates a child_of cycle between two issues. The service
-// must refuse a third issue's move under either issue.
+// TestParentEdgeUpdateRefusesCyclicAncestry stores child_of edges that form
+// a cycle between two issues through the node store, which does not check
+// cycles. It requires the node service to refuse a third issue's move under
+// one of those issues with an error that matches domain.ErrInvalidArgument
+// and contains both node IDs. After the refusal, the third issue has the
+// project as its child_of target.
 func TestParentEdgeUpdateRefusesCyclicAncestry(t *testing.T) {
 	env := integration.SetupTestEnv(t)
 	actor := uuid.Must(uuid.NewV7())
@@ -41,25 +43,18 @@ func TestParentEdgeUpdateRefusesCyclicAncestry(t *testing.T) {
 		nil,
 	)
 	moved := createDeleteFixtureNode(t, env, actor, project, project, "issue", "Moved issue", nil)
-
-	for source, target := range map[uuid.UUID]uuid.UUID{first: second, second: first} {
-		storeLegacyParentFixture(t, env, source, project, true)
-		edge := &node.Relationship{
-			OrgID:        env.OrgID,
-			SourceID:     source,
-			RelationType: node.RelChildOf,
-			TargetID:     target,
-		}
-		if err := env.Stores.Relationships.Add(env.Ctx, edge); err != nil {
-			t.Fatalf("store cycle edge from %s to %s: %v", source, target, err)
-		}
-	}
+	storeParentID(t, env, first, second.String())
+	storeParentID(t, env, second, first.String())
 
 	_, err := env.NodeSvc.Update(
 		env.Ctx,
 		service.UpdateInput{
-			NodeID:  moved,
-			Props:   map[string]json.RawMessage{"parent_id": parentEdgeJSON(t, first.String())},
+			NodeID: moved,
+			RelationshipChanges: node.RelationshipChanges{
+				Add: []*node.Relationship{
+					{SourceID: moved, RelationType: node.RelChildOf, TargetID: first},
+				},
+			},
 			ActorID: actor,
 		},
 	)
@@ -74,38 +69,41 @@ func TestParentEdgeUpdateRefusesCyclicAncestry(t *testing.T) {
 		)
 	}
 
-	requireSingleParentEdge(t, env, moved, project)
-	view, err := env.Stores.Views.Get(env.Ctx, moved)
-	if err != nil || view == nil ||
-		string(view.Props["parent_id"]) != string(parentEdgeJSON(t, project.String())) {
-		t.Fatalf(
-			"issue %s after the refused move = %+v, err %v, want parent_id %s",
-			moved,
-			view,
-			err,
-			project,
-		)
-	}
+	requireStoredParent(t, env, moved, project)
 }
 
-// storeParentID encodes parentValue as a JSON string and writes it as the
-// parent_id of nodeID in the primary record and the view through NodeStore.Set.
-// It does not change child_of edges.
+// storeParentID replaces child_of edges through the relationship store.
 func storeParentID(t *testing.T, env *integration.TestEnv, nodeID uuid.UUID, parentValue string) {
 	t.Helper()
-	current, err := env.Stores.Nodes.Get(env.Ctx, env.OrgID, nodeID)
-	if err != nil || current == nil {
-		t.Fatalf("read node %s: %v", nodeID, err)
+	parentID := uuid.MustParse(parentValue)
+	edges, err := env.Stores.Relationships.ListBySource(env.Ctx, env.OrgID, nodeID, node.RelChildOf)
+	if err != nil {
+		t.Fatalf("read parents of node %s: %v", nodeID, err)
 	}
 
-	view, err := env.Stores.Views.Get(env.Ctx, nodeID)
-	if err != nil || view == nil {
-		t.Fatalf("read view of node %s: %v", nodeID, err)
+	if err := env.Stores.Relationships.Add(
+		env.Ctx,
+		&node.Relationship{
+			OrgID:        env.OrgID,
+			SourceID:     nodeID,
+			RelationType: node.RelChildOf,
+			TargetID:     parentID,
+		},
+	); err != nil {
+		t.Fatalf("store parent %s of node %s: %v", parentID, nodeID, err)
 	}
 
-	value := parentEdgeJSON(t, parentValue)
-	current.Props["parent_id"], view.Props["parent_id"] = value, value
-	if err := env.Stores.Nodes.Set(env.Ctx, current, view); err != nil {
-		t.Fatalf("store parent_id %q on node %s: %v", parentValue, nodeID, err)
+	for _, edge := range edges {
+		if edge.TargetID != parentID {
+			if err := env.Stores.Relationships.Remove(
+				env.Ctx,
+				env.OrgID,
+				nodeID,
+				node.RelChildOf,
+				edge.TargetID,
+			); err != nil {
+				t.Fatalf("remove parent %s of node %s: %v", edge.TargetID, nodeID, err)
+			}
+		}
 	}
 }

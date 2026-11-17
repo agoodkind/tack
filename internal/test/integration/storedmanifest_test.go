@@ -50,14 +50,6 @@ func requireStoredSearchManifest(
 
 		var scopeID string
 		scopeErr := json.Unmarshal(stored.Props["scope_id"], &scopeID)
-		if string(stored.Props["parent_id"]) != string(jsonStr(entryID.String())) {
-			t.Fatalf(
-				"exported node %s has parent property %s",
-				stored.ID,
-				stored.Props["parent_id"],
-			)
-		}
-
 		parents, parentErr := stores.Relationships.ListBySource(
 			t.Context(),
 			manifest.OrgID,
@@ -66,7 +58,7 @@ func requireStoredSearchManifest(
 		)
 		_, included := stored.Props[exported.IncludedKey]
 		_, excluded := stored.Props[exported.ExcludedKey]
-		if len(stored.Props) != 4 || !included || !excluded || parentErr != nil || len(
+		if len(stored.Props) != 3 || !included || !excluded || parentErr != nil || len(
 			parents,
 		) != 1 || parents[0].TargetID != entryID || scopeErr != nil || scopeID != entryID.String() {
 			t.Fatalf(

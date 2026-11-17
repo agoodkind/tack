@@ -37,7 +37,7 @@ func TestParentRelationshipMigrationRefusesViewOnlyParentWithEdge(t *testing.T) 
 	issue := createRepairIssue(t, env, project, "View-only parent with relationship")
 	storeLegacyParentFixture(t, env, issue, project, false)
 	removePrimaryParentFixture(t, env, issue)
-	requireParentMigrationRefused(t, []uuid.UUID{issue}, "disagree")
+	requireParentMigrationRefused(t, []uuid.UUID{issue}, "only the read view")
 }
 
 func TestParentRelationshipMigrationRefusesInvalidScope(t *testing.T) {

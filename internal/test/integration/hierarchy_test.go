@@ -30,8 +30,8 @@ func childOfTargets(t *testing.T, env *integration.TestEnv, nodeID uuid.UUID) []
 	return targets
 }
 
-// requireParent checks that nodeID has parentID as parent_id and exactly one
-// child_of edge, which targets parentID.
+// requireParent checks that nodeID has exactly one child_of edge to parentID
+// and does not store a parent_id property.
 func requireParent(
 	t *testing.T,
 	env *integration.TestEnv,
@@ -44,8 +44,8 @@ func requireParent(
 		t.Fatalf("read view %s: %v", nodeID, err)
 	}
 
-	if got := propText(t, view.Props, "parent_id"); got != parentID.String() {
-		t.Fatalf("node %s parent_id = %q, want %s", nodeID, got, parentID)
+	if _, present := view.Props["parent_id"]; present {
+		t.Fatalf("node %s stores the obsolete parent_id property", nodeID)
 	}
 
 	if targets := childOfTargets(t, env, nodeID); len(targets) != 1 || targets[0] != parentID {

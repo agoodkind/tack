@@ -10,9 +10,9 @@ import (
 	"goodkind.io/tack/internal/test/integration"
 )
 
-// TestNodeIntegrityRepairExecuteEpicUnderEpic stores an epic with parent_id
-// at its project and child_of edges to the project and to a second epic. The
-// test freezes a repair request with --request that sets parent_id to the
+// TestNodeIntegrityRepairExecuteEpicUnderEpic stores an epic with
+// child_of edges to the project and to a second epic. The
+// test freezes a repair request with --request that selects the
 // second epic and removes the project edge, then executes the manifest with
 // --manifest --execute. The epic must end with one child_of edge to the
 // second epic, the same scope_id, name, and other properties, and the outbox
@@ -44,7 +44,6 @@ func TestNodeIntegrityRepairExecuteEpicUnderEpic(t *testing.T) {
 	}
 
 	wantProps := maps.Clone(stored.Props)
-	wantProps["parent_id"] = textValue(parentEpic.String())
 	if !maps.EqualFunc(
 		view.Props,
 		wantProps,
@@ -70,12 +69,12 @@ func TestNodeIntegrityRepairExecuteEpicUnderEpic(t *testing.T) {
 
 // TestNodeIntegrityRepairExecuteEpicParentRefusals uses the epic fixture of
 // TestNodeIntegrityRepairExecuteEpicUnderEpic. Execution must fail for a
-// result with parent_id at an issue, because the epic type does not list
+// result selecting an issue parent, because the epic type does not list
 // issue. After the test stores the earlier epic type with CanLiveUnder
-// [project], execution must fail for a result with parent_id at the second
+// [project], execution must fail for a result selecting the second
 // epic. After ops backfill once-fixed-definitions --execute, a newly frozen
 // manifest with the same result must apply. Each failed execution must leave
-// the epic's parent_id and child_of edges unchanged.
+// the epic's child_of edges unchanged.
 func TestNodeIntegrityRepairExecuteEpicParentRefusals(t *testing.T) {
 	env := integration.SetupTestEnv(t)
 	graph := newRepairGraph(t, env)

@@ -18,6 +18,7 @@ func TestParentEdgeGuardKeepsCanonicalEdge(t *testing.T) {
 	project := createDeleteFixtureProject(t, env, actor, "GUARD")
 	parent := createDeleteFixtureNode(t, env, actor, project, project, "issue", "Parent issue", nil)
 	child := createDeleteFixtureNode(t, env, actor, parent, project, "issue", "Child issue", nil)
+	setLegacyProps(t, env, child, schemaProps("parent_id", quoted(parent.String())))
 	redundant := &node.Relationship{
 		OrgID:        env.OrgID,
 		SourceID:     child,
@@ -61,6 +62,7 @@ func TestParentEdgeGuardRefusesRootTypeCanonicalEdge(t *testing.T) {
 		"Node of a root type",
 		nil,
 	)
+	setLegacyProps(t, env, rooted, schemaProps("parent_id", quoted(project.String())))
 	clearGuardRootParentTypes(t, env, kind)
 	requireRemovalRefused(t, env, rooted, project)
 	requireParentEdges(t, env, rooted, project)
@@ -86,7 +88,7 @@ func TestParentEdgeGuardRefusesInvalidParentID(t *testing.T) {
 		nil,
 	)
 	clearGuardRootParentTypes(t, env, kind)
-	storeParentID(t, env, rooted, "not a UUID")
+	setLegacyProps(t, env, rooted, schemaProps("parent_id", quoted("not a UUID")))
 	requireRemovalRefused(t, env, rooted, project)
 	requireParentEdges(t, env, rooted, project)
 }

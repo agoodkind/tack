@@ -15,8 +15,6 @@ import (
 
 var errScopedUnauthenticated = errors.New("unauthenticated")
 
-const scopedParentProperty = "parent_id"
-
 // resolveScopedReference resolves "<scope reference>::<value>" to the one node
 // of type nt under that scope with propName equal to value. The scope is the
 // first level of the scope chain of nt, or the entry point when nt lives

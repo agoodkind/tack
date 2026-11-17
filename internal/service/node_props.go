@@ -22,8 +22,7 @@ func (s *NodeService) validateCreateProps(
 }
 
 // validateUpdateProps refuses caller values for scope_id and sequence and
-// checks the declared names of the set properties. A parent_id value stays
-// allowed because Update turns it into a parent change.
+// checks the declared property names.
 func (s *NodeService) validateUpdateProps(
 	ctx context.Context,
 	orgID uuid.UUID,
@@ -31,7 +30,7 @@ func (s *NodeService) validateUpdateProps(
 	props map[string]json.RawMessage,
 	currentProps map[string]json.RawMessage,
 ) error {
-	if err := refuseManagedProps(ctx, nt, "update", props, "parent_id"); err != nil {
+	if err := refuseManagedProps(ctx, nt, "update", props); err != nil {
 		return err
 	}
 
@@ -49,8 +48,7 @@ func (s *NodeService) validateUpdateProps(
 
 // refuseManagedProps returns an error that wraps domain.ErrInvalidArgument
 // when props contains a property that node.IsManagedProperty reports, other
-// than the names in allowed. The node service writes those properties
-// itself.
+// than the names in allowed. The node service writes those properties itself.
 func refuseManagedProps(
 	ctx context.Context,
 	nt *node.NodeType,
@@ -103,7 +101,7 @@ func (s *NodeService) checkDeclaredProps(
 // ValidateNodeProps interprets props with schema for nt. It logs and returns
 // an error for schema read failures. It logs and refuses property names
 // without definitions and names with definitions that do not apply to nt.
-// For names with definitions, it exempts parent_id, scope_id, and sequence.
+// For names with definitions, it exempts scope_id and sequence.
 // Refusal errors wrap domain.ErrInvalidArgument and list quoted names in
 // sorted order. Errors and log entries include the operation value.
 // It ignores value and option issues and returns nil otherwise.

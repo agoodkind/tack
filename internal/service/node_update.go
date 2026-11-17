@@ -23,9 +23,9 @@ type UpdateInput struct {
 	RelationshipChanges node.RelationshipChanges
 	ActorID             uuid.UUID
 	// ScopeID, when not [uuid.Nil], replaces the stored scope_id. It requires a
-	// change to a different parent in the same update. Internal callers that move a node into
-	// another scope set it. Props cannot set scope_id.
-	ScopeID uuid.UUID `exhaustruct:"optional"`
+	// change to a different parent in the same update. Internal callers set it
+	// when moving a node into another scope. Props cannot set scope_id.
+	ScopeID uuid.UUID
 }
 
 // Update rewrites a node's name and/or Props. Property index entries for
@@ -65,12 +65,7 @@ func (s *NodeService) Update(ctx context.Context, in UpdateInput) (*node.NodeVie
 		return nil, err
 	}
 
-	parent, otherChanges, err := s.parentChangeForUpdate(
-		ctx,
-		snapshot,
-		in.Props,
-		in.RelationshipChanges,
-	)
+	parent, otherChanges, err := s.parentChangeForUpdate(ctx, snapshot, in.RelationshipChanges)
 	if err != nil {
 		return nil, err
 	}
@@ -80,7 +75,7 @@ func (s *NodeService) Update(ctx context.Context, in UpdateInput) (*node.NodeVie
 		return nil, err
 	}
 
-	merged := mergedUpdateProps(source.Props, props, parent.Change)
+	merged := mergedUpdateProps(source.Props, props)
 	// An update can change a value that a reference renders from, such as the
 	// scope pointer or numbered property. Update renders reference keys from
 	// the merged properties and claims them. The store refuses a move to a
@@ -115,11 +110,12 @@ func (s *NodeService) Update(ctx context.Context, in UpdateInput) (*node.NodeVie
 			Incoming:      nil,
 		},
 		Name:          in.Name,
-		Props:         propsWithoutParent(props),
+		Props:         props,
 		Parent:        parent.Change,
 		ReferenceKeys: referenceKeys,
 		Relationships: stampRelationshipChanges(otherChanges, in.ActorID, clock.Now().UTC()),
 		Idempotency:   nil,
+		Checkpoint:    nil,
 	}
 	if _, err := s.nodes.ApplyMutation(ctx, plan); err != nil {
 		log.ErrorContext(
@@ -133,18 +129,4 @@ func (s *NodeService) Update(ctx context.Context, in UpdateInput) (*node.NodeVie
 	}
 
 	return s.committedView(ctx, in.NodeID)
-}
-
-// propsWithoutParent returns a copy of props without parent_id. The plan
-// sets
-// the parent through its Parent field.
-func propsWithoutParent(props map[string]json.RawMessage) map[string]json.RawMessage {
-	patch := make(map[string]json.RawMessage, len(props))
-	for name, value := range props {
-		if name != "parent_id" {
-			patch[name] = value
-		}
-	}
-
-	return patch
 }

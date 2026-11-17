@@ -18,10 +18,12 @@ type ParentRelationshipBackfillResult struct {
 	DefinitionsRemoved int `json:"definitions_removed"`
 }
 
-// RunParentRelationshipBackfill creates missing child_of relationships.
+// RunParentRelationshipBackfill replaces stored parent_id properties with
+// child_of relationships.
 //
-// It validates every node and read view before writing.
-// Writers must remain stopped during validation and relationship creation.
+// It validates every node before writing and removes property indexes and
+// definitions after processing nodes. Writers must remain stopped until
+// migration finishes and the relationship-only application starts.
 //
 // A dry run reports proposed changes without modifying data:
 //
@@ -29,7 +31,7 @@ type ParentRelationshipBackfillResult struct {
 func RunParentRelationshipBackfill(
 	ctx context.Context,
 	nodes *fdbadapter.NodeStore,
-	_ *fdbadapter.PropertyDefStore,
+	definitions *fdbadapter.PropertyDefStore,
 	dryRun bool,
 ) (ParentRelationshipBackfillResult, error) {
 	result, err := backfillParentRelationshipNodes(ctx, nodes, false)
@@ -48,6 +50,15 @@ func RunParentRelationshipBackfill(
 		}
 	}
 
+	if err := retireParentIndexes(ctx, nodes, !dryRun); err != nil {
+		return result, err
+	}
+
+	result.DefinitionsRemoved, err = removeParentPropertyDefinitions(ctx, definitions, !dryRun)
+	if err != nil {
+		return result, err
+	}
+
 	telemetry.L(ctx).InfoContext(
 		ctx,
 		"parent_relationships.backfilled",
@@ -59,6 +70,27 @@ func RunParentRelationshipBackfill(
 	)
 
 	return result, nil
+}
+
+func retireParentIndexes(ctx context.Context, nodes *fdbadapter.NodeStore, write bool) error {
+	cursor := ""
+
+	for {
+		page, err := nodes.RetireParentPropertyIndexes(ctx, cursor, write)
+		if err != nil {
+			return parentRelationshipFailure(
+				ctx,
+				fmt.Sprintf("remove legacy parent indexes after cursor %q", cursor),
+				err,
+			)
+		}
+
+		if page.Next == "" {
+			return nil
+		}
+
+		cursor = page.Next
+	}
 }
 
 func backfillParentRelationshipNodes(
@@ -92,6 +124,50 @@ func backfillParentRelationshipNodes(
 		}
 
 		cursor = page.Next
+	}
+}
+
+func removeParentPropertyDefinitions(
+	ctx context.Context,
+	definitions *fdbadapter.PropertyDefStore,
+	write bool,
+) (int, error) {
+	removed := 0
+	cursor := ""
+
+	for {
+		page, next, err := definitions.ScanProjections(ctx, cursor)
+		if err != nil {
+			return removed, parentRelationshipFailure(
+				ctx,
+				fmt.Sprintf("scan definitions for parent migration after cursor %q", cursor),
+				err,
+			)
+		}
+
+		for _, definition := range page {
+			if definition.Name != obsoleteParentProperty {
+				continue
+			}
+
+			if write {
+				if err := definitions.Delete(ctx, definition.OrgID, definition.ID); err != nil {
+					return removed, parentRelationshipFailure(
+						ctx,
+						fmt.Sprintf("remove parent_id definition %s", definition.ID),
+						err,
+					)
+				}
+			}
+
+			removed++
+		}
+
+		if next == "" {
+			return removed, nil
+		}
+
+		cursor = next
 	}
 }
 

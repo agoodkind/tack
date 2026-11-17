@@ -150,7 +150,7 @@ func TestCreateIssueRefusesMissingOrConflictingScope(t *testing.T) {
 		"two scopes": {both, exactlyOneIssueScope},
 		"parent and property": {
 			withParentProperty,
-			"exactly one of epic_reference or properties.parent_id",
+			"properties.parent_id is not declared",
 		},
 	}
 	for name, test := range cases {
