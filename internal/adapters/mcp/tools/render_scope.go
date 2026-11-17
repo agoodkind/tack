@@ -81,7 +81,7 @@ func referencePropertyValue(view *node.NodeView, propName string) string {
 		return ""
 	}
 
-	if propName == "name" {
+	if propName == nameFieldKey {
 		return view.Name
 	}
 

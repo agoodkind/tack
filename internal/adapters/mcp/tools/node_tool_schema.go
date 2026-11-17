@@ -48,7 +48,7 @@ func createTool(
 	fields = append(
 		fields,
 		schemaField{
-			Name: "name",
+			Name: nameFieldKey,
 			Type: schemaString,
 			Desc: fmt.Sprintf("Name for the new %s.", strings.ToLower(nt.Name)),
 		},
@@ -61,7 +61,7 @@ func createTool(
 		Description: createToolDescription(nt, route, epParam, resolver),
 		InputSchema: schema{
 			Fields:   fields,
-			Required: append([]string{epParam, "name"}, route.requiredParams()...),
+			Required: append([]string{epParam, nameFieldKey}, route.requiredParams()...),
 		}.toMCP(),
 	}
 }
@@ -122,7 +122,7 @@ func updateTool(
 		InputSchema: schema{
 			Fields: append(
 				base.Fields,
-				schemaField{Name: "name", Type: schemaString},
+				schemaField{Name: nameFieldKey, Type: schemaString},
 				schemaField{Name: "properties", Type: schemaObject},
 			),
 			Required: base.Required,
