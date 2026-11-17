@@ -1,7 +1,6 @@
 package integration_test
 
 import (
-	"encoding/json"
 	"testing"
 	"time"
 
@@ -50,9 +49,9 @@ func parentEntry(
 	parentID uuid.UUID,
 	remove ...ops.RepairEdge,
 ) ops.NodeIntegrityEntry {
-	result := ops.RepairResult{Props: map[string]json.RawMessage{}, RemoveEdges: remove}
+	result := ops.RepairResult{RemoveEdges: remove}
 	if parentID != uuid.Nil {
-		result.Props["parent_id"] = textValue(parentID.String())
+		result.ParentID = &parentID
 	}
 
 	return ops.NodeIntegrityEntry{

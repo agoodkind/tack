@@ -81,10 +81,11 @@ func TestNodeIntegrityRepairExecuteEpicParentRefusals(t *testing.T) {
 	graph := newRepairGraph(t, env)
 	project, parentEpic := graph.projectID, graph.epicID
 	epic := createTwoParentEpic(t, env, graph)
+	issueParent := createRepairIssue(t, env, project, "Invalid epic parent type")
 	underIssue := epicParentEntry(
 		"tack-582-epic-under-issue",
 		epic,
-		graph.issueID,
+		issueParent,
 		project,
 		parentEpic,
 	)
@@ -94,7 +95,7 @@ func TestNodeIntegrityRepairExecuteEpicParentRefusals(t *testing.T) {
 		underIssue,
 		epic,
 		project,
-		`cannot live under the parent `+graph.issueID.String()+` of type "issue"`,
+		`cannot live under the parent `+issueParent.String()+` of type "issue"`,
 	)
 
 	epicType := storedNodeType(t, env, "epic")

@@ -7,6 +7,10 @@ import (
 	"github.com/google/uuid"
 )
 
+const obsoleteParentProperty = "parent_id"
+
+const nullPropertyValue = "null"
+
 func entryProblem(entry NodeIntegrityEntry) string {
 	if strings.TrimSpace(entry.NodeType) == "" {
 		return "node_type is required"
@@ -82,9 +86,17 @@ func executableProblem(entry NodeIntegrityEntry) string {
 	}
 
 	for name := range entry.Result.Props {
+		if name == obsoleteParentProperty {
+			return "result.props.parent_id is obsolete; use result.parent_id and freeze a version 2 manifest"
+		}
+
 		if strings.TrimSpace(name) == "" {
 			return "a property name is empty"
 		}
+	}
+
+	if entry.Result.ParentID != nil && *entry.Result.ParentID == uuid.Nil {
+		return "result.parent_id must identify a node"
 	}
 
 	return edgesProblem(entry.Result)
@@ -101,7 +113,7 @@ func reportProblem(entry NodeIntegrityEntry) string {
 	}
 
 	removal, declared := entry.Result.Props[report.SourceProperty]
-	if !declared || string(removal) != transformedNullProperty {
+	if !declared || string(removal) != nullPropertyValue {
 		return fmt.Sprintf("the result must remove report property %q", report.SourceProperty)
 	}
 
@@ -155,6 +167,7 @@ func entryChanges(entry NodeIntegrityEntry) bool {
 }
 
 func resultChanges(result RepairResult) bool {
-	return result.Name != nil || len(result.Props) > 0 || len(result.AddEdges) > 0 ||
+	return result.Name != nil || result.ParentID != nil || len(result.Props) > 0 ||
+		len(result.AddEdges) > 0 ||
 		len(result.RemoveEdges) > 0
 }

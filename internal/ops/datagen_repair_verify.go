@@ -21,7 +21,7 @@ func verifyDatagenRepair(
 	expected := map[uuid.UUID]uuid.UUID{
 		fixture.MultipleEdges: fixture.EpicID,
 		fixture.LegacyStatus:  fixture.ProjectID,
-		fixture.PrintedParent: fixture.EpicID,
+		fixture.MissingEdge:   fixture.EpicID,
 		fixture.AbsentParent:  fixture.ProjectID,
 		fixture.Notice:        fixture.NoticeTarget,
 	}

@@ -2,7 +2,6 @@ package integration_test
 
 import (
 	"encoding/json"
-	"strconv"
 	"strings"
 	"testing"
 
@@ -85,7 +84,7 @@ func createTwoParentEpic(t *testing.T, env *integration.TestEnv, graph repairGra
 	return epic
 }
 
-// epicParentEntry returns an executable entry that sets the parent_id of
+// epicParentEntry returns an executable entry that sets the parent of
 // epic to parentID and removes the child_of edges to each target in remove.
 func epicParentEntry(
 	repairID string,
@@ -112,9 +111,7 @@ func epicParentEntry(
 			},
 		},
 		Result: ops.RepairResult{
-			Props: map[string]json.RawMessage{
-				"parent_id": json.RawMessage(strconv.Quote(parentID.String())),
-			},
+			ParentID:    &parentID,
 			RemoveEdges: edges,
 		},
 	}

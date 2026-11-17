@@ -16,8 +16,8 @@ const repairFixtureIdentifier = "QAREPAIR"
 
 // repairFixtureBuilder creates fixture records in one organization as one
 // actor. Its err field stores the first error, and every method does nothing
-// after an error. Legacy writes use NodeStore.UpdateAtomic,
-// RelationshipStore.Add, and RelationshipStore.Remove directly because the
+// after an error. Legacy writes use NodeStore.UpdateAtomic and
+// RelationshipStore.Add directly because the
 // checked mutation path rejects the invalid values that the repair corrects.
 type repairFixtureBuilder struct {
 	nodes   *service.NodeService
@@ -70,19 +70,15 @@ func (b *repairFixtureBuilder) build(ctx context.Context) RepairFixture {
 			"priority": repairFixtureText("High"),
 		},
 	)
-	fixture.PrintedParent = b.create(
+	fixture.MissingEdge = b.create(
 		ctx,
 		fixture.EpicID,
 		project,
 		"issue",
-		"Issue with a printed parent",
+		"Issue without its parent edge",
 		nil,
 	)
-	b.setLegacyProps(
-		ctx,
-		fixture.PrintedParent,
-		map[string]json.RawMessage{"parent_id": repairFixtureText(repairFixtureIdentifier + "-1")},
-	)
+	b.removeChildOf(ctx, fixture.MissingEdge, fixture.EpicID)
 	fixture.AbsentParent = b.create(
 		ctx,
 		project,
@@ -91,11 +87,9 @@ func (b *repairFixtureBuilder) build(ctx context.Context) RepairFixture {
 		"Issue with an absent parent",
 		nil,
 	)
-	b.setLegacyProps(
-		ctx,
-		fixture.AbsentParent,
-		map[string]json.RawMessage{"parent_id": repairFixtureText(uuid.New().String())},
-	)
+	b.removeChildOf(ctx, fixture.AbsentParent, project)
+	fixture.AbsentParentTarget = uuid.Must(uuid.NewV7())
+	b.addChildOf(ctx, fixture.AbsentParent, fixture.AbsentParentTarget)
 	original := b.create(ctx, project, project, "issue", "Original parent", nil)
 	fixture.NoticeTarget = b.create(ctx, project, project, "issue", "Duplicate target", nil)
 	fixture.Notice = b.create(
@@ -107,11 +101,6 @@ func (b *repairFixtureBuilder) build(ctx context.Context) RepairFixture {
 		map[string]json.RawMessage{
 			"description": repairFixtureText("Duplicate of the target issue"),
 		},
-	)
-	b.setLegacyProps(
-		ctx,
-		fixture.Notice,
-		map[string]json.RawMessage{"parent_id": repairFixtureText(uuid.New().String())},
 	)
 	b.removeChildOf(ctx, fixture.Notice, original)
 	fixture.SmokeComment = b.create(

@@ -63,7 +63,7 @@ func TestNodeIntegrityRepairExecuteReattachesComment(t *testing.T) {
 			},
 		},
 		Result: ops.RepairResult{
-			Props: map[string]json.RawMessage{"parent_id": textValue(target.String())},
+			ParentID: &target,
 		},
 	}
 	manifest := freezeRepairRequest(t, repairRequest(entry))

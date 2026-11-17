@@ -10,21 +10,22 @@ import (
 	"goodkind.io/tack/internal/domain/node"
 )
 
-func (binding *repairFixtureBuilder) addChildOf(ctx context.Context, sourceID, targetID uuid.UUID) {
-	if binding.err != nil {
+func (b *repairFixtureBuilder) addChildOf(ctx context.Context, sourceID, targetID uuid.UUID) {
+	if b.err != nil {
 		return
 	}
+
 	relationship := &node.Relationship{
-		OrgID:        binding.orgID,
+		OrgID:        b.orgID,
 		SourceID:     sourceID,
 		RelationType: node.RelChildOf,
 		TargetID:     targetID,
-		CreatedBy:    binding.actorID,
+		CreatedBy:    b.actorID,
 		CreatedAt:    clock.Now().UTC(),
 		Props:        nil,
 	}
-	if err := binding.stores.Relationships.Add(ctx, relationship); err != nil {
-		binding.err = loggedError(
+	if err := b.stores.Relationships.Add(ctx, relationship); err != nil {
+		b.err = loggedError(
 			ctx,
 			"qa datagen: add the legacy child_of edge from "+sourceID.String(),
 			err,
@@ -32,76 +33,88 @@ func (binding *repairFixtureBuilder) addChildOf(ctx context.Context, sourceID, t
 	}
 }
 
-// removeChildOf removes the child_of edge from sourceID to targetID through
-// the relationship store without changing parent_id.
-func (binding *repairFixtureBuilder) removeChildOf(
-	ctx context.Context,
-	sourceID uuid.UUID,
-	targetID uuid.UUID,
-) {
-	if binding.err != nil {
+// removeChildOf creates the missing-edge repair fixture through the low-level
+// atomic writer. Strict validation rejects this fixture after activation.
+func (b *repairFixtureBuilder) removeChildOf(ctx context.Context, sourceID, targetID uuid.UUID) {
+	current, view := b.legacyFixtureRecords(ctx, sourceID)
+	if b.err != nil {
 		return
 	}
-	if err := binding.stores.Relationships.Remove(
+
+	removed := &node.Relationship{
+		OrgID:        b.orgID,
+		SourceID:     sourceID,
+		RelationType: node.RelChildOf,
+		TargetID:     targetID,
+		CreatedBy:    uuid.Nil,
+		CreatedAt:    current.CreatedAt,
+		Props:        nil,
+	}
+	err := b.stores.Nodes.UpdateAtomic(
 		ctx,
-		binding.orgID,
-		sourceID,
-		node.RelChildOf,
-		targetID,
-	); err != nil {
-		binding.err = loggedError(
+		current,
+		view,
+		current.Props,
+		nil,
+		nil,
+		node.RelationshipChanges{Add: nil, Remove: []*node.Relationship{removed}},
+	)
+	if err != nil {
+		b.err = loggedError(
 			ctx,
-			"qa datagen: remove the child_of edge from "+sourceID.String(),
+			"qa datagen: remove the legacy child_of edge from "+sourceID.String(),
 			err,
 		)
 	}
 }
 
-// setLegacyProps reads the stored primary record and view for nodeID.
-// It sets each property in props on both records and preserves every other
-// stored property. It writes both records through NodeStore.UpdateAtomic
-// without validation.
-func (binding *repairFixtureBuilder) setLegacyProps(
+// setLegacyProps writes invalid property values for the reviewed repair fixture
+// before strict validation activates. It preserves all other record values.
+func (b *repairFixtureBuilder) setLegacyProps(
 	ctx context.Context,
 	nodeID uuid.UUID,
 	props map[string]json.RawMessage,
 ) {
-	if binding.err != nil {
+	current, view := b.legacyFixtureRecords(ctx, nodeID)
+	if b.err != nil {
 		return
 	}
-	current, err := binding.stores.Nodes.Get(ctx, binding.orgID, nodeID)
+
+	previous := maps.Clone(current.Props)
+	maps.Copy(current.Props, props)
+	view.Props = maps.Clone(current.Props)
+	if err := b.stores.Nodes.UpdateAtomic(ctx, current, view, previous, nil, nil); err != nil {
+		b.err = loggedError(ctx, "qa datagen: write legacy properties of "+nodeID.String(), err)
+	}
+}
+
+func (b *repairFixtureBuilder) legacyFixtureRecords(ctx context.Context, nodeID uuid.UUID) (
+	*node.Node,
+	*node.NodeView,
+) {
+	if b.err != nil {
+		return nil, nil
+	}
+
+	current, err := b.stores.Nodes.Get(ctx, b.orgID, nodeID)
 	if err != nil || current == nil {
-		binding.err = loggedError(
+		b.err = loggedError(
 			ctx,
 			"qa datagen: read repair fixture node "+nodeID.String(),
 			errMissing(err),
 		)
-		return
+		return nil, nil
 	}
-	view, err := binding.stores.Views.Get(ctx, nodeID)
+
+	view, err := b.stores.Views.Get(ctx, nodeID)
 	if err != nil || view == nil {
-		binding.err = loggedError(
+		b.err = loggedError(
 			ctx,
 			"qa datagen: read repair fixture view "+nodeID.String(),
 			errMissing(err),
 		)
-		return
+		return nil, nil
 	}
-	previous := maps.Clone(current.Props)
-	maps.Copy(current.Props, props)
-	view.Props = maps.Clone(current.Props)
-	if err := binding.stores.Nodes.UpdateAtomic(
-		ctx,
-		current,
-		view,
-		previous,
-		nil,
-		nil,
-	); err != nil {
-		binding.err = loggedError(
-			ctx,
-			"qa datagen: write legacy properties of "+nodeID.String(),
-			err,
-		)
-	}
+
+	return current, view
 }

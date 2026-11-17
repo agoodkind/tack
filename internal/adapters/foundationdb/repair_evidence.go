@@ -12,7 +12,7 @@ import (
 type RepairEvidenceRequest struct {
 	NodeID uuid.UUID
 	// ParentID selects the first node in the ancestor chain.
-	// [uuid.Nil] uses the repaired node's current parent_id.
+	// [uuid.Nil] uses the repaired node's current child_of parent.
 	ParentID uuid.UUID
 	// Related specifies additional node IDs to read, such as targets of new edges.
 	Related []uuid.UUID
@@ -26,20 +26,19 @@ type RepairNodeRecord struct {
 	NodeType string
 	// Primary contains the primary record's exact stored bytes.
 	Primary []byte
-	// ParentID is the parsed parent_id value, or [uuid.Nil] if parsing fails.
+	// ParentID is the sole child_of target. Roots and ambiguous parents use
+	// [uuid.Nil]; Outgoing preserves every edge for an explicit repair.
 	ParentID uuid.UUID
 }
 
-// RepairEdgeRecord identifies a stored relationship to or from the repaired
-// node.
+// RepairEdgeRecord identifies a stored relationship to or from the repaired node.
 type RepairEdgeRecord struct {
 	SourceID     uuid.UUID
 	RelationType string
 	TargetID     uuid.UUID
 }
 
-// RepairEvidence contains the source state that a repair reads in one
-// transaction.
+// RepairEvidence contains the source state that a repair reads in one transaction.
 type RepairEvidence struct {
 	Node     RepairNodeRecord
 	Outgoing []RepairEdgeRecord
@@ -47,7 +46,7 @@ type RepairEvidence struct {
 	// Related contains records for edge ends, requested related nodes, and
 	// ancestors, sorted by node ID without duplicates.
 	Related []RepairNodeRecord
-	// Chain lists node IDs in parent_id order, beginning with the chain start.
+	// Chain lists ancestor node IDs, beginning with the chain start.
 	Chain []uuid.UUID
 	// Cycle reports whether the ancestor traversal encounters a repeated node
 	// or the repaired node.
@@ -57,11 +56,8 @@ type RepairEvidence struct {
 }
 
 // RepairEvidence reads the node's resolution, exact primary record,
-// parent_id,
-// edges in both directions, organization metadata epoch, and parent_id
-// ancestor
-// chain in one read transaction. It also reads primary records for edge
-// ends,
+// edges in both directions, organization metadata epoch, and child_of ancestor
+// chain in one read transaction. It also reads primary records for edge ends,
 // requested related nodes, and ancestors within that transaction.
 // It returns an error that wraps [domain.ErrFailedPrecondition] if the edges
 // in either direction exceed one page.
@@ -74,9 +70,9 @@ func (s *RepairStore) RepairEvidence(
 		ctx,
 		s.db,
 		"read repair evidence of node "+request.NodeID.String(),
-		func(transaction fdb.Transaction) error {
+		func(tr fdb.Transaction) error {
 			var readErr error
-			evidence, readErr = readRepairEvidence(ctx, transaction, request)
+			evidence, readErr = readRepairEvidence(ctx, tr, request)
 
 			return readErr
 		},
@@ -87,7 +83,7 @@ func (s *RepairStore) RepairEvidence(
 
 func readRepairEvidence(
 	ctx context.Context,
-	transaction fdb.Transaction,
+	tr fdb.Transaction,
 	request RepairEvidenceRequest,
 ) (RepairEvidence, error) {
 	evidence := RepairEvidence{
@@ -106,23 +102,23 @@ func readRepairEvidence(
 		Cycle:         false,
 		MetadataEpoch: 0,
 	}
-	current, err := readRepairNode(ctx, transaction, request.NodeID)
+	current, err := readRepairNode(ctx, tr, request.NodeID)
 	if err != nil || !current.Found {
 		return evidence, err
 	}
 
 	evidence.Node = current
-	evidence.Outgoing, err = readRepairEdges(ctx, transaction, current, false)
+	evidence.Outgoing, err = readRepairEdges(ctx, tr, current, false)
 	if err != nil {
 		return evidence, err
 	}
 
-	evidence.Incoming, err = readRepairEdges(ctx, transaction, current, true)
+	evidence.Incoming, err = readRepairEdges(ctx, tr, current, true)
 	if err != nil {
 		return evidence, err
 	}
 
-	evidence.MetadataEpoch, err = readSearchCounter(ctx, transaction, searchEpochKey(current.OrgID))
+	evidence.MetadataEpoch, err = readSearchCounter(ctx, tr, searchEpochKey(current.OrgID))
 	if err != nil {
 		return evidence, err
 	}
@@ -146,25 +142,19 @@ func readRepairEvidence(
 		start = current.ParentID
 	}
 
-	evidence.Chain, evidence.Cycle, err = readRepairChain(
-		ctx,
-		transaction,
-		request.NodeID,
-		start,
-		related,
-	)
+	evidence.Chain, evidence.Cycle, err = readRepairChain(ctx, tr, request.NodeID, start, related)
 	if err != nil {
 		return evidence, err
 	}
 
-	evidence.Related, err = related.read(ctx, transaction)
+	evidence.Related, err = related.read(ctx, tr)
 
 	return evidence, err
 }
 
 func readRepairChain(
 	ctx context.Context,
-	transaction fdb.Transaction,
+	tr fdb.Transaction,
 	nodeID uuid.UUID,
 	start uuid.UUID,
 	related *repairRelatedSet,
@@ -179,7 +169,7 @@ func readRepairChain(
 
 		visited[ancestorID] = true
 		chain = append(chain, ancestorID)
-		ancestor, err := readRepairNode(ctx, transaction, ancestorID)
+		ancestor, err := readRepairNode(ctx, tr, ancestorID)
 		if err != nil {
 			return chain, false, err
 		}
@@ -189,7 +179,10 @@ func readRepairChain(
 			return chain, false, nil
 		}
 
-		ancestorID = ancestor.ParentID
+		ancestorID, err = readGraphParent(ctx, tr, ancestor.OrgID, ancestor.NodeID)
+		if err != nil {
+			return chain, false, err
+		}
 	}
 
 	return chain, false, nil

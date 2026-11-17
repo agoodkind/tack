@@ -1,7 +1,6 @@
 package integration_test
 
 import (
-	"encoding/json"
 	"testing"
 
 	"github.com/google/uuid"
@@ -13,7 +12,7 @@ import (
 
 // TestNodeIntegrityRepairExecuteParentMappings executes one entry for each
 // parent mapping of the backfill specification. Each node must end with the
-// selected parent_id, one child_of edge to that parent, and its project
+// selected parent, one child_of edge to that parent, and its project
 // scope.
 //
 // The test records the stored child_of edges for the issue that selects
@@ -53,32 +52,23 @@ func TestNodeIntegrityRepairExecuteParentMappings(t *testing.T) {
 	deep := createRepairIssue(t, env, project, "Deep issue")
 	addLegacyParentEdge(t, env, deep, epic)
 	addLegacyParentEdge(t, env, deep, middle)
-	printed := createRepairNode(
+	missing := createRepairNode(
 		t,
 		env,
 		service.CreateInput{
 			ParentID:    epic,
 			ScopeID:     project,
 			NodeTypeKey: "issue",
-			Name:        "Printed parent",
+			Name:        "Missing parent edge",
 			ActorID:     uuid.New(),
 		},
 	)
-	setLegacyProps(t, env, printed, map[string]json.RawMessage{"parent_id": textValue("REPAIR-1")})
-	printedProject := createRepairIssue(t, env, project, "Printed parent with a project edge")
-	setLegacyProps(
-		t,
-		env,
-		printedProject,
-		map[string]json.RawMessage{"parent_id": textValue("REPAIR-1")},
-	)
+	removeRepairParentEdges(t, env, missing)
+	moved := createRepairIssue(t, env, project, "Issue with a project edge")
 	absent := createRepairIssue(t, env, project, "Absent parent")
-	setLegacyProps(
-		t,
-		env,
-		absent,
-		map[string]json.RawMessage{"parent_id": textValue(uuid.New().String())},
-	)
+	absentTarget := uuid.New()
+	removeRepairParentEdges(t, env, absent)
+	addLegacyParentEdge(t, env, absent, absentTarget)
 	kept := []node.Relationship{
 		childOfEdge(t, env, graph.issueID, epic),
 		childOfEdge(t, env, retained, epic),
@@ -90,11 +80,11 @@ func TestNodeIntegrityRepairExecuteParentMappings(t *testing.T) {
 	}
 	entries := []ops.NodeIntegrityEntry{
 		graph.selectEpicEntry("tack-582-select-epic"),
-		parentEntry("tack-582-retain-parent", retained, uuid.Nil, childOf(project)),
+		parentEntry("tack-582-retain-parent", retained, epic, childOf(project)),
 		parentEntry("tack-582-deep-parent", deep, middle, childOf(project), childOf(epic)),
-		parentEntry("tack-582-printed-parent", printed, epic),
-		parentEntry("tack-582-printed-project", printedProject, epic, childOf(project)),
-		parentEntry("tack-582-absent-parent", absent, project),
+		parentEntry("tack-582-missing-edge", missing, epic),
+		parentEntry("tack-582-move-project", moved, epic, childOf(project)),
+		parentEntry("tack-582-absent-parent", absent, project, childOf(absentTarget)),
 	}
 	manifest := freezeRepairRequest(t, repairRequest(entries...))
 
@@ -104,12 +94,12 @@ func TestNodeIntegrityRepairExecuteParentMappings(t *testing.T) {
 	}
 
 	want := map[uuid.UUID]uuid.UUID{
-		graph.issueID:  epic,
-		retained:       epic,
-		deep:           middle,
-		printed:        epic,
-		printedProject: epic,
-		absent:         project,
+		graph.issueID: epic,
+		retained:      epic,
+		deep:          middle,
+		missing:       epic,
+		moved:         epic,
+		absent:        project,
 	}
 
 	for _, entry := range entries {

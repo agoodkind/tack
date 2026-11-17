@@ -23,12 +23,13 @@ type RepairFixture struct {
 	MultipleEdges uuid.UUID
 	// LegacyStatus is the issue with status Todo and priority display label High.
 	LegacyStatus uuid.UUID
-	// PrintedParent is the issue under the epic with QAREPAIR-1 in parent_id.
-	PrintedParent uuid.UUID
-	// AbsentParent is the project issue with an absent parent UUID in parent_id.
+	// MissingEdge is the issue without its child_of edge to the epic.
+	MissingEdge uuid.UUID
+	// AbsentParent is the issue with a child_of edge to an absent node.
 	AbsentParent uuid.UUID
-	// Notice is the duplicate notice comment without a child_of edge and with
-	// an absent parent UUID in parent_id.
+	// AbsentParentTarget is the absent target of the AbsentParent child_of edge.
+	AbsentParentTarget uuid.UUID
+	// Notice is the duplicate notice comment without a child_of edge.
 	Notice uuid.UUID
 	// NoticeTarget is the issue that the repair selects as the parent of Notice.
 	NoticeTarget uuid.UUID
