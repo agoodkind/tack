@@ -60,11 +60,10 @@ func TestRenderNodeIdentifierPreferred(t *testing.T) {
 		CreatedBy: userID,
 		UpdatedBy: userID,
 		Props: map[string]json.RawMessage{
-			"sequence":  mustRaw(t, 65),
-			"parent_id": mustRaw(t, epicID.String()),
-			"scope_id":  mustRaw(t, projectID.String()),
-			"state_id":  mustRaw(t, stateID.String()),
-			"priority":  mustRaw(t, "high"),
+			"sequence": mustRaw(t, 65),
+			"scope_id": mustRaw(t, projectID.String()),
+			"state_id": mustRaw(t, stateID.String()),
+			"priority": mustRaw(t, "high"),
 		},
 	}
 
