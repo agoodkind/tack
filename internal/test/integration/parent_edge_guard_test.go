@@ -1,13 +1,9 @@
 package integration_test
 
 import (
-	"errors"
-	"slices"
-	"strings"
 	"testing"
 
 	"github.com/google/uuid"
-	"goodkind.io/tack/internal/domain"
 	"goodkind.io/tack/internal/domain/node"
 	"goodkind.io/tack/internal/test/integration"
 )
@@ -54,103 +50,70 @@ func TestParentEdgeGuardRefusesRootTypeCanonicalEdge(t *testing.T) {
 	env := integration.SetupTestEnv(t)
 	actor := uuid.Must(uuid.NewV7())
 	project := createDeleteFixtureProject(t, env, actor, "GUARDROOT")
+	kind := storeGuardRootType(t, env)
 	rooted := createDeleteFixtureNode(
 		t,
 		env,
 		actor,
 		project,
 		project,
-		storeGuardRootType(t, env),
+		kind.TypeKey,
 		"Node of a root type",
 		nil,
 	)
+	clearGuardRootParentTypes(t, env, kind)
 	requireRemovalRefused(t, env, rooted, project)
 	requireParentEdges(t, env, rooted, project)
 }
 
-// TestParentEdgeGuardRefusesInvalidParentID creates a node under a project
-// with a node type that does not list CanLiveUnder types. It stores
-// "not a UUID" as parent_id through storeParentID and requires removal of the
-// node's only child_of edge to the project to fail with an error that matches
-// domain.ErrFailedPrecondition. It requires that edge to remain in FoundationDB.
+// TestParentEdgeGuardRefusesInvalidParentID creates a node under a project,
+// then clears its type's CanLiveUnder before storing an invalid parent_id.
+// It requires removal of the only child_of edge to fail with an error that
+// matches domain.ErrFailedPrecondition and requires the edge to remain.
 func TestParentEdgeGuardRefusesInvalidParentID(t *testing.T) {
 	env := integration.SetupTestEnv(t)
 	actor := uuid.Must(uuid.NewV7())
 	project := createDeleteFixtureProject(t, env, actor, "GUARDINVALID")
+	kind := storeGuardRootType(t, env)
 	rooted := createDeleteFixtureNode(
 		t,
 		env,
 		actor,
 		project,
 		project,
-		storeGuardRootType(t, env),
+		kind.TypeKey,
 		"Node with an invalid parent",
 		nil,
 	)
+	clearGuardRootParentTypes(t, env, kind)
 	storeParentID(t, env, rooted, "not a UUID")
 	requireRemovalRefused(t, env, rooted, project)
 	requireParentEdges(t, env, rooted, project)
 }
 
-// storeGuardRootType stores the guardroot node type through NodeTypeStore.Set
-// and returns its type key. The node type does not list CanLiveUnder types.
-func storeGuardRootType(t *testing.T, env *integration.TestEnv) string {
+// storeGuardRootType permits project parents while the test creates its node.
+func storeGuardRootType(t *testing.T, env *integration.TestEnv) *node.NodeType {
 	t.Helper()
 	kind := &node.NodeType{
-		ID:         uuid.Must(uuid.NewV7()),
-		OrgID:      env.OrgID,
-		Name:       "guardroot",
-		TypeKey:    "guardroot",
-		Slug:       "guardroot",
-		PluralSlug: "guardroots",
+		ID:           uuid.Must(uuid.NewV7()),
+		OrgID:        env.OrgID,
+		Name:         "guardroot",
+		TypeKey:      "guardroot",
+		Slug:         "guardroot",
+		PluralSlug:   "guardroots",
+		CanLiveUnder: []string{"project"},
 	}
 	if err := env.Stores.NodeTypes.Set(env.Ctx, kind); err != nil {
 		t.Fatalf("store node type %s: %v", kind.TypeKey, err)
 	}
 
-	return kind.TypeKey
+	return kind
 }
 
-func requireRemovalRefused(t *testing.T, env *integration.TestEnv, sourceID, targetID uuid.UUID) {
+func clearGuardRootParentTypes(t *testing.T, env *integration.TestEnv, kind *node.NodeType) {
 	t.Helper()
-	err := env.Stores.Relationships.Remove(env.Ctx, env.OrgID, sourceID, node.RelChildOf, targetID)
-	if !errors.Is(err, domain.ErrFailedPrecondition) {
-		t.Fatalf(
-			"removal of the canonical parent edge from %s to %s returned %v, want a refusal",
-			sourceID,
-			targetID,
-			err,
-		)
-	}
-}
-
-func requireParentEdges(
-	t *testing.T,
-	env *integration.TestEnv,
-	sourceID uuid.UUID,
-	want ...uuid.UUID,
-) {
-	t.Helper()
-	edges, err := env.Stores.Relationships.EdgesFrom(
-		env.Ctx,
-		env.OrgID,
-		sourceID,
-		node.RelChildOf,
-		"",
-		10,
-	)
-	if err != nil {
-		t.Fatalf("read child_of edges of %s: %v", sourceID, err)
-	}
-
-	got := slices.Clone(edges.IDs)
-	expected := slices.Clone(want)
-	byText := func(left, right uuid.UUID) int {
-		return strings.Compare(left.String(), right.String())
-	}
-	slices.SortFunc(got, byText)
-	slices.SortFunc(expected, byText)
-	if !slices.Equal(got, expected) {
-		t.Fatalf("child_of edges of %s = %v, want %v", sourceID, got, expected)
+	kind.CanLiveUnder = nil
+	if err := env.Stores.NodeTypes.Set(env.Ctx, kind); err != nil {
+		t.Fatalf("clear allowed parent types for %s: %v", kind.TypeKey, err)
 	}
 }
