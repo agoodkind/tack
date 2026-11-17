@@ -2,7 +2,6 @@ package integration_test
 
 import (
 	"encoding/json"
-	"strconv"
 	"testing"
 
 	"github.com/google/uuid"
@@ -24,8 +23,19 @@ func createParentIntegrityNode(
 	arguments := parentIntegrityArguments(harness, harness.Project)
 	arguments.Name = name
 	if parentID != "" {
-		arguments.Properties = datagen.NodeProperties{
-			"parent_id": json.RawMessage(strconv.Quote(parentID)),
+		arguments.ProjectReference = ""
+		parent := storedParentView(t, parentIntegrityStores(t), parentID)
+		switch parent.NodeType {
+		case "epic":
+			arguments.EpicReference = parentID
+		case "issue":
+			arguments.IssueReference = parentID
+		default:
+			t.Fatalf(
+				"create fixture under parent %s of unsupported type %s",
+				parentID,
+				parent.NodeType,
+			)
 		}
 	}
 
@@ -96,20 +106,26 @@ func stringProperty(t *testing.T, view *node.NodeView, name string) string {
 	return value
 }
 
-// requireParents requires the stored parent_id of nodeID to equal parentID.
-// The function also requires the node's child_of edges to target exactly the
-// IDs in targets.
+// requireParents checks the stored parent and all child_of targets.
 func requireParents(
 	t *testing.T,
 	stores *fdbadapter.Stores,
 	nodeID string,
-	parentID string,
 	targets []string,
 ) {
 	t.Helper()
 	view := storedParentView(t, stores, nodeID)
-	if got := stringProperty(t, view, "parent_id"); got != parentID {
-		t.Errorf("node %s has parent_id %q; the test expects %s", nodeID, got, parentID)
+	primary, err := stores.Nodes.Get(t.Context(), view.OrgID, view.ID)
+	if err != nil || primary == nil {
+		t.Fatalf("read primary node %s: %v", nodeID, err)
+	}
+
+	for _, props := range []map[string]json.RawMessage{primary.Props, view.Props} {
+		var parentID string
+		if err := json.Unmarshal(props["parent_id"], &parentID); err != nil ||
+			parentID != targets[0] {
+			t.Errorf("node %s stores parent %q, want %s: %v", nodeID, parentID, targets[0], err)
+		}
 	}
 
 	edges, err := stores.Relationships.ListBySource(
@@ -147,4 +163,19 @@ func requireParents(
 			)
 		}
 	}
+}
+
+func storedParentTarget(t *testing.T, stores *fdbadapter.Stores, view *node.NodeView) string {
+	t.Helper()
+	edges, err := stores.Relationships.ListBySource(
+		t.Context(),
+		view.OrgID,
+		view.ID,
+		node.RelChildOf,
+	)
+	if err != nil || len(edges) != 1 {
+		t.Fatalf("parent edges of node %s = %v, %v, want one", view.ID, edges, err)
+	}
+
+	return edges[0].TargetID.String()
 }

@@ -1,6 +1,7 @@
 package integration_test
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -10,9 +11,9 @@ import (
 )
 
 // TestParentReferenceParityMovesIssues creates an epic and two issues through
-// MCP tools. tack_update_issue moves the first issue under the epic by the
+// MCP tools. tack_add_relationship moves the first issue under the epic by the
 // printed epic reference and the second issue by the raw epic UUID. Both
-// issues must store parent_id equal to the epic UUID and exactly one child_of
+// issues must store exactly one child_of
 // edge to the epic. Both issues must keep NodeResolve records with the epic's
 // organization and the issue node type, and both must store the same
 // scope_id.
@@ -28,12 +29,12 @@ func TestParentReferenceParityMovesIssues(t *testing.T) {
 	printedID, _ := createSchemaIssue(t, harness, "Moved by printed reference")
 	rawID, _ := createSchemaIssue(t, harness, "Moved by raw UUID")
 
-	harness.Call(t, "tack_update_issue", parentMoveArguments(harness, printedID, epicReference))
-	harness.Call(t, "tack_update_issue", parentMoveArguments(harness, rawID, epicID.String()))
+	harness.Call(t, "tack_add_relationship", parentMoveArguments(harness, printedID, epicReference))
+	harness.Call(t, "tack_add_relationship", parentMoveArguments(harness, rawID, epicID.String()))
 
 	epic := epicID.String()
-	requireParents(t, stores, printedID.String(), epic, []string{epic})
-	requireParents(t, stores, rawID.String(), epic, []string{epic})
+	requireParents(t, stores, printedID.String(), []string{epic})
+	requireParents(t, stores, rawID.String(), []string{epic})
 	epicResolve := storedResolve(t, stores, epicID)
 
 	for _, issueID := range []uuid.UUID{printedID, rawID} {
@@ -64,19 +65,16 @@ func TestParentReferenceParityMovesIssues(t *testing.T) {
 
 // TestParentReferenceParityRefusesStateParent creates an issue in a project
 // through MCP tools and reads the Done state of that project, a type that
-// the issue type cannot live under. tack_update_issue must refuse a move of
-// the issue under the printed state reference and under the raw state UUID
-// with an error that names parent_id. After each refusal, the issue must
-// keep parent_id equal to the project, exactly one child_of edge to the
-// project, and its stored update time. tack_create_issue must refuse an issue
-// with parent_id set to either state reference, and the project must keep
-// the same number of issues.
+// the issue type cannot live under. tack_add_relationship must reject the
+// unsupported scoped name and refuse the raw state UUID as a parent.
+// After each refusal, the issue
+// must keep its child_of edge to the project and its stored update time.
 func TestParentReferenceParityRefusesStateParent(t *testing.T) {
 	harness := integration.NewMCPHarness(t)
 	stores := parentIntegrityStores(t)
 	issueID, _ := createSchemaIssue(t, harness, "Issue kept under the project")
 	before := storedStoreView(t, stores, issueID)
-	projectID := stringProperty(t, before, "parent_id")
+	projectID := storedParentTarget(t, stores, before)
 	stateID := schemaStateID(t, stores, before, "Done")
 	stateReference := harness.Project + "::Done"
 	lookup := schemaArguments(harness)
@@ -94,19 +92,30 @@ func TestParentReferenceParityRefusesStateParent(t *testing.T) {
 	for _, reference := range []string{stateReference, stateID.String()} {
 		text := harness.CallExpectError(
 			t,
-			"tack_update_issue",
+			"tack_add_relationship",
 			parentMoveArguments(harness, issueID, reference),
 		)
-		if !strings.Contains(text, "parent_id") {
+		reason := fmt.Sprintf(
+			"node type %q cannot live under the parent %s of type %q",
+			"issue",
+			stateID,
+			"state",
+		)
+		if reference == stateReference {
+			reason = "invalid node_id"
+		}
+
+		if !strings.Contains(text, reason) {
 			t.Fatalf(
-				"move of issue %s under state %q returned %q, want a parent_id refusal",
+				"move of issue %s under state %q returned %q, want parent refusal %q",
 				issueID,
 				reference,
 				text,
+				reason,
 			)
 		}
 
-		requireParents(t, stores, issueID.String(), projectID, []string{projectID})
+		requireParents(t, stores, issueID.String(), []string{projectID})
 		if after := storedStoreView(t, stores, issueID); !after.UpdatedAt.Equal(before.UpdatedAt) {
 			t.Fatalf(
 				"refused move of issue %s under state %q changed its update time from %s to %s",

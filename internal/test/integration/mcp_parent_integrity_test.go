@@ -1,8 +1,6 @@
 package integration_test
 
 import (
-	"encoding/json"
-	"strconv"
 	"testing"
 	"time"
 
@@ -18,7 +16,7 @@ const parentIntegrityTransactionTimeout = 10 * time.Second
 
 // TestCreateIssueStoresOneParentEdge creates an epic, an issue under that epic,
 // and a nested issue under that issue through MCP tools. The test requires each
-// issue to store the expected parent_id and exactly one child_of edge to that
+// issue to store exactly one child_of edge to that
 // parent.
 func TestCreateIssueStoresOneParentEdge(t *testing.T) {
 	harness := integration.NewMCPHarness(t)
@@ -40,14 +38,14 @@ func TestCreateIssueStoresOneParentEdge(t *testing.T) {
 	)
 
 	for child, parent := range map[string]string{issue: epic, nested: issue} {
-		requireParents(t, stores, child, parent, []string{parent})
+		requireParents(t, stores, child, []string{parent})
 	}
 }
 
 // TestTwoParentIssueEditsWithoutAnotherParent checks MCP updates on an issue
-// with parent_id at a project and child_of edges to that project and an epic.
+// with child_of edges to a project and an epic.
 // The test requires a rename to preserve that state. The test then requires an
-// explicit parent update to set parent_id to the epic and leave exactly one
+// explicit parent update to leave exactly one
 // child_of edge to the epic.
 func TestTwoParentIssueEditsWithoutAnotherParent(t *testing.T) {
 	harness := integration.NewMCPHarness(t)
@@ -61,7 +59,7 @@ func TestTwoParentIssueEditsWithoutAnotherParent(t *testing.T) {
 		"",
 	)
 	stored := storedParentView(t, stores, issue)
-	projectID := stringProperty(t, stored, "parent_id")
+	projectID := storedParentTarget(t, stores, stored)
 	second := &node.Relationship{
 		OrgID:        stored.OrgID,
 		SourceID:     stored.ID,
@@ -87,11 +85,9 @@ func TestTwoParentIssueEditsWithoutAnotherParent(t *testing.T) {
 	rename.NodeID = issue
 	rename.Name = "Renamed issue with two parents"
 	harness.Call(t, "tack_update_issue", rename)
-	requireParents(t, stores, issue, projectID, []string{projectID, epic})
+	requireParents(t, stores, issue, []string{projectID, epic})
 
-	move := parentIntegrityArguments(harness, "")
-	move.NodeID = issue
-	move.Properties = datagen.NodeProperties{"parent_id": json.RawMessage(strconv.Quote(epic))}
-	harness.Call(t, "tack_update_issue", move)
-	requireParents(t, stores, issue, epic, []string{epic})
+	move := datagen.ToolArguments{SourceID: issue, RelationType: node.RelChildOf, TargetID: epic}
+	harness.Call(t, "tack_add_relationship", move)
+	requireParents(t, stores, issue, []string{epic})
 }

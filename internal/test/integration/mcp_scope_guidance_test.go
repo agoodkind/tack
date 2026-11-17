@@ -38,7 +38,7 @@ func TestCreateIssueFromGeneratedGuidanceUnderEpic(t *testing.T) {
 	issueID := result.RawID()
 	view := storedParentView(t, stores, issueID)
 	projectID := stringProperty(t, storedParentView(t, stores, epicID), "scope_id")
-	requireParents(t, stores, issueID, epicID, []string{epicID})
+	requireParents(t, stores, issueID, []string{epicID})
 	if scope := stringProperty(t, view, "scope_id"); scope != projectID {
 		t.Fatalf("issue %s has scope_id %s, want project %s", issueID, scope, projectID)
 	}
@@ -111,7 +111,7 @@ func TestCreateEpicWithOnlyEpicReference(t *testing.T) {
 		epicScopedArguments(harness, printedReference(t, parent.Text()), "Inner epic"),
 	)
 
-	requireParents(t, stores, child.RawID(), parent.RawID(), []string{parent.RawID()})
+	requireParents(t, stores, child.RawID(), []string{parent.RawID()})
 	parentScope := stringProperty(t, storedParentView(t, stores, parent.RawID()), "scope_id")
 	if scope := stringProperty(
 		t,

@@ -47,19 +47,17 @@ func createReferencedNode(
 	return uuid.MustParse(result.RawID()), match[1]
 }
 
-// parentMoveArguments returns tack_update_issue arguments that set parent_id
-// of issueID to reference.
+// parentMoveArguments requests a child_of relationship to reference.
 func parentMoveArguments(
 	harness *integration.MCPHarness,
 	issueID uuid.UUID,
 	reference string,
 ) datagen.ToolArguments {
-	arguments := schemaArguments(harness)
-	arguments.ProjectReference = ""
-	arguments.NodeID = issueID.String()
-	arguments.Properties = datagen.NodeProperties{"parent_id": quoted(reference)}
-
-	return arguments
+	return datagen.ToolArguments{
+		SourceID:     issueID.String(),
+		RelationType: node.RelChildOf,
+		TargetID:     reference,
+	}
 }
 
 // storedResolve reads the NodeResolve record of nodeID and fails the test when
