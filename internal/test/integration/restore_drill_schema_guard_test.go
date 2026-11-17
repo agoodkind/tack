@@ -132,7 +132,6 @@ func TestRestoreDrillReportsMissingAuditPart(t *testing.T) {
 	}
 }
 
-// newRestoreDrillLedger prepares the source database and required authentication rows.
 func newRestoreDrillLedger(t *testing.T) (*config.Config, *pgxpool.Pool) {
 	t.Helper()
 	ctx := t.Context()
@@ -157,7 +156,6 @@ func newRestoreDrillLedger(t *testing.T) (*config.Config, *pgxpool.Pool) {
 	return cfg, admin
 }
 
-// exportDrillSnapshot writes the snapshot and tablet archives used by the drill.
 func exportDrillSnapshot(t *testing.T, cfg *config.Config) {
 	t.Helper()
 	ctx := t.Context()
