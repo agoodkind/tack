@@ -38,9 +38,9 @@ type SubtreeDeleter interface {
 // OrphanBackfillResult reports one orphan backfill run. Orphans counts the
 // nodes without a hierarchy parent that the scan found, and NodeIDs lists
 // them. Deleted counts the nodes an executed run deleted, orphans and their
-// descendants together. ExtraParentEdges counts the child_of edges that do
-// not target their node's parent_id, Edges lists them, and RemovedEdges
-// counts the edges an executed run removed.
+// descendants together. ExtraParentEdges, Edges, and RemovedEdges preserve
+// the edge-removal results from earlier runs. Current scans refuse ambiguous
+// parents instead of choosing edges to remove.
 type OrphanBackfillResult struct {
 	Scanned          int                     `json:"scanned"`
 	Orphans          int                     `json:"orphans"`
@@ -54,9 +54,9 @@ type OrphanBackfillResult struct {
 // RunOrphanNodeBackfill scans the nodes of every organization. The scan finds
 // nodes of a type that lists CanLiveUnder types without a child_of edge to
 // another existing node. Such an orphan exists because deletion of its parent
-// occurred before the cascading delete existed. The scan also finds child_of
-// edges that do not target the parent_id of a node with a hierarchy parent.
-// Unless dryRun is true, the backfill removes each such edge and deletes each
+// occurred before the cascading delete existed. The scan refuses nodes with
+// multiple child_of targets when a target exists in the organization.
+// Unless dryRun is true, the backfill deletes each
 // orphan with its hierarchy descendants. Each removed edge writes one
 // relationship.remove ledger event, and each deleted node writes one
 // node.delete ledger event, with the operator on ctx as the actor.

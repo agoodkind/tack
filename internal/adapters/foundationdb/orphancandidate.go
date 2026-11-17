@@ -18,8 +18,7 @@ func decodeOrphanCandidate(
 	kindsByOrg map[uuid.UUID]map[string]*node.NodeType,
 ) (orphanCandidate, bool, error) {
 	none := orphanCandidate{
-		node:     OrphanNode{ID: uuid.Nil, OrgID: uuid.Nil, NodeType: ""},
-		parentID: uuid.Nil,
+		node: OrphanNode{ID: uuid.Nil, OrgID: uuid.Nil, NodeType: ""},
 	}
 	nodeID, err := lastTupleID(ctx, item.Key)
 	if err != nil {
@@ -56,6 +55,5 @@ func decodeOrphanCandidate(
 			OrgID:    resolved.OrgID,
 			NodeType: resolved.NodeType,
 		},
-		parentID: uuid.Nil,
 	}, true, nil
 }
