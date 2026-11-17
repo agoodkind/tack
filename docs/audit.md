@@ -32,8 +32,8 @@ success or failure outcomes.
 
 Data changes are additions, updates, or removals of stored records. Change
 evidence includes the affected records and their actual old and new values,
-including removals. Tack saves a database change and its evidence together or
-saves neither.
+including removals. Tack commits a database change and its evidence in one
+transaction.
 
 Jobs that perform a requested action associate resulting data changes with
 the original caller and action.

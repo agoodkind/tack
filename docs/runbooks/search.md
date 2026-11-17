@@ -106,7 +106,11 @@ public error during a member stop, even if a later request succeeds.
    | Replacement and restore | `85m` | `^TestSearch(Rebuild(ExcludesOrphanNodes\|StepFitsLease\|FailsAfterPauseLimit\|DuringChanges)\|RestoreRejectsCursors\|Split(DuringChanges\|WithoutModel))$` |
    | Access, cursors, and workers | `50m` | `^TestSearch(Access(DependentsSurviveEdit\|UpdatesOlderActiveRevision\|VersionWithoutRebuild\|MembershipQueryOnly\|ResourceRefresh\|RolloutRecovery\|OnlyUpdateWithoutModel\|ChangeKeepsPendingContent)\|Cursor(ExactSortValues\|ReplayAndConcurrency\|ActualOSProcesses)\|FiltersForbiddenPagesBeforeRanking\|FinalCheckRejectsCorruptIndexedAccess\|RevokedAccessRejectsLaterResultsAndReplay\|DelayedWriter\|RuntimeIndexesThroughGraph)$` |
 
-   Require all 24 selected tests to pass three times, for 72 executions.
+   Require every selected test to pass with these execution counts:
+
+   | Selected tests | Executions per test | Total executions |
+   | --- | --- | --- |
+   | 24 | 3 | 72 |
 
 3. Run `^TestSearchActualOSProcessThroughput$` once with `-timeout 45m`
    using the focused runner. Require fixed-client measurements with indexed

@@ -25,7 +25,6 @@ on broker availability. The original read-class design uses asynchronous broker
 consumption.
 
 Current [audit delivery](../audit-delivery.md) uses database outboxes and Kafka.
-Only `audit-consumer` writes the permanent ledger.
 
 ## Component relationships
 
@@ -248,8 +247,8 @@ can advance concurrently. `audit.consumer_offsets` stores
 
 ## Record events at either size
 
-Read and state-change events both publish to Kafka. Only `audit-consumer` writes
-ledger rows and chain heads.
+Producers publish read and state-change events to Kafka. Only `audit-consumer`
+writes ledger rows and chain heads.
 
 The original state-change sequence is:
 

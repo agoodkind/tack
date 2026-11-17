@@ -21,13 +21,14 @@ the step when the consumer saves it permanently in YugabyteDB.
 
 Outboxes in FoundationDB and YugabyteDB retain events until Kafka acknowledges
 publication. Tack waits for acknowledgment from every Kafka replica that
-currently keeps a synchronized copy. Publication failures leave events in the
-outbox for retry.
+currently keeps a synchronized copy. Outboxes retain events for retry when
+publication fails.
 
 Retries preserve the event identifier. When saving an event, the consumer stores
-its identifier and ledger record in one database transaction, which saves both
-or neither. If the consumer has already recorded an identifier, it does not
-append another ledger record for that event, even if Kafka delivers it again.
+its identifier and ledger record in one database transaction. If that transaction
+does not commit, the consumer does not save either item. If the consumer has
+already recorded an identifier, it does not append another ledger record for
+that event, even if Kafka delivers it again.
 
 ## Record order and integrity
 
@@ -57,11 +58,10 @@ table for investigation instead of appending them to the ledger.
 
 Large events are audit events that require several Kafka messages. A manifest
 identifies the parts needed to reconstruct the event. Consumers save received
-parts and delivery offsets
-together, then verify and reconstruct the event after every required part
-arrives. Missing parts leave the saved event incomplete; the consumer does not
-append a partial event to the ledger.
+parts and delivery offsets together, then verify and reconstruct the event after
+every required part arrives. Consumers retain incomplete events while required
+parts are missing. Consumers do not append a partial event to the ledger.
 
 Consumers save the permanent record and remove its temporary parts in one
-transaction. A failure before that transaction commits leaves the saved parts
-available for retry.
+transaction. Consumers retain the saved parts for retry if that transaction
+does not commit.
