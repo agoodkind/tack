@@ -2,7 +2,6 @@ package tools
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 
 	mcpmcp "github.com/mark3labs/mcp-go/v2/mcp"
@@ -35,29 +34,7 @@ func RegisterWorkspace(
 	resolver *Resolver,
 	nodeTypes []*node.NodeType,
 ) {
-	registerTool(
-		s,
-		mcpmcp.Tool{
-			Name:        "tack_list_workspaces",
-			Description: "Lists workspaces the caller has access to.",
-			InputSchema: schema{}.toMCP(),
-		},
-		func(ctx context.Context, _ mcpmcp.CallToolRequest) (*mcpmcp.CallToolResult, error) {
-			userID, err := mustUser(ctx)
-			if err != nil {
-				return unexpectedError(ctx, err), nil
-			}
-
-			wss, err := resolver.WorkspacesForUser(ctx, userID)
-			if err != nil {
-				return classifyError(ctx, err), nil
-			}
-
-			rc := newRenderCtxWithTypes(ctx, reader, nil, resolver.typeIndex)
-
-			return successText(renderList(rc, "workspaces", wss), ""), nil
-		},
-	)
+	registerWorkspaceList(s, reader, resolver)
 
 	registerTool(
 		s,
@@ -85,8 +62,6 @@ func RegisterWorkspace(
 				return classifyError(ctx, err), nil
 			}
 
-			parentIDRaw, _ := json.Marshal(ws.ID.String())
-
 			types := make([]nodeTypeSummary, 0, len(nodeTypes))
 			for _, nt := range nodeTypes {
 				if nt.OrgID != ws.OrgID {
@@ -96,14 +71,14 @@ func RegisterWorkspace(
 				page, err := reader.ListPage(
 					ctx,
 					node.NodeListQuery{
-						OrgID:    ws.OrgID,
-						NodeType: nt.TypeKey,
-						ByProperty: &node.PropertyMatch{
-							PropName: scopedParentProperty,
-							Value:    parentIDRaw,
+						OrgID:      ws.OrgID,
+						NodeType:   nt.TypeKey,
+						ByProperty: nil,
+						ByTargetRelation: &node.RelationScan{
+							NodeID:       ws.ID,
+							RelationType: node.RelChildOf,
 						},
 						BySourceRelation: nil,
-						ByTargetRelation: nil,
 						CreatedAfter:     nil,
 						CreatedBefore:    nil,
 						PropFilters:      nil,
