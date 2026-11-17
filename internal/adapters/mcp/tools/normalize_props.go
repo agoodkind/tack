@@ -84,7 +84,14 @@ func normalizeUpdateProps(
 
 	scopeID := uuidProp(existing, "scope_id")
 	if scopeID == uuid.Nil {
-		scopeID = uuidProp(existing, "parent_id")
+		parent, err := readParent(ctx, b.Reader, existing)
+		if err != nil {
+			return nil, nil, err
+		}
+
+		if parent != nil {
+			scopeID = parent.ID
+		}
 	}
 
 	defs, err := b.PropertyDefs.List(ctx, existing.OrgID)

@@ -11,7 +11,7 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// ancestorOfType returns the first parent_id ancestor with level.TypeKey.
+// ancestorOfType returns the first child_of ancestor with level.TypeKey.
 // It returns an error if a read fails or the parent chain ends or repeats
 // a node without a match.
 func (r *Resolver) ancestorOfType(
@@ -21,35 +21,29 @@ func (r *Resolver) ancestorOfType(
 ) (*node.NodeView, error) {
 	visited := map[uuid.UUID]struct{}{start.ID: {}}
 
-	currentID := uuidProp(start, scopedParentProperty)
-	for currentID != uuid.Nil {
-		if _, seen := visited[currentID]; seen {
-			break
-		}
+	current := start
 
-		visited[currentID] = struct{}{}
-		view, err := r.reader.Get(ctx, currentID)
+	for {
+		view, err := readParent(ctx, r.reader, current)
 		if err != nil {
-			wrapped := fmt.Errorf("get ancestor %s of %s: %w", currentID, start.ID, err)
-			telemetry.L(ctx).ErrorContext(
-				ctx,
-				"resolver.scope.ancestor_read_failed",
-				slog.String("node_id", start.ID.String()),
-				slog.String("err", wrapped.Error()),
-			)
-
-			return nil, wrapped
+			return nil, err
 		}
 
 		if view == nil {
 			break
 		}
 
+		currentID := view.ID
+		if _, seen := visited[currentID]; seen {
+			break
+		}
+
+		visited[currentID] = struct{}{}
 		if view.NodeType == level.TypeKey {
 			return view, nil
 		}
 
-		currentID = uuidProp(view, scopedParentProperty)
+		current = view
 	}
 
 	err := fmt.Errorf(

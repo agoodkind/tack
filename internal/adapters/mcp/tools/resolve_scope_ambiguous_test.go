@@ -51,6 +51,8 @@ func TestResolveScopeReportsAmbiguousReferenceWithCandidates(t *testing.T) {
 			},
 		},
 		workspaces: []*node.NodeView{workspace},
+
+		parents: map[uuid.UUID]uuid.UUID{first: workspaceID, second: workspaceID},
 	}
 	repo := &fakeNodeRepo{
 		scopeChildren: map[string][]*node.Node{

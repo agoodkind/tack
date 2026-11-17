@@ -46,6 +46,8 @@ func TestNormalizeListFiltersResolvesReferenceAlias(t *testing.T) {
 			stateID:     state,
 		},
 		workspaces: []*node.NodeView{workspace},
+
+		parents: map[uuid.UUID]uuid.UUID{projectID: workspaceID, stateID: projectID},
 	}
 	repo := &fakeNodeRepo{
 		scopeChildren: map[string][]*node.Node{

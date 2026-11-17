@@ -13,6 +13,10 @@ import (
 	"goodkind.io/tack/internal/domain/node"
 )
 
+var errScopedUnauthenticated = errors.New("unauthenticated")
+
+const scopedParentProperty = "parent_id"
+
 // resolveScopedReference resolves "<scope reference>::<value>" to the one node
 // of type nt under that scope with propName equal to value. The scope is the
 // first level of the scope chain of nt, or the entry point when nt lives
@@ -23,8 +27,8 @@ func (r *Resolver) resolveScopedReference(
 	propName string,
 	input string,
 ) (uuid.UUID, error) {
-	scopeIdent, localRef, provided := strings.Cut(input, scopedNodeRefSeparator)
-	if !provided {
+	scopeIdent, localRef, found := strings.Cut(input, scopedNodeRefSeparator)
+	if !found {
 		return uuid.Nil, invalidTypedNodeIDError(nodeType, input)
 	}
 
@@ -34,12 +38,12 @@ func (r *Resolver) resolveScopedReference(
 		return uuid.Nil, invalidTypedNodeIDError(nodeType, input)
 	}
 
-	level, provided := r.referenceScopeLevel(nodeType)
-	if !provided && r.livesUnderEntryPoint(nodeType) {
+	level, found := r.referenceScopeLevel(nodeType)
+	if !found && r.livesUnderEntryPoint(nodeType) {
 		return r.resolveEntryPointScopedReference(ctx, nodeType, propName, scopeIdent, localRef)
 	}
 
-	if !provided {
+	if !found {
 		err := fmt.Errorf("%s %q: %w", strings.ToLower(nodeType.Slug), input, domain.ErrNotFound)
 		slog.WarnContext(
 			ctx,
@@ -51,8 +55,8 @@ func (r *Resolver) resolveScopedReference(
 		return uuid.Nil, err
 	}
 
-	userID, provided := auth.UserID(ctx)
-	if !provided {
+	userID, found := auth.UserID(ctx)
+	if !found {
 		return uuid.Nil, errScopedUnauthenticated
 	}
 
@@ -108,23 +112,22 @@ func (r *Resolver) resolveNodeWithinScope(
 	propName string,
 	localRef string,
 ) (uuid.UUID, error) {
-	scopeIDRaw := mustRawString(scopeID.String())
 	views, err := r.reader.List(
 		ctx,
 		node.NodeListQuery{
-			OrgID:    orgID,
-			NodeType: typeKey,
-			ByProperty: &node.PropertyMatch{
-				PropName: scopedParentProperty,
-				Value:    scopeIDRaw,
-			},
+			OrgID:            orgID,
+			NodeType:         typeKey,
+			ByProperty:       nil,
 			BySourceRelation: nil,
-			ByTargetRelation: nil,
-			CreatedAfter:     nil,
-			CreatedBefore:    nil,
-			PropFilters:      nil,
-			Limit:            0,
-			Cursor:           "",
+			ByTargetRelation: &node.RelationScan{
+				NodeID:       scopeID,
+				RelationType: node.RelChildOf,
+			},
+			CreatedAfter:  nil,
+			CreatedBefore: nil,
+			PropFilters:   nil,
+			Limit:         0,
+			Cursor:        "",
 		},
 	)
 	if err != nil {
@@ -143,7 +146,3 @@ func (r *Resolver) resolveNodeWithinScope(
 
 	return uniqueMatch(matches, typeKey, localRef)
 }
-
-var errScopedUnauthenticated = errors.New("unauthenticated")
-
-const scopedParentProperty = "parent_id"

@@ -21,7 +21,7 @@ func (r *Resolver) referenceSearchRoots(ctx context.Context) ([]*node.NodeView, 
 func (r *Resolver) referenceScopeLevel(nt *node.NodeType) (ScopeLevel, bool) {
 	chain := r.ScopeChainForType(nt)
 	if len(chain) == 0 {
-		return ScopeLevel{}, false
+		return ScopeLevel{TypeKey: "", Slug: "", ParamName: ""}, false
 	}
 
 	return chain[0], true
@@ -40,10 +40,31 @@ func (r *Resolver) nodeBelongsToScope(
 		return true
 	}
 
-	parentID := rawUUID(candidate.Props, "parent_id")
-	if parentID == uuid.Nil {
+	if storedScopeID := rawUUID(candidate.Props, "scope_id"); storedScopeID != uuid.Nil &&
+		r.parentChainContains(ctx, storedScopeID, scopeID) {
+		return true
+	}
+
+	parent, err := readParent(
+		ctx,
+		r.reader,
+		&node.NodeView{
+			ID:        candidate.ID,
+			OrgID:     candidate.OrgID,
+			NodeType:  candidate.NodeType,
+			Name:      candidate.Name,
+			Props:     candidate.Props,
+			CreatedBy: candidate.CreatedBy,
+			UpdatedBy: candidate.UpdatedBy,
+			CreatedAt: candidate.CreatedAt,
+			UpdatedAt: candidate.UpdatedAt,
+		},
+	)
+	if err != nil || parent == nil {
 		return false
 	}
+
+	parentID := parent.ID
 
 	if parentID == scopeID {
 		return true
@@ -71,7 +92,12 @@ func (r *Resolver) parentChainContains(ctx context.Context, startID, wantID uuid
 			return false
 		}
 
-		currentID = uuidProp(currentView, "parent_id")
+		parent, err := readParent(ctx, r.reader, currentView)
+		if err != nil || parent == nil {
+			return false
+		}
+
+		currentID = parent.ID
 	}
 
 	return false
@@ -95,10 +121,17 @@ func viewBelongsToScope(
 		return true
 	}
 
-	parentID := uuidProp(view, "parent_id")
-	if parentID == uuid.Nil {
+	if storedScopeID := uuidProp(view, "scope_id"); storedScopeID != uuid.Nil &&
+		resolver.parentChainContains(ctx, storedScopeID, scopeID) {
+		return true
+	}
+
+	parent, err := readParent(ctx, resolver.reader, view)
+	if err != nil || parent == nil {
 		return false
 	}
+
+	parentID := parent.ID
 
 	if parentID == scopeID {
 		return true
