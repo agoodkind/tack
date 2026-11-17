@@ -115,9 +115,8 @@ func createDuplicateReference(
 	t.Helper()
 	now := clock.Now().UTC()
 	props := map[string]json.RawMessage{
-		"parent_id": json.RawMessage(strconv.Quote(projectID.String())),
-		"scope_id":  json.RawMessage(strconv.Quote(projectID.String())),
-		"sequence":  json.RawMessage("1"),
+		"scope_id": json.RawMessage(strconv.Quote(projectID.String())),
+		"sequence": json.RawMessage("1"),
 	}
 	current := &node.Node{
 		ID:        uuid.Must(uuid.NewV7()),
@@ -141,8 +140,16 @@ func createDuplicateReference(
 		env.Ctx,
 		current,
 		view,
-		nil,
-		[]string{"parent_id", "scope_id", "sequence"},
+		[]*node.Relationship{
+			{
+				OrgID:        env.OrgID,
+				SourceID:     current.ID,
+				RelationType: node.RelChildOf,
+				TargetID:     projectID,
+				CreatedAt:    now,
+			},
+		},
+		[]string{"scope_id", "sequence"},
 		nil,
 		nil,
 	); err != nil {
