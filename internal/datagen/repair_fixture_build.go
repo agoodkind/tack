@@ -3,12 +3,10 @@ package datagen
 import (
 	"context"
 	"encoding/json"
-	"maps"
 	"strconv"
 
 	"github.com/google/uuid"
 	fdbadapter "goodkind.io/tack/internal/adapters/foundationdb"
-	"goodkind.io/tack/internal/clock"
 	"goodkind.io/tack/internal/domain/node"
 	"goodkind.io/tack/internal/service"
 )
@@ -161,87 +159,6 @@ func (b *repairFixtureBuilder) create(
 		return uuid.Nil
 	}
 	return created.View.ID
-}
-
-func (b *repairFixtureBuilder) addChildOf(ctx context.Context, sourceID, targetID uuid.UUID) {
-	if b.err != nil {
-		return
-	}
-	relationship := &node.Relationship{
-		OrgID:        b.orgID,
-		SourceID:     sourceID,
-		RelationType: node.RelChildOf,
-		TargetID:     targetID,
-		CreatedBy:    b.actorID,
-		CreatedAt:    clock.Now().UTC(),
-		Props:        nil,
-	}
-	if err := b.stores.Relationships.Add(ctx, relationship); err != nil {
-		b.err = loggedError(
-			ctx,
-			"qa datagen: add the legacy child_of edge from "+sourceID.String(),
-			err,
-		)
-	}
-}
-
-// removeChildOf removes the child_of edge from sourceID to targetID through
-// the relationship store without changing parent_id.
-func (b *repairFixtureBuilder) removeChildOf(ctx context.Context, sourceID, targetID uuid.UUID) {
-	if b.err != nil {
-		return
-	}
-	if err := b.stores.Relationships.Remove(
-		ctx,
-		b.orgID,
-		sourceID,
-		node.RelChildOf,
-		targetID,
-	); err != nil {
-		b.err = loggedError(
-			ctx,
-			"qa datagen: remove the child_of edge from "+sourceID.String(),
-			err,
-		)
-	}
-}
-
-// setLegacyProps reads the stored primary record and view for nodeID.
-// It sets each property in props on both records and preserves every other
-// stored property. It writes both records through NodeStore.UpdateAtomic
-// without validation.
-func (b *repairFixtureBuilder) setLegacyProps(
-	ctx context.Context,
-	nodeID uuid.UUID,
-	props map[string]json.RawMessage,
-) {
-	if b.err != nil {
-		return
-	}
-	current, err := b.stores.Nodes.Get(ctx, b.orgID, nodeID)
-	if err != nil || current == nil {
-		b.err = loggedError(
-			ctx,
-			"qa datagen: read repair fixture node "+nodeID.String(),
-			errMissing(err),
-		)
-		return
-	}
-	view, err := b.stores.Views.Get(ctx, nodeID)
-	if err != nil || view == nil {
-		b.err = loggedError(
-			ctx,
-			"qa datagen: read repair fixture view "+nodeID.String(),
-			errMissing(err),
-		)
-		return
-	}
-	previous := maps.Clone(current.Props)
-	maps.Copy(current.Props, props)
-	view.Props = maps.Clone(current.Props)
-	if err := b.stores.Nodes.UpdateAtomic(ctx, current, view, previous, nil, nil); err != nil {
-		b.err = loggedError(ctx, "qa datagen: write legacy properties of "+nodeID.String(), err)
-	}
 }
 
 // state returns the ID of the state node named name among the hierarchy
