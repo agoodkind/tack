@@ -8,8 +8,6 @@ import (
 	mcpmcp "github.com/mark3labs/mcp-go/v2/mcp"
 	mcpserver "github.com/mark3labs/mcp-go/v2/server"
 	"goodkind.io/tack/internal/domain/node"
-	"goodkind.io/tack/internal/domain/org"
-	"goodkind.io/tack/internal/domain/user"
 )
 
 // nodeTypeSummary is the per-NodeType payload returned by tack_describe_*.
@@ -101,7 +99,7 @@ func RegisterWorkspace(
 						OrgID:    ws.OrgID,
 						NodeType: nt.TypeKey,
 						ByProperty: &node.PropertyMatch{
-							PropName: "parent_id",
+							PropName: scopedParentProperty,
 							Value:    parentIDRaw,
 						},
 						BySourceRelation: nil,
@@ -134,59 +132,6 @@ func RegisterWorkspace(
 			rc := newRenderCtxWithTypes(ctx, reader, nil, resolver.typeIndex)
 
 			return successText(renderWorkspaceDescribe(rc, ws, types), ""), nil
-		},
-	)
-}
-
-// RegisterMembers registers tack_list_members.
-func RegisterMembers(
-	s *mcpserver.MCPServer,
-	members org.MemberRepository,
-	users user.Repository,
-	resolver *Resolver,
-) {
-	registerTool(
-		s,
-		mcpmcp.Tool{
-			Name:        "tack_list_members",
-			Description: "Lists org members for the workspace's org.",
-			InputSchema: schema{
-				Fields:   entryPointSchemaFields(resolver),
-				Required: []string{resolver.EntryPointParamName()},
-			}.toMCP(),
-		},
-		func(ctx context.Context, req mcpmcp.CallToolRequest) (*mcpmcp.CallToolResult, error) {
-			args, err := bindArgs(req)
-			if err != nil {
-				return recoverableError(err.Error()), nil
-			}
-
-			entryPointReference, ok := resolver.entryPointReference(args)
-			if !ok {
-				return recoverableError(resolver.entryPointRequiredMessage()), nil
-			}
-
-			ws, err := resolver.Workspace(ctx, entryPointReference)
-			if err != nil {
-				return classifyError(ctx, err), nil
-			}
-
-			ms, err := members.ListMembers(ctx, ws.OrgID)
-			if err != nil {
-				return classifyError(ctx, err), nil
-			}
-
-			usersOut := make([]*user.User, 0, len(ms))
-			for _, m := range ms {
-				u, err := users.GetByID(ctx, m.UserID)
-				if err != nil || u == nil {
-					continue
-				}
-
-				usersOut = append(usersOut, u)
-			}
-
-			return successText(renderMembers(usersOut), ""), nil
 		},
 	)
 }
