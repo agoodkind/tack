@@ -148,7 +148,7 @@ func fixtureNodeService(t *testing.T, fixture queryFixture) *service.NodeService
 }
 
 // putOpaqueNode creates a node of kind under parentID through
-// NodeService.Create and returns its ID. The service writes parent_id,
+// NodeService.Create and returns its ID. The service writes
 // scope_id, the child_of edge, and search work in one FoundationDB
 // transaction.
 func putOpaqueNode(
