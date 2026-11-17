@@ -34,54 +34,7 @@ func newMultiParentFixture(t *testing.T) *multiParentFixture {
 	issueCommentID := uuid.New()
 	epicCommentID := uuid.New()
 
-	workspaceType := &node.NodeType{
-		TypeKey:   "workspace",
-		Slug:      "workspace",
-		Name:      "Workspace",
-		Features:  node.Features{node.FeatureIsEntryPoint, node.FeatureIsScope},
-		Reference: node.ReferenceConfig{Strategy: node.ReferenceDirectProperty, Property: "slug"},
-	}
-	projectType := &node.NodeType{
-		TypeKey:      "project",
-		Slug:         "project",
-		Name:         "Project",
-		CanLiveUnder: []string{"workspace"},
-		Features:     node.Features{node.FeatureIsScope},
-		Reference: node.ReferenceConfig{
-			Strategy: node.ReferenceDirectProperty,
-			Property: "identifier",
-		},
-	}
-	issueType := &node.NodeType{
-		TypeKey:      "issue",
-		Slug:         "issue",
-		Name:         "Issue",
-		CanLiveUnder: []string{"project"},
-		Reference: node.ReferenceConfig{
-			Strategy: node.ReferenceScopedSequence,
-			Property: "sequence",
-		},
-		ReferenceTemplates: []node.ReferenceTemplate{sequenceTemplate()},
-	}
-	epicType := &node.NodeType{
-		TypeKey:      "epic",
-		Slug:         "epic",
-		Name:         "Epic",
-		CanLiveUnder: []string{"project"},
-		Reference: node.ReferenceConfig{
-			Strategy: node.ReferenceScopedSequence,
-			Property: "sequence",
-		},
-		ReferenceTemplates: []node.ReferenceTemplate{sequenceTemplate()},
-	}
-	commentType := &node.NodeType{
-		TypeKey:      "comment",
-		Slug:         "comment",
-		PluralSlug:   "comments",
-		Name:         "Comment",
-		CanLiveUnder: []string{"issue", "epic"},
-		Reference:    node.ReferenceConfig{Strategy: node.ReferenceUUIDOnly},
-	}
+	workspaceType, projectType, issueType, epicType, commentType := multiParentTypes()
 
 	workspace := &node.NodeView{
 		ID:       workspaceID,
@@ -97,7 +50,6 @@ func newMultiParentFixture(t *testing.T) *multiParentFixture {
 		Name:     "Queue",
 		Props: map[string]json.RawMessage{
 			"identifier": mustRaw(t, "Q"),
-			"parent_id":  mustRaw(t, workspaceID.String()),
 		},
 	}
 	issue := &node.NodeView{
@@ -106,9 +58,8 @@ func newMultiParentFixture(t *testing.T) *multiParentFixture {
 		NodeType: "issue",
 		Name:     "Issue one",
 		Props: map[string]json.RawMessage{
-			"sequence":  mustRaw(t, 1),
-			"scope_id":  mustRaw(t, projectID.String()),
-			"parent_id": mustRaw(t, projectID.String()),
+			"sequence": mustRaw(t, 1),
+			"scope_id": mustRaw(t, projectID.String()),
 		},
 	}
 	epic := &node.NodeView{
@@ -117,9 +68,8 @@ func newMultiParentFixture(t *testing.T) *multiParentFixture {
 		NodeType: "epic",
 		Name:     "Epic two",
 		Props: map[string]json.RawMessage{
-			"sequence":  mustRaw(t, 2),
-			"scope_id":  mustRaw(t, projectID.String()),
-			"parent_id": mustRaw(t, projectID.String()),
+			"sequence": mustRaw(t, 2),
+			"scope_id": mustRaw(t, projectID.String()),
 		},
 	}
 	issueComment := &node.NodeView{
@@ -127,14 +77,12 @@ func newMultiParentFixture(t *testing.T) *multiParentFixture {
 		OrgID:    orgID,
 		NodeType: "comment",
 		Name:     "On the issue",
-		Props:    map[string]json.RawMessage{"parent_id": mustRaw(t, issueID.String())},
 	}
 	epicComment := &node.NodeView{
 		ID:       epicCommentID,
 		OrgID:    orgID,
 		NodeType: "comment",
 		Name:     "On the epic",
-		Props:    map[string]json.RawMessage{"parent_id": mustRaw(t, epicID.String())},
 	}
 
 	reader := &resolverReader{
@@ -147,7 +95,6 @@ func newMultiParentFixture(t *testing.T) *multiParentFixture {
 			epicCommentID:  epicComment,
 		},
 		workspaces: []*node.NodeView{workspace},
-
 		parents: map[uuid.UUID]uuid.UUID{
 			projectID:      workspaceID,
 			issueID:        projectID,
@@ -165,9 +112,7 @@ func newMultiParentFixture(t *testing.T) *multiParentFixture {
 						ID:       projectID,
 						OrgID:    orgID,
 						NodeType: "project",
-						Props: map[string]json.RawMessage{
-							"parent_id": mustRaw(t, workspaceID.String()),
-						},
+						Props:    map[string]json.RawMessage{},
 					},
 				},
 			},
