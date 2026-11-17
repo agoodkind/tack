@@ -85,7 +85,7 @@ func (c *RepairConsole) planParentReference(
 	}
 
 	preview.ChosenCandidate = chosen
-	props := plannedParentReferenceProps(view, preparedProfile, chosen.NodeID)
+	props := plannedParentReferenceProps(view, preparedProfile)
 	changes, err := c.plannedParentRelationshipChanges(ctx, view, chosen.NodeID)
 	if err != nil {
 		return nil, err

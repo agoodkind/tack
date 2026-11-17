@@ -1,6 +1,7 @@
 package integration_test
 
 import (
+	"bytes"
 	"encoding/json"
 	"testing"
 
@@ -31,6 +32,7 @@ func TestRepairConsoleUsesExistingParentRelationship(t *testing.T) {
 		t.Fatalf("preview = %+v, want existing project %s", preview, fixture.projectID)
 	}
 
+	before := storedStoreView(t, fixture.env.Stores, issue.ID)
 	_, err = fixture.console.Apply(
 		fixture.env.Ctx,
 		ops.RepairApplyInput{
@@ -46,12 +48,8 @@ func TestRepairConsoleUsesExistingParentRelationship(t *testing.T) {
 	}
 
 	stored := storedStoreView(t, fixture.env.Stores, issue.ID)
-	if uuidProp(stored.Props, "parent_id") != fixture.projectID {
-		t.Fatalf(
-			"stored parent = %s, want %s",
-			uuidProp(stored.Props, "parent_id"),
-			fixture.projectID,
-		)
+	if !bytes.Equal(stored.Props["parent_id"], before.Props["parent_id"]) {
+		t.Fatalf("repair changed the stored parent property for issue %s", issue.ID)
 	}
 
 	if _, exists := stored.Props["legacy_project"]; exists {
