@@ -20,18 +20,14 @@ func (s *NodeService) resolveDefaultScopedPropertyReference(
 	propName string,
 	ref string,
 ) (uuid.UUID, error) {
-	scopeIDRaw := mustRawString(scopeID.String())
 	views, err := s.reader.List(
 		ctx,
 		node.NodeListQuery{
-			OrgID:    orgID,
-			NodeType: targetType.TypeKey,
-			ByProperty: &node.PropertyMatch{
-				PropName: propertyParentID,
-				Value:    scopeIDRaw,
-			},
+			OrgID:            orgID,
+			NodeType:         targetType.TypeKey,
+			ByProperty:       nil,
 			BySourceRelation: nil,
-			ByTargetRelation: nil,
+			ByTargetRelation: &node.RelationScan{NodeID: scopeID, RelationType: node.RelChildOf},
 			CreatedAfter:     nil,
 			CreatedBefore:    nil,
 			PropFilters:      nil,
