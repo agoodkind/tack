@@ -1,28 +1,23 @@
 package integration_test
 
 import (
-	"encoding/json"
 	"testing"
 
 	"github.com/google/uuid"
+	"goodkind.io/tack/internal/domain/node"
 	"goodkind.io/tack/internal/service"
 )
 
-// moveRolloutNode calls [service.NodeService.Update] to set nodeID's
-// parent_id and scope_id to the entry node that `to` identifies.
-// The update replaces the node's child_of edge and changes a resource grant.
+// moveRolloutNode replaces nodeID's child_of edge and sets scope_id to to.
 func moveRolloutNode(t *testing.T, fixture rolloutFixture, nodeID, to uuid.UUID) {
 	t.Helper()
-	target, err := json.Marshal(to.String())
-	if err != nil {
-		t.Fatalf("cannot encode property value: %v", err)
-	}
-
 	if _, err := rolloutNodeService(fixture).Update(
 		rolloutContext(t),
 		service.UpdateInput{
-			NodeID:  nodeID,
-			Props:   map[string]json.RawMessage{"parent_id": target},
+			NodeID: nodeID,
+			RelationshipChanges: node.RelationshipChanges{
+				Add: []*node.Relationship{{RelationType: node.RelChildOf, TargetID: to}},
+			},
 			ScopeID: to,
 		},
 	); err != nil {

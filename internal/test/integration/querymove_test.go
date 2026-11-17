@@ -1,19 +1,17 @@
 package integration
 
 import (
-	"bytes"
-	"encoding/json"
 	"testing"
 
 	"github.com/google/uuid"
+	"goodkind.io/tack/internal/domain/node"
 	"goodkind.io/tack/internal/service"
 )
 
 // moveOpaqueNode reads nodeID and fails the test unless its type matches
-// kind.TypeKey and its parent_id equals from. It calls NodeService.Update
-// with both parent_id and scope_id set to to. Every caller passes a workspace
-// entry node as to. The update replaces the child_of edge in the same
-// transaction.
+// kind.TypeKey and its child_of edge targets from. It calls NodeService.Update
+// to replace child_of and set scope_id to to in one transaction.
+// Every caller passes a workspace entry node as to.
 func moveOpaqueNode(
 	t *testing.T,
 	fixture queryFixture,
@@ -28,13 +26,20 @@ func moveOpaqueNode(
 		t.Fatalf("read node %s before the move: %v", nodeID, err)
 	}
 
-	if current.NodeType != kind.TypeKey ||
-		!bytes.Equal(current.Props["parent_id"], mustJSON(from.String())) {
+	parents, err := fixture.Stores.Relationships.ListBySource(
+		WithTestOperation(t, t.Context()),
+		current.OrgID,
+		nodeID,
+		node.RelChildOf,
+	)
+	if err != nil || current.NodeType != kind.TypeKey || len(parents) != 1 ||
+		parents[0].TargetID != from {
 		t.Fatalf(
-			"node %s has type %s and parent_id %s, want type %s under %s",
+			"node %s has type %s and child_of edges %v, error %v; want type %s under %s",
 			nodeID,
 			current.NodeType,
-			current.Props["parent_id"],
+			parents,
+			err,
 			kind.TypeKey,
 			from,
 		)
@@ -44,8 +49,19 @@ func moveOpaqueNode(
 		WithTestOperation(t, t.Context()),
 		service.UpdateInput{
 			NodeID:  nodeID,
-			Props:   map[string]json.RawMessage{"parent_id": mustJSON(to.String())},
+			Props:   nil,
 			ScopeID: to,
+			RelationshipChanges: node.RelationshipChanges{
+				Add: []*node.Relationship{
+					{
+						OrgID:        current.OrgID,
+						SourceID:     nodeID,
+						RelationType: node.RelChildOf,
+						TargetID:     to,
+					},
+				},
+				Remove: nil,
+			},
 		},
 	); err != nil {
 		t.Fatalf("move node %s from %s to %s: %v", nodeID, from, to, err)
