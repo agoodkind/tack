@@ -34,8 +34,6 @@ func (g *Generator) probeCycleMove(
 	if err != nil {
 		return "", loggedError(ctx, "qa datagen: create cascade probe cycle", err)
 	}
-	properties := newProperties()
-	properties.setString("parent_id", cycle.RawID())
 	issue, err := g.driver.Call(
 		ctx,
 		token,
@@ -44,11 +42,20 @@ func (g *Generator) probeCycleMove(
 			WorkspaceReference: workspaceReference,
 			ProjectReference:   identifier,
 			Name:               "QA cascade delete moved issue",
-			Properties:         properties,
 		},
 	)
 	if err != nil {
 		return "", loggedError(ctx, "qa datagen: create cascade probe issue in the cycle", err)
+	}
+	if err := g.callRelationship(
+		ctx,
+		token,
+		"tack_add_relationship",
+		issue.RawID(),
+		"child_of",
+		cycle.RawID(),
+	); err != nil {
+		return "", err
 	}
 	deleted, err := g.driver.Call(
 		ctx,
