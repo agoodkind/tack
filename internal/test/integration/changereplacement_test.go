@@ -1,7 +1,6 @@
 package integration_test
 
 import (
-	"encoding/json"
 	"testing"
 
 	"github.com/google/uuid"
@@ -20,7 +19,8 @@ func TestRuntimeAuditRelationshipReplacement(t *testing.T) {
 	projectID := createSchemaProject(t, env)
 	epic := createSchemaNode(t, env, projectID, projectID, "epic", nil)
 	issue := createSchemaNode(t, env, epic.ID, projectID, "issue", nil)
-	label := createSchemaNode(t, env, projectID, projectID, "label", nil)
+	workspaceID := storedParentID(t, env, projectID)
+	label := createSchemaNode(t, env, workspaceID, workspaceID, "label", nil)
 	if err := env.NodeSvc.AddRelationship(
 		env.Ctx,
 		labelEdge(env, issue.ID, label.ID, uuid.New()),
@@ -52,22 +52,35 @@ func TestRuntimeAuditRelationshipReplacement(t *testing.T) {
 
 	epicParent := storedEdge(t, env, issue.ID, node.RelChildOf, epic.ID)
 	mark = outboxTail(t, env)
+	moveContext := integration.WithTestOperation(t, env.Ctx)
 	if _, err := env.NodeSvc.Update(
-		env.Ctx,
+		moveContext,
 		service.UpdateInput{
 			NodeID: issue.ID,
 			Name:   nil,
-			Props: map[string]json.RawMessage{
-				"parent_id": quoted(projectID.String()),
+			Props:  nil,
+			RelationshipChanges: node.RelationshipChanges{
+				Add: []*node.Relationship{
+					{
+						OrgID:        env.OrgID,
+						SourceID:     issue.ID,
+						RelationType: node.RelChildOf,
+						TargetID:     projectID,
+					},
+				},
+				Remove: nil,
 			},
-			RelationshipChanges: node.RelationshipChanges{Add: nil, Remove: nil},
-			ActorID:             uuid.New(),
+			ActorID: integration.TestActorID,
 		},
 	); err != nil {
 		t.Fatalf("move issue %s: %v", issue.ID, err)
 	}
 
 	moved := outboxEventsAfter(t, env, mark)
+	for _, event := range moved {
+		requireChangeEvent(t, event, operationIDOf(t, moveContext), integration.TestActorID)
+	}
+
 	requireOneEvent(t, moved, audit.VerbNodeUpdate, issue.ID)
 	removedParent := requireOneEvent(t, moved, audit.VerbRelationshipRemove, issue.ID)
 	addedParent := requireOneEvent(t, moved, audit.VerbRelationshipAdd, issue.ID)
