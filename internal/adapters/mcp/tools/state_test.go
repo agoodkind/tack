@@ -32,7 +32,6 @@ func TestResolveTypedNodeIDScopedStateReference(t *testing.T) {
 		Name:     "Clyde",
 		Props: map[string]json.RawMessage{
 			"identifier": mustRaw(t, "CLYDE"),
-			"parent_id":  mustRaw(t, workspaceID.String()),
 		},
 	}
 	state := &node.NodeView{
@@ -40,7 +39,6 @@ func TestResolveTypedNodeIDScopedStateReference(t *testing.T) {
 		OrgID:    orgID,
 		NodeType: "state",
 		Name:     "In Progress",
-		Props:    map[string]json.RawMessage{"parent_id": mustRaw(t, projectID.String())},
 	}
 	reader := &resolverReader{
 		views: map[uuid.UUID]*node.NodeView{
@@ -49,8 +47,7 @@ func TestResolveTypedNodeIDScopedStateReference(t *testing.T) {
 			stateID:     state,
 		},
 		workspaces: []*node.NodeView{workspace},
-
-		parents: map[uuid.UUID]uuid.UUID{projectID: workspaceID, stateID: projectID},
+		parents:    map[uuid.UUID]uuid.UUID{projectID: workspaceID, stateID: projectID},
 	}
 	repo := &fakeNodeRepo{
 		scopeChildren: map[string][]*node.Node{
@@ -59,9 +56,7 @@ func TestResolveTypedNodeIDScopedStateReference(t *testing.T) {
 					ID:       projectID,
 					OrgID:    orgID,
 					NodeType: "project",
-					Props: map[string]json.RawMessage{
-						"parent_id": mustRaw(t, workspaceID.String()),
-					},
+					Props:    map[string]json.RawMessage{},
 				},
 			},
 		},

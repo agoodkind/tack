@@ -30,7 +30,6 @@ func TestNormalizeUpdatePropsResolvesStateReference(t *testing.T) {
 		Name:     "Clyde",
 		Props: map[string]json.RawMessage{
 			"identifier": mustRaw(t, "CLYDE"),
-			"parent_id":  mustRaw(t, workspaceID.String()),
 		},
 	}
 	state := &node.NodeView{
@@ -38,7 +37,6 @@ func TestNormalizeUpdatePropsResolvesStateReference(t *testing.T) {
 		OrgID:    orgID,
 		NodeType: "state",
 		Name:     "Done",
-		Props:    map[string]json.RawMessage{"parent_id": mustRaw(t, projectID.String())},
 	}
 	issue := &node.NodeView{
 		ID:       issueID,
@@ -46,8 +44,7 @@ func TestNormalizeUpdatePropsResolvesStateReference(t *testing.T) {
 		NodeType: "issue",
 		Name:     "Finish",
 		Props: map[string]json.RawMessage{
-			"scope_id":  mustRaw(t, projectID.String()),
-			"parent_id": mustRaw(t, projectID.String()),
+			"scope_id": mustRaw(t, projectID.String()),
 		},
 	}
 	reader := &resolverReader{
@@ -58,7 +55,6 @@ func TestNormalizeUpdatePropsResolvesStateReference(t *testing.T) {
 			issueID:     issue,
 		},
 		workspaces: []*node.NodeView{workspace},
-
 		parents: map[uuid.UUID]uuid.UUID{
 			projectID: workspaceID,
 			stateID:   projectID,
@@ -72,9 +68,7 @@ func TestNormalizeUpdatePropsResolvesStateReference(t *testing.T) {
 					ID:       projectID,
 					OrgID:    orgID,
 					NodeType: "project",
-					Props: map[string]json.RawMessage{
-						"parent_id": mustRaw(t, workspaceID.String()),
-					},
+					Props:    map[string]json.RawMessage{},
 				},
 			},
 		},
