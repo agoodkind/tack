@@ -2,7 +2,6 @@ package ops
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log/slog"
 
@@ -15,15 +14,15 @@ func createLegacyDefaultChild(
 	env *Env,
 	orgID uuid.UUID,
 	parentID uuid.UUID,
-	parentRaw json.RawMessage,
 	defaultChild node.DefaultChild,
 ) (bool, error) {
-	existing, err := env.Stores.Nodes.ListByProperty(
+	existing, err := env.Stores.Views.List(
 		ctx,
-		orgID,
-		defaultChild.TypeKey,
-		repairParentProperty,
-		parentRaw,
+		defaultChildrenQuery(
+			orgID,
+			defaultChild.TypeKey,
+			&node.RelationScan{NodeID: parentID, RelationType: node.RelChildOf},
+		),
 	)
 	if err != nil {
 		slog.ErrorContext(ctx, "backfill.child_list_failed", slog.String("err", err.Error()))

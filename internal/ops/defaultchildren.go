@@ -2,10 +2,8 @@ package ops
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log/slog"
-	"strconv"
 
 	"github.com/google/uuid"
 	"goodkind.io/tack/internal/domain/node"
@@ -32,18 +30,7 @@ func backfillOrgDefaultChildren(
 
 		parents, err := env.Stores.Views.List(
 			ctx,
-			node.NodeListQuery{
-				OrgID:            orgID,
-				NodeType:         nodeType.TypeKey,
-				ByProperty:       nil,
-				BySourceRelation: nil,
-				ByTargetRelation: nil,
-				CreatedAfter:     nil,
-				CreatedBefore:    nil,
-				PropFilters:      nil,
-				Limit:            0,
-				Cursor:           "",
-			},
+			defaultChildrenQuery(orgID, nodeType.TypeKey, nil),
 		)
 		if err != nil {
 			failures = append(
@@ -63,8 +50,6 @@ func backfillOrgDefaultChildren(
 		skipped := 0
 
 		for _, parent := range parents {
-			parentIDRaw := json.RawMessage(strconv.Quote(parent.ID.String()))
-
 			for _, defaultChild := range nodeType.DefaultChildren {
 				childType := typeIndex[defaultChild.TypeKey]
 				if childType == nil {
@@ -83,7 +68,6 @@ func backfillOrgDefaultChildren(
 					env,
 					orgID,
 					parent.ID,
-					parentIDRaw,
 					defaultChild,
 				)
 				if err != nil {

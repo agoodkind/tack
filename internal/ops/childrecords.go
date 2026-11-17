@@ -11,7 +11,7 @@ import (
 
 // hasNamed checks for a candidate with exactly the given Name. The seed
 // supplies the name with the required case and spacing.
-func hasNamed(candidates []*node.Node, name string) bool {
+func hasNamed(candidates []*node.NodeView, name string) bool {
 	for _, current := range candidates {
 		if current.Name == name {
 			return true
