@@ -19,16 +19,8 @@ func repairTypeScopeIDs(
 	typeIndex map[string]*node.NodeType,
 	scopeCache map[uuid.UUID]map[string]string,
 ) (int, int, int) {
-	views, err := env.Stores.Views.List(ctx, scopeRepairQuery(orgID, nodeType.TypeKey))
+	views, err := scopeRepairViews(ctx, env, orgID, nodeType.TypeKey)
 	if err != nil {
-		env.Log.ErrorContext(
-			ctx,
-			"repair.scope_ids: list views",
-			slog.String("org_id", orgID.String()),
-			slog.String("type", nodeType.TypeKey),
-			slog.String("err", err.Error()),
-		)
-
 		return 0, 0, 0
 	}
 
@@ -43,7 +35,19 @@ func repairTypeScopeIDs(
 			continue
 		}
 
-		canonicalScopeID := deriveScopeID(ctx, env, currentNode)
+		canonicalScopeID, err := deriveScopeID(ctx, env, currentNode)
+		if err != nil {
+			env.Log.ErrorContext(
+				ctx,
+				"repair.scope_ids.parent_failed",
+				slog.String("node_id", currentNode.ID.String()),
+				slog.String("err", err.Error()),
+			)
+			refused++
+
+			continue
+		}
+
 		if canonicalScopeID == uuid.Nil {
 			skipped++
 
@@ -70,12 +74,12 @@ func repairTypeScopeIDs(
 			scopeCache,
 		)
 		if keyErr != nil {
-			env.Log.WarnContext(
+			logScopeRepairNodeFailure(
 				ctx,
+				env,
 				"repair.scope_ids: render reference keys",
-				slog.String("node_id", currentNode.ID.String()),
-				slog.String("type", nodeType.TypeKey),
-				slog.String("err", keyErr.Error()),
+				currentNode,
+				keyErr,
 			)
 			skipped++
 
@@ -91,13 +95,7 @@ func repairTypeScopeIDs(
 			indexedProps,
 			referenceKeys,
 		); err != nil {
-			env.Log.WarnContext(
-				ctx,
-				"repair.scope_ids: update node",
-				slog.String("node_id", currentNode.ID.String()),
-				slog.String("type", nodeType.TypeKey),
-				slog.String("err", err.Error()),
-			)
+			logScopeRepairNodeFailure(ctx, env, "repair.scope_ids: update node", currentNode, err)
 			if errors.Is(err, domain.ErrConflict) {
 				refused++
 			} else {

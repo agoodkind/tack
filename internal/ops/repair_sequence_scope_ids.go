@@ -89,31 +89,33 @@ func RepairSequenceScopeIDs(ctx context.Context, env *Env) (int, int, error) {
 	return scopeRepairResult(ctx, env, totalRepaired, totalSkipped, totalRefused)
 }
 
-func deriveScopeID(ctx context.Context, env *Env, currentNode *node.Node) uuid.UUID {
+func deriveScopeID(ctx context.Context, env *Env, currentNode *node.Node) (uuid.UUID, error) {
 	if currentNode == nil {
-		return uuid.Nil
+		return uuid.Nil, nil
 	}
 
-	parentID := rawUUIDProp(currentNode.Props, "parent_id")
-	for depth := 0; depth < maxRepairParentDepth && parentID != uuid.Nil; depth++ {
-		parentView, err := env.Stores.Views.Get(ctx, parentID)
-		if err != nil || parentView == nil {
-			return uuid.Nil
-		}
+	parentView, err := repairParentView(ctx, env.Stores.Views, currentNode.OrgID, currentNode.ID)
+	if err != nil {
+		return uuid.Nil, err
+	}
 
+	for depth := 0; depth < maxRepairParentDepth && parentView != nil; depth++ {
 		if stringProp(parentView.Props, "identifier") != "" {
-			return parentView.ID
+			return parentView.ID, nil
 		}
 
-		parentID = rawUUIDView(parentView, "parent_id")
+		parentView, err = repairParentView(ctx, env.Stores.Views, currentNode.OrgID, parentView.ID)
+		if err != nil {
+			return uuid.Nil, err
+		}
 	}
 
 	if currentScopeID := rawUUIDProp(currentNode.Props, "scope_id"); currentScopeID != uuid.Nil {
 		if scopeView, err := env.Stores.Views.Get(ctx, currentScopeID); err == nil &&
 			scopeView != nil {
-			return currentScopeID
+			return currentScopeID, nil
 		}
 	}
 
-	return uuid.Nil
+	return uuid.Nil, nil
 }

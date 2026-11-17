@@ -75,7 +75,15 @@ func writeNodeWithSplitScope(
 		env.Ctx,
 		current,
 		view,
-		nil,
+		[]*node.Relationship{
+			{
+				OrgID:        env.OrgID,
+				SourceID:     current.ID,
+				RelationType: node.RelChildOf,
+				TargetID:     parentID,
+				CreatedAt:    now,
+			},
+		},
 		[]string{"parent_id", "scope_id", "sequence"},
 		nil,
 		nil,
