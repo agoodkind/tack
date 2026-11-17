@@ -2,9 +2,7 @@ package datagen
 
 import (
 	"context"
-	"encoding/json"
 	"slices"
-	"strconv"
 
 	"goodkind.io/tack/internal/domain/node"
 	"goodkind.io/tack/internal/service"
@@ -71,7 +69,7 @@ func (m *searchMixed) changeMetadata(ctx context.Context) bool {
 	return true
 }
 
-// moveIssue removes an issue from selection for later writes and sets its parent_id and
+// moveIssue removes an issue from selection for later writes and sets its parent and
 // scope_id to its tenant's destination project through service.Update. That update schedules
 // search access work. moveIssue removes any pending marker check for the issue because search
 // under the original workspace no longer returns it. It returns false if an issue is not
@@ -82,16 +80,24 @@ func (m *searchMixed) moveIssue(ctx context.Context) bool {
 		return false
 	}
 	projectID := m.changes.destinations[pinned.tenant].projectID
-	target := json.RawMessage(strconv.Quote(projectID.String()))
 	_, err := m.changes.nodes.Update(
 		ctx,
 		service.UpdateInput{
-			NodeID:              pinned.id,
-			Name:                nil,
-			Props:               map[string]json.RawMessage{"parent_id": target},
-			RelationshipChanges: node.RelationshipChanges{Add: nil, Remove: nil},
-			ActorID:             m.tenants[pinned.tenant].workspace.Actors[0].UserID,
-			ScopeID:             projectID,
+			NodeID: pinned.id,
+			Name:   nil,
+			Props:  nil,
+			RelationshipChanges: node.RelationshipChanges{
+				Add: []*node.Relationship{
+					{
+						SourceID:     pinned.id,
+						RelationType: node.RelChildOf,
+						TargetID:     projectID,
+					},
+				},
+				Remove: nil,
+			},
+			ActorID: m.tenants[pinned.tenant].workspace.Actors[0].UserID,
+			ScopeID: projectID,
 		},
 	)
 	if err != nil {
