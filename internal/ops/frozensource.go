@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	"goodkind.io/tack/internal/domain"
 	"goodkind.io/tack/internal/domain/node"
 )
 
@@ -16,47 +17,51 @@ func checkFrozenSource(ctx context.Context, entry NodeIntegrityEntry) error {
 	}
 
 	if source.PrimaryDigest != primaryDigest(source.Primary) {
-		message := fmt.Sprintf(
-			"repair %s primary digest does not match its frozen primary record",
-			entry.RepairID,
+		return loggedRepairError(
+			ctx,
+			fmt.Sprintf(
+				"repair %s primary digest does not match its frozen primary record",
+				entry.RepairID,
+			),
+			domain.ErrInvalidArgument,
 		)
-
-		return frozenValidationError(message)
 	}
 
 	var primary node.Node
 	if decodeErr := json.Unmarshal(source.Primary, &primary); decodeErr != nil {
-		message := fmt.Sprintf(
-			"repair %s frozen primary record is not a node record: %s",
-			entry.RepairID,
-			decodeErr.Error(),
+		return loggedRepairError(
+			ctx,
+			fmt.Sprintf("repair %s frozen primary record is not a node record", entry.RepairID),
+			decodeErr,
 		)
-
-		return frozenValidationError(message)
 	}
 
 	if primary.ID != entry.NodeID || primary.NodeType != entry.NodeType {
-		message := fmt.Sprintf(
-			"repair %s frozen primary record is node %s of type %q, not node %s of type %q",
-			entry.RepairID,
-			primary.ID,
-			primary.NodeType,
-			entry.NodeID,
-			entry.NodeType,
+		return loggedRepairError(
+			ctx,
+			fmt.Sprintf(
+				"repair %s frozen primary record is node %s of type %q, not node %s of type %q",
+				entry.RepairID,
+				primary.ID,
+				primary.NodeType,
+				entry.NodeID,
+				entry.NodeType,
+			),
+			domain.ErrInvalidArgument,
 		)
-
-		return frozenValidationError(message)
 	}
 
 	if !strings.HasPrefix(source.MetadataEpoch, primary.OrgID.String()+"=") {
-		message := fmt.Sprintf(
-			"repair %s metadata epoch %q does not belong to organization %s",
-			entry.RepairID,
-			source.MetadataEpoch,
-			primary.OrgID,
+		return loggedRepairError(
+			ctx,
+			fmt.Sprintf(
+				"repair %s metadata epoch %q does not belong to organization %s",
+				entry.RepairID,
+				source.MetadataEpoch,
+				primary.OrgID,
+			),
+			domain.ErrInvalidArgument,
 		)
-
-		return frozenValidationError(message)
 	}
 
 	digest, err := graphDigest(ctx, *source, false)
@@ -65,12 +70,14 @@ func checkFrozenSource(ctx context.Context, entry NodeIntegrityEntry) error {
 	}
 
 	if source.GraphDigest != digest {
-		message := fmt.Sprintf(
-			"repair %s graph digest does not match its frozen edges, related records, and chain",
-			entry.RepairID,
+		return loggedRepairError(
+			ctx,
+			fmt.Sprintf(
+				"repair %s graph digest does not match its frozen edges, related records, and chain",
+				entry.RepairID,
+			),
+			domain.ErrInvalidArgument,
 		)
-
-		return frozenValidationError(message)
 	}
 
 	return nil
@@ -90,10 +97,4 @@ type repairNodeIDMissingError struct {
 
 func (failure repairNodeIDMissingError) Error() string {
 	return fmt.Sprintf("repair %s does not specify node_id", failure.RepairID)
-}
-
-type frozenValidationError string
-
-func (failure frozenValidationError) Error() string {
-	return string(failure)
 }
