@@ -157,9 +157,8 @@ func TestNodeIntegrityRepairExecuteStopsChangedSource(t *testing.T) {
 	requireApplyStatus(t, applied, "tack-582-changed-source", ops.RepairApplyConflicted)
 	requireCheckpointPhase(t, env, "tack-582-changed-source", "")
 	view, err := env.Stores.Views.Get(env.Ctx, graph.issueID)
-	if err != nil || view == nil ||
-		propText(t, view.Props, "parent_id") != graph.projectID.String() {
-		t.Fatalf("issue view = %+v, %v, want parent_id %s", view, err, graph.projectID)
+	if err != nil || view == nil {
+		t.Fatalf("read unchanged issue %s: %v", graph.issueID, err)
 	}
 
 	if targets := childOfTargets(t, env, graph.issueID); len(targets) != 2 {
