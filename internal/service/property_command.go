@@ -18,7 +18,8 @@ type PropertyCommand struct {
 	Props    map[string]json.RawMessage
 }
 
-// ReferenceResolver resolves a user-facing reference string to a canonical node UUID.
+// ReferenceResolver resolves a user-facing reference string to a canonical
+// node UUID.
 type ReferenceResolver func(
 	ctx context.Context,
 	orgID uuid.UUID,
@@ -27,16 +28,8 @@ type ReferenceResolver func(
 	ref string,
 ) (uuid.UUID, error)
 
-// ParentResolver resolves a create-time parent reference to a canonical node UUID.
-type ParentResolver func(
-	ctx context.Context,
-	childType *node.NodeType,
-	orgID uuid.UUID,
-	scopeID uuid.UUID,
-	ref string,
-) (uuid.UUID, error)
-
-// CompileCreatePropertyCommand canonicalizes user-facing property input for create.
+// CompileCreatePropertyCommand canonicalizes user-facing property input for
+// create.
 func CompileCreatePropertyCommand(
 	ctx context.Context,
 	defs []*node.PropertyDef,
@@ -190,101 +183,12 @@ func compilePropertyCommand(
 	return compiled, nil
 }
 
-func canonicalizePropertyCommandKeys(
-	nt *node.NodeType,
-	defs []*node.PropertyDef,
-	props map[string]json.RawMessage,
-) (map[string]json.RawMessage, error) {
-	canonicalNames, aliasMap := allowedPropertyCommandKeys(nt, defs)
-	compiled := make(map[string]json.RawMessage, len(props))
-
-	seenNames := make(map[string]string, len(props))
-	for name, raw := range props {
-		canonicalName, err := canonicalPropertyCommandKey(name, canonicalNames, aliasMap)
-		if err != nil {
-			return nil, err
-		}
-
-		if seenName, exists := seenNames[canonicalName]; exists {
-			return nil, fmt.Errorf(
-				"properties contain both %q and %q: %w",
-				seenName,
-				name,
-				domain.ErrInvalidArgument,
-			)
-		}
-
-		seenNames[canonicalName] = name
-		compiled[canonicalName] = raw
-	}
-
-	return compiled, nil
-}
-
-func allowedPropertyCommandKeys(
-	nt *node.NodeType,
-	defs []*node.PropertyDef,
-) (map[string]struct{}, map[string]string) {
-	canonicalNames := make(map[string]struct{}, len(defs)+1)
-	aliasMap := make(map[string]string)
-
-	for _, def := range defs {
-		if !node.PropertyAppliesTo(def, nt) {
-			continue
-		}
-
-		canonicalNames[def.Name] = struct{}{}
-		if def.ReferenceTargetTypeKey == "" || def.Type != node.PropertyTypeUUID {
-			continue
-		}
-
-		alias := strings.TrimSuffix(def.Name, "_id")
-		if alias == def.Name {
-			continue
-		}
-
-		aliasMap[alias] = def.Name
-	}
-
-	canonicalNames["parent_id"] = struct{}{}
-
-	return canonicalNames, aliasMap
-}
-
-func canonicalPropertyCommandKey(
-	name string,
-	canonicalNames map[string]struct{},
-	aliasMap map[string]string,
-) (string, error) {
-	if _, ok := canonicalNames[name]; ok {
-		return name, nil
-	}
-
-	if canonicalName, ok := aliasMap[name]; ok {
-		return canonicalName, nil
-	}
-
-	return "", fmt.Errorf(
-		"properties.%s is not declared for this node type: %w",
-		name,
-		domain.ErrInvalidArgument,
-	)
-}
-
-func rawString(raw json.RawMessage) (string, bool) {
-	var value string
-	if err := json.Unmarshal(raw, &value); err != nil {
-		return "", false
-	}
-
-	return value, true
+func MustRawString(value string) json.RawMessage {
+	return mustRawString(value)
 }
 
 func mustRawString(value string) json.RawMessage {
 	raw, _ := json.Marshal(value)
-	return raw
-}
 
-func MustRawString(value string) json.RawMessage {
-	return mustRawString(value)
+	return raw
 }
