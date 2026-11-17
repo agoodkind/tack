@@ -12,8 +12,8 @@ import (
 // hasNamed checks for a candidate with exactly the given Name. The seed
 // supplies the name with the required case and spacing.
 func hasNamed(candidates []*node.NodeView, name string) bool {
-	for _, current := range candidates {
-		if current.Name == name {
+	for _, candidate := range candidates {
+		if candidate.Name == name {
 			return true
 		}
 	}
@@ -23,7 +23,7 @@ func hasNamed(candidates []*node.NodeView, name string) bool {
 
 // defaultChildRecords returns a node, view, and child_of relationship under
 // parentID with a new UUIDv7 ID and the current time. defaultChildProps adds
-// parent_id and scope_id. It does not write. The ops package builds the records
+// scope_id. It does not write. The ops package builds the records
 // because importing the service package would create an import cycle.
 func defaultChildRecords(
 	orgID uuid.UUID,
@@ -42,10 +42,10 @@ func defaultChildRecords(
 		NodeType:  defaultChild.TypeKey,
 		Name:      defaultChild.Name,
 		Props:     props,
-		CreatedAt: now,
-		UpdatedAt: now,
 		CreatedBy: uuid.Nil,
 		UpdatedBy: uuid.Nil,
+		CreatedAt: now,
+		UpdatedAt: now,
 	}
 	view := &node.NodeView{
 		ID:        nodeID,
@@ -53,12 +53,12 @@ func defaultChildRecords(
 		NodeType:  defaultChild.TypeKey,
 		Name:      defaultChild.Name,
 		Props:     props,
-		CreatedAt: now,
-		UpdatedAt: now,
 		CreatedBy: uuid.Nil,
 		UpdatedBy: uuid.Nil,
+		CreatedAt: now,
+		UpdatedAt: now,
 	}
-	rels := []*node.Relationship{
+	relationships := []*node.Relationship{
 		{
 			OrgID:        orgID,
 			SourceID:     nodeID,
@@ -70,5 +70,5 @@ func defaultChildRecords(
 		},
 	}
 
-	return current, view, rels
+	return current, view, relationships
 }
