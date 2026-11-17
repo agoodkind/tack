@@ -35,6 +35,11 @@ func (c *RepairConsole) loadReferenceRepairMetadata(
 		)
 	}
 
+	scopeID, err := repairScopeID(ctx, c.reader, view, profile.ScopeFields)
+	if err != nil {
+		return nil, err
+	}
+
 	if allowExplicitTargetType && strings.TrimSpace(profile.TargetTypeKey) != "" {
 		targetType := typeIndex[strings.TrimSpace(profile.TargetTypeKey)]
 		if targetType == nil {
@@ -53,7 +58,7 @@ func (c *RepairConsole) loadReferenceRepairMetadata(
 			typeIndex:  typeIndex,
 			targetDef:  nil,
 			targetType: targetType,
-			scopeID:    repairScopeID(view, profile.ScopeFields),
+			scopeID:    scopeID,
 		}, nil
 	}
 
@@ -88,7 +93,7 @@ func (c *RepairConsole) loadReferenceRepairMetadata(
 		typeIndex:  typeIndex,
 		targetDef:  targetDef,
 		targetType: targetType,
-		scopeID:    repairScopeID(view, profile.ScopeFields),
+		scopeID:    scopeID,
 	}, nil
 }
 
