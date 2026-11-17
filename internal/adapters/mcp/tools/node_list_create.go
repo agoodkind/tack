@@ -41,11 +41,7 @@ func listHandler(nt *node.NodeType, route scopeRoute, b NodeTypeBinding) mcpserv
 		}
 
 		matchProperty, matchID := listMatch(nt, route, target)
-		matchIDRaw, _ := json.Marshal(matchID.String())
-		q.ByProperty = &node.PropertyMatch{
-			PropName: matchProperty,
-			Value:    matchIDRaw,
-		}
+		applyListScope(&q, matchProperty, matchID)
 		propFilters, err := normalizeListFilters(
 			ctx,
 			b,
