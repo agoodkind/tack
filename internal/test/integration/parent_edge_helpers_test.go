@@ -2,8 +2,6 @@ package integration_test
 
 import (
 	"encoding/json"
-	"fmt"
-	"slices"
 	"testing"
 	"time"
 
@@ -11,7 +9,6 @@ import (
 	"goodkind.io/tack/internal/clock"
 	"goodkind.io/tack/internal/datagen"
 	"goodkind.io/tack/internal/domain/node"
-	"goodkind.io/tack/internal/searchaccess"
 	"goodkind.io/tack/internal/service"
 	"goodkind.io/tack/internal/test/integration"
 )
@@ -120,169 +117,4 @@ func (f parentEdgeFixture) storeNode(
 	f.titles.Add(datagen.SearchItem{Title: text, NodeType: kind.typeKey}, nodeID)
 
 	return nodeID
-}
-
-// summaryKeys returns the summary access keys of each node in nodeIDs.
-func (f parentEdgeFixture) summaryKeys(t *testing.T, nodeIDs ...uuid.UUID) map[uuid.UUID][]string {
-	t.Helper()
-	results, err := f.stores.NodeSummaries(f.stores.SearchPolicySet()).Summaries(
-		integration.WithTestOperation(t, t.Context()),
-		nodeIDs,
-		parentEdgeSummaryBytes,
-	)
-	if err != nil {
-		t.Fatalf("read summaries of %d nodes: %v", len(nodeIDs), err)
-	}
-
-	keys := make(map[uuid.UUID][]string, len(results))
-	for _, result := range results {
-		keys[result.NodeID] = result.AccessKeys
-	}
-
-	return keys
-}
-
-// index compiles the stable index access of nodeID in the fixture
-// organization.
-func (f parentEdgeFixture) index(t *testing.T, nodeID uuid.UUID) (node.SearchAccess, error) {
-	t.Helper()
-	access, err := f.stores.SearchPolicySet().Index(
-		integration.WithTestOperation(t, t.Context()),
-		searchaccess.IndexAccessRequest{
-			Version:        searchaccess.StableVersion,
-			OrganizationID: f.kind.orgID,
-			ResourceID:     nodeID,
-			Generation:     0,
-		},
-	)
-	if err != nil {
-		return access, fmt.Errorf("index access of node %s: %w", nodeID, err)
-	}
-
-	return access, nil
-}
-
-// drain runs search worker slices until the worker cannot claim more work.
-// drain fails the test when a slice returns an error or work remains
-// claimable for parentEdgeDeadline.
-func (f parentEdgeFixture) drain(t *testing.T) {
-	t.Helper()
-
-	deadline := clock.Now().Add(parentEdgeDeadline)
-	for clock.Now().Before(deadline) {
-		claimed, err := f.worker.RunSlice(integration.WithTestOperation(t, t.Context()))
-		if err != nil {
-			t.Fatalf("search slice failed: %v", err)
-		}
-
-		if !claimed {
-			return
-		}
-	}
-
-	t.Fatalf("search work stayed claimable for %s", parentEdgeDeadline)
-}
-
-// eventually calls drain and then check until check returns an empty string
-// or parentEdgeDeadline (10 minutes) expires, waiting one second between
-// attempts. After the deadline, eventually fails the test with the last
-// message from check.
-func (f parentEdgeFixture) eventually(t *testing.T, check func() string) {
-	t.Helper()
-	deadline := clock.Now().Add(parentEdgeDeadline)
-	message := ""
-
-	for clock.Now().Before(deadline) {
-		f.drain(t)
-		if message = check(); message == "" {
-			return
-		}
-
-		<-time.After(time.Second)
-	}
-
-	t.Fatalf("%s after %s", message, parentEdgeDeadline)
-}
-
-// identities pairs the fixture registry with get tool lookups as workspace's
-// first actor under its entry. Each lookup uses the result's node type.
-func (f parentEdgeFixture) identities(
-	workspace datagen.WorkspaceIdentity,
-) datagen.SearchIdentities {
-	return datagen.ReferenceIdentities(
-		f.titles,
-		f.driver,
-		workspace.Actors[0].Token,
-		workspace.Slug,
-	)
-}
-
-// search reads every tack_search page for query as workspace's first actor
-// under its entry and resolves result node IDs with the fixture identities.
-func (f parentEdgeFixture) search(
-	t *testing.T,
-	workspace datagen.WorkspaceIdentity,
-	query string,
-) []uuid.UUID {
-	t.Helper()
-	found := []uuid.UUID{}
-	cursor := ""
-
-	for range parentEdgeSearchPages {
-		result, err := f.driver.Call(
-			integration.WithTestOperation(t, t.Context()),
-			workspace.Actors[0].Token,
-			"tack_search",
-			datagen.ToolArguments{
-				WorkspaceReference: workspace.Slug,
-				Query:              query,
-				Cursor:             cursor,
-			},
-		)
-		if err != nil {
-			t.Fatalf("search %q under %s: %v", query, workspace.Slug, err)
-		}
-
-		page, err := integration.ParseSearchPage(
-			t.Context(),
-			result.Text(),
-			f.identities(workspace),
-		)
-		if err != nil {
-			t.Fatalf("parse search %q under %s: %v", query, workspace.Slug, err)
-		}
-
-		found = append(found, page.IDs...)
-		if page.Complete {
-			return found
-		}
-
-		cursor = page.Cursor
-	}
-
-	t.Fatalf("search %q did not finish within %d pages", query, parentEdgeSearchPages)
-
-	return nil
-}
-
-func parentEdgeJSON(t *testing.T, value string) json.RawMessage {
-	t.Helper()
-	encoded, err := json.Marshal(value)
-	if err != nil {
-		t.Fatalf("encode %q: %v", value, err)
-	}
-
-	return encoded
-}
-
-func intersect[T comparable](values, wanted []T) []T {
-	found := []T{}
-
-	for _, value := range values {
-		if slices.Contains(wanted, value) {
-			found = append(found, value)
-		}
-	}
-
-	return found
 }
