@@ -10,11 +10,10 @@ import (
 )
 
 // ErrReservedParentRelation reports a request to add a child_of edge
-// directly. Only child_of edges define a hierarchy parent, and the parent_id
-// property is the one way to set a parent. It matches
+// directly. ParentChange sets the hierarchy parent. It matches
 // [domain.ErrInvalidArgument].
 var ErrReservedParentRelation = fmt.Errorf(
-	"the %s relation type is reserved for the parent that parent_id sets: %w",
+	"the %s relation type requires a parent change: %w",
 	RelChildOf,
 	domain.ErrInvalidArgument,
 )

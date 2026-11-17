@@ -22,7 +22,7 @@ func (s *RelationshipStore) AddMemberTarget(
 }
 
 // checkStrictRelationship rejects every child_of relationship because the
-// parent_id field sets the parent. A caller sets memberTarget only after it
+// ParentChange sets the parent. A caller sets memberTarget only after it
 // confirms in org_members that the target is a member of rel.OrgID.
 func checkStrictRelationship(
 	ctx context.Context,
@@ -93,7 +93,7 @@ func checkStrictRelationship(
 }
 
 // checkStrictRelationshipAdds skips child_of relationships, which
-// checkStrictRecord or checkStrictMutation checks against parent_id.
+// checkStrictRecord or checkStrictMutation validates the resulting parent.
 func checkStrictRelationshipAdds(
 	ctx context.Context,
 	tr fdb.Transaction,

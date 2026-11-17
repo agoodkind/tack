@@ -10,7 +10,7 @@ import (
 
 const (
 	// selfParentReason identifies the refusal of a node as its own parent.
-	selfParentReason = "is the node, one of its descendants, or in a"
+	selfParentReason = "is the node, one of its descendants, or in a child_of cycle"
 	// onlyParentReason is part of the error that tack_remove_relationship
 	// returns for the only hierarchy parent edge of a node.
 	onlyParentReason = "is its only hierarchy parent"

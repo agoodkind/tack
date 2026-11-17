@@ -175,7 +175,7 @@ func (s *NodeService) resolveOrgFromParent(
 	parentID uuid.UUID,
 ) (uuid.UUID, error) {
 	if parentID == uuid.Nil {
-		return uuid.Nil, fmt.Errorf("parent_id required: %w", domain.ErrInvalidArgument)
+		return uuid.Nil, fmt.Errorf("parent node required: %w", domain.ErrInvalidArgument)
 	}
 
 	resolve, err := s.reader.Resolve(ctx, parentID)
