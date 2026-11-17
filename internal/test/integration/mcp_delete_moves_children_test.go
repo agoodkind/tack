@@ -2,14 +2,12 @@ package integration
 
 import (
 	"encoding/json"
-	"strconv"
 	"strings"
 	"testing"
 
 	"github.com/google/uuid"
 	fdbadapter "goodkind.io/tack/internal/adapters/foundationdb"
 	"goodkind.io/tack/internal/audit"
-	"goodkind.io/tack/internal/datagen"
 	"goodkind.io/tack/internal/domain/node"
 	"goodkind.io/tack/internal/searchaccess"
 	"goodkind.io/tack/internal/testenv"
@@ -19,8 +17,8 @@ import (
 // its parent and two comments under the issue, then deletes the cycle
 // through tack_delete_cycle. The issue type is allowed under the project,
 // the cycle's own parent. The delete must move the issue there: the issue
-// keeps its comments, has exactly one child_of edge, to the project, and a
-// parent_id that matches it, and search access compiles for it. The move
+// keeps its comments, has exactly one child_of edge to the project, and
+// search access compiles for it. The move
 // must write one node.update ledger row for the issue. A later project
 // delete must delete the issue and its comments.
 func TestDeleteCycleMovesItsIssueToTheProject(t *testing.T) {
@@ -36,10 +34,8 @@ func TestDeleteCycleMovesItsIssueToTheProject(t *testing.T) {
 	cycle := harness.Call(t, "tack_create_cycle", cycleArguments).RawID()
 	issueArguments := harness.projectArgs()
 	issueArguments.Name = "Issue in the cycle"
-	issueArguments.Properties = datagen.NodeProperties{
-		"parent_id": json.RawMessage(strconv.Quote(cycle)),
-	}
 	issue := harness.Call(t, "tack_create_issue", issueArguments).RawID()
+	harness.Call(t, "tack_add_relationship", relationshipToolArguments(issue, "child_of", cycle))
 	comments := make([]uuid.UUID, 0, 2)
 
 	for _, name := range []string{"First comment", "Second comment"} {
