@@ -12,7 +12,8 @@ import (
 // TestNodeIntegrityMutationUpdateKeepsLegacyProperty checks updates to an
 // issue with an undeclared legacy property from test storage setup. A service
 // update of a declared property must preserve the legacy value. A later
-// update that sets the legacy property to JSON null must remove it.
+// update removes that value with JSON null. Repeating the null request must
+// fail when the primary record no longer stores the property.
 func TestNodeIntegrityMutationUpdateKeepsLegacyProperty(t *testing.T) {
 	env := integration.SetupTestEnv(t)
 	projectID := createSchemaProject(t, env)
@@ -48,10 +49,19 @@ func TestNodeIntegrityMutationUpdateKeepsLegacyProperty(t *testing.T) {
 
 	update.Props = schemaProps("parent_epic_title", []byte("null"))
 	if _, err := env.NodeSvc.Update(env.Ctx, update); err != nil {
-		t.Fatalf("remove parent_epic_title of %s: %v", issue.ID, err)
+		t.Fatalf("remove the stored legacy property of %s: %v", issue.ID, err)
 	}
 
-	if _, kept := storedStoreView(t, env.Stores, issue.ID).Props["parent_epic_title"]; kept {
-		t.Fatalf("issue %s keeps parent_epic_title after its removal", issue.ID)
+	removed, _ := mutationSnapshot(t, env, issue.ID)
+	if _, exists := removed.Node.Props["parent_epic_title"]; exists {
+		t.Fatalf("the primary record of %s still stores the removed legacy property", issue.ID)
 	}
+
+	if _, exists := storedStoreView(t, env.Stores, issue.ID).Props["parent_epic_title"]; exists {
+		t.Fatalf("the view of %s still stores the removed legacy property", issue.ID)
+	}
+
+	_, err = env.NodeSvc.Update(env.Ctx, update)
+	requireRefusedName(t, err, "parent_epic_title")
+	requireUnchanged(t, env, removed)
 }

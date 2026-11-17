@@ -61,7 +61,7 @@ func (s *NodeService) Update(ctx context.Context, in UpdateInput) (*node.NodeVie
 		return nil, fmt.Errorf("node type %q: %w", source.NodeType, domain.ErrNotFound)
 	}
 
-	if err := s.validateUpdateProps(ctx, source.OrgID, nt, in.Props); err != nil {
+	if err := s.validateUpdateProps(ctx, source.OrgID, nt, in.Props, source.Props); err != nil {
 		return nil, err
 	}
 

@@ -29,12 +29,22 @@ func (s *NodeService) validateUpdateProps(
 	orgID uuid.UUID,
 	nt *node.NodeType,
 	props map[string]json.RawMessage,
+	currentProps map[string]json.RawMessage,
 ) error {
 	if err := refuseManagedProps(ctx, nt, "update", props, "parent_id"); err != nil {
 		return err
 	}
 
-	return s.checkDeclaredProps(ctx, orgID, nt, "update", setUpdateProps(props))
+	checked := make(map[string]json.RawMessage, len(props))
+	for name, raw := range props {
+		if _, exists := currentProps[name]; exists && isDeletedPropValue(raw) {
+			continue
+		}
+
+		checked[name] = raw
+	}
+
+	return s.checkDeclaredProps(ctx, orgID, nt, "update", checked)
 }
 
 // refuseManagedProps returns an error that wraps domain.ErrInvalidArgument
