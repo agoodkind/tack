@@ -9,10 +9,8 @@ import (
 	"fmt"
 	"log/slog"
 	"regexp"
-	"strings"
 
 	"github.com/google/uuid"
-	"goodkind.io/tack/internal/domain/node"
 )
 
 var errIntegrityManifestEmpty = errors.New("manifest does not contain any entries")
@@ -147,77 +145,4 @@ func checkEntries(entries []NodeIntegrityEntry) error {
 	}
 
 	return nil
-}
-
-func checkFrozenSource(ctx context.Context, entry NodeIntegrityEntry) error {
-	source := entry.Source
-	if source == nil {
-		return repairFrozenSourceMissingError{RepairID: entry.RepairID}
-	}
-
-	if source.PrimaryDigest != primaryDigest(source.Primary) {
-		return fmt.Errorf(
-			"repair %s primary digest does not match its frozen primary record",
-			entry.RepairID,
-		)
-	}
-
-	var primary node.Node
-	if decodeErr := json.Unmarshal(source.Primary, &primary); decodeErr != nil {
-		return fmt.Errorf(
-			"repair %s frozen primary record is not a node record: %s",
-			entry.RepairID,
-			decodeErr.Error(),
-		)
-	}
-
-	if primary.ID != entry.NodeID || primary.NodeType != entry.NodeType {
-		return fmt.Errorf(
-			"repair %s frozen primary record is node %s of type %q, not node %s of type %q",
-			entry.RepairID,
-			primary.ID,
-			primary.NodeType,
-			entry.NodeID,
-			entry.NodeType,
-		)
-	}
-
-	if !strings.HasPrefix(source.MetadataEpoch, primary.OrgID.String()+"=") {
-		return fmt.Errorf(
-			"repair %s metadata epoch %q does not belong to organization %s",
-			entry.RepairID,
-			source.MetadataEpoch,
-			primary.OrgID,
-		)
-	}
-
-	digest, err := graphDigest(ctx, *source, false)
-	if err != nil {
-		return err
-	}
-
-	if source.GraphDigest != digest {
-		return fmt.Errorf(
-			"repair %s graph digest does not match its frozen edges, related records, and chain",
-			entry.RepairID,
-		)
-	}
-
-	return nil
-}
-
-type repairFrozenSourceMissingError struct {
-	RepairID string
-}
-
-func (failure repairFrozenSourceMissingError) Error() string {
-	return fmt.Sprintf("repair %s does not include a frozen source", failure.RepairID)
-}
-
-type repairNodeIDMissingError struct {
-	RepairID string
-}
-
-func (failure repairNodeIDMissingError) Error() string {
-	return fmt.Sprintf("repair %s does not specify node_id", failure.RepairID)
 }
