@@ -1,24 +1,25 @@
 package integration_test
 
 import (
+	"errors"
+	"slices"
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
+	"goodkind.io/tack/internal/domain"
 	"goodkind.io/tack/internal/domain/node"
 	"goodkind.io/tack/internal/test/integration"
 )
 
-// TestParentEdgeGuardKeepsCanonicalEdge checks that the guard refuses removal
-// of the child issue's canonical parent edge, which targets parent_id, while
-// a redundant child_of edge to an ancestor exists, and allows removal of the
-// redundant edge.
-func TestParentEdgeGuardKeepsCanonicalEdge(t *testing.T) {
+// TestParentEdgeGuardKeepsLastEdge checks that the guard permits removal
+// of one parent edge and refuses removal of the remaining edge.
+func TestParentEdgeGuardKeepsLastEdge(t *testing.T) {
 	env := integration.SetupTestEnv(t)
 	actor := uuid.Must(uuid.NewV7())
 	project := createDeleteFixtureProject(t, env, actor, "GUARD")
 	parent := createDeleteFixtureNode(t, env, actor, project, project, "issue", "Parent issue", nil)
 	child := createDeleteFixtureNode(t, env, actor, parent, project, "issue", "Child issue", nil)
-	setLegacyProps(t, env, child, schemaProps("parent_id", quoted(parent.String())))
 	redundant := &node.Relationship{
 		OrgID:        env.OrgID,
 		SourceID:     child,
@@ -29,7 +30,6 @@ func TestParentEdgeGuardKeepsCanonicalEdge(t *testing.T) {
 		t.Fatalf("add redundant parent edge of issue %s: %v", child, err)
 	}
 
-	requireRemovalRefused(t, env, child, parent)
 	requireParentEdges(t, env, child, parent, project)
 	if err := env.Stores.Relationships.Remove(
 		env.Ctx,
@@ -42,12 +42,12 @@ func TestParentEdgeGuardKeepsCanonicalEdge(t *testing.T) {
 	}
 
 	requireParentEdges(t, env, child, parent)
+	requireRemovalRefused(t, env, child, parent)
 }
 
-// TestParentEdgeGuardRefusesRootTypeCanonicalEdge checks that the guard
-// refuses removal of the only child_of edge of a node with parent_id when the
-// node type does not declare CanLiveUnder types.
-func TestParentEdgeGuardRefusesRootTypeCanonicalEdge(t *testing.T) {
+// TestParentEdgeGuardAllowsRootTypeWithoutParent checks that a node type
+// without CanLiveUnder types permits removal of its final parent edge.
+func TestParentEdgeGuardAllowsRootTypeWithoutParent(t *testing.T) {
 	env := integration.SetupTestEnv(t)
 	actor := uuid.Must(uuid.NewV7())
 	project := createDeleteFixtureProject(t, env, actor, "GUARDROOT")
@@ -62,38 +62,26 @@ func TestParentEdgeGuardRefusesRootTypeCanonicalEdge(t *testing.T) {
 		"Node of a root type",
 		nil,
 	)
-	setLegacyProps(t, env, rooted, schemaProps("parent_id", quoted(project.String())))
-	clearGuardRootParentTypes(t, env, kind)
-	requireRemovalRefused(t, env, rooted, project)
-	requireParentEdges(t, env, rooted, project)
+	kind.CanLiveUnder = nil
+	if err := env.Stores.NodeTypes.Set(env.Ctx, kind); err != nil {
+		t.Fatalf("remove parent metadata from type %s: %v", kind.TypeKey, err)
+	}
+
+	if err := env.Stores.Relationships.Remove(
+		env.Ctx,
+		env.OrgID,
+		rooted,
+		node.RelChildOf,
+		project,
+	); err != nil {
+		t.Fatalf("remove parent edge of root type node %s: %v", rooted, err)
+	}
+
+	requireParentEdges(t, env, rooted)
 }
 
-// TestParentEdgeGuardRefusesInvalidParentID creates a node under a project,
-// then clears its type's CanLiveUnder before storing an invalid parent_id.
-// It requires removal of the only child_of edge to fail with an error that
-// matches domain.ErrFailedPrecondition and requires the edge to remain.
-func TestParentEdgeGuardRefusesInvalidParentID(t *testing.T) {
-	env := integration.SetupTestEnv(t)
-	actor := uuid.Must(uuid.NewV7())
-	project := createDeleteFixtureProject(t, env, actor, "GUARDINVALID")
-	kind := storeGuardRootType(t, env)
-	rooted := createDeleteFixtureNode(
-		t,
-		env,
-		actor,
-		project,
-		project,
-		kind.TypeKey,
-		"Node with an invalid parent",
-		nil,
-	)
-	clearGuardRootParentTypes(t, env, kind)
-	setLegacyProps(t, env, rooted, schemaProps("parent_id", quoted("not a UUID")))
-	requireRemovalRefused(t, env, rooted, project)
-	requireParentEdges(t, env, rooted, project)
-}
-
-// storeGuardRootType permits project parents while the test creates its node.
+// storeGuardRootType permits creation under a project before the test removes
+// that parent declaration.
 func storeGuardRootType(t *testing.T, env *integration.TestEnv) *node.NodeType {
 	t.Helper()
 	kind := &node.NodeType{
@@ -112,10 +100,46 @@ func storeGuardRootType(t *testing.T, env *integration.TestEnv) *node.NodeType {
 	return kind
 }
 
-func clearGuardRootParentTypes(t *testing.T, env *integration.TestEnv, kind *node.NodeType) {
+func requireRemovalRefused(t *testing.T, env *integration.TestEnv, sourceID, targetID uuid.UUID) {
 	t.Helper()
-	kind.CanLiveUnder = nil
-	if err := env.Stores.NodeTypes.Set(env.Ctx, kind); err != nil {
-		t.Fatalf("clear allowed parent types for %s: %v", kind.TypeKey, err)
+	err := env.Stores.Relationships.Remove(env.Ctx, env.OrgID, sourceID, node.RelChildOf, targetID)
+	if !errors.Is(err, domain.ErrFailedPrecondition) {
+		t.Fatalf(
+			"removal of the canonical parent edge from %s to %s returned %v, want a refusal",
+			sourceID,
+			targetID,
+			err,
+		)
+	}
+}
+
+func requireParentEdges(
+	t *testing.T,
+	env *integration.TestEnv,
+	sourceID uuid.UUID,
+	want ...uuid.UUID,
+) {
+	t.Helper()
+	edges, err := env.Stores.Relationships.EdgesFrom(
+		env.Ctx,
+		env.OrgID,
+		sourceID,
+		node.RelChildOf,
+		"",
+		10,
+	)
+	if err != nil {
+		t.Fatalf("read child_of edges of %s: %v", sourceID, err)
+	}
+
+	got := slices.Clone(edges.IDs)
+	expected := slices.Clone(want)
+	byText := func(left, right uuid.UUID) int {
+		return strings.Compare(left.String(), right.String())
+	}
+	slices.SortFunc(got, byText)
+	slices.SortFunc(expected, byText)
+	if !slices.Equal(got, expected) {
+		t.Fatalf("child_of edges of %s = %v, want %v", sourceID, got, expected)
 	}
 }
