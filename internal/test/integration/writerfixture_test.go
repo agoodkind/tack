@@ -18,8 +18,7 @@ func storeWriterWorkspace(env *integration.TestEnv, slug string) *node.Node {
 		NodeType: "workspace",
 		Name:     slug + " workspace",
 		Props: map[string]json.RawMessage{
-			"slug":      quoted(slug),
-			"parent_id": quoted(env.OrgID.String()),
+			"slug": quoted(slug),
 		},
 		CreatedBy: uuid.Nil,
 		UpdatedBy: uuid.Nil,
