@@ -7,23 +7,15 @@ import (
 	"github.com/google/uuid"
 )
 
-// parentReason returns the reason that raw and the child_of targets in graph
+// parentReason returns the reason that the child_of targets in graph
 // do not form a valid parent for a node of nodeType, or "" for a valid
 // parent. It returns a read failure when Types does not contain the parent's
 // node type.
 func (s Schema) parentReason(
 	nodeType *NodeType,
-	raw json.RawMessage,
 	graph ResultGraph,
 ) (string, *ReadFailure) {
-	if len(raw) == 0 {
-		if len(graph.ChildOf) > 0 {
-			return fmt.Sprintf(
-				"the node has child_of edges to %v without parent_id",
-				graph.ChildOf,
-			), nil
-		}
-
+	if len(graph.ChildOf) == 0 {
 		if len(nodeType.CanLiveUnder) > 0 {
 			return fmt.Sprintf(
 				"node type %q requires a parent of type %v",
@@ -35,19 +27,11 @@ func (s Schema) parentReason(
 		return "", nil
 	}
 
-	parentID := resultReferenceID(raw)
-	if parentID == uuid.Nil {
-		return "the value is not a node ID", nil
+	if len(graph.ChildOf) != 1 {
+		return fmt.Sprintf("the node has more than one child_of edge: %v", graph.ChildOf), nil
 	}
 
-	if len(graph.ChildOf) != 1 || graph.ChildOf[0] != parentID {
-		return fmt.Sprintf(
-			"parent_id %s differs from the child_of edges to %v",
-			parentID,
-			graph.ChildOf,
-		), nil
-	}
-
+	parentID := graph.ChildOf[0]
 	parent := graph.Targets[parentID]
 	if !parent.Found || parent.OrgID != graph.OrgID {
 		return fmt.Sprintf("the parent %s does not exist in the organization", parentID), nil
@@ -73,8 +57,7 @@ func (s Schema) parentReason(
 	return "", nil
 }
 
-// resultReferenceID decodes one raw property value that stores a node ID as
-// a
+// resultReferenceID decodes one raw property value that stores a node ID as a
 // JSON string. It returns [uuid.Nil] for any other value.
 func resultReferenceID(raw json.RawMessage) uuid.UUID {
 	var text string
