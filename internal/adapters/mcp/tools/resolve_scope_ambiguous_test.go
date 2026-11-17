@@ -30,7 +30,6 @@ func TestResolveScopeReportsAmbiguousReferenceWithCandidates(t *testing.T) {
 	}
 	parentProps := map[string]json.RawMessage{
 		"identifier": mustRaw(t, "Q0101"),
-		"parent_id":  mustRaw(t, workspaceID.String()),
 	}
 	reader := &resolverReader{
 		views: map[uuid.UUID]*node.NodeView{
@@ -51,8 +50,7 @@ func TestResolveScopeReportsAmbiguousReferenceWithCandidates(t *testing.T) {
 			},
 		},
 		workspaces: []*node.NodeView{workspace},
-
-		parents: map[uuid.UUID]uuid.UUID{first: workspaceID, second: workspaceID},
+		parents:    map[uuid.UUID]uuid.UUID{first: workspaceID, second: workspaceID},
 	}
 	repo := &fakeNodeRepo{
 		scopeChildren: map[string][]*node.Node{

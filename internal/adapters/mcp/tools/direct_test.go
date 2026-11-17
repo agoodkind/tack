@@ -29,14 +29,12 @@ func TestResolveTypedNodeIDProjectReference(t *testing.T) {
 		Name:     "Tack",
 		Props: map[string]json.RawMessage{
 			"identifier": mustRaw(t, "TACK"),
-			"parent_id":  mustRaw(t, workspaceID.String()),
 		},
 	}
 	reader := &resolverReader{
 		views:      map[uuid.UUID]*node.NodeView{workspaceID: workspace, projectID: project},
 		workspaces: []*node.NodeView{workspace},
-
-		parents: map[uuid.UUID]uuid.UUID{projectID: workspaceID},
+		parents:    map[uuid.UUID]uuid.UUID{projectID: workspaceID},
 	}
 	repo := &fakeNodeRepo{
 		scopeChildren: map[string][]*node.Node{
@@ -45,9 +43,7 @@ func TestResolveTypedNodeIDProjectReference(t *testing.T) {
 					ID:       projectID,
 					OrgID:    orgID,
 					NodeType: "project",
-					Props: map[string]json.RawMessage{
-						"parent_id": mustRaw(t, workspaceID.String()),
-					},
+					Props:    map[string]json.RawMessage{},
 				},
 			},
 			"project:slug:\"tack\"": nil,

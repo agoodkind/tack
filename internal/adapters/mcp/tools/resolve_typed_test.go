@@ -29,7 +29,6 @@ func TestResolveScopeAcceptsSequenceReference(t *testing.T) {
 		Name:     "Clyde",
 		Props: map[string]json.RawMessage{
 			"identifier": mustRaw(t, "CLYDE"),
-			"parent_id":  mustRaw(t, workspaceID.String()),
 		},
 	}
 	issue := &node.NodeView{
@@ -38,9 +37,8 @@ func TestResolveScopeAcceptsSequenceReference(t *testing.T) {
 		NodeType: "issue",
 		Name:     "Reference work",
 		Props: map[string]json.RawMessage{
-			"sequence":  mustRaw(t, 157),
-			"scope_id":  mustRaw(t, projectID.String()),
-			"parent_id": mustRaw(t, projectID.String()),
+			"sequence": mustRaw(t, 157),
+			"scope_id": mustRaw(t, projectID.String()),
 		},
 	}
 	reader := &resolverReader{
@@ -50,8 +48,7 @@ func TestResolveScopeAcceptsSequenceReference(t *testing.T) {
 			issueID:     issue,
 		},
 		workspaces: []*node.NodeView{workspace},
-
-		parents: map[uuid.UUID]uuid.UUID{projectID: workspaceID, issueID: projectID},
+		parents:    map[uuid.UUID]uuid.UUID{projectID: workspaceID, issueID: projectID},
 	}
 	// The uniqueness index is the only sequence-resolution path, so the fake
 	// serves the reference key the repair would have backfilled.
@@ -63,9 +60,7 @@ func TestResolveScopeAcceptsSequenceReference(t *testing.T) {
 						ID:       projectID,
 						OrgID:    orgID,
 						NodeType: "project",
-						Props: map[string]json.RawMessage{
-							"parent_id": mustRaw(t, workspaceID.String()),
-						},
+						Props:    map[string]json.RawMessage{},
 					},
 				},
 			},
