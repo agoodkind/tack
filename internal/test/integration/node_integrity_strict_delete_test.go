@@ -4,7 +4,6 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
-
 	"goodkind.io/tack/internal/domain/node"
 	"goodkind.io/tack/internal/test/integration"
 )
@@ -17,7 +16,7 @@ import (
 // comment type cannot.
 //
 // The test requires a finished job that moved exactly one child. It checks
-// that the moved issue stores parent_id equal to the project and exactly one
+// that the moved issue stores exactly one
 // child_of edge to the project. It verifies that storage does not contain
 // the epic or the comment.
 func TestNodeIntegrityStrictSubtreeDeleteAfterActivation(t *testing.T) {
@@ -46,7 +45,7 @@ func TestNodeIntegrityStrictSubtreeDeleteAfterActivation(t *testing.T) {
 	}
 
 	if parentID := storedParentID(t, env, issue.ID); parentID != projectID {
-		t.Fatalf("parent_id of moved issue %s = %s, want project %s", issue.ID, parentID, projectID)
+		t.Fatalf("parent of moved issue %s = %s, want project %s", issue.ID, parentID, projectID)
 	}
 
 	edges, err := env.Stores.Relationships.ListBySource(

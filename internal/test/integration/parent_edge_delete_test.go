@@ -13,7 +13,7 @@ import (
 // TestParentEdgeDeleteMovesChildIssue checks subtree deletion of a parent
 // issue with a child issue under it, a type pair that NodeType metadata does
 // not declare. Subtree deletion moves the child issue to the project with one
-// child_of edge to the project and a matching parent_id, and deletes the
+// child_of edge to the project, and deletes the
 // comment with the parent issue.
 func TestParentEdgeDeleteMovesChildIssue(t *testing.T) {
 	env := integration.SetupTestEnv(t)
@@ -46,17 +46,7 @@ func TestParentEdgeDeleteMovesChildIssue(t *testing.T) {
 		)
 	}
 
-	moved, err := env.Stores.Views.Get(env.Ctx, child)
-	if err != nil || moved == nil ||
-		string(moved.Props["parent_id"]) != string(parentEdgeJSON(t, project.String())) {
-		t.Fatalf(
-			"child issue %s after the delete = %+v, err %v, want parent_id %s",
-			child,
-			moved,
-			err,
-			project,
-		)
-	}
+	requireStoredParent(t, env, child, project)
 
 	edges, err := env.Stores.Relationships.EdgesFrom(
 		env.Ctx,
