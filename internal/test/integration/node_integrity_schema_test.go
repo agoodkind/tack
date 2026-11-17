@@ -99,7 +99,7 @@ func TestNodeIntegritySchemaAppliesDefaultsAndPartialUpdates(t *testing.T) {
 		t.Fatalf("updated priority = %s, want \"high\"", got)
 	}
 
-	for _, name := range []string{"description", "state_id", "sequence", "scope_id", "parent_id"} {
+	for _, name := range []string{"description", "state_id", "sequence", "scope_id"} {
 		if string(updated.Props[name]) != string(issue.Props[name]) {
 			t.Fatalf(
 				"partial update changed %s from %s to %s",
@@ -109,6 +109,8 @@ func TestNodeIntegritySchemaAppliesDefaultsAndPartialUpdates(t *testing.T) {
 			)
 		}
 	}
+
+	requireStoredParent(t, env, issue.ID, projectID)
 }
 
 // TestNodeIntegritySchemaIndexesScopeOfEveryType creates a project with its
