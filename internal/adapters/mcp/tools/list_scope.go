@@ -10,12 +10,12 @@ func listScopeProperty(nt *node.NodeType, route scopeRoute) string {
 		return "scope_id"
 	}
 
-	return "parent_id"
+	return scopedParentProperty
 }
 
 func listMatch(nt *node.NodeType, route scopeRoute, target routeTarget) (string, uuid.UUID) {
 	if target.hasAlternativeParent() {
-		return "parent_id", target.Parent.ID
+		return scopedParentProperty, target.Parent.ID
 	}
 
 	return listScopeProperty(nt, route), target.Scope.ID
