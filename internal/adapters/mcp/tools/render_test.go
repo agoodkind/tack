@@ -12,58 +12,6 @@ import (
 	"goodkind.io/tack/internal/domain/user"
 )
 
-// fakeReader is a tiny in-memory NodeReader that lets render_test assert
-// cross-reference resolution without standing up FDB. Only Get is used by the
-// renderer; the other methods panic to make accidental calls obvious.
-type fakeReader struct {
-	views map[uuid.UUID]*node.NodeView
-}
-
-func (r *fakeReader) Get(_ context.Context, id uuid.UUID) (*node.NodeView, error) {
-	return r.views[id], nil
-}
-
-func (r *fakeReader) Resolve(context.Context, uuid.UUID) (*node.NodeResolve, error) {
-	panic("fakeReader.Resolve called")
-}
-
-func (r *fakeReader) List(context.Context, node.NodeListQuery) ([]*node.NodeView, error) {
-	panic("fakeReader.List called")
-}
-
-func (r *fakeReader) Stream(
-	context.Context,
-	node.NodeListQuery,
-) (<-chan node.NodeStreamResult, error) {
-	panic("fakeReader.Stream called")
-}
-
-func (r *fakeReader) ListPage(context.Context, node.NodeListQuery) (node.Page, error) {
-	panic("fakeReader.ListPage called")
-}
-
-type fakeUsers struct {
-	users map[uuid.UUID]*user.User
-}
-
-func (u *fakeUsers) GetByID(_ context.Context, id uuid.UUID) (*user.User, error) {
-	return u.users[id], nil
-}
-
-func (u *fakeUsers) GetByEmail(context.Context, string) (*user.User, error) {
-	panic("fakeUsers.GetByEmail called")
-}
-
-func mustRaw(t *testing.T, v any) json.RawMessage {
-	t.Helper()
-	b, err := json.Marshal(v)
-	if err != nil {
-		t.Fatalf("marshal: %v", err)
-	}
-
-	return b
-}
-
 // TestRenderNodeIdentifierPreferred asserts that an issue under a project
 // renders with a "<PROJECT>-<seq>" identifier and pretty-printed scope and
 // parent fields, with the raw UUID at the bottom for round-tripping.
@@ -121,6 +69,7 @@ func TestRenderNodeIdentifierPreferred(t *testing.T) {
 	}
 
 	reader := &fakeReader{
+		parents: map[uuid.UUID]uuid.UUID{issueID: epicID, epicID: projectID},
 		views: map[uuid.UUID]*node.NodeView{
 			projectID: project,
 			epicID:    epic,
@@ -182,90 +131,5 @@ func TestRenderNodeIdentifierPreferred(t *testing.T) {
 		if strings.Contains(out, raw) {
 			t.Errorf("rendered output should not contain raw cross-ref UUID %s; got:\n%s", raw, out)
 		}
-	}
-}
-
-// TestRenderListUsesIdentifiers asserts that a list of issues prints
-// identifiers and resolved state names rather than raw UUIDs.
-func TestRenderListUsesIdentifiers(t *testing.T) {
-	orgID := uuid.New()
-	projectID := uuid.New()
-	stateID := uuid.New()
-	project := &node.NodeView{
-		ID:       projectID,
-		OrgID:    orgID,
-		NodeType: "project",
-		Name:     "Tack",
-		Props:    map[string]json.RawMessage{"identifier": mustRaw(t, "TACK")},
-	}
-	stateView := &node.NodeView{
-		ID:       stateID,
-		OrgID:    orgID,
-		NodeType: "state",
-		Name:     "in-progress",
-	}
-	issues := make([]*node.NodeView, 0, 3)
-
-	for i := 1; i <= 3; i++ {
-		issues = append(
-			issues,
-			&node.NodeView{
-				ID:       uuid.New(),
-				OrgID:    orgID,
-				NodeType: "issue",
-				Name:     "issue " + string(rune('A'+i-1)),
-				Props: map[string]json.RawMessage{
-					"sequence": mustRaw(t, i),
-					"scope_id": mustRaw(t, projectID.String()),
-					"state_id": mustRaw(t, stateID.String()),
-					"priority": mustRaw(t, "medium"),
-				},
-			},
-		)
-	}
-
-	reader := &fakeReader{
-		views: map[uuid.UUID]*node.NodeView{
-			projectID: project,
-			stateID:   stateView,
-		},
-	}
-	rc := newRenderCtxWithTypes(
-		context.Background(),
-		reader,
-		nil,
-		map[string]*node.NodeType{
-			"project": {
-				TypeKey: "project",
-				Reference: node.ReferenceConfig{
-					Strategy: node.ReferenceDirectProperty,
-					Property: "identifier",
-				},
-			},
-			"issue": {
-				TypeKey: "issue",
-				Reference: node.ReferenceConfig{
-					Strategy: node.ReferenceScopedSequence,
-					Property: "sequence",
-				},
-			},
-		},
-	)
-	out := renderList(rc, "issues", issues)
-
-	mustContain(t, out, "3 issues")
-	mustContain(t, out, "TACK-1")
-	mustContain(t, out, "TACK-2")
-	mustContain(t, out, "TACK-3")
-	mustContain(t, out, "in-progress")
-	if strings.Contains(out, projectID.String()) || strings.Contains(out, stateID.String()) {
-		t.Errorf("list output should not contain raw cross-ref UUIDs:\n%s", out)
-	}
-}
-
-func mustContain(t *testing.T, body, want string) {
-	t.Helper()
-	if !strings.Contains(body, want) {
-		t.Errorf("expected output to contain %q, got:\n%s", want, body)
 	}
 }
