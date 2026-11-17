@@ -63,7 +63,7 @@ func backfillOrgDefaultChildren(
 					continue
 				}
 
-				added, err := createLegacyDefaultChild(ctx, env, orgID, parent.ID, defaultChild)
+				added, err := createMissingDefaultChild(ctx, env, orgID, parent.ID, defaultChild)
 				if err != nil {
 					failures = append(failures, err)
 
