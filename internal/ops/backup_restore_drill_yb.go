@@ -20,7 +20,7 @@ import (
 // distributed-snapshot export (or the explicitly requested run) into a
 // throwaway yugabyted, asserts the auth tables hold rows, and verifies the
 // restored audit ledger's hash chain.
-func restoreDrillYugabyte(ctx context.Context, r *restoreDrillCtx) error {
+func restoreDrillYugabyte(ctx context.Context, r *restoreDrillCtx) (restoreErr, auditErr error) {
 	logger := telemetry.L(ctx)
 	logger.InfoContext(ctx, "backup.restore_drill.yb.start")
 	if r.Cfg.BackupYBOverlayPath == "" || r.Cfg.BackupYBRocksDBDir == "" {
@@ -29,7 +29,7 @@ func restoreDrillYugabyte(ctx context.Context, r *restoreDrillCtx) error {
 		)
 		logger.ErrorContext(ctx, "backup.restore_drill.yb.failed", slog.String("err", err.Error()))
 
-		return err
+		return err, nil
 	}
 
 	if err := requireBackupYBImage(
@@ -38,14 +38,14 @@ func restoreDrillYugabyte(ctx context.Context, r *restoreDrillCtx) error {
 		"restore-drill yb",
 		"backup.restore_drill.yb.failed",
 	); err != nil {
-		return err
+		return err, nil
 	}
 
 	s3Client := newBackupS3Client(r.Cfg)
 
 	manifest, err := resolveYBDrillExport(ctx, r, s3Client)
 	if err != nil {
-		return err
+		return err, nil
 	}
 
 	stageDir := filepath.Join(r.Cfg.BackupRoot, "restore-drill-yb-"+r.RunID)
@@ -57,18 +57,18 @@ func restoreDrillYugabyte(ctx context.Context, r *restoreDrillCtx) error {
 			slog.String("err", wrapped.Error()),
 		)
 
-		return wrapped
+		return wrapped, nil
 	}
 
 	defer os.RemoveAll(stageDir)
 	inventories, err := stageYBDrillArtifacts(ctx, r, s3Client, manifest, stageDir)
 	if err != nil {
-		return err
+		return err, nil
 	}
 
 	name := "tack-rtyb-" + r.RunID
 	if err := startScratchYugabyte(ctx, r, name, manifest.Database, stageDir); err != nil {
-		return err
+		return err, nil
 	}
 
 	startWatch := newYBScratchWatch(
@@ -94,13 +94,13 @@ func restoreDrillYugabyte(ctx context.Context, r *restoreDrillCtx) error {
 			slog.String("err", wrapped.Error()),
 		)
 
-		return wrapped
+		return wrapped, nil
 	}
 
 	logger.InfoContext(ctx, "backup.restore_drill.yb.scratch_ready", slog.Duration("took", took))
 
 	if err := applyYBDrillSchema(ctx, r, name, manifest.Database); err != nil {
-		return err
+		return err, nil
 	}
 
 	if err := importAndRestoreYBSnapshot(
@@ -111,17 +111,15 @@ func restoreDrillYugabyte(ctx context.Context, r *restoreDrillCtx) error {
 		manifest.SnapshotID,
 		inventories,
 	); err != nil {
-		return err
+		return err, nil
 	}
 
 	if err := assertYBDrillRows(ctx, r, name, manifest.Database); err != nil {
-		return err
+		return err, nil
 	}
 
-	// Rows on their own say nothing about the ledger's hash chain, and a
-	// restore is where a chain breaks silently, so the chain is verified from
-	// the restored database before this leg passes.
-	return assertRestoredLedgerChain(ctx, r, name, manifest.Database)
+	// Verify the ledger in the restored database after its row checks pass.
+	return nil, assertRestoredLedgerChain(ctx, r, name, manifest.Database)
 }
 
 // resolveYBDrillExport picks the export run to drill. With an explicit run key

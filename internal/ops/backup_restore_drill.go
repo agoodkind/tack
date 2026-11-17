@@ -6,6 +6,7 @@ package ops
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -146,11 +147,33 @@ func RunBackupRestoreDrill(
 		)
 	}
 
-	if legErr := restoreDrillYugabyte(ctx, rctx); legErr != nil {
-		failures = append(failures, "yugabyte: "+legErr.Error())
+	restoreErr, auditErr := restoreDrillYugabyte(ctx, rctx)
+	if restoreErr != nil {
+		failures = append(failures, "yugabyte: "+restoreErr.Error())
 	} else {
 		passed = append(passed, "yugabyte")
 		logger.InfoContext(ctx, "backup.restore_drill.leg_ok", slog.String("leg", "yugabyte"))
+	}
+
+	return finishRestoreDrill(ctx, rctx, passed, failures, auditErr)
+}
+
+// finishRestoreDrill records recovery after all database checks pass.
+func finishRestoreDrill(
+	ctx context.Context,
+	drill *restoreDrillCtx,
+	passed []string,
+	failures []string,
+	auditErr error,
+) error {
+	logger := telemetry.L(ctx)
+	if auditErr != nil {
+		auditErr = fmt.Errorf("YugabyteDB restore passed. Audit verification failed: %w", auditErr)
+		logger.ErrorContext(
+			ctx,
+			"backup.restore_drill.audit_failed",
+			slog.String("err", auditErr.Error()),
+		)
 	}
 
 	if len(failures) > 0 {
@@ -161,18 +184,28 @@ func RunBackupRestoreDrill(
 		)
 		logger.ErrorContext(ctx, "backup.restore_drill.failed", slog.String("err", err.Error()))
 
-		return err
+		return errors.Join(err, auditErr)
 	}
 
-	s3Client := newBackupS3Client(cfg)
+	s3Client := newBackupS3Client(drill.Cfg)
 	markerPut := func(key string, body []byte) error {
-		return putObjectBytes(ctx, s3Client, cfg.BackupS3BucketMain, key, body)
+		return putObjectBytes(ctx, s3Client, drill.Cfg.BackupS3BucketMain, key, body)
 	}
-	if err := recordRestoreDrillRehearsal(ctx, markerPut, rctx.RunID, passed); err != nil {
-		return err
+	markerErr := recordRestoreDrillRehearsal(ctx, markerPut, drill.RunID, passed, auditErr == nil)
+	if auditErr != nil {
+		if markerErr != nil {
+			// Reserve the marker-specific exit status for a marker-only failure.
+			return fmt.Errorf("%w\n%s", auditErr, markerErr.Error())
+		}
+
+		return auditErr
 	}
 
-	logger.InfoContext(ctx, "backup.restore_drill.ok", slog.String("run_id", rctx.RunID))
+	if markerErr != nil {
+		return markerErr
+	}
+
+	logger.InfoContext(ctx, "backup.restore_drill.ok", slog.String("run_id", drill.RunID))
 
 	return nil
 }

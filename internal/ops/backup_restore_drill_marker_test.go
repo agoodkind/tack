@@ -80,6 +80,7 @@ func TestRestoreDrillMarkerRetriesAFailedPut(t *testing.T) {
 		store.put,
 		"rt20260905T033000Z-7",
 		[]string{"fdb", "yugabyte"},
+		true,
 	)
 	if err != nil {
 		t.Fatalf("a write must succeed after store recovery within the retry limit: %v", err)
@@ -129,6 +130,7 @@ func TestRestoreDrillMarkerFailsAfterRetryLimit(t *testing.T) {
 		store.put,
 		"rt20260906T033000Z-7",
 		[]string{"fdb", "yugabyte"},
+		true,
 	)
 	if err == nil {
 		t.Fatal("a failed marker write must fail the drill")
@@ -136,7 +138,7 @@ func TestRestoreDrillMarkerFailsAfterRetryLimit(t *testing.T) {
 
 	if !strings.HasPrefix(
 		err.Error(),
-		"restore-drill: every leg passed but the rehearsal marker write failed: ",
+		"restore-drill: the databases restored but the rehearsal marker write failed: ",
 	) {
 		t.Fatalf("the error must identify the marker as the failed step, got: %v", err)
 	}
@@ -189,6 +191,7 @@ func TestRestoreDrillMarkerStopsWhenTheContextEnds(t *testing.T) {
 		store.put,
 		"rt20260906T033000Z-8",
 		[]string{"fdb", "yugabyte"},
+		true,
 	)
 	if err == nil || !strings.Contains(err.Error(), "the rehearsal marker write failed") {
 		t.Fatalf("an interrupted drill must still identify marker failure, got: %v", err)
