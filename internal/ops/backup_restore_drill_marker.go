@@ -1,4 +1,4 @@
-// Restore drills record success in the object store after all legs pass.
+// Restore drills record recovery after all databases pass their restore checks.
 // Marker writes retry independently to avoid repeating two successful restores
 // after a temporary object-store failure.
 
@@ -30,7 +30,7 @@ type RestoreDrillMarkerError struct {
 
 // Error identifies the marker write as the failed step.
 func (e *RestoreDrillMarkerError) Error() string {
-	return "restore-drill: every leg passed but the rehearsal marker write failed: " + e.Err.Error()
+	return "restore-drill: the databases restored but the rehearsal marker write failed: " + e.Err.Error()
 }
 
 // Unwrap returns the last write error.
@@ -52,9 +52,15 @@ func recordRestoreDrillRehearsal(
 	put func(key string, body []byte) error,
 	runID string,
 	legs []string,
+	auditVerified bool,
 ) error {
 	passedAt := opsNow().UTC()
-	detail := "restore drill " + runID + " passed: " + strings.Join(legs, ", ")
+	databases := strings.Join(legs, ", ")
+	detail := "restore drill " + runID + " passed: " + databases
+	if !auditVerified {
+		detail = "restore drill " + runID + " restored " + databases + ". Audit verification failed."
+	}
+
 	wait := restoreDrillMarkerFirstWait
 	var putErr error
 

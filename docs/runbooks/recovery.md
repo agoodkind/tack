@@ -63,10 +63,14 @@ TACK_IMAGE_TAG=<image-sha> docker compose run --rm \
   tack-ops ops backup restore-drill
 ```
 
-The drill exits zero after every enabled store restore confirms data is present
-and the drill writes its rehearsal record to the object store. It restores
-FoundationDB only when `TACK_BACKUP_FDB_CONTINUOUS` is true; otherwise, it logs a
-warning and skips that restore.
+The drill records the recovery time after every enabled database restore passes
+its data checks. If the restored audit ledger fails verification, the rehearsal
+record shows that the databases restored and the command exits with an error
+that identifies the audit failure. A failed database restore does not update
+the last recovery time.
+
+The drill restores FoundationDB when `TACK_BACKUP_FDB_CONTINUOUS` is true.
+When it is false, the drill logs a warning and skips that restore.
 
 The FoundationDB check monitors progress without a total restore deadline. A
 large restore can continue while its counters advance. If progress stops, the
@@ -98,7 +102,7 @@ replication   age=0s threshold=1800s FRESH 0 dead nodes, 0 under-replicated tabl
 ```
 
 The check dates ledger exports from the newest complete export and rehearsals
-from the last passing restore drill. It dates replication from its own last
+from the last successful database recovery. It dates replication from its own last
 recorded observation that every node was alive and every tablet fully replicated.
 A mechanism without a recorded success reports `age=unknown` and counts as stale.
 The report includes the FoundationDB restorable point only when

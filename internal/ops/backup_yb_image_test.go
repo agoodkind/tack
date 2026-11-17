@@ -66,7 +66,10 @@ func TestRestoreDrillYugabyteRequiresImage(t *testing.T) {
 		RunID: "rt-test",
 	}
 
-	err := restoreDrillYugabyte(context.Background(), drill)
+	err, auditErr := restoreDrillYugabyte(context.Background(), drill)
+	if auditErr != nil {
+		t.Fatalf("unexpected audit error after restore failure: %v", auditErr)
+	}
 
 	assertRefusesEmptyYBImage(t, err)
 }

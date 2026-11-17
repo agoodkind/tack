@@ -174,6 +174,7 @@ func TestStalenessCheckReadsRehearsalMarker(t *testing.T) {
 		store.putBytes,
 		"rt20260829T060000Z-42",
 		[]string{"fdb", "yugabyte"},
+		true,
 	); err != nil {
 		t.Fatalf("recordRestoreDrillRehearsal: %v", err)
 	}

@@ -1,7 +1,10 @@
 package integration_test
 
 import (
+	"bytes"
+	"encoding/json"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -43,6 +46,92 @@ const (
 // engine, restores the snapshot, and verifies the auth rows and the audit
 // chain.
 func TestRestoreDrillRestoresLedgerWithSchemaGuard(t *testing.T) {
+	cfg, admin := newRestoreDrillLedger(t)
+	seedDrillLedgerRow(t, cfg.DatabaseURL, admin)
+	exportDrillSnapshot(t, cfg)
+
+	if err := ops.RunBackupRestoreDrill(
+		t.Context(),
+		cfg,
+		ops.RestoreDrillOptions{YBRunKey: "", FDBTargetTime: nil},
+	); err != nil {
+		t.Fatalf("restore drill: %v", err)
+	}
+}
+
+func TestRestoreDrillReportsMissingAuditPart(t *testing.T) {
+	cfg, admin := newRestoreDrillLedger(t)
+	ctx := t.Context()
+	startDrillAuditPipeline(t, cfg.DatabaseURL, admin)
+	reader, err := audit.NewReader(ctx, cfg.DatabaseURL)
+	if err != nil {
+		t.Fatalf("open audit reader: %v", err)
+	}
+
+	t.Cleanup(reader.Close)
+
+	orgID := uuid.Must(uuid.NewV7())
+	eventID, _ := storeManifestRead(
+		t,
+		&nodeAuditLedger{cfg: cfg, admin: admin, reader: reader},
+		orgID,
+	)
+	if _, err := admin.Exec(
+		ctx,
+		readTestSQL(t, "manifest_test_delete_part.sql"),
+		orgID,
+		eventID,
+	); err != nil {
+		t.Fatalf("remove the test event's first manifest part: %v", err)
+	}
+
+	exportDrillSnapshot(t, cfg)
+
+	err = ops.RunBackupRestoreDrill(ctx, cfg, ops.RestoreDrillOptions{})
+	if err == nil ||
+		!strings.Contains(err.Error(), "YugabyteDB restore passed. Audit verification failed:") ||
+		!strings.Contains(err.Error(), eventID.String()) {
+		t.Fatalf(
+			"expected the audit failure to identify event %s after database recovery, got %v",
+			eventID,
+			err,
+		)
+	}
+
+	bucket := testenv.ObjectStoreBucket{
+		Region:    cfg.BackupS3Region,
+		Endpoint:  cfg.BackupS3Endpoint,
+		AccessKey: cfg.BackupS3AccessKey,
+		SecretKey: cfg.BackupS3SecretKey,
+	}
+	client := objectStoreClient(bucket)
+	const markerKey = "backup-status/rehearsal.json"
+	body := getArchiveObject(t, client, cfg, markerKey)
+	var marker struct {
+		At     time.Time `json:"at"`
+		Detail string    `json:"detail"`
+	}
+	if err := json.Unmarshal(body, &marker); err != nil {
+		t.Fatalf("decode rehearsal marker: %v", err)
+	}
+
+	if marker.At.IsZero() ||
+		!strings.Contains(marker.Detail, "restored yugabyte. Audit verification failed.") {
+		t.Fatalf("unexpected rehearsal marker: %+v", marker)
+	}
+
+	err = ops.RunBackupRestoreDrill(ctx, cfg, ops.RestoreDrillOptions{YBRunKey: "missing-export"})
+	if err == nil {
+		t.Fatal("the drill accepted a missing export")
+	}
+
+	if updated := getArchiveObject(t, client, cfg, markerKey); !bytes.Equal(updated, body) {
+		t.Fatalf("failed database restore changed the recovery marker: %s", updated)
+	}
+}
+
+func newRestoreDrillLedger(t *testing.T) (*config.Config, *pgxpool.Pool) {
+	t.Helper()
 	ctx := t.Context()
 	node := testenv.StartEmptyLedger(t, drillLedgerContainer)
 	if err := migration.Migrate(ctx, node.DSN, migrations.FS); err != nil {
@@ -61,22 +150,19 @@ func TestRestoreDrillRestoresLedgerWithSchemaGuard(t *testing.T) {
 
 	t.Cleanup(admin.Close)
 	seedDrillAuthRows(t, admin)
-	seedDrillLedgerRow(t, node.DSN, admin)
 
+	return cfg, admin
+}
+
+func exportDrillSnapshot(t *testing.T, cfg *config.Config) {
+	t.Helper()
+	ctx := t.Context()
 	if err := ops.RunBackupYBSnapshotExport(ctx, cfg); err != nil {
 		t.Fatalf("export the ledger snapshot: %v", err)
 	}
 
 	if err := ops.RunBackupYBArchiveNode(ctx, cfg, ""); err != nil {
 		t.Fatalf("archive the node's tablets: %v", err)
-	}
-
-	if err := ops.RunBackupRestoreDrill(
-		ctx,
-		cfg,
-		ops.RestoreDrillOptions{YBRunKey: "", FDBTargetTime: nil},
-	); err != nil {
-		t.Fatalf("restore drill: %v", err)
 	}
 }
 
