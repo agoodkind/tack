@@ -118,7 +118,6 @@ func restoreDrillYugabyte(ctx context.Context, r *restoreDrillCtx) (restoreErr, 
 		return err, nil
 	}
 
-	// Verify the ledger in the restored database after its row checks pass.
 	return nil, assertRestoredLedgerChain(ctx, r, name, manifest.Database)
 }
 

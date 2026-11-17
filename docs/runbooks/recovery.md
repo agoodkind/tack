@@ -66,8 +66,8 @@ TACK_IMAGE_TAG=<image-sha> docker compose run --rm \
 The drill records the recovery time after every enabled database restore passes
 its data checks. If the restored audit ledger fails verification, the rehearsal
 record shows that the databases restored and the command exits with an error
-that identifies the audit failure. A failed database restore leaves the last
-recovery time in place.
+that identifies the audit failure. A failed database restore does not update
+the last recovery time.
 
 The drill restores FoundationDB when `TACK_BACKUP_FDB_CONTINUOUS` is true.
 When it is false, the drill logs a warning and skips that restore.
