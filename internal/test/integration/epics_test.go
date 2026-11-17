@@ -2,6 +2,7 @@ package integration_test
 
 import (
 	"encoding/json"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -14,16 +15,17 @@ import (
 
 // requireFailedEpicRepair freezes and executes entry. The execution must
 // report the entry as failed with a reason that contains want, and the epic
-// must keep parent_id at its project and its two child_of edges.
+// must retain its primary record, read view and two child_of edges.
 func requireFailedEpicRepair(
 	t *testing.T,
 	env *integration.TestEnv,
 	entry ops.NodeIntegrityEntry,
 	epic uuid.UUID,
-	projectID uuid.UUID,
 	want string,
 ) {
 	t.Helper()
+	priorView := storedStoreView(t, env.Stores, epic)
+	priorPrimary, _ := mutationSnapshot(t, env, epic)
 	before := childOfTargets(t, env, epic)
 	applied, err := executeRepairManifest(t, freezeRepairRequest(t, repairRequest(entry)))
 	if err == nil {
@@ -50,15 +52,11 @@ func requireFailedEpicRepair(
 		)
 	}
 
-	if parent := propText(t, view.Props, "parent_id"); parent != projectID.String() {
-		t.Fatalf(
-			"epic %s parent_id = %q after the failed repair %s, want project %s",
-			epic,
-			parent,
-			entry.RepairID,
-			projectID,
-		)
+	if !reflect.DeepEqual(priorView, view) {
+		t.Fatalf("failed repair %s changed the view of epic %s", entry.RepairID, epic)
 	}
+
+	requireUnchanged(t, env, priorPrimary)
 }
 
 // createTwoParentEpic creates an epic under the graph's project with a

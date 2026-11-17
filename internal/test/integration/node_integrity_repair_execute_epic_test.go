@@ -94,7 +94,6 @@ func TestNodeIntegrityRepairExecuteEpicParentRefusals(t *testing.T) {
 		env,
 		underIssue,
 		epic,
-		project,
 		`cannot live under the parent `+issueParent.String()+` of type "issue"`,
 	)
 
@@ -110,7 +109,6 @@ func TestNodeIntegrityRepairExecuteEpicParentRefusals(t *testing.T) {
 		env,
 		earlier,
 		epic,
-		project,
 		`cannot live under the parent `+parentEpic.String()+` of type "epic"`,
 	)
 
