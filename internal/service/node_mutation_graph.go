@@ -36,8 +36,8 @@ func (s *NodeService) readMutationSnapshot(
 	return snapshot, schema, nil
 }
 
-// parentGraph reads parentID and each ancestor along the parent_id chain and
-// returns their primary digests. It stops at a node without parent_id or a
+// parentGraph reads parentID and each ancestor along the child_of chain and
+// returns their primary digests. It stops at a node without a parent or a
 // missing ancestor. It returns an error that wraps domain.ErrInvalidArgument
 // if parentID does not exist, the chain includes nodeID, or the chain
 // repeats
@@ -61,7 +61,7 @@ func (s *NodeService) parentGraph(
 			)
 
 			return nil, fmt.Errorf(
-				"node %s: parent %s is the node, one of its descendants, or in a parent_id cycle: %w",
+				"node %s: parent %s is the node, one of its descendants, or in a child_of cycle: %w",
 				nodeID,
 				parentID,
 				domain.ErrInvalidArgument,

@@ -8,16 +8,14 @@ import (
 
 	"github.com/google/uuid"
 	"goodkind.io/tack/internal/domain"
+	"goodkind.io/tack/internal/domain/node"
 	"goodkind.io/tack/internal/service"
 	"goodkind.io/tack/internal/test/integration"
 )
 
-// TestParentEdgeUpdateRefusesCyclicAncestry stores parent_id values that form
-// a cycle between two issues through the node store, which does not check
-// parents. It requires the node service to refuse a third issue's move under
-// one of those issues with an error that matches domain.ErrInvalidArgument
-// and contains both node IDs. After the refusal, the third issue has the
-// project as its parent_id.
+// TestParentEdgeUpdateRefusesCyclicAncestry leaves the project in the legacy
+// properties and creates a child_of cycle between two issues. The service
+// must refuse a third issue's move under either issue.
 func TestParentEdgeUpdateRefusesCyclicAncestry(t *testing.T) {
 	env := integration.SetupTestEnv(t)
 	actor := uuid.Must(uuid.NewV7())
@@ -43,8 +41,19 @@ func TestParentEdgeUpdateRefusesCyclicAncestry(t *testing.T) {
 		nil,
 	)
 	moved := createDeleteFixtureNode(t, env, actor, project, project, "issue", "Moved issue", nil)
-	storeParentID(t, env, first, second.String())
-	storeParentID(t, env, second, first.String())
+
+	for source, target := range map[uuid.UUID]uuid.UUID{first: second, second: first} {
+		storeLegacyParentFixture(t, env, source, project, true)
+		edge := &node.Relationship{
+			OrgID:        env.OrgID,
+			SourceID:     source,
+			RelationType: node.RelChildOf,
+			TargetID:     target,
+		}
+		if err := env.Stores.Relationships.Add(env.Ctx, edge); err != nil {
+			t.Fatalf("store cycle edge from %s to %s: %v", source, target, err)
+		}
+	}
 
 	_, err := env.NodeSvc.Update(
 		env.Ctx,
@@ -65,6 +74,7 @@ func TestParentEdgeUpdateRefusesCyclicAncestry(t *testing.T) {
 		)
 	}
 
+	requireSingleParentEdge(t, env, moved, project)
 	view, err := env.Stores.Views.Get(env.Ctx, moved)
 	if err != nil || view == nil ||
 		string(view.Props["parent_id"]) != string(parentEdgeJSON(t, project.String())) {

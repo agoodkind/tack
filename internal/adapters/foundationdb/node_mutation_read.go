@@ -85,7 +85,7 @@ func readNodeSnapshot(
 
 	snapshot.Exists, snapshot.Node, snapshot.Encoding = true, source.Node, source.Encoding
 	snapshot.PrimaryDigest = node.PrimaryDigest(source.Encoding)
-	snapshot.ParentID = storedUUID(source.Node.Props[parentIDProperty])
+	snapshot.ParentID = snapshotParent(outgoing)
 	snapshot.Outgoing, snapshot.Incoming, snapshot.IncomingOverflow = outgoing, incoming, overflow
 
 	return snapshot, nil

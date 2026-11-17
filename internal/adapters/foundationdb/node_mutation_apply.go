@@ -113,7 +113,7 @@ func (s *NodeStore) applyMutationAttempt(
 	}
 
 	result := mutationResult(plan, source, s.clock.Now().UTC())
-	if err := checkMoveScope(ctx, plan, source, result, records); err != nil {
+	if err := checkMoveScope(ctx, transaction, plan, source, result, records); err != nil {
 		return none, err
 	}
 

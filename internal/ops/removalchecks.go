@@ -36,7 +36,8 @@ func repairParentChange(
 			continue
 		}
 
-		if snapshot.ParentID == uuid.Nil {
+		parentID := repairNodeID(snapshot.Node.Props[repairParentProperty])
+		if parentID == uuid.Nil {
 			return nil, repairRefused(
 				ctx,
 				entry,
@@ -45,7 +46,7 @@ func repairParentChange(
 			)
 		}
 
-		return &node.ParentChange{TargetID: snapshot.ParentID}, nil
+		return &node.ParentChange{TargetID: parentID}, nil
 	}
 
 	return nil, nil

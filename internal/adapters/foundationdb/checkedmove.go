@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 
+	"github.com/apple/foundationdb/bindings/go/src/fdb"
 	"github.com/google/uuid"
 	"goodkind.io/tack/internal/domain"
 	"goodkind.io/tack/internal/domain/node"
@@ -20,6 +21,7 @@ const scopeIDProperty = "scope_id"
 // have a scope_id or plan keeps the stored parent.
 func checkMoveScope(
 	ctx context.Context,
+	transaction fdb.Transaction,
 	plan node.MutationPlan,
 	source mutationSource,
 	result node.Node,
@@ -31,7 +33,22 @@ func checkMoveScope(
 
 	parentID := plan.Parent.TargetID
 	scopeID := storedUUID(result.Props[scopeIDProperty])
-	if scopeID == uuid.Nil || parentID == storedUUID(source.Node.Props[parentIDProperty]) {
+	if scopeID == uuid.Nil {
+		return nil
+	}
+
+	currentEdges, err := readOutgoingSnapshots(
+		ctx,
+		transaction,
+		plan.OrgID,
+		plan.NodeID,
+		node.RelChildOf,
+	)
+	if err != nil {
+		return err
+	}
+
+	if parentID == snapshotParent(currentEdges) {
 		return nil
 	}
 
@@ -40,12 +57,15 @@ func checkMoveScope(
 			return nil
 		}
 
-		ancestor, listed := records[currentID]
+		_, listed := records[currentID]
 		if !listed {
 			break
 		}
 
-		currentID = storedUUID(ancestor.Node.Props[parentIDProperty])
+		currentID, err = readGraphParent(ctx, transaction, plan.OrgID, currentID)
+		if err != nil {
+			return err
+		}
 	}
 
 	return mutationRefusal(
@@ -56,8 +76,7 @@ func checkMoveScope(
 	)
 }
 
-// mutationRefusal logs a refused mutation of nodeID with reason and returns
-// an
+// mutationRefusal logs a refused mutation of nodeID with reason and returns an
 // error that wraps sentinel.
 func mutationRefusal(ctx context.Context, nodeID uuid.UUID, reason string, sentinel error) error {
 	wrapped := fmt.Errorf("mutate node %s: %s: %w", nodeID, reason, sentinel)

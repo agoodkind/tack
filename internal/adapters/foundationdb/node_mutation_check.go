@@ -87,12 +87,12 @@ func checkGraphRecords(
 	return sources, nil
 }
 
-// checkParentChain follows parent_id from parentID through the records that
+// checkParentChain follows child_of from parentID through the records that
 // checkGraphRecords verified. It returns an error that wraps
 // domain.ErrConflict
 // if an ancestor exists in transaction but does not appear in records. It
 // stops at a
-// node without parent_id or a missing node. It returns an error that wraps
+// node without child_of or a missing node. It returns an error that wraps
 // domain.ErrInvalidArgument if the chain includes nodeID or repeats a node.
 func checkParentChain(
 	ctx context.Context,
@@ -110,7 +110,7 @@ func checkParentChain(
 				ctx,
 				nodeID,
 				fmt.Sprintf(
-					"parent %s is the node, one of its descendants, or in a parent_id cycle",
+					"parent %s is the node, one of its descendants, or in a child_of cycle",
 					parentID,
 				),
 				domain.ErrInvalidArgument,
@@ -118,7 +118,7 @@ func checkParentChain(
 		}
 
 		visited[currentID] = true
-		ancestor, listed := records[currentID]
+		_, listed := records[currentID]
 		if !listed {
 			stored, err := readMutationSource(ctx, transaction, orgID, currentID)
 			if err != nil {
@@ -146,7 +146,11 @@ func checkParentChain(
 			)
 		}
 
-		currentID = storedUUID(ancestor.Node.Props[parentIDProperty])
+		var err error
+		currentID, err = readGraphParent(ctx, transaction, orgID, currentID)
+		if err != nil {
+			return err
+		}
 	}
 
 	return nil
