@@ -26,7 +26,7 @@ func TestDeleteLargerThanOneBudget(t *testing.T) {
 	workspace := mustCreateScope(t, env, "workspace", "Main", env.OrgID, env.OrgID, actor)
 	project := mustCreateScope(t, env, "project", "Large", workspace.ID, workspace.ID, actor)
 	issueID := createTestIssue(t, env, project.ID, "Busy issue")
-	removed := append([]uuid.UUID{project.ID}, directChildren(t, project.ID)...)
+	removed := append([]uuid.UUID{project.ID}, directChildren(t, env, project.ID)...)
 
 	for range cascadeBudgetComments {
 		comment := mustCreate(
