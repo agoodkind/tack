@@ -72,6 +72,8 @@ func newAuthzFixture(t *testing.T) *authzFixture {
 			f.projectB:    projectB,
 		},
 		workspaces: []*node.NodeView{workspace},
+
+		parents: map[uuid.UUID]uuid.UUID{f.projectA: f.workspaceID},
 	}
 	f.projectType = &node.NodeType{
 		TypeKey:      "project",
