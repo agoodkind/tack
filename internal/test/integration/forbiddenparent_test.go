@@ -24,10 +24,10 @@ func TestMCPRejectsParentProperty(t *testing.T) {
 		create.Properties = datagen.NodeProperties{"parent_id": value}
 		if refusal := harness.CallExpectError(t, "tack_create_issue", create); !strings.Contains(
 			refusal,
-			"a request cannot set them",
+			"properties.parent_id is not declared",
 		) {
 			t.Fatalf(
-				"create with parent_id %s returned %q, want managed property rejection",
+				"create with parent_id %s returned %q, want undeclared-property rejection",
 				value,
 				refusal,
 			)
@@ -43,10 +43,10 @@ func TestMCPRejectsParentProperty(t *testing.T) {
 		update.Properties = datagen.NodeProperties{"parent_id": value}
 		if refusal := harness.CallExpectError(t, "tack_update_issue", update); !strings.Contains(
 			refusal,
-			"a request cannot set them",
+			"properties.parent_id is not declared",
 		) {
 			t.Fatalf(
-				"update with parent_id %s returned %q, want managed property rejection",
+				"update with parent_id %s returned %q, want undeclared-property rejection",
 				value,
 				refusal,
 			)

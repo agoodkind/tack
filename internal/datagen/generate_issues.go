@@ -86,6 +86,14 @@ func (g *Generator) generateIssues(
 	); err != nil {
 		return err
 	}
+	if err := g.probeParentPropertyRefused(
+		ctx,
+		workspace,
+		projectIdentifier,
+		firstIssue,
+	); err != nil {
+		return err
+	}
 	if err := g.generateDeletedIssue(
 		ctx,
 		workspace,

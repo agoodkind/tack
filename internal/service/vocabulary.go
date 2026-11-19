@@ -1,9 +1,7 @@
 package service
 
 const (
-	propertyParentID               = "parent_id"
-	searchParentOrder              = 50
-	defaultPropertyDefinitionCount = 14
+	defaultPropertyDefinitionCount = 13
 	propertyDescription            = "description"
 	propertySlug                   = "slug"
 	propertyIdentifier             = "identifier"
