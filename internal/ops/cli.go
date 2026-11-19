@@ -146,6 +146,7 @@ func RegisterCommands(reg *clispec.Registry, f *cli.Factory) {
 	clispec.Register(reg, metadataNameBackfillOp(f))
 	clispec.Register(reg, orphanNodeBackfillOp(f))
 	clispec.Register(reg, nodeIntegrityBackfillOp(f))
+	clispec.Register(reg, parentRelationshipBackfillOp(f))
 	clispec.Register(reg, auditPartitionNamesBackfillOp(f))
 	clispec.Register(reg, killtestSchemaBackfillOp(f))
 	registerBatchOps(reg, f)

@@ -122,6 +122,7 @@ func argsCommand(
 }
 
 func addCommandCases(cases map[string]coverageCase) {
+	addParentRelationshipBackfillCase(cases)
 	addNodeCommandCases(cases)
 	addAuditCommandCases(cases)
 	addAuthCommandCases(cases)
