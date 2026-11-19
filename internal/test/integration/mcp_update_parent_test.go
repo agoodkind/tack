@@ -1,8 +1,6 @@
 package integration
 
 import (
-	"encoding/json"
-	"strconv"
 	"strings"
 	"testing"
 
@@ -34,23 +32,14 @@ func (h *MCPHarness) getIssue(t *testing.T, reference string) string {
 	return h.Call(t, "tack_get_issue", arguments).Text()
 }
 
-func parentProperties(reference string) datagen.NodeProperties {
-	return datagen.NodeProperties{"parent_id": json.RawMessage(strconv.Quote(reference))}
-}
-
 // TestUpdateIssueReparentsByPrintedReference checks that an update resolves
-// a printed epic parent_id to the epic UUID and updates the child_of edge.
+// a printed epic reference to the epic UUID and updates the child_of edge.
 // The issue must still resolve after the update (TACK-523).
 func TestUpdateIssueReparentsByPrintedReference(t *testing.T) {
 	harness := NewMCPHarness(t)
 	epic := harness.createEpic(t, "reparent target epic")
 	issue := harness.CreateIssue(t, "reparented issue")
-	arguments := harness.projectArgs()
-	arguments.ProjectReference = ""
-	arguments.NodeID = issue
-	arguments.Properties = parentProperties(epic)
-
-	harness.Call(t, "tack_update_issue", arguments)
+	harness.Call(t, "tack_add_relationship", relationshipToolArguments(issue, "child_of", epic))
 
 	text := harness.getIssue(t, issue)
 	if !strings.Contains(text, "- Parent: `"+epic+"` (`epic`)") {
@@ -85,19 +74,18 @@ func TestUpdateIssueReparentsByPrintedReference(t *testing.T) {
 }
 
 // TestUpdateIssueRejectsUnresolvableParent pins the other half of TACK-523:
-// a parent_id that resolves to nothing is refused and the issue is unchanged.
+// an unresolved parent reference fails without changing the issue.
 func TestUpdateIssueRejectsUnresolvableParent(t *testing.T) {
 	harness := NewMCPHarness(t)
 	issue := harness.CreateIssue(t, "issue with a bad parent update")
-	arguments := harness.projectArgs()
-	arguments.ProjectReference = ""
-	arguments.NodeID = issue
-	arguments.Properties = parentProperties("NOPE-999")
+	text := harness.CallExpectError(
+		t,
+		"tack_add_relationship",
+		relationshipToolArguments(issue, "child_of", "NOPE-999"),
+	)
 
-	text := harness.CallExpectError(t, "tack_update_issue", arguments)
-
-	if !strings.Contains(text, "parent_id") {
-		t.Fatalf("error does not name parent_id:\n%s", text)
+	if !strings.Contains(text, "NOPE-999") {
+		t.Fatalf("error does not identify the unresolved parent:\n%s", text)
 	}
 
 	after := harness.getIssue(t, issue)
