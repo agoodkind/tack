@@ -157,7 +157,7 @@ func (s *NodeService) resolveDefaultScopedPropertyReference(
 			OrgID:    orgID,
 			NodeType: targetType.TypeKey,
 			ByProperty: &node.PropertyMatch{
-				PropName: "parent_id",
+				PropName: propertyParentID,
 				Value:    scopeIDRaw,
 			},
 		},

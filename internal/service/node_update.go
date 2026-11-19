@@ -199,7 +199,7 @@ func mergedUpdateProps(
 func propsWithoutParent(props map[string]json.RawMessage) map[string]json.RawMessage {
 	patch := make(map[string]json.RawMessage, len(props))
 	for name, value := range props {
-		if name != "parent_id" {
+		if name != propertyParentID {
 			patch[name] = value
 		}
 	}
