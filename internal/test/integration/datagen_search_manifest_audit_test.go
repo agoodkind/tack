@@ -15,70 +15,55 @@ func requirePreparationAudit(t *testing.T, pool *pgxpool.Pool) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	type operation struct {
-		pending, successful, failed int
-	}
-	operations := make(map[uuid.UUID]operation)
+
+	operations := make(map[uuid.UUID]bool)
 	eventIDs := make(map[uuid.UUID]bool)
 	for _, row := range rows {
 		event := row.Event
 		if event.Verb != string(audit.VerbOpsDatagenSearch) {
 			continue
 		}
+
 		if event.Context.OrgID != audit.SystemOrgID() || event.Entity.Type != "system" || event.Entity.ID != audit.SystemOrgID() || event.Actor.ID != uuid.MustParse(
 			"019dd226-440e-729a-a442-281aaf73ca30",
 		) {
 			t.Fatalf("preparation audit has an unexpected operator or resource: %+v", event)
 		}
-		if eventIDs[row.EventID] || row.EventID != event.EventID {
+
+		if row.EventID == uuid.Nil || eventIDs[row.EventID] || row.EventID != event.EventID {
 			t.Fatalf("preparation audit repeats or changes event identity %s", row.EventID)
 		}
+
 		eventIDs[row.EventID] = true
+
 		var extra struct {
 			OperationID uuid.UUID `json:"op_id"`
 		}
 		if err := json.Unmarshal(event.Extra, &extra); err != nil || extra.OperationID == uuid.Nil {
 			t.Fatalf("preparation audit omits operation identity: %v", err)
 		}
-		pair := operations[extra.OperationID]
-		switch event.Outcome {
-		case audit.OutcomePending:
-			pair.pending++
-		case audit.OutcomeOK:
-			pair.successful++
-		case audit.OutcomeError:
-			if event.Error == nil || event.Error.Code != "command_failed" {
-				t.Fatal("preparation refusal audit omits the command error")
-			}
-			pair.failed++
-		default:
-			t.Fatalf("preparation audit has unexpected outcome %s", event.Outcome)
+
+		if event.Outcome != audit.OutcomeAttempted || event.Error != nil {
+			t.Fatalf(
+				"preparation operation %s recorded outcome %s and error %+v",
+				extra.OperationID,
+				event.Outcome,
+				event.Error,
+			)
 		}
-		operations[extra.OperationID] = pair
+
+		if operations[extra.OperationID] {
+			t.Fatalf("preparation audit repeats operation %s", extra.OperationID)
+		}
+
+		operations[extra.OperationID] = true
 	}
-	if len(operations) != 6 || len(eventIDs) != 12 {
+
+	if len(operations) != 6 || len(eventIDs) != 6 {
 		t.Fatalf(
-			"preparation audit has %d operations and %d events, want six and twelve",
+			"preparation audit has %d operations and %d events, want six of each",
 			len(operations),
 			len(eventIDs),
 		)
 	}
-	var successful, failed int
-	for identifier, pair := range operations {
-		if pair.pending != 1 || pair.successful+pair.failed != 1 {
-			t.Fatalf("preparation operation %s has unmatched intent/outcome: %+v", identifier, pair)
-		}
-		successful += pair.successful
-		failed += pair.failed
-	}
-	if successful != 1 || failed != 5 {
-		t.Fatalf(
-			"preparation audit has %d successes and %d refusals, want one and five",
-			successful,
-			failed,
-		)
-	}
-	t.Log(
-		"preparation audit verified six operations with matched pending intents and one OK/five error outcomes",
-	)
 }

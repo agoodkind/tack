@@ -15,32 +15,32 @@ import (
 )
 
 // TestSearchProjectionMigrationReplaceCommitsDigestAuditAndRescan checks one
-// definition correction. The test stores parent_id with search inclusion,
-// then indexes a parent node and a child node with a parent_id value.
+// definition correction. The test stores scope_id with search inclusion,
+// then indexes a scope node and a node with that scope_id value.
 // The test calls ops.RunFixedDefinitionCorrection once, which corrects
 // exactly one definition through one PropertyDefStore.Replace call.
 // Before any worker runs after the correction, the test requires a fresh
-// reader page of the parent node to have a projection version that differs
+// reader page of the scope node to have a projection version that differs
 // from the indexed page. It requires exactly one property_def.update event
 // with a delta for the definition in the audit outbox. It also requires a
 // claimable rescan for the organization.
-// After the worker runs, the test requires the child pages to omit the
-// parent UUID.
+// After the worker runs, the test requires the node's pages to omit the
+// scope UUID.
 func TestSearchProjectionMigrationReplaceCommitsDigestAuditAndRescan(t *testing.T) {
 	env := newMigrationEnv(t, 256)
-	parentDefinition := env.putStoredBuiltIn(t, "parent_id", true, nil)
-	parent := env.putNodes(t, 1, "copper meadow lantern")[0]
+	scopeDefinition := env.putStoredBuiltIn(t, "scope_id", true, nil)
+	scope := env.putNodes(t, 1, "copper meadow lantern")[0]
 	child := uuid.Must(uuid.NewV7())
 	env.putNodeProps(
 		t,
 		child,
 		map[string]json.RawMessage{
 			env.IncludedKey: encodeText(t, "zephyr orchard beacon"),
-			"parent_id":     encodeText(t, parent.String()),
+			"scope_id":      encodeText(t, scope.String()),
 		},
 	)
 	env.runIdle(t)
-	indexed := env.pages(t, parent, false)[0].ProjectionVersion
+	indexed := env.pages(t, scope, false)[0].ProjectionVersion
 
 	principal := audit.OperatorPrincipal{
 		ID:     uuid.MustParse("019dd226-440e-729a-a442-281aaf73ca32"),
@@ -57,7 +57,7 @@ func TestSearchProjectionMigrationReplaceCommitsDigestAuditAndRescan(t *testing.
 		t.Fatalf("correction = %+v, err %v; want one corrected definition", result, err)
 	}
 
-	if fresh := env.readerPages(t, parent)[0].ProjectionVersion; fresh == indexed {
+	if fresh := env.readerPages(t, scope)[0].ProjectionVersion; fresh == indexed {
 		t.Fatalf(
 			"reader projection after the correction = %q, want a version other than the indexed %q",
 			fresh,
@@ -65,7 +65,7 @@ func TestSearchProjectionMigrationReplaceCommitsDigestAuditAndRescan(t *testing.
 		)
 	}
 
-	env.requireCorrectionEvents(t, []uuid.UUID{parentDefinition.ID})
+	env.requireCorrectionEvents(t, []uuid.UUID{scopeDefinition.ID})
 	store := env.Stores.SearchWork(clock.Wall{})
 	rescan, claimed, err := store.Claim(
 		integration.WithTestOperation(t, t.Context()),
@@ -87,7 +87,7 @@ func TestSearchProjectionMigrationReplaceCommitsDigestAuditAndRescan(t *testing.
 	}
 
 	env.runIdle(t)
-	if text := env.pageText(t, child); strings.Contains(text, parent.String()) {
-		t.Fatalf("child pages after the correction = %q, want them without the parent UUID", text)
+	if text := env.pageText(t, child); strings.Contains(text, scope.String()) {
+		t.Fatalf("node pages after the correction = %q, want them without the scope UUID", text)
 	}
 }
