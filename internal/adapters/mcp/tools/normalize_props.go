@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
-	"strings"
 
 	"github.com/google/uuid"
 	"goodkind.io/tack/internal/domain"
@@ -142,102 +141,4 @@ func loggedNormalizeError(ctx context.Context, nt *node.NodeType, command string
 	)
 
 	return fmt.Errorf("normalize %s %s properties: %w", nt.TypeKey, command, err)
-}
-
-func normalizePropertyCommandReferences(
-	ctx context.Context,
-	b NodeTypeBinding,
-	nt *node.NodeType,
-	orgID uuid.UUID,
-	scopeID uuid.UUID,
-	props map[string]json.RawMessage,
-) (map[string]json.RawMessage, error) {
-	if props == nil {
-		return nil, nil
-	}
-
-	defs, err := b.PropertyDefs.List(ctx, orgID)
-	if err != nil {
-		return nil, err
-	}
-
-	compiled, err := service.CompileUpdatePropertyCommand(
-		ctx,
-		defs,
-		b.Resolver.typeIndex,
-		nt,
-		orgID,
-		scopeID,
-		props,
-		func(
-			ctx context.Context,
-			orgID uuid.UUID,
-			scopeID uuid.UUID,
-			targetType *node.NodeType,
-			ref string,
-		) (uuid.UUID, error) {
-			return resolveReferenceProp(ctx, b.Resolver, orgID, scopeID, targetType, ref)
-		},
-		func(
-			ctx context.Context,
-			childType *node.NodeType,
-			orgID uuid.UUID,
-			scopeID uuid.UUID,
-			ref string,
-		) (uuid.UUID, error) {
-			return resolveParentReference(ctx, b, childType, orgID, scopeID, ref)
-		},
-	)
-	if err != nil {
-		return nil, loggedNormalizeError(ctx, nt, "filter", err)
-	}
-
-	if compiled == nil {
-		return nil, nil
-	}
-
-	return compiled.Props, nil
-}
-
-func resolveReferenceProp(
-	ctx context.Context,
-	resolver *Resolver,
-	orgID uuid.UUID,
-	scopeID uuid.UUID,
-	targetType *node.NodeType,
-	ref string,
-) (uuid.UUID, error) {
-	if targetType.Reference.Strategy == node.ReferenceScopedProperty &&
-		!strings.Contains(ref, scopedNodeRefSeparator) &&
-		scopeID != uuid.Nil {
-		propName := strings.TrimSpace(targetType.Reference.Property)
-		if propName == "" {
-			return uuid.Nil, domain.ErrInvalidArgument
-		}
-
-		return resolver.resolveNodeWithinScope(
-			ctx,
-			orgID,
-			scopeID,
-			targetType.TypeKey,
-			propName,
-			ref,
-		)
-	}
-
-	id, err := resolver.ResolveTypedNodeID(ctx, targetType, ref)
-	if err != nil {
-		return uuid.Nil, err
-	}
-
-	resolve, err := resolver.reader.Resolve(ctx, id)
-	if err != nil {
-		return uuid.Nil, err
-	}
-
-	if resolve == nil || resolve.OrgID != orgID {
-		return uuid.Nil, domain.ErrNotFound
-	}
-
-	return id, nil
 }

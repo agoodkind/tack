@@ -32,7 +32,7 @@ func createInputRows(resolver *Resolver, nodeTypes []*node.NodeType) []createInp
 		route := resolver.ScopeRouteForType(nodeType)
 		required := []createInputParam{
 			{Name: resolver.EntryPointParamName(), Example: ""},
-			{Name: "name", Example: ""},
+			{Name: nameFieldKey, Example: ""},
 		}
 
 		for _, level := range requiredScopeLevels(route) {
