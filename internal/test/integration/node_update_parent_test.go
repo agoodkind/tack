@@ -12,44 +12,43 @@ import (
 	"goodkind.io/tack/internal/service"
 )
 
-// TestNodeServiceUpdateRefusesTextParent pins the service half of TACK-523
-// for callers that bypass the MCP tools: a parent_id that is not the id of a
-// node in the org is refused before the write, and the node keeps its parent.
-func TestNodeServiceUpdateRefusesTextParent(t *testing.T) {
+// TestNodeServiceUpdateRefusesParentProperty checks that the service rejects
+// undeclared parent_id values and preserves the child_of edge.
+func TestNodeServiceUpdateRefusesParentProperty(t *testing.T) {
 	env := SetupTestEnv(t)
 	projectID := createTestProject(t, env)
 	issueID := createTestIssue(t, env, projectID, "text parent refused")
 
-	_, err := env.NodeSvc.Update(
-		env.Ctx,
-		service.UpdateInput{
-			NodeID: issueID,
-			Name:   nil,
-			Props: map[string]json.RawMessage{
-				"parent_id": json.RawMessage(strconv.Quote("TACK-517")),
+	for _, value := range []json.RawMessage{
+		json.RawMessage(strconv.Quote(projectID.String())),
+		json.RawMessage("null"),
+	} {
+		_, err := env.NodeSvc.Update(
+			env.Ctx,
+			service.UpdateInput{
+				NodeID: issueID,
+				Name:   nil,
+				Props: map[string]json.RawMessage{
+					"parent_id": value,
+				},
+				RelationshipChanges: node.RelationshipChanges{Add: nil, Remove: nil},
+				ActorID:             uuid.New(),
 			},
-			RelationshipChanges: node.RelationshipChanges{Add: nil, Remove: nil},
-			ActorID:             uuid.New(),
-		},
-	)
-
-	if !errors.Is(err, domain.ErrInvalidArgument) {
-		t.Fatalf("Update with a text parent_id returned %v, want invalid argument", err)
-	}
-
-	view, err := env.Stores.Views.Get(env.Ctx, issueID)
-	if err != nil || view == nil {
-		t.Fatalf("read the issue after the refused update: %v", err)
-	}
-
-	var parent string
-	if err := json.Unmarshal(view.Props["parent_id"], &parent); err != nil ||
-		parent != projectID.String() {
-		t.Fatalf(
-			"parent_id after the refused update = %s, want %s",
-			view.Props["parent_id"],
-			projectID,
 		)
+
+		if !errors.Is(err, domain.ErrInvalidArgument) {
+			t.Fatalf("Update with parent_id %s returned %v, want invalid argument", value, err)
+		}
+	}
+
+	edges, err := env.Stores.Relationships.ListBySource(
+		env.Ctx,
+		env.OrgID,
+		issueID,
+		node.RelChildOf,
+	)
+	if err != nil || len(edges) != 1 || edges[0].TargetID != projectID {
+		t.Fatalf("parent edges after the refused update = %v, %v, want %s", edges, err, projectID)
 	}
 }
 
@@ -76,11 +75,13 @@ func TestNodeServiceUpdateMovesChildOfEdge(t *testing.T) {
 		service.UpdateInput{
 			NodeID: issueID,
 			Name:   nil,
-			Props: map[string]json.RawMessage{
-				"parent_id": json.RawMessage(strconv.Quote(epic.ID.String())),
+			Props:  nil,
+			RelationshipChanges: node.RelationshipChanges{
+				Add: []*node.Relationship{
+					{SourceID: issueID, RelationType: node.RelChildOf, TargetID: epic.ID},
+				},
 			},
-			RelationshipChanges: node.RelationshipChanges{Add: nil, Remove: nil},
-			ActorID:             uuid.New(),
+			ActorID: uuid.New(),
 		},
 	); err != nil {
 		t.Fatalf("Update with the epic as parent: %v", err)

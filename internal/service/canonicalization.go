@@ -69,8 +69,6 @@ func allowedPropertyCommandKeys(
 		aliasMap[alias] = def.Name
 	}
 
-	canonicalNames[propertyParentID] = struct{}{}
-
 	return canonicalNames, aliasMap
 }
 
