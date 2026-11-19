@@ -135,8 +135,8 @@ func requireMigratedParent(t *testing.T, env *integration.TestEnv, nodeID, paren
 	}
 
 	for _, props := range []map[string]json.RawMessage{current.Props, view.Props} {
-		if string(props["parent_id"]) != string(quoted(parentID.String())) {
-			t.Fatalf("node %s changed its original parent_id", nodeID)
+		if _, present := props["parent_id"]; present {
+			t.Fatalf("node %s still stores parent_id", nodeID)
 		}
 	}
 
@@ -158,12 +158,7 @@ func requireMigratedParent(t *testing.T, env *integration.TestEnv, nodeID, paren
 		"parent_id",
 		quoted(parentID.String()),
 	)
-	if err != nil || len(legacy) == 0 {
-		t.Fatalf(
-			"legacy index for %s = %+v, error %v, want retained entries",
-			parentID,
-			legacy,
-			err,
-		)
+	if err != nil || len(legacy) != 0 {
+		t.Fatalf("legacy index for %s = %+v, error %v, want an empty index", parentID, legacy, err)
 	}
 }

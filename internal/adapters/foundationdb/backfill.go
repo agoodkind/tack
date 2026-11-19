@@ -16,7 +16,8 @@ const legacyParentProperty = "parent_id"
 const parentMigrationNodeTupleSize = 4
 
 // ParentRelationshipPage reports one bounded page of the parent migration.
-// Changed counts nodes that need a missing child_of relationship.
+// Changed counts nodes with the legacy property in their primary or view
+// record.
 // Added counts missing child_of relationships. Next selects the following page.
 type ParentRelationshipPage struct {
 	Scanned int
@@ -25,10 +26,12 @@ type ParentRelationshipPage struct {
 	Next    string
 }
 
-// BackfillParentRelationships creates missing child_of relationships.
+// BackfillParentRelationships repairs missing child_of relationships and
+// removes the legacy parent property.
 //
-// Each node commits its relationship and audit evidence together.
-// With write false, it validates and counts changes without modifying records.
+// Each node commits its relationship, primary record, read view, index
+// removal, and audit evidence together. With write false, it
+// validates and counts the proposed changes without modifying records.
 //
 // For example, a dry run starts with an empty cursor:
 //
