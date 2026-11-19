@@ -18,6 +18,8 @@ var errFDBBackupDestinationMismatch = errors.New(
 	"active FoundationDB backup targets a different destination",
 )
 
+var errFDBBackupStatus = errors.New("fdbbackup status failed")
+
 // backupCtx stores runtime state for one continuous backup session.
 type backupCtx struct {
 	Cfg     *config.Config
@@ -170,7 +172,20 @@ func fdbBackupStatusText(ctx context.Context, b *backupCtx) (string, error) {
 		return "", err
 	}
 
-	return res.Stdout + "\n" + res.Stderr, nil
+	output := res.Stdout + "\n" + res.Stderr
+	if res.ExitCode != 0 {
+		wrapped := fmt.Errorf(
+			"%w (exit %d): %s",
+			errFDBBackupStatus,
+			res.ExitCode,
+			redactSecret(b.Cfg, strings.TrimSpace(output)),
+		)
+		b.Log.ErrorContext(ctx, "backup.fdb.status_failed", slog.String("err", wrapped.Error()))
+
+		return "", wrapped
+	}
+
+	return output, nil
 }
 
 // fdbBackupActive checks the default tag's active destination in memory without

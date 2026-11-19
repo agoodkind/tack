@@ -59,7 +59,7 @@ func mailBackupStalenessAlarm(
 
 	message := mailer.Message{
 		To:      cfg.BackupAlarmEmail,
-		Subject: backupStalenessAlarmSubject(backupAlarmHost(), faults),
+		Subject: backupStalenessAlarmSubject(backupAlarmHost()),
 		Body:    backupStalenessAlarmBody(cfg, faults),
 		// Empty From selects the library's <hostname>-mailer@goodkind.io
 		// sender instead of the plain-hostname address the relay discarded.

@@ -2,182 +2,142 @@ package ops
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"goodkind.io/tack/internal/testenv"
 )
 
-// TestBackupStalenessAlarmMailThroughTheCommand checks production command
-// composition, fault ordering, caller identity, recovery commands, and exclusion
-// of machine-readable report lines and separately rendered footer metadata.
-func TestBackupStalenessAlarmMailThroughTheCommand(t *testing.T) {
-	now := time.Date(2026, 8, 29, 12, 0, 0, 0, time.UTC)
-	fixBackupStalenessClock(t, now)
-	captured := captureBackupAlarmSends(t, nil)
-	objects := ybExportRunObjects(
-		t,
-		"20260827T200000Z",
-		newYBSnapshotManifest(
-			"20260827T200000Z",
-			"snap-1",
-			"tack",
-			[]string{"yb1"},
-			ybTestArtifactNames(),
-		),
-	)
-	objects[backupStatusKey(backupStalenessRehearsalName)] = marshalBackupStatusMarker(
-		t,
-		now.Add(-9*24*time.Hour),
-		"restore drill passed every leg",
-	)
-	objects[backupStatusKey(backupStalenessReplicationName)] = marshalBackupStatusMarker(
-		t,
-		now.Add(-45*time.Minute),
-		"0 dead nodes, 0 under-replicated tablets",
-	)
-	cfg := storedBackupStalenessConfig(t, newBackupTestStore(t, objects))
-
-	report := runStaleBackupStalenessCheck(t, cfg)
-	if len(captured.messages) != 1 {
-		t.Fatalf("three faults on one run must produce one email, sent %d", len(captured.messages))
+// TestBackupAlarmIncludesCheckOutput delivers the command's report through SMTP
+// and checks that stored backup credentials do not appear in the email.
+func TestBackupAlarmIncludesCheckOutput(t *testing.T) {
+	mail := testenv.Mailpit(t)
+	if err := mail.DeleteAll(t.Context()); err != nil {
+		t.Fatal(err)
 	}
 
-	message := captured.messages[0]
-	if message.Subject != "["+backupAlarmHost()+"] 3 backup problems" {
+	now := time.Date(2026, 8, 29, 12, 0, 0, 0, time.UTC)
+	fixBackupStalenessClock(t, now)
+	const detail = "restore failed: blobstore://old-access:old-secret@backup.example.test/run"
+	store := newBackupTestStore(
+		t,
+		map[string][]byte{
+			backupStatusKey(backupStalenessRehearsalName): marshalBackupStatusMarker(
+				t,
+				now.Add(-9*24*time.Hour),
+				detail,
+			),
+		},
+	)
+	cfg := storedBackupStalenessConfig(t, store)
+	cfg.BackupAlarmMsmtprcPath = mail.Msmtprc
+	report := runStaleBackupStalenessCheck(t, cfg)
+
+	messages, err := mail.Messages(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(messages) != 1 {
+		t.Fatalf("delivered %d messages, want one", len(messages))
+	}
+
+	message := messages[0]
+	message.Text = strings.ReplaceAll(message.Text, "\r\n", "\n")
+	if message.Subject != "["+backupAlarmHost()+"] Backup check reported a problem" {
 		t.Errorf("subject = %q", message.Subject)
 	}
 
-	if message.Caller != backupAlarmCaller {
-		t.Errorf("Caller = %q, want the command label for footer rendering", message.Caller)
+	wantReport := strings.ReplaceAll(
+		report,
+		"old-access:old-secret",
+		"***REDACTED***:***REDACTED***",
+	)
+	if !strings.HasPrefix(message.Text, wantReport) {
+		t.Errorf("email does not contain the redacted check output:\n%s", message.Text)
 	}
 
-	for _, sentence := range []string{
-		"Nightly ledger export is 40 hours old\n" +
-			"The nightly ledger export (the daily copy of the ledger in the object store) last completed at " +
-			"8:00 PM UTC on Aug 27, 2026, 40 hours ago; the limit is 36 hours.\n" +
-			"1. On the owner guest, run journalctl -u tack-ledger-export.\n",
-		"\n\nRestore rehearsal has not passed in 9 days\n" +
-			"The restore rehearsal (the daily test restore) last passed at 12:00 PM UTC on Aug 20, 2026, " +
-			"9 days ago; the limit is 8 days.\n" +
-			"1. On the owner guest, run journalctl -u tack-backup-restore-drill.\n",
-		// Shared health markers cannot replace this guest's missing master observation.
-		"\n\nThis guest cannot read ledger cluster health\n" +
-			"This guest could not read a usable health report from the ledger cluster (logins and audit trail). " +
-			"This check cannot establish whether the cluster is healthy.\n",
-		"\n1. Confirm every ledger guest is up.\n",
+	for _, secret := range []string{
+		cfg.BackupS3AccessKey,
+		cfg.BackupS3SecretKey,
+		"old-access",
+		"old-secret",
 	} {
-		if !strings.Contains(message.Body, sentence) {
-			t.Errorf("body is missing %q:\n%s", sentence, message.Body)
+		if strings.Contains(message.Text, secret) {
+			t.Error("email exposes a backup credential")
 		}
 	}
-
-	if !strings.HasPrefix(message.Body, "Nightly ledger export is 40 hours old\n") ||
-		!strings.HasSuffix(
-			message.Body,
-			"the checker clears the alarm after this guest reads a healthy response.",
-		) {
-		t.Errorf(
-			"the body must start with the first fault and end with its final recovery step:\n%q",
-			message.Body,
-		)
-	}
-
-	for line := range strings.SplitSeq(strings.TrimSpace(report), "\n") {
-		if strings.Contains(message.Body, line) {
-			t.Errorf("body includes machine-readable report line %q:\n%s", line, message.Body)
-		}
-	}
-
-	assertBackupAlarmPlainWords(t, message.Subject, message.Body, cfg.BackupS3Endpoint)
 }
 
-// TestBackupAlarmFormatsFDBFaultEvidence checks dated backup inactivity,
-// unreadable status with credential-bearing errors, and confirmed absent
-// restorable points without requiring a container probe in this composer test.
-func TestBackupAlarmFormatsFDBFaultEvidence(t *testing.T) {
-	ctx := context.Background()
+// TestBackupAlarmReportsFDBCommandFailure runs fdbbackup against a closed port
+// and verifies that its timeout preserves the previous reading and enters email.
+func TestBackupAlarmReportsFDBCommandFailure(t *testing.T) {
+	mail := testenv.Mailpit(t)
+	if err := mail.DeleteAll(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+
 	now := time.Date(2026, 8, 29, 12, 0, 0, 0, time.UTC)
+	fixBackupStalenessClock(t, now)
 	cfg := unreachableBackupStalenessConfig(t, "backups@example.test")
-	threshold := 2 * time.Hour
+	cfg.BackupAlarmMsmtprcPath = mail.Msmtprc
+	cfg.BackupFDBContinuous = true
+	cfg.BackupFDBImage = "foundationdb/foundationdb:7.4.6"
+	cfg.BackupFDBNetwork = "tack-testenv"
+	cfg.OpsFDBClusterDir = testenv.SharedDir(t)
+	if err := os.WriteFile(
+		filepath.Join(cfg.OpsFDBClusterDir, "fdb.cluster"),
+		[]byte("timeout:timeout@127.0.0.1:1\n"),
+		0o600,
+	); err != nil {
+		t.Fatal(err)
+	}
 
-	stopped := knownBackupStalenessMetric(
-		ctx,
-		backupStalenessFDBName,
-		now,
-		now.Add(-(15*time.Hour + 38*time.Minute)),
-		threshold,
-		"restorable through 2026-08-28T20:22:00Z",
+	last := backupLastReading{SucceededAt: now.Add(-3 * time.Hour), ReadAt: now.Add(-time.Minute)}
+	saveBackupLastReadings(
+		t.Context(),
+		cfg,
+		backupLastReadings{
+			Readings: map[string]backupLastReading{backupStalenessFDBName: last},
+		},
 	)
-	subject := backupStalenessAlarmSubject(qaHost, []backupStalenessMetric{stopped})
-	if subject != "[tack-qa] Product database backup stopped 15 hours 38 minutes ago" {
-		t.Errorf("subject = %q", subject)
+	report := runStaleBackupStalenessCheck(t, cfg)
+
+	for _, detail := range []string{
+		"fdb-restorable age=10800s threshold=7200s STALE",
+		"fdbbackup status failed (exit 1):",
+		"transaction timed out",
+	} {
+		if !strings.Contains(report, detail) {
+			t.Errorf("report does not include %q:\n%s", detail, report)
+		}
 	}
 
-	body := backupStalenessAlarmBody(cfg, []backupStalenessMetric{stopped})
-	wantBody := "The product database backup (FoundationDB, continuous) last advanced at 8:22 PM UTC on Aug 28, 2026, " +
-		"15 hours 38 minutes ago; the limit is 2 hours.\n" +
-		"\n" +
-		"1. On each data guest, run docker ps and confirm tack-fdb-backup-agent-1 is there.\n" +
-		"2. On a data guest that is missing it, run docker logs tack-fdb-backup-agent-1 and read what it reports.\n" +
-		"3. Confirm the object store accepts writes, then run docker compose restart fdb-backup-agent on that guest."
-	if body != wantBody {
-		t.Errorf("body mismatch:\n got=%q\nwant=%q", body, wantBody)
+	if strings.Contains(report, errFDBNoRestorablePoint.Error()) {
+		t.Errorf("timeout claims that a restorable backup does not exist:\n%s", report)
 	}
 
-	assertBackupAlarmPlainWords(t, subject, body, cfg.BackupS3Endpoint)
-
-	// An unreadable status cannot establish whether a restorable point exists.
-	// Client error text, including credentials, must not appear in email.
-	unreadable := unknownBackupStalenessMetric(
-		backupStalenessFDBName,
-		threshold,
-		backupStalenessUnreadable,
-		"fdbbackup status failed: blobstore://test-access:test-secret@127.0.0.1:1/run?bucket=tack-backups",
-	) // gitleaks:allow test placeholder
-	subject = backupStalenessAlarmSubject(qaHost, []backupStalenessMetric{unreadable})
-	if subject != "[tack-qa] This guest could not read product database backup status" {
-		t.Errorf("subject = %q", subject)
+	if got := loadBackupLastReadings(
+		context.Background(),
+		cfg,
+	).Readings[backupStalenessFDBName]; got != last {
+		t.Errorf("previous reading = %+v, want %+v", got, last)
 	}
 
-	body = backupStalenessAlarmBody(cfg, []backupStalenessMetric{unreadable})
-	if !strings.HasPrefix(
-		body,
-		"This guest could not read the product database backup's status.\n\n1. ",
-	) {
-		t.Errorf("body must report unreadable status before recovery steps:\n%s", body)
+	messages, err := mail.Messages(t.Context())
+	if err != nil {
+		t.Fatal(err)
 	}
 
-	if strings.Contains(body, "fdbbackup") || strings.Contains(body, "blobstore") {
-		t.Errorf("unreadable-status email must not include client errors:\n%s", body)
+	if len(messages) != 1 {
+		t.Fatalf("delivered %d messages, want one", len(messages))
 	}
 
-	if strings.Contains(body, "does not have a restorable point") {
-		t.Errorf("unreadable status must not claim an absent restorable point:\n%s", body)
+	body := strings.ReplaceAll(messages[0].Text, "\r\n", "\n")
+	if !strings.Contains(body, report) {
+		t.Fatal("the email does not include the failed check output")
 	}
-
-	assertBackupAlarmPlainWords(t, subject, body, cfg.BackupS3Endpoint)
-
-	// Confirmed nonrestorable status permits an absent-point claim.
-	none := unknownBackupStalenessMetric(
-		backupStalenessFDBName,
-		threshold,
-		backupStalenessNeverRecorded,
-		errFDBNoRestorablePoint.Error(),
-	)
-	subject = backupStalenessAlarmSubject(qaHost, []backupStalenessMetric{none})
-	if subject != "[tack-qa] Product database backup does not have a restorable point" {
-		t.Errorf("subject = %q", subject)
-	}
-
-	body = backupStalenessAlarmBody(cfg, []backupStalenessMetric{none})
-	if !strings.HasPrefix(
-		body,
-		"The product database backup (FoundationDB, continuous) does not have a restorable point. "+
-			"The last check reported: fdbbackup status does not report a restorable backup.\n\n"+
-			"1. On each data guest, run docker ps",
-	) {
-		t.Errorf("body must report the confirmed missing point before recovery steps:\n%s", body)
-	}
-
-	assertBackupAlarmPlainWords(t, subject, body, cfg.BackupS3Endpoint)
 }

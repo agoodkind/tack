@@ -84,8 +84,7 @@ func TestBackupStalenessAlarmSkipsEmailDuringShortStoreOutage(t *testing.T) {
 }
 
 // TestBackupStalenessAlarmMailsTheObjectStoreOnceAfterTheThreshold checks one
-// email after historical ages exceed limits, without exposing client errors
-// or repeating email while the outage continues.
+// email after historical ages exceed limits and suppresses repeated email.
 func TestBackupStalenessAlarmMailsTheObjectStoreOnceAfterTheThreshold(t *testing.T) {
 	captured := captureBackupAlarmSends(t, nil)
 	store, cfg := readBackupStoreBeforeOutage(t)
@@ -104,45 +103,20 @@ func TestBackupStalenessAlarmMailsTheObjectStoreOnceAfterTheThreshold(t *testing
 	}
 
 	message := captured.messages[0]
-	if message.Subject != "["+backupAlarmHost()+"] 2 backup problems" {
+	if message.Subject != "["+backupAlarmHost()+"] Backup check reported a problem" {
 		t.Errorf("subject = %q", message.Subject)
 	}
 
-	wantBody := "The object store (which stores the backups) did not answer; " +
-		"this guest last read it at 12:00 PM UTC on Aug 29, 2026. " +
-		"Confirm the object store guest is running before the steps below.\n" +
-		"\n" +
-		"This guest could not read nightly ledger export status\n" +
-		"This guest could not date the nightly ledger export's newest copy. The most recent export this guest read " +
-		"completed at 12:10 AM UTC on Aug 28, 2026, 36 hours 21 minutes ago; the limit is 36 hours.\n" +
-		"1. On the owner guest, run journalctl -u tack-ledger-export.\n" +
-		"2. On each data guest, run journalctl -u tack-ledger-archive.\n" +
-		"3. Confirm the object store accepts writes, then run systemctl start tack-ledger-export.\n" +
-		"\n" +
-		"This guest cannot read ledger cluster health\n" +
-		"This guest could not read a usable health report from the ledger cluster (logins and audit trail). " +
-		"This check cannot establish whether the cluster is healthy. This guest last observed the cluster healthy " +
-		"at 12:00 PM UTC on Aug 29, 2026, 31 minutes ago; the limit is 30 minutes.\n" +
-		"1. Confirm every ledger guest is up.\n" +
-		"2. From this guest, confirm the ledger master page answers.\n" +
-		"3. Resolve the health-check failure; the checker clears the alarm after this guest reads a healthy response."
-	if message.Body != wantBody {
-		t.Errorf("body mismatch:\n got=%q\nwant=%q", message.Body, wantBody)
-	}
-
-	for _, raw := range []string{
-		"operation error",
-		"StatusCode",
-		"http",
+	for _, detail := range []string{
+		"ledger-export age=130860s threshold=129600s STALE",
+		"replication   age=1860s threshold=1800s STALE",
+		"unreadable, dated from the reading at 2026-08-29T12:00:00Z",
 		store.bucket.Endpoint,
-		"request send failed",
 	} {
-		if strings.Contains(message.Subject+message.Body, raw) {
-			t.Errorf("the email includes client error text %q:\n%s", raw, message.Body)
+		if !strings.Contains(message.Body, detail) {
+			t.Errorf("the email does not include check output %q:\n%s", detail, message.Body)
 		}
 	}
-
-	assertBackupAlarmPlainWords(t, message.Subject, message.Body, cfg.BackupS3Endpoint)
 
 	fixBackupStalenessClock(t, backupOutageStart.Add(40*time.Minute))
 	runStaleBackupStalenessCheck(t, cfg)

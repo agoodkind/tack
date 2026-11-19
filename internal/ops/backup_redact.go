@@ -1,12 +1,16 @@
 package ops
 
 import (
+	"regexp"
 	"strings"
 
 	"goodkind.io/tack/internal/config"
 )
 
-// redactSecret removes both S3 credentials before logging tool output.
+// backupURLCredentials matches stored FoundationDB backup credentials.
+var backupURLCredentials = regexp.MustCompile(`(?i)blobstore://[^\s]*@`)
+
+// redactSecret removes configured and stored S3 credentials from tool output.
 func redactSecret(cfg *config.Config, text string) string {
 	first := cfg.BackupS3SecretKey
 	second := cfg.BackupS3AccessKey
@@ -20,5 +24,5 @@ func redactSecret(cfg *config.Config, text string) string {
 		}
 	}
 
-	return text
+	return backupURLCredentials.ReplaceAllString(text, "blobstore://***REDACTED***:***REDACTED***@")
 }
