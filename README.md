@@ -47,6 +47,14 @@ The org is the tenancy root. Include tenant isolation in identity, storage
 locality, and authorization. Do not design features for a single tenant or defer
 isolation until later.
 
+## Server diagnostics
+
+Read `tack_http_requests_total` at `GET /debug/vars` to see how many HTTP requests that server instance has received since startup. This count includes requests to the diagnostics endpoint.
+
+To export the request count as `tack.http.requests`, set `GKLOG_METRIC_EXPORT_ENABLED=true` and configure an OTLP gRPC collector with `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT` or `OTEL_EXPORTER_OTLP_ENDPOINT`. A metric exemplar can identify the sampled request trace.
+
+The server reads diagnostic settings at startup. Use `GKLOG_LOG_ENABLED` and `GKLOG_LOG_LEVEL` for logging. Use `GKLOG_TRACE_ENABLED` and `GKLOG_TRACE_SAMPLE_RATIO` for new traces. To collect CPU profiles, set `PYROSCOPE_SERVER_ADDRESS` and `GKLOG_CPU_PROFILE_ENABLED=true`. These settings do not control required audit recording.
+
 ## Read design and operation guides
 
 - [docs/plans/](docs/plans/) contains proposed designs, including audit subsystem

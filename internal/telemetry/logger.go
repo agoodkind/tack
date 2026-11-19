@@ -13,15 +13,17 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 
 	"goodkind.io/gklog"
+	gkcontrol "goodkind.io/gklog/telemetry"
 	"goodkind.io/gklog/trace"
 	"goodkind.io/tack/internal/version"
 )
 
 const tackInstrumentationName = "goodkind.io/tack/internal/telemetry"
+
+var errMissingLogSink = errors.New("logging requires stdout or at least one log file")
 
 // LogConfig is what Setup needs to wire gklog. Every field is taken
 // verbatim from the caller. Setup never branches on environment names. The
@@ -59,19 +61,35 @@ type LogConfig struct {
 	Env string
 }
 
-// Setup initializes the global slog logger via gklog. Returns an io.Closer
+// Setup initializes the global slog logger via gklog. Returns an [io.Closer]
 // the caller must Close on shutdown. Setup is a thin pass-through: it does
 // not look at env names, hardcoded paths, or any process state. All policy
 // lives in the config file or env vars that populate LogConfig.
 func Setup(cfg LogConfig) (io.Closer, error) {
-	jsonFile := strings.TrimSpace(cfg.JSONFile)
-	textFile := strings.TrimSpace(cfg.TextFile)
-	if err := ensureDir(jsonFile); err != nil {
+	logger, closer, err := buildLogger(cfg, nil)
+	if err != nil {
 		return nil, err
 	}
 
+	traceCloser, err := trace.Setup(traceOptions(cfg.OTELEndpoint))
+	if err != nil {
+		return nil, setupError("set up tracing", err, closer)
+	}
+
+	slog.SetDefault(logger)
+
+	return multiCloser{closers: []io.Closer{closer, traceCloser}}, nil
+}
+
+func buildLogger(cfg LogConfig, control *gkcontrol.LogControl) (*slog.Logger, io.Closer, error) {
+	jsonFile := strings.TrimSpace(cfg.JSONFile)
+	textFile := strings.TrimSpace(cfg.TextFile)
+	if err := ensureDir(jsonFile); err != nil {
+		return nil, nil, err
+	}
+
 	if err := ensureDir(textFile); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	rotation := gklog.RotationConfig{
@@ -80,7 +98,12 @@ func Setup(cfg LogConfig) (io.Closer, error) {
 		MaxAgeDays: cfg.MaxAgeDays,
 	}
 	level := parseLogLevel(cfg.Level)
-	handlers := make([]slog.Handler, 0, 3)
+	if control != nil {
+		level = slog.LevelDebug
+	}
+
+	var handlers []slog.Handler
+
 	if !cfg.DisableStdout {
 		handlers = append(handlers, gklog.StdoutJSON(level))
 	}
@@ -94,31 +117,21 @@ func Setup(cfg LogConfig) (io.Closer, error) {
 	}
 
 	if len(handlers) == 0 {
-		return nil, errors.New("logging requires stdout or at least one log file")
+		return nil, nil, errMissingLogSink
+	}
+
+	if control != nil {
+		for index, handler := range handlers {
+			handlers[index] = control.Handler(handler)
+		}
 	}
 
 	logger, closer := gklog.New(gklog.Config{
 		BuildVersion: buildVersion(),
 		Handlers:     handlers,
 	})
-	logger = logger.With(slog.String("env", cfg.Env))
-	slog.SetDefault(logger)
 
-	traceCloser, err := trace.Setup(trace.Options{
-		ServiceName:         "tack-server",
-		ServiceNamespace:    "tack",
-		InstrumentationName: tackInstrumentationName,
-		Endpoint:            cfg.OTELEndpoint,
-	})
-	if err != nil {
-		if closer != nil {
-			_ = closer.Close()
-		}
-
-		return nil, err
-	}
-
-	return multiCloser{closers: []io.Closer{traceCloser, closer}}, nil
+	return logger.With(slog.String("env", cfg.Env)), closer, nil
 }
 
 func ensureDir(path string) error {
@@ -173,28 +186,8 @@ func WithLogger(ctx context.Context, l *slog.Logger) context.Context {
 	return gklog.WithLogger(ctx, l)
 }
 
-// L returns the logger stored in ctx, falling back to slog.Default. Wraps
+// L returns the logger stored in ctx, falling back to [slog.Default]. Wraps
 // gklog.L so call sites in tack do not need to import gklog directly.
 func L(ctx context.Context) *slog.Logger {
 	return gklog.L(ctx)
-}
-
-type multiCloser struct {
-	closers []io.Closer
-}
-
-func (m multiCloser) Close() error {
-	var errs []error
-
-	for _, closer := range slices.Backward(m.closers) {
-		if closer == nil {
-			continue
-		}
-
-		if err := closer.Close(); err != nil {
-			errs = append(errs, err)
-		}
-	}
-
-	return errors.Join(errs...)
 }

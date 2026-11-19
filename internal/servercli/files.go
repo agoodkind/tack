@@ -4,8 +4,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/spf13/cobra"
-
 	"goodkind.io/tack/internal/config"
 )
 
@@ -18,27 +16,12 @@ type processLogs struct {
 }
 
 // A one-shot command must not write a log file that another process rotates.
-func processLogFiles(
-	cfg *config.Config,
-	root *cobra.Command,
-	args []string,
-	requestID string,
-) processLogs {
-	target, _, err := root.Find(args)
-	server := err == nil && (target == root || target.Name() == serveCommandName)
+func processLogFiles(cfg *config.Config, server bool, commandName, requestID string) processLogs {
 	if server || cfg.LogCommandDir == "" {
 		return processLogs{JSONFile: cfg.LogJSONFile, TextFile: cfg.LogTextFile, CommandDir: ""}
 	}
 
-	name := root.Name()
-	if err == nil {
-		name = strings.ReplaceAll(
-			strings.TrimPrefix(target.CommandPath(), root.Name()+" "),
-			" ",
-			"-",
-		)
-	}
-
+	name := strings.ReplaceAll(commandName, " ", "-")
 	base := filepath.Join(cfg.LogCommandDir, name+"-"+requestID)
 
 	return processLogs{
