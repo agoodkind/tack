@@ -1,7 +1,9 @@
 package foundationdb
 
 import (
+	"bytes"
 	"context"
+	"encoding/base64"
 	"fmt"
 	"log/slog"
 
@@ -19,6 +21,7 @@ const pageBatchSize = 256
 type pageEntry struct {
 	id   uuid.UUID
 	view *node.NodeView
+	key  fdb.Key
 }
 
 // ListPage reads batches in key order until it has q.Limit matching views
@@ -42,20 +45,6 @@ func (s *ViewStore) ListPage(
 		)
 	}
 
-	if q.BySourceRelation != nil || q.ByTargetRelation != nil {
-		slog.ErrorContext(
-			ctx,
-			"store.view.list_page_failed",
-			slog.String("err", "relation scans are not paged"),
-		)
-
-		return node.Page{}, fmt.Errorf(
-			"list page %s: relation scans are not paged: %w",
-			q.NodeType,
-			domain.ErrInvalidArgument,
-		)
-	}
-
 	prefix := s.pagePrefix(q)
 	begin, err := s.pageBegin(ctx, q, prefix)
 	if err != nil {
@@ -71,6 +60,8 @@ func (s *ViewStore) ListPage(
 	end := fdb.FirstGreaterOrEqual(prefixRange.End)
 
 	matched := make([]*node.NodeView, 0, q.Limit+1)
+	nextCursor := ""
+
 	for len(matched) <= q.Limit {
 		entries, lastKey, readErr := s.readPageBatch(
 			ctx,
@@ -84,6 +75,13 @@ func (s *ViewStore) ListPage(
 		for _, entry := range entries {
 			if entry.view != nil && matchesPageFilters(entry.view, q) {
 				matched = append(matched, entry.view)
+				if len(matched) == q.Limit {
+					nextCursor = node.EncodeCursor(entry.id)
+					if q.ByProperty == nil &&
+						(q.BySourceRelation != nil || q.ByTargetRelation != nil) {
+						nextCursor = base64.RawURLEncoding.EncodeToString(entry.key)
+					}
+				}
 			}
 
 			if len(matched) > q.Limit {
@@ -104,7 +102,7 @@ func (s *ViewStore) ListPage(
 
 	views := matched[:q.Limit]
 
-	return node.Page{Views: views, NextCursor: node.EncodeCursor(views[len(views)-1].ID)}, nil
+	return node.Page{Views: views, NextCursor: nextCursor}, nil
 }
 
 func (s *ViewStore) pagePrefix(q node.NodeListQuery) []byte {
@@ -114,6 +112,22 @@ func (s *ViewStore) pagePrefix(q node.NodeListQuery) []byte {
 			q.NodeType,
 			q.ByProperty.PropName,
 			encodePropertyValue(q.ByProperty.Value),
+		)
+	}
+
+	if q.BySourceRelation != nil {
+		return relationshipPrefixBySource(
+			q.OrgID,
+			q.BySourceRelation.NodeID,
+			q.BySourceRelation.RelationType,
+		)
+	}
+
+	if q.ByTargetRelation != nil {
+		return relationshipReversePrefixByTarget(
+			q.OrgID,
+			q.ByTargetRelation.NodeID,
+			q.ByTargetRelation.RelationType,
 		)
 	}
 
@@ -127,6 +141,22 @@ func (s *ViewStore) pageBegin(
 ) (fdb.KeySelector, error) {
 	if q.Cursor == "" {
 		return fdb.FirstGreaterOrEqual(fdb.Key(prefix)), nil
+	}
+
+	if q.ByProperty == nil && (q.BySourceRelation != nil || q.ByTargetRelation != nil) {
+		lastKey, decodeErr := base64.RawURLEncoding.DecodeString(q.Cursor)
+		if decodeErr != nil || !bytes.HasPrefix(lastKey, prefix) {
+			return fdb.KeySelector{}, nodeOperationFailure(
+				ctx,
+				"decode relationship list cursor",
+				fmt.Errorf(
+					"cursor does not identify a key in the requested relationship range: %w",
+					domain.ErrInvalidArgument,
+				),
+			)
+		}
+
+		return fdb.FirstGreaterThan(fdb.Key(lastKey)), nil
 	}
 
 	lastID, err := node.DecodeCursor(q.Cursor)
