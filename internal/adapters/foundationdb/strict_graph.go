@@ -48,7 +48,11 @@ func readStrictSchema(
 		return nil, graph, err
 	}
 
-	parent := graph.Targets[storedUUID(record.Props[parentIDProperty])]
+	if len(graph.ChildOf) != 1 {
+		return schema, graph, nil
+	}
+
+	parent := graph.Targets[graph.ChildOf[0]]
 	if !parent.Found || parent.OrgID != record.OrgID {
 		return schema, graph, nil
 	}
@@ -110,7 +114,7 @@ func readStrictGraph(
 		graph.ChildOf = append(graph.ChildOf, targetID)
 	}
 
-	targetIDs := []uuid.UUID{storedUUID(record.Props[parentIDProperty])}
+	targetIDs := append([]uuid.UUID{}, graph.ChildOf...)
 
 	for _, definition := range definitions {
 		if definition.Type == node.PropertyTypeUUID && definition.ReferenceTargetTypeKey != "" {
