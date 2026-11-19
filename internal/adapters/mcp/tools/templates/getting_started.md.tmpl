@@ -73,7 +73,7 @@ Pass `properties` as a JSON object when the client supports it. Create and updat
 
 ### Select a parent
 
-A new node uses the resolved scope as its default parent. Set `properties.parent_id` to a deeper container's UUID or printed reference within that scope to select another parent. Sequence numbering remains scope-wide.
+A new node uses the resolved scope as its default parent. Add a `child_of` relationship to select another container within that scope. Sequence numbering remains scope-wide.
 
 ### Set reference-valued properties
 
