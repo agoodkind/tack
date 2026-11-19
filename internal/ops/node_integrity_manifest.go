@@ -6,7 +6,7 @@ import (
 	"github.com/google/uuid"
 )
 
-const nodeIntegrityManifestVersion = 1
+const nodeIntegrityManifestVersion = 2
 
 const nodeIntegrityTicket = "TACK-582"
 
@@ -78,6 +78,8 @@ type RepairEvidence struct {
 // requests property removal. AddEdges and RemoveEdges specify changes to
 // the node's outgoing relationships.
 type RepairResult struct {
+	// ParentID selects the target of the node's child_of relationship.
+	ParentID    *uuid.UUID                 `json:"parent_id,omitempty"    exhaustruct:"optional"`
 	Name        *string                    `json:"name,omitempty"         exhaustruct:"optional"`
 	Props       map[string]json.RawMessage `json:"props,omitempty"        exhaustruct:"optional"`
 	AddEdges    []RepairEdge               `json:"add_edges,omitempty"    exhaustruct:"optional"`
@@ -106,7 +108,7 @@ type RepairDelete struct {
 }
 
 // RepairSource records an entry's frozen primary record and digest, edges
-// in both directions, related node digests, parent_id chain, graph digest,
+// in both directions, related node digests, child_of chain, graph digest,
 // and organization metadata epoch.
 type RepairSource struct {
 	Primary       json.RawMessage    `json:"primary"`

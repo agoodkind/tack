@@ -15,13 +15,12 @@ import (
 // ancestor chain. The test creates two epics in a project and an issue
 // under the first epic with one child_of edge to that epic. The first entry
 // selects the second epic and lists removal of the edge to the first epic.
-// The test also creates a chosen issue under the project with an extra
-// child_of edge to the first epic, and a nested issue with child_of edges
+// The test also creates a chosen issue under the project and a nested issue with child_of edges
 // to the project, the first epic, and the chosen issue. The second entry
 // selects the chosen issue and lists removals of the edges to the project
-// and the first epic. The first epic is not on the chosen issue's parent_id
+// and the first epic. The first epic is not on the chosen issue's parent
 // chain. The test requires one execution to apply both entries and leave
-// each node with its selected parent_id and exactly one child_of edge to
+// each node with its selected parent and exactly one child_of edge to
 // that parent. A second execution must report every entry unchanged without
 // changing stored keys.
 func TestNodeIntegrityRepairExecuteRemovesListedNonAncestorEdges(t *testing.T) {
@@ -51,7 +50,6 @@ func TestNodeIntegrityRepairExecuteRemovesListedNonAncestorEdges(t *testing.T) {
 		},
 	)
 	chosen := createRepairIssue(t, env, project, "Chosen parent issue")
-	addLegacyParentEdge(t, env, chosen, epic)
 	nested := createRepairIssue(t, env, project, "Issue with three parent edges")
 	addLegacyParentEdge(t, env, nested, epic)
 	addLegacyParentEdge(t, env, nested, chosen)

@@ -82,7 +82,7 @@ func TestNodeIntegrityRepairDatagenProvesEveryClass(t *testing.T) {
 		"multiple_child_of_edges",
 		"absent_parent",
 		"legacy_status",
-		"printed_parent",
+		"missing_parent_edge",
 		"absent_parent_uuid",
 		"test_fixture",
 	} {

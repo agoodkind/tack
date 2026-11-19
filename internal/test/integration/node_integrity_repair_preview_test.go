@@ -129,7 +129,9 @@ func TestNodeIntegrityRepairRejectsUnreviewedChanges(t *testing.T) {
 		t.Fatalf("preview of forged graph evidence = %v, want a graph digest mismatch", err)
 	}
 
-	manifest.Entries[0].Result.Props["priority"] = json.RawMessage(`"high"`)
+	manifest.Entries[0].Result.Props = map[string]json.RawMessage{
+		"priority": json.RawMessage(`"high"`),
+	}
 	if _, err := runRepairCommand(
 		t,
 		"--manifest",
@@ -141,6 +143,7 @@ func TestNodeIntegrityRepairRejectsUnreviewedChanges(t *testing.T) {
 
 	keepProject := graph.selectEpicEntry("tack-582-wrong-edge")
 	keepProject.Result.Props = map[string]json.RawMessage{}
+	keepProject.Result.ParentID = &graph.projectID
 	keepProject.Result.RemoveEdges = []ops.RepairEdge{
 		{RelationType: node.RelChildOf, TargetID: graph.projectID},
 	}

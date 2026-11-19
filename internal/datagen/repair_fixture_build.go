@@ -3,12 +3,10 @@ package datagen
 import (
 	"context"
 	"encoding/json"
-	"maps"
 	"strconv"
 
 	"github.com/google/uuid"
 	fdbadapter "goodkind.io/tack/internal/adapters/foundationdb"
-	"goodkind.io/tack/internal/clock"
 	"goodkind.io/tack/internal/domain/node"
 	"goodkind.io/tack/internal/service"
 )
@@ -18,8 +16,8 @@ const repairFixtureIdentifier = "QAREPAIR"
 
 // repairFixtureBuilder creates fixture records in one organization as one
 // actor. Its err field stores the first error, and every method does nothing
-// after an error. Legacy writes use NodeStore.UpdateAtomic,
-// RelationshipStore.Add, and RelationshipStore.Remove directly because the
+// after an error. Legacy writes use NodeStore.UpdateAtomic and
+// RelationshipStore.Add directly because the
 // checked mutation path rejects the invalid values that the repair corrects.
 type repairFixtureBuilder struct {
 	nodes   *service.NodeService
@@ -72,19 +70,15 @@ func (b *repairFixtureBuilder) build(ctx context.Context) RepairFixture {
 			"priority": repairFixtureText("High"),
 		},
 	)
-	fixture.PrintedParent = b.create(
+	fixture.MissingEdge = b.create(
 		ctx,
 		fixture.EpicID,
 		project,
 		"issue",
-		"Issue with a printed parent",
+		"Issue without its parent edge",
 		nil,
 	)
-	b.setLegacyProps(
-		ctx,
-		fixture.PrintedParent,
-		map[string]json.RawMessage{"parent_id": repairFixtureText(repairFixtureIdentifier + "-1")},
-	)
+	b.removeChildOf(ctx, fixture.MissingEdge, fixture.EpicID)
 	fixture.AbsentParent = b.create(
 		ctx,
 		project,
@@ -93,11 +87,9 @@ func (b *repairFixtureBuilder) build(ctx context.Context) RepairFixture {
 		"Issue with an absent parent",
 		nil,
 	)
-	b.setLegacyProps(
-		ctx,
-		fixture.AbsentParent,
-		map[string]json.RawMessage{"parent_id": repairFixtureText(uuid.New().String())},
-	)
+	b.removeChildOf(ctx, fixture.AbsentParent, project)
+	fixture.AbsentParentTarget = uuid.Must(uuid.NewV7())
+	b.addChildOf(ctx, fixture.AbsentParent, fixture.AbsentParentTarget)
 	original := b.create(ctx, project, project, "issue", "Original parent", nil)
 	fixture.NoticeTarget = b.create(ctx, project, project, "issue", "Duplicate target", nil)
 	fixture.Notice = b.create(
@@ -109,11 +101,6 @@ func (b *repairFixtureBuilder) build(ctx context.Context) RepairFixture {
 		map[string]json.RawMessage{
 			"description": repairFixtureText("Duplicate of the target issue"),
 		},
-	)
-	b.setLegacyProps(
-		ctx,
-		fixture.Notice,
-		map[string]json.RawMessage{"parent_id": repairFixtureText(uuid.New().String())},
 	)
 	b.removeChildOf(ctx, fixture.Notice, original)
 	fixture.SmokeComment = b.create(
@@ -161,87 +148,6 @@ func (b *repairFixtureBuilder) create(
 		return uuid.Nil
 	}
 	return created.View.ID
-}
-
-func (b *repairFixtureBuilder) addChildOf(ctx context.Context, sourceID, targetID uuid.UUID) {
-	if b.err != nil {
-		return
-	}
-	relationship := &node.Relationship{
-		OrgID:        b.orgID,
-		SourceID:     sourceID,
-		RelationType: node.RelChildOf,
-		TargetID:     targetID,
-		CreatedBy:    b.actorID,
-		CreatedAt:    clock.Now().UTC(),
-		Props:        nil,
-	}
-	if err := b.stores.Relationships.Add(ctx, relationship); err != nil {
-		b.err = loggedError(
-			ctx,
-			"qa datagen: add the legacy child_of edge from "+sourceID.String(),
-			err,
-		)
-	}
-}
-
-// removeChildOf removes the child_of edge from sourceID to targetID through
-// the relationship store without changing parent_id.
-func (b *repairFixtureBuilder) removeChildOf(ctx context.Context, sourceID, targetID uuid.UUID) {
-	if b.err != nil {
-		return
-	}
-	if err := b.stores.Relationships.Remove(
-		ctx,
-		b.orgID,
-		sourceID,
-		node.RelChildOf,
-		targetID,
-	); err != nil {
-		b.err = loggedError(
-			ctx,
-			"qa datagen: remove the child_of edge from "+sourceID.String(),
-			err,
-		)
-	}
-}
-
-// setLegacyProps reads the stored primary record and view for nodeID.
-// It sets each property in props on both records and preserves every other
-// stored property. It writes both records through NodeStore.UpdateAtomic
-// without validation.
-func (b *repairFixtureBuilder) setLegacyProps(
-	ctx context.Context,
-	nodeID uuid.UUID,
-	props map[string]json.RawMessage,
-) {
-	if b.err != nil {
-		return
-	}
-	current, err := b.stores.Nodes.Get(ctx, b.orgID, nodeID)
-	if err != nil || current == nil {
-		b.err = loggedError(
-			ctx,
-			"qa datagen: read repair fixture node "+nodeID.String(),
-			errMissing(err),
-		)
-		return
-	}
-	view, err := b.stores.Views.Get(ctx, nodeID)
-	if err != nil || view == nil {
-		b.err = loggedError(
-			ctx,
-			"qa datagen: read repair fixture view "+nodeID.String(),
-			errMissing(err),
-		)
-		return
-	}
-	previous := maps.Clone(current.Props)
-	maps.Copy(current.Props, props)
-	view.Props = maps.Clone(current.Props)
-	if err := b.stores.Nodes.UpdateAtomic(ctx, current, view, previous, nil, nil); err != nil {
-		b.err = loggedError(ctx, "qa datagen: write legacy properties of "+nodeID.String(), err)
-	}
 }
 
 // state returns the ID of the state node named name among the hierarchy

@@ -60,12 +60,12 @@ func readRepairNode(
 	}
 
 	record.Found, record.OrgID, record.NodeType, record.Primary = true, resolve.OrgID, resolve.NodeType, primary
-	var parentText string
-	if json.Unmarshal(stored.Props[parentIDProperty], &parentText) == nil {
-		if parentID, parseErr := uuid.Parse(parentText); parseErr == nil {
-			record.ParentID = parentID
-		}
+	edges, err := readOutgoingSnapshots(ctx, transaction, resolve.OrgID, nodeID, node.RelChildOf)
+	if err != nil {
+		return record, err
 	}
+
+	record.ParentID = snapshotParent(edges)
 
 	return record, nil
 }
