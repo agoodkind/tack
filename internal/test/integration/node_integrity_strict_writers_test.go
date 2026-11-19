@@ -6,7 +6,6 @@ import (
 
 	"github.com/google/uuid"
 	"goodkind.io/tack/internal/domain/node"
-	"goodkind.io/tack/internal/service"
 	"goodkind.io/tack/internal/test/integration"
 )
 
@@ -66,13 +65,8 @@ func TestNodeIntegrityStrictEveryWriterAdvancesTheFence(t *testing.T) {
 		env,
 		"parent move",
 		func() []uuid.UUID {
-			update := service.UpdateInput{
-				NodeID:              issue.ID,
-				Name:                nil,
-				Props:               schemaProps("parent_id", quoted(epic.ID.String())),
-				RelationshipChanges: node.RelationshipChanges{Add: nil, Remove: nil},
-				ActorID:             actorID,
-			}
+			update := moveUpdate(issue.ID, epic.ID)
+			update.ActorID = actorID
 			if _, err := env.NodeSvc.Update(env.Ctx, update); err != nil {
 				t.Fatalf("move issue %s under epic %s: %v", issue.ID, epic.ID, err)
 			}
@@ -135,12 +129,13 @@ func TestNodeIntegrityStrictEveryWriterAdvancesTheFence(t *testing.T) {
 			return []uuid.UUID{epic.ID, issue.ID}
 		},
 	)
-	states, err := env.Stores.Nodes.ListByProperty(
+	states, err := env.Stores.Views.List(
 		env.Ctx,
-		env.OrgID,
-		"state",
-		"parent_id",
-		quoted(project.ID.String()),
+		node.NodeListQuery{
+			OrgID:            env.OrgID,
+			NodeType:         "state",
+			ByTargetRelation: &node.RelationScan{NodeID: project.ID, RelationType: node.RelChildOf},
+		},
 	)
 	if err != nil {
 		t.Fatalf("list the states of project %s: %v", project.ID, err)

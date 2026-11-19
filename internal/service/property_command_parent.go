@@ -80,3 +80,13 @@ func invalidParentReference(ctx context.Context, nt *node.NodeType, reason strin
 
 	return fmt.Errorf("%s: %w", reason, domain.ErrInvalidArgument)
 }
+
+// ParentResolver resolves a create-time parent reference to a canonical node
+// UUID.
+type ParentResolver func(
+	ctx context.Context,
+	childType *node.NodeType,
+	orgID uuid.UUID,
+	scopeID uuid.UUID,
+	ref string,
+) (uuid.UUID, error)
