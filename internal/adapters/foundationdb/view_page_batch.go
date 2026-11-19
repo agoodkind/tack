@@ -8,14 +8,8 @@ import (
 	"log/slog"
 
 	"github.com/apple/foundationdb/bindings/go/src/fdb"
-	"github.com/apple/foundationdb/bindings/go/src/fdb/tuple"
-	"github.com/google/uuid"
 	"goodkind.io/tack/internal/domain/node"
 )
-
-// propertyIndexNodeIDPosition is the tuple position of the node ID in a
-// node_by_property key: (family, org, type, property, value, node).
-const propertyIndexNodeIDPosition = 5
 
 type pageBatch struct {
 	entries []pageEntry
@@ -109,6 +103,10 @@ func decodePageEntry(
 	q node.NodeListQuery,
 	kv fdb.KeyValue,
 ) (pageEntry, error) {
+	if q.ByProperty == nil && (q.BySourceRelation != nil || q.ByTargetRelation != nil) {
+		return decodeRelationPageEntry(ctx, tr, q, kv)
+	}
+
 	if q.ByProperty == nil {
 		var view node.NodeView
 		if err := json.Unmarshal(kv.Value, &view); err != nil {
@@ -121,38 +119,12 @@ func decodePageEntry(
 			return pageEntry{}, fmt.Errorf("decode view %x: %w", kv.Key, err)
 		}
 
-		return pageEntry{id: view.ID, view: &view}, nil
+		return pageEntry{id: view.ID, view: &view, key: kv.Key}, nil
 	}
 
-	unpacked, err := tuple.Unpack(stripPrefix(kv.Key))
+	nodeID, err := lastTupleID(ctx, kv.Key)
 	if err != nil {
-		slog.ErrorContext(
-			ctx,
-			"store.view.list_page_decode_failed",
-			slog.String("err", err.Error()),
-		)
-
-		return pageEntry{}, fmt.Errorf("decode property index key %x: %w", kv.Key, err)
-	}
-
-	if len(unpacked) <= propertyIndexNodeIDPosition {
-		return pageEntry{}, fmt.Errorf(
-			"decode property index key %x: %d elements",
-			kv.Key,
-			len(unpacked),
-		)
-	}
-
-	nodeIDText, _ := unpacked[propertyIndexNodeIDPosition].(string)
-	nodeID, err := uuid.Parse(nodeIDText)
-	if err != nil {
-		slog.ErrorContext(
-			ctx,
-			"store.view.list_page_decode_failed",
-			slog.String("err", err.Error()),
-		)
-
-		return pageEntry{}, fmt.Errorf("decode node id %q: %w", nodeIDText, err)
+		return pageEntry{}, err
 	}
 
 	raw, err := tr.Get(fdb.Key(nodeViewKey(q.OrgID, q.NodeType, nodeID))).Get()
@@ -167,7 +139,7 @@ func decodePageEntry(
 	}
 
 	if len(raw) == 0 {
-		return pageEntry{id: nodeID, view: nil}, nil
+		return pageEntry{id: nodeID, view: nil, key: kv.Key}, nil
 	}
 
 	var view node.NodeView
@@ -181,5 +153,5 @@ func decodePageEntry(
 		return pageEntry{}, fmt.Errorf("decode view %s: %w", nodeID, err)
 	}
 
-	return pageEntry{id: nodeID, view: &view}, nil
+	return pageEntry{id: nodeID, view: &view, key: kv.Key}, nil
 }
