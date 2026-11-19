@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/apple/foundationdb/bindings/go/src/fdb"
-	"github.com/google/uuid"
 	"goodkind.io/tack/internal/domain"
 	"goodkind.io/tack/internal/domain/node"
 )
@@ -97,14 +96,16 @@ func mutationResult(plan node.MutationPlan, source mutationSource, now time.Time
 	return result
 }
 
-// childOfChanges sets parent_id on result to the parent from plan and returns
-// the child_of changes that leave exactly one edge to that parent. It returns
+// childOfChanges sets parent_id on result to the parent from plan and
+// returns
+// the child_of changes that leave exactly one edge to that parent. It
+// returns
 // an error that wraps domain.ErrConflict if a removed edge does not match a
 // digest in plan.Graph.Relationships. If plan does not specify Parent, it
 // preserves the stored parent and edges.
 func childOfChanges(
 	ctx context.Context,
-	tr fdb.Transaction,
+	transaction fdb.Transaction,
 	plan node.MutationPlan,
 	source mutationSource,
 	result *node.Node,
@@ -119,7 +120,13 @@ func childOfChanges(
 	var edges []node.RelationshipSnapshot
 	if source.Exists {
 		var err error
-		edges, err = readOutgoingSnapshots(ctx, tr, plan.OrgID, plan.NodeID, node.RelChildOf)
+		edges, err = readOutgoingSnapshots(
+			ctx,
+			transaction,
+			plan.OrgID,
+			plan.NodeID,
+			node.RelChildOf,
+		)
 		if err != nil {
 			return changes, err
 		}
@@ -180,39 +187,4 @@ func expectsRelationship(
 	}
 
 	return false
-}
-
-// planRelationshipChanges returns the relationship changes from plan and sets
-// the organization and source of each added relationship if they are empty.
-func planRelationshipChanges(plan node.MutationPlan) node.RelationshipChanges {
-	added := make([]*node.Relationship, 0, len(plan.Relationships.Add))
-	for _, relationship := range plan.Relationships.Add {
-		stamped := *relationship
-		if stamped.OrgID == uuid.Nil {
-			stamped.OrgID = plan.OrgID
-		}
-
-		if stamped.SourceID == uuid.Nil {
-			stamped.SourceID = plan.NodeID
-		}
-
-		added = append(added, &stamped)
-	}
-
-	return node.RelationshipChanges{Add: added, Remove: plan.Relationships.Remove}
-}
-
-// mutationView returns the view record for result.
-func mutationView(result *node.Node) *node.NodeView {
-	return &node.NodeView{
-		ID:        result.ID,
-		OrgID:     result.OrgID,
-		NodeType:  result.NodeType,
-		Name:      result.Name,
-		Props:     maps.Clone(result.Props),
-		CreatedBy: result.CreatedBy,
-		UpdatedBy: result.UpdatedBy,
-		CreatedAt: result.CreatedAt,
-		UpdatedAt: result.UpdatedAt,
-	}
 }

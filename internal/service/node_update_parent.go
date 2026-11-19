@@ -102,7 +102,7 @@ func requestedParentID(
 	}
 
 	if requestedID == uuid.Nil && len(removed) > 0 {
-		requestedID = snapshot.ParentID
+		requestedID = rawUUIDReferenceProperty(snapshot.Node.Props, "parent_id")
 		if requestedID == uuid.Nil {
 			return uuid.Nil, parentRefusal(
 				ctx,

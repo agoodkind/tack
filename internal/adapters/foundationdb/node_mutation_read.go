@@ -11,7 +11,8 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// mutationSource represents the primary record of one node that a transaction
+// mutationSource represents the primary record of one node that a
+// transaction
 // read. Exists is false if the resolution record in the organization or the
 // primary record does not exist.
 type mutationSource struct {
@@ -33,14 +34,14 @@ func (s *NodeStore) ReadMutationSnapshot(
 		ctx,
 		s.db,
 		"read mutation snapshot of node "+nodeID.String(),
-		func(tr fdb.Transaction) error {
+		func(transaction fdb.Transaction) error {
 			var readErr error
-			snapshot, readErr = readNodeSnapshot(ctx, tr, orgID, nodeID)
+			snapshot, readErr = readNodeSnapshot(ctx, transaction, orgID, nodeID)
 			if readErr != nil {
 				return readErr
 			}
 
-			schema, readErr = readSchemaSnapshot(ctx, tr, orgID)
+			schema, readErr = readSchemaSnapshot(ctx, transaction, orgID)
 
 			return readErr
 		},
@@ -50,10 +51,10 @@ func (s *NodeStore) ReadMutationSnapshot(
 }
 
 // readNodeSnapshot reads the primary record and relationships of nodeID
-// inside tr.
+// inside transaction.
 func readNodeSnapshot(
 	ctx context.Context,
-	tr fdb.Transaction,
+	transaction fdb.Transaction,
 	orgID uuid.UUID,
 	nodeID uuid.UUID,
 ) (node.MutationSnapshot, error) {
@@ -67,30 +68,31 @@ func readNodeSnapshot(
 		Incoming:         nil,
 		IncomingOverflow: false,
 	}
-	source, err := readMutationSource(ctx, tr, orgID, nodeID)
+	source, err := readMutationSource(ctx, transaction, orgID, nodeID)
 	if err != nil || !source.Exists {
 		return snapshot, err
 	}
 
-	outgoing, err := readOutgoingSnapshots(ctx, tr, orgID, nodeID, "")
+	outgoing, err := readOutgoingSnapshots(ctx, transaction, orgID, nodeID, "")
 	if err != nil {
 		return snapshot, err
 	}
 
-	incoming, overflow, err := readIncomingSnapshots(ctx, tr, orgID, nodeID)
+	incoming, overflow, err := readIncomingSnapshots(ctx, transaction, orgID, nodeID)
 	if err != nil {
 		return snapshot, err
 	}
 
 	snapshot.Exists, snapshot.Node, snapshot.Encoding = true, source.Node, source.Encoding
 	snapshot.PrimaryDigest = node.PrimaryDigest(source.Encoding)
-	snapshot.ParentID = storedUUID(source.Node.Props[parentIDProperty])
+	snapshot.ParentID = snapshotParent(outgoing)
 	snapshot.Outgoing, snapshot.Incoming, snapshot.IncomingOverflow = outgoing, incoming, overflow
 
 	return snapshot, nil
 }
 
-// storedUUID decodes raw as a JSON string containing a UUID. storedUUID returns
+// storedUUID decodes raw as a JSON string containing a UUID. storedUUID
+// returns
 // [uuid.Nil] when raw is absent, is not a JSON string, or does not contain a
 // UUID.
 func storedUUID(raw json.RawMessage) uuid.UUID {
@@ -122,16 +124,17 @@ func absentNode() node.Node {
 	}
 }
 
-// readMutationSource reads the resolution record and primary record of nodeID
-// inside tr.
+// readMutationSource reads the resolution record and primary record of
+// nodeID
+// inside transaction.
 func readMutationSource(
 	ctx context.Context,
-	tr fdb.Transaction,
+	transaction fdb.Transaction,
 	orgID uuid.UUID,
 	nodeID uuid.UUID,
 ) (mutationSource, error) {
 	absent := mutationSource{Exists: false, TypeKey: "", Encoding: nil, Node: absentNode()}
-	resolved, err := tr.Get(fdb.Key(nodeResolveKey(nodeID))).Get()
+	resolved, err := transaction.Get(fdb.Key(nodeResolveKey(nodeID))).Get()
 	if err != nil {
 		return absent, searchReadFailure(ctx, "read node resolution "+nodeID.String(), err)
 	}
@@ -149,7 +152,7 @@ func readMutationSource(
 		return absent, nil
 	}
 
-	encoded, err := tr.Get(fdb.Key(nodeInstanceKey(orgID, resolve.NodeType, nodeID))).Get()
+	encoded, err := transaction.Get(fdb.Key(nodeInstanceKey(orgID, resolve.NodeType, nodeID))).Get()
 	if err != nil {
 		return absent, searchReadFailure(ctx, "read node "+nodeID.String(), err)
 	}
@@ -168,113 +171,5 @@ func readMutationSource(
 		TypeKey:  resolve.NodeType,
 		Encoding: encoded,
 		Node:     current,
-	}, nil
-}
-
-// readOutgoingSnapshots reads every relationship of relationType from nodeID
-// inside tr. It reads every type when relationType is empty.
-func readOutgoingSnapshots(
-	ctx context.Context,
-	tr fdb.Transaction,
-	orgID uuid.UUID,
-	nodeID uuid.UUID,
-	relationType string,
-) ([]node.RelationshipSnapshot, error) {
-	keyRange, err := fdb.PrefixRange(relationshipPrefixBySource(orgID, nodeID, relationType))
-	if err != nil {
-		return nil, nodeOperationFailure(
-			ctx,
-			"create relationship range for node "+nodeID.String(),
-			err,
-		)
-	}
-
-	items, err := tr.GetRange(keyRange, fdb.RangeOptions{}).GetSliceWithError()
-	if err != nil {
-		return nil, searchReadFailure(ctx, "read relationships of node "+nodeID.String(), err)
-	}
-
-	snapshots := make([]node.RelationshipSnapshot, 0, len(items))
-	for _, item := range items {
-		snapshot, err := decodeRelationshipSnapshot(ctx, item.Value)
-		if err != nil {
-			return nil, err
-		}
-
-		snapshots = append(snapshots, snapshot)
-	}
-
-	return snapshots, nil
-}
-
-// readIncomingSnapshots reads relationships to nodeID inside tr. If their
-// count exceeds node.MutationEdgeLimit, it reports true and does not return
-// relationships. readDeleteEdges reads more than that limit.
-func readIncomingSnapshots(
-	ctx context.Context,
-	tr fdb.Transaction,
-	orgID uuid.UUID,
-	nodeID uuid.UUID,
-) ([]node.RelationshipSnapshot, bool, error) {
-	edges, err := readDeleteEdges(ctx, tr, orgID, nodeID, "", true)
-	if err != nil {
-		return nil, false, err
-	}
-
-	if len(edges) > node.MutationEdgeLimit {
-		return nil, true, nil
-	}
-
-	futures := make([]fdb.FutureByteSlice, 0, len(edges))
-	for _, edge := range edges {
-		futures = append(
-			futures,
-			tr.Get(
-				fdb.Key(relationshipKey(orgID, edge.SourceID, edge.RelationType, edge.TargetID)),
-			),
-		)
-	}
-
-	snapshots := make([]node.RelationshipSnapshot, 0, len(edges))
-
-	for position, future := range futures {
-		metadata, err := future.Get()
-		if err != nil {
-			return nil, false, searchReadFailure(
-				ctx,
-				"read relationship from "+edges[position].SourceID.String(),
-				err,
-			)
-		}
-
-		snapshot, err := decodeRelationshipSnapshot(ctx, metadata)
-		if err != nil {
-			return nil, false, err
-		}
-
-		snapshots = append(snapshots, snapshot)
-	}
-
-	return snapshots, false, nil
-}
-
-// decodeRelationshipSnapshot decodes the stored metadata of one relationship
-// and returns the relationship with its digest.
-func decodeRelationshipSnapshot(
-	ctx context.Context,
-	metadata []byte,
-) (node.RelationshipSnapshot, error) {
-	var relationship node.Relationship
-	if err := json.Unmarshal(metadata, &relationship); err != nil {
-		return node.RelationshipSnapshot{}, nodeOperationFailure(
-			ctx,
-			"decode relationship metadata",
-			err,
-		)
-	}
-
-	return node.RelationshipSnapshot{
-		Relationship: relationship,
-		Digest:       node.RelationshipDigest(metadata),
 	}, nil
 }
