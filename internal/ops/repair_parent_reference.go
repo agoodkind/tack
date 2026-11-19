@@ -133,9 +133,6 @@ func prepareParentReferenceProfile(
 	}
 
 	prepared.ScopeFields = compactStrings(prepared.ScopeFields)
-	if len(prepared.ScopeFields) == 0 {
-		prepared.ScopeFields = []string{"scope_id", repairParentProperty}
-	}
 
 	if prepared.CleanupBehavior == "" {
 		prepared.CleanupBehavior = RepairCleanupSourceFields

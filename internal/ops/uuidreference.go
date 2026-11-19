@@ -26,13 +26,19 @@ func (c referenceMatchContext) resolveUUID(
 		)
 	}
 
-	if c.scopeID != uuid.Nil && scopedReferenceStrategy(c.targetType.Reference.Strategy) &&
-		rawUUIDProp(view.Props, "parent_id") != c.scopeID {
-		return nil, loggedRepairError(
-			ctx,
-			fmt.Sprintf("reference node %s is outside scope %s", nodeID, c.scopeID),
-			domain.ErrInvalidArgument,
-		)
+	if c.scopeID != uuid.Nil && scopedReferenceStrategy(c.targetType.Reference.Strategy) {
+		parent, parentErr := repairParentView(ctx, c.reader, c.orgID, view.ID)
+		if parentErr != nil {
+			return nil, parentErr
+		}
+
+		if parent == nil || parent.ID != c.scopeID {
+			return nil, loggedRepairError(
+				ctx,
+				fmt.Sprintf("reference node %s is outside scope %s", nodeID, c.scopeID),
+				domain.ErrInvalidArgument,
+			)
+		}
 	}
 
 	return view, nil
