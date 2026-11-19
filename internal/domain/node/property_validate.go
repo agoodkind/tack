@@ -16,13 +16,9 @@ const (
 	// PropertyIssueReference marks a reference property with a target that
 	// does not exist in the organization or has a different node type.
 	PropertyIssueReference PropertyIssueCode = "invalid_reference"
-	// PropertyIssueParent marks a missing or invalid parent or a mismatch
-	// between parent_id and child_of edges.
+	// PropertyIssueParent marks a missing or invalid child_of relationship.
 	PropertyIssueParent PropertyIssueCode = "invalid_parent"
 )
-
-// parentIDName is the name of the property that stores a node's parent ID.
-const parentIDName = "parent_id"
 
 // ResultTarget records whether a node has a resolution record, along with
 // its organization ID and node type.
@@ -34,7 +30,7 @@ type ResultTarget struct {
 
 // ResultGraph provides graph data for ValidateResult. OrgID identifies the
 // result's organization. ChildOf lists the target IDs of its child_of edges.
-// Targets maps IDs from parent_id and reference properties to ResultTarget
+// Targets maps IDs from child_of edges and reference properties to ResultTarget
 // values.
 type ResultGraph struct {
 	OrgID   uuid.UUID
@@ -45,7 +41,7 @@ type ResultGraph struct {
 // ValidateResult runs Interpret on the complete properties of a node of
 // typeKey, then checks required properties, references, and parent rules.
 // A node requires a parent when its type lists CanLiveUnder types. When a
-// parent exists, parent_id must match exactly one child_of target in the
+// parent exists, exactly one child_of edge must target a node in the
 // same organization, Types must contain the parent's node type, and
 // [LivesUnder] must accept the child and parent types.
 func (s Schema) ValidateResult(
@@ -100,21 +96,16 @@ func (s Schema) ValidateResult(
 		}
 	}
 
-	if rejected[parentIDName] {
-		return result
-	}
-
-	reason, failure := s.parentReason(nodeType, props[parentIDName], graph)
+	reason, failure := s.parentReason(nodeType, graph)
 	if failure != nil {
 		result.Failures = append(result.Failures, *failure)
 		return result
 	}
 
 	if reason != "" {
-		delete(result.Valid, parentIDName)
 		result.Invalid = append(
 			result.Invalid,
-			PropertyIssue{Property: parentIDName, Code: PropertyIssueParent, Reason: reason},
+			PropertyIssue{Property: RelChildOf, Code: PropertyIssueParent, Reason: reason},
 		)
 	}
 
@@ -158,86 +149,4 @@ func referenceReason(definition *PropertyDef, raw json.RawMessage, graph ResultG
 	}
 
 	return ""
-}
-
-// parentReason returns the reason that raw and the child_of targets in graph
-// do not form a valid parent for a node of nodeType, or "" for a valid
-// parent. It returns a read failure when Types does not contain the parent's
-// node type.
-func (s Schema) parentReason(
-	nodeType *NodeType,
-	raw json.RawMessage,
-	graph ResultGraph,
-) (string, *ReadFailure) {
-	if len(raw) == 0 {
-		if len(graph.ChildOf) > 0 {
-			return fmt.Sprintf(
-				"the node has child_of edges to %v without parent_id",
-				graph.ChildOf,
-			), nil
-		}
-
-		if len(nodeType.CanLiveUnder) > 0 {
-			return fmt.Sprintf(
-				"node type %q requires a parent of type %v",
-				nodeType.TypeKey,
-				nodeType.CanLiveUnder,
-			), nil
-		}
-
-		return "", nil
-	}
-
-	parentID := resultReferenceID(raw)
-	if parentID == uuid.Nil {
-		return "the value is not a node ID", nil
-	}
-
-	if len(graph.ChildOf) != 1 || graph.ChildOf[0] != parentID {
-		return fmt.Sprintf(
-			"parent_id %s differs from the child_of edges to %v",
-			parentID,
-			graph.ChildOf,
-		), nil
-	}
-
-	parent := graph.Targets[parentID]
-	if !parent.Found || parent.OrgID != graph.OrgID {
-		return fmt.Sprintf("the parent %s does not exist in the organization", parentID), nil
-	}
-
-	parentType := s.Types[parent.NodeType]
-	if parentType == nil {
-		return "", &ReadFailure{
-			Subject: "node type " + parent.NodeType + " of parent " + parentID.String(),
-			Reason:  "the schema does not contain it",
-		}
-	}
-
-	if !LivesUnder(nodeType, parentType) {
-		return fmt.Sprintf(
-			"node type %q cannot live under the parent %s of type %q",
-			nodeType.TypeKey,
-			parentID,
-			parentType.TypeKey,
-		), nil
-	}
-
-	return "", nil
-}
-
-// resultReferenceID decodes one raw property value that stores a node ID as a
-// JSON string. It returns [uuid.Nil] for any other value.
-func resultReferenceID(raw json.RawMessage) uuid.UUID {
-	var text string
-	if json.Unmarshal(raw, &text) != nil {
-		return uuid.Nil
-	}
-
-	parsed, err := uuid.Parse(text)
-	if err != nil {
-		return uuid.Nil
-	}
-
-	return parsed
 }
