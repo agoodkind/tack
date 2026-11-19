@@ -12,7 +12,7 @@ import (
 // creates an issue with a description. It reads the stored property
 // definitions and the issue node type, then calls node.RenderSearchText.
 // The text must contain the description and must not contain the UUID values
-// of parent_id, scope_id, or state_id.
+// of scope_id or state_id, or the parent UUID.
 func TestNodeIntegritySchemaSearchOmitsReferenceIDs(t *testing.T) {
 	env := integration.SetupTestEnv(t)
 	projectID := createSchemaProject(t, env)
@@ -55,7 +55,11 @@ func TestNodeIntegritySchemaSearchOmitsReferenceIDs(t *testing.T) {
 		t.Fatalf("search text %q does not contain the description", text)
 	}
 
-	for _, name := range []string{"parent_id", "scope_id", "state_id"} {
+	if strings.Contains(text, projectID.String()) {
+		t.Fatalf("search text %q contains parent UUID %s", text, projectID)
+	}
+
+	for _, name := range []string{"scope_id", "state_id"} {
 		value := strings.Trim(string(issue.Props[name]), `"`)
 		if value == "" {
 			t.Fatalf("issue %s has no %s", issue.ID, name)
