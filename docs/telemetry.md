@@ -1,39 +1,44 @@
 # Server telemetry
 
-Each Tack server counts the HTTP requests it receives. A request log shows
-the response status and elapsed time for one request. A sampled trace shows
-how long individual operations took. A CPU profile shows which functions
-used processor time while profiling was active.
+When an HTTP request takes longer than expected, its log shows the response
+status and total elapsed time. A trace breaks that time down by operation.
+A CPU profile shows which functions used processor time. Each Tack server
+also counts requests, including those it does not sample for tracing.
 
-## Logs and traces
+## A single request
 
-Tack returns a request ID in the `X-Request-ID` response header. That value
-matches the `request_id` in the request log. The log also includes a
-`trace_id` for the whole trace and a `span_id` for Tack’s part of the request.
+Tack returns the request ID in the `X-Request-ID` response header. The same
+value appears as `request_id` in the request log. For a sampled request, the
+log’s `trace_id` identifies the full trace. Its `span_id` identifies the
+server span, which measures how long Tack spent handling the request.
 
-Tack reads its diagnostic settings at startup. `GKLOG_LOG_ENABLED` controls
-diagnostic logging, and `GKLOG_LOG_LEVEL` sets its minimum level.
-`GKLOG_TRACE_ENABLED` and `GKLOG_TRACE_SAMPLE_RATIO` determine which new
-traces Tack samples. When a request continues an existing trace, Tack follows
-the parent’s sampling decision. Tack exports sampled traces when
-`OTEL_EXPORTER_OTLP_ENDPOINT` specifies a collector.
+A long trace can have few CPU samples. For example, time spent waiting for a
+database response contributes to elapsed time. The CPU profiler samples
+functions while they execute. When tracing and profiling are both active,
+Pyroscope uses profile labels to associate samples with the request.
 
-## Request metrics
+## Request counts
 
-`GET /debug/vars` reports `tack_http_requests_total` for the server that
-answered. The count starts at zero when the process starts and includes the
-request to read it.
+Each server reports its own total as `tack_http_requests_total` at
+`GET /debug/vars`. The count starts at zero each time the process starts.
+Reading the endpoint counts as a request.
 
-With `GKLOG_METRIC_EXPORT_ENABLED=true`, Tack also exports the count as
-`tack.http.requests` to an OpenTelemetry collector over gRPC.
-`OTEL_EXPORTER_OTLP_METRICS_ENDPOINT` selects the collector for metrics.
-When that setting is empty, Tack uses `OTEL_EXPORTER_OTLP_ENDPOINT`.
-An exported count can include an exemplar, a measurement with the trace and
-span IDs of one sampled request. Those IDs identify the matching request log.
+With metric export enabled, Tack sends the count to an OpenTelemetry collector
+over gRPC as `tack.http.requests`. The count can include an *exemplar*, an
+example measurement from one sampled request. Its trace and span IDs identify
+the corresponding trace and log entry.
 
-## CPU profiles
+## Startup settings
 
-With `GKLOG_CPU_PROFILE_ENABLED=true`, Tack sends CPU samples to the
-Pyroscope server at `PYROSCOPE_SERVER_ADDRESS`. When profiling and tracing
-are both active, profile labels associate CPU samples with a sampled request.
-A slow request can have few CPU samples if it spent most of its time waiting.
+Each Tack server reads these environment variables when it starts.
+
+| Signal | Settings |
+| --- | --- |
+| Diagnostic logs | `GKLOG_LOG_ENABLED` controls logging. `GKLOG_LOG_LEVEL` sets the minimum level. |
+| Traces | `GKLOG_TRACE_ENABLED` controls sampling for new traces. `GKLOG_TRACE_SAMPLE_RATIO` sets the fraction to sample. Requests that continue a trace follow the parent’s sampling decision. |
+| CPU profiles | `GKLOG_CPU_PROFILE_ENABLED=true` starts CPU profiling. `PYROSCOPE_SERVER_ADDRESS` selects the Pyroscope server that receives the samples. |
+| Request metrics | `GKLOG_METRIC_EXPORT_ENABLED=true` enables export. The local request count remains available at either setting. |
+
+`OTEL_EXPORTER_OTLP_ENDPOINT` selects the collector for sampled traces and
+exported metrics. `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT` overrides that
+destination for metrics alone.
