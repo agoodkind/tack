@@ -85,6 +85,21 @@ func recoverCollectionItem(
 	if err != nil {
 		return soakNode{}, loggedDiscoverySkip(ctx, singular, item, err)
 	}
+	if recovery.parentReference != "" {
+		_, err := driver.Call(
+			ctx,
+			recovery.token,
+			"tack_add_relationship",
+			ToolArguments{
+				SourceID:     resolved.RawID,
+				RelationType: "child_of",
+				TargetID:     recovery.parentReference,
+			},
+		)
+		if err != nil {
+			return soakNode{}, loggedDiscoverySkip(ctx, singular, item, err)
+		}
+	}
 	slog.InfoContext(
 		ctx,
 		"qa.datagen.soak.discovery_created",

@@ -1,8 +1,6 @@
 package integration_test
 
 import (
-	"slices"
-	"strings"
 	"testing"
 	"time"
 
@@ -18,8 +16,9 @@ import (
 // Every change event must record the actor and operation ID of the request
 // that started the job. Each node.delete event for the issue or comment must
 // include the complete stored record. The child's node.update event must
-// record its old and new parent_id values. The relationship.add and
-// relationship.remove events must identify the new and old child_of edges.
+// record its old and new records. The relationship.add event records the
+// child_of edge from the child to the project. The relationship.remove event
+// records the child's previous edge to the deleted issue.
 func TestRuntimeAuditCascadeEvidence(t *testing.T) {
 	env := integration.SetupTestEnv(t)
 	projectID := createSchemaProject(t, env)
@@ -35,6 +34,8 @@ func TestRuntimeAuditCascadeEvidence(t *testing.T) {
 	)
 	storedRoot := storedNodeRecord(t, env, root.ID)
 	storedComment := storedNodeRecord(t, env, comment.ID)
+	storedChild := storedNodeRecord(t, env, child.ID)
+	storedParent := storedEdge(t, env, child.ID, node.RelChildOf, root.ID)
 	mark := outboxTail(t, env)
 
 	jobActor := uuid.New()
@@ -110,34 +111,30 @@ func TestRuntimeAuditCascadeEvidence(t *testing.T) {
 	)
 
 	moved := requireOneEvent(t, events, audit.VerbNodeUpdate, child.ID)
-	if !strings.Contains(string(moved.Delta.Before), root.ID.String()) ||
-		!strings.Contains(string(moved.Delta.After), projectID.String()) {
-		t.Fatalf(
-			"moved child record before %s after %s, want parent %s replaced by %s",
-			moved.Delta.Before,
-			moved.Delta.After,
-			root.ID,
-			projectID,
-		)
-	}
-
-	if !slices.Contains(moved.Delta.Changed, "/props/parent_id") {
-		t.Fatalf("moved child changed fields = %v, want /props/parent_id", moved.Delta.Changed)
-	}
-
-	requireRelationshipEvent(
+	requireJSONEqual(t, "moved child old record", moved.Delta.Before, storedChild)
+	requireJSONEqual(
 		t,
-		requireOneEvent(t, events, audit.VerbRelationshipAdd, child.ID),
-		child.ID,
-		node.RelChildOf,
-		projectID,
+		"moved child new record",
+		moved.Delta.After,
+		storedNodeRecord(t, env, child.ID),
 	)
+
+	addedEdge := requireOneEvent(t, events, audit.VerbRelationshipAdd, child.ID)
+	requireRelationshipEvent(t, addedEdge, child.ID, node.RelChildOf, projectID)
 	removedEdge := requireOneEvent(t, events, audit.VerbRelationshipRemove, child.ID)
 	requireRelationshipEvent(t, removedEdge, child.ID, node.RelChildOf, root.ID)
-	if len(removedEdge.Delta.Before) == 0 {
+	requireJSONEqual(t, "removed parent old value", removedEdge.Delta.Before, storedParent)
+	requireJSONEqual(
+		t,
+		"added parent new value",
+		addedEdge.Delta.After,
+		storedEdge(t, env, child.ID, node.RelChildOf, projectID),
+	)
+	if len(removedEdge.Delta.After) != 0 || len(addedEdge.Delta.Before) != 0 {
 		t.Fatalf(
-			"removed child_of edge of the moved child = %+v, want its stored value",
-			removedEdge,
+			"removed parent new value = %s and added parent old value = %s, want absent values",
+			removedEdge.Delta.After,
+			addedEdge.Delta.Before,
 		)
 	}
 }

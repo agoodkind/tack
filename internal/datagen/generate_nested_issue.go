@@ -6,9 +6,8 @@ import (
 )
 
 // generateNestedIssue skips a project without a generated issue and otherwise
-// creates an issue in the same project with parent_id set to the raw ID of
-// parentIssue, although NodeType metadata does not declare an issue under an
-// issue. It requires tack_get_issue to return the nested issue and
+// creates an issue in the same project and adds child_of to parentIssue.
+// It requires tack_get_issue to return the nested issue and
 // tack_remove_relationship to refuse removal of the nested issue's only
 // child_of edge.
 func (g *Generator) generateNestedIssue(
@@ -23,8 +22,6 @@ func (g *Generator) generateNestedIssue(
 	}
 	actor := workspace.Actors[0]
 	name := fmt.Sprintf("QA nested issue seed %d", g.seed)
-	properties := newProperties()
-	properties.setString("parent_id", parentIssue)
 	nested, created, err := g.ensureNode(
 		ctx,
 		actor.Token,
@@ -35,13 +32,22 @@ func (g *Generator) generateNestedIssue(
 			WorkspaceReference: workspace.Slug,
 			ProjectReference:   projectIdentifier,
 			Name:               name,
-			Properties:         properties,
 		},
 	)
 	if err != nil {
 		return err
 	}
 	g.recordEnsure(created)
+	if err := g.callRelationship(
+		ctx,
+		actor.Token,
+		"tack_add_relationship",
+		nested,
+		"child_of",
+		parentIssue,
+	); err != nil {
+		return err
+	}
 	if _, err := g.driver.Call(
 		ctx,
 		actor.Token,
