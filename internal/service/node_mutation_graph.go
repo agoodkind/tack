@@ -111,7 +111,7 @@ func (s *NodeService) referenceGraph(
 
 	for _, definition := range schema.Definitions {
 		if definition.ReferenceTargetTypeKey == "" || definition.Type != node.PropertyTypeUUID ||
-			definition.Name == "parent_id" {
+			definition.Name == propertyParentID {
 			continue
 		}
 

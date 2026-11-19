@@ -1,7 +1,6 @@
 package integration_test
 
 import (
-	"encoding/json"
 	"testing"
 
 	"github.com/google/uuid"
@@ -65,15 +64,31 @@ func TestStateChangeCommitsItsLedgerRowInTheSameTransaction(t *testing.T) {
 	// The first node claims the reference. The store refuses the second
 	// claim and rolls back the whole write.
 	key := []node.ReferenceKey{{TemplateName: "reference", Encoded: "TACK-173"}}
-	first := newIntentTestNode(env.OrgID, created.View.ID)
-	if err := env.Stores.Nodes.CreateAtomic(env.Ctx, first, nil, nil, nil, key, nil); err != nil {
+	first, firstRelationships := newIntentTestNode(env.OrgID, created.View.ID)
+	if err := env.Stores.Nodes.CreateAtomic(
+		env.Ctx,
+		first,
+		nil,
+		firstRelationships,
+		nil,
+		key,
+		nil,
+	); err != nil {
 		t.Fatalf("claim the reference: %v", err)
 	}
 
 	refusedMark := outboxTail(t, env)
 	refused := auditintent.WithSlot(audit.WithScopeBuilder(env.Ctx), "tack_create_issue", actor)
-	second := newIntentTestNode(env.OrgID, created.View.ID)
-	if err := env.Stores.Nodes.CreateAtomic(refused, second, nil, nil, nil, key, nil); err == nil {
+	second, secondRelationships := newIntentTestNode(env.OrgID, created.View.ID)
+	if err := env.Stores.Nodes.CreateAtomic(
+		refused,
+		second,
+		nil,
+		secondRelationships,
+		nil,
+		key,
+		nil,
+	); err == nil {
 		t.Fatal("the second claim on one reference must be refused")
 	}
 
@@ -86,18 +101,23 @@ func TestStateChangeCommitsItsLedgerRowInTheSameTransaction(t *testing.T) {
 	}
 }
 
-func newIntentTestNode(orgID, parentID uuid.UUID) *node.Node {
+func newIntentTestNode(orgID, parentID uuid.UUID) (*node.Node, []*node.Relationship) {
 	id := uuid.Must(uuid.NewV7())
 
 	return &node.Node{
-		ID:       id,
-		OrgID:    orgID,
-		NodeType: "issue",
-		Name:     "Intent " + id.String(),
-		Props: map[string]json.RawMessage{
-			"parent_id": json.RawMessage(`"` + parentID.String() + `"`),
-		},
+		ID:        id,
+		OrgID:     orgID,
+		NodeType:  "issue",
+		Name:      "Intent " + id.String(),
+		Props:     nil,
 		CreatedBy: uuid.Nil,
 		UpdatedBy: uuid.Nil,
+	}, []*node.Relationship{
+		{
+			OrgID:        orgID,
+			SourceID:     id,
+			RelationType: node.RelChildOf,
+			TargetID:     parentID,
+		},
 	}
 }

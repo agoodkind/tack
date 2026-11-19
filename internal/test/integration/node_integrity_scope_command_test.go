@@ -16,10 +16,10 @@ import (
 // TestNodeIntegrityScopeCommandRequiresParentChange calls NodeService.Update
 // with UpdateInput.ScopeID set to another project. The update must fail with
 // an error that wraps domain.ErrInvalidArgument and must leave the issue
-// unchanged when parent_id repeats the stored parent and when the update does
+// unchanged when child_of repeats the stored parent and when the update does
 // not request a parent. An update that moves the issue under the other
 // project with the same ScopeID must succeed and store that project as both
-// parent_id and scope_id.
+// child_of target and scope_id.
 func TestNodeIntegrityScopeCommandRequiresParentChange(t *testing.T) {
 	env := integration.SetupTestEnv(t)
 	projectID := createSchemaProject(t, env)
@@ -36,13 +36,20 @@ func TestNodeIntegrityScopeCommandRequiresParentChange(t *testing.T) {
 		},
 	)
 	issue := createSchemaNode(t, env, projectID, projectID, "issue", nil)
-	scopeUpdate := func(props map[string]json.RawMessage) service.UpdateInput {
+	scopeUpdate := func(parentID uuid.UUID) service.UpdateInput {
+		var relationships []*node.Relationship
+		if parentID != uuid.Nil {
+			relationships = []*node.Relationship{
+				{RelationType: node.RelChildOf, TargetID: parentID},
+			}
+		}
+
 		return service.UpdateInput{
 			NodeID: issue.ID,
 			Name:   nil,
-			Props:  props,
+			Props:  nil,
 			RelationshipChanges: node.RelationshipChanges{
-				Add:    nil,
+				Add:    relationships,
 				Remove: nil,
 			},
 			ActorID: uuid.New(),
@@ -50,21 +57,18 @@ func TestNodeIntegrityScopeCommandRequiresParentChange(t *testing.T) {
 		}
 	}
 
-	refused := map[string]map[string]json.RawMessage{
-		"the stored parent": schemaProps("parent_id", quoted(projectID.String())),
-		"no parent":         nil,
+	refused := map[string]uuid.UUID{
+		"the stored parent": projectID,
+		"no parent":         uuid.Nil,
 	}
-	for name, props := range refused {
+	for name, parentID := range refused {
 		before, _ := mutationSnapshot(t, env, issue.ID)
-		_, err := env.NodeSvc.Update(env.Ctx, scopeUpdate(props))
+		_, err := env.NodeSvc.Update(env.Ctx, scopeUpdate(parentID))
 		requireError(t, err, domain.ErrInvalidArgument, "the scope change with "+name)
 		requireUnchanged(t, env, before)
 	}
 
-	if _, err := env.NodeSvc.Update(
-		env.Ctx,
-		scopeUpdate(schemaProps("parent_id", quoted(otherProject.ID.String()))),
-	); err != nil {
+	if _, err := env.NodeSvc.Update(env.Ctx, scopeUpdate(otherProject.ID)); err != nil {
 		t.Fatalf("move issue %s to project %s with its scope: %v", issue.ID, otherProject.ID, err)
 	}
 
