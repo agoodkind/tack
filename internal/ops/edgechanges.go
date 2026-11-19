@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"goodkind.io/tack/internal/domain"
 	"goodkind.io/tack/internal/domain/node"
 )
 
@@ -14,7 +15,6 @@ func (c *RepairConsole) plannedParentRelationshipChanges(
 	view *node.NodeView,
 	targetID uuid.UUID,
 ) (node.RelationshipChanges, error) {
-	currentParentID := rawUUIDProp(view.Props, "parent_id")
 	changes := node.RelationshipChanges{Add: nil, Remove: nil}
 	targetRelationshipExists := false
 	if c.relationships != nil {
@@ -39,36 +39,16 @@ func (c *RepairConsole) plannedParentRelationshipChanges(
 				continue
 			}
 
-			changes.Remove = append(
-				changes.Remove,
-				&node.Relationship{
-					OrgID:        view.OrgID,
-					SourceID:     view.ID,
-					RelationType: node.RelChildOf,
-					TargetID:     relationship.TargetID,
-					CreatedBy:    uuid.Nil,
-					CreatedAt:    time.Time{},
-					Props:        nil,
-				},
-			)
+			changes.Remove = append(changes.Remove, relationship)
 		}
 	} else {
-		targetRelationshipExists = currentParentID == targetID
-	}
-
-	if currentParentID != uuid.Nil && currentParentID != targetID &&
-		!relationshipTargetPlanned(changes.Remove, currentParentID) {
-		changes.Remove = append(
-			changes.Remove,
-			&node.Relationship{
-				OrgID:        view.OrgID,
-				SourceID:     view.ID,
-				RelationType: node.RelChildOf,
-				TargetID:     currentParentID,
-				CreatedBy:    uuid.Nil,
-				CreatedAt:    time.Time{},
-				Props:        nil,
-			},
+		return changes, loggedRepairError(
+			ctx,
+			fmt.Sprintf(
+				"list parent relationships for repair %s: relationship repository required",
+				view.ID,
+			),
+			domain.ErrFailedPrecondition,
 		)
 	}
 
