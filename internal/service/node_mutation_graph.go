@@ -5,11 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
-	"slices"
-	"strings"
 
 	"github.com/google/uuid"
-	"goodkind.io/tack/internal/clock"
 	"goodkind.io/tack/internal/domain"
 	"goodkind.io/tack/internal/domain/node"
 )
@@ -39,10 +36,11 @@ func (s *NodeService) readMutationSnapshot(
 	return snapshot, schema, nil
 }
 
-// parentGraph reads parentID and each ancestor along the parent_id chain and
-// returns their primary digests. It stops at a node without parent_id or a
+// parentGraph reads parentID and each ancestor along the child_of chain and
+// returns their primary digests. It stops at a node without a parent or a
 // missing ancestor. It returns an error that wraps domain.ErrInvalidArgument
-// if parentID does not exist, the chain includes nodeID, or the chain repeats
+// if parentID does not exist, the chain includes nodeID, or the chain
+// repeats
 // a node.
 func (s *NodeService) parentGraph(
 	ctx context.Context,
@@ -63,7 +61,7 @@ func (s *NodeService) parentGraph(
 			)
 
 			return nil, fmt.Errorf(
-				"node %s: parent %s is the node, one of its descendants, or in a parent_id cycle: %w",
+				"node %s: parent %s is the node, one of its descendants, or in a child_of cycle: %w",
 				nodeID,
 				parentID,
 				domain.ErrInvalidArgument,
@@ -100,7 +98,8 @@ func (s *NodeService) parentGraph(
 }
 
 // referenceGraph returns the primary digest of each stored node that a UUID
-// property in props references if the property definition declares a reference
+// property in props references if the property definition declares a
+// reference
 // target type.
 func (s *NodeService) referenceGraph(
 	ctx context.Context,
@@ -135,93 +134,4 @@ func (s *NodeService) referenceGraph(
 	}
 
 	return records, nil
-}
-
-// sortedGraphRecords returns the distinct records from all lists in node ID
-// order.
-func sortedGraphRecords(lists ...[]node.GraphRecord) []node.GraphRecord {
-	merged := []node.GraphRecord{}
-
-	for _, list := range lists {
-		for _, record := range list {
-			if !slices.ContainsFunc(
-				merged,
-				func(existing node.GraphRecord) bool { return existing.NodeID == record.NodeID },
-			) {
-				merged = append(merged, record)
-			}
-		}
-	}
-
-	slices.SortFunc(
-		merged,
-		func(left, right node.GraphRecord) int {
-			return strings.Compare(left.NodeID.String(), right.NodeID.String())
-		},
-	)
-
-	return merged
-}
-
-// childOfExpectations returns the expected digest of each child_of edge in
-// outgoing that does not target parentID.
-func childOfExpectations(
-	outgoing []node.RelationshipSnapshot,
-	parentID uuid.UUID,
-) []node.RelationshipExpectation {
-	expectations := []node.RelationshipExpectation{}
-
-	for _, edge := range outgoing {
-		if edge.Relationship.RelationType == node.RelChildOf &&
-			edge.Relationship.TargetID != parentID {
-			expectations = append(
-				expectations,
-				node.RelationshipExpectation{
-					RelationType: node.RelChildOf,
-					TargetID:     edge.Relationship.TargetID,
-					Digest:       edge.Digest,
-				},
-			)
-		}
-	}
-
-	return expectations
-}
-
-// createRelationships returns the relationships from in with the new node as
-// the default source. It returns an error that wraps
-// node.ErrReservedParentRelation for a child_of relationship. ParentID sets
-// the parent.
-func createRelationships(
-	ctx context.Context,
-	id uuid.UUID,
-	in CreateInput,
-) ([]*node.Relationship, error) {
-	now := clock.Now().UTC()
-
-	relationships := make([]*node.Relationship, 0, len(in.Relationships))
-	for _, relationship := range in.Relationships {
-		if relationship.RelationType == node.RelChildOf {
-			err := fmt.Errorf("create node %s: %w", id, node.ErrReservedParentRelation)
-			slog.WarnContext(ctx, "node.create_refused", slog.String("err", err.Error()))
-
-			return nil, err
-		}
-
-		if relationship.SourceID == uuid.Nil {
-			relationship.SourceID = id
-		}
-
-		if relationship.CreatedAt.IsZero() {
-			relationship.CreatedAt = now
-		}
-
-		if relationship.CreatedBy == uuid.Nil {
-			relationship.CreatedBy = in.ActorID
-		}
-
-		relationships = append(relationships, relationship)
-	}
-
-	return relationships, nil
 }

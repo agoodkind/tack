@@ -40,10 +40,11 @@ type RelationshipSnapshot struct {
 // Incoming lists every relationship to the node if the count does not exceed
 // MutationEdgeLimit. Otherwise, IncomingOverflow is true and Incoming is empty.
 type MutationSnapshot struct {
-	Exists           bool
-	Node             Node
-	Encoding         []byte
-	PrimaryDigest    Digest
+	Exists        bool
+	Node          Node
+	Encoding      []byte
+	PrimaryDigest Digest
+	// ParentID derives from child_of. Ambiguous outgoing parents produce uuid.Nil.
 	ParentID         uuid.UUID
 	Outgoing         []RelationshipSnapshot
 	Incoming         []RelationshipSnapshot

@@ -2,6 +2,7 @@ package foundationdb
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/apple/foundationdb/bindings/go/src/fdb"
 	"github.com/google/uuid"
@@ -35,6 +36,10 @@ func checkMutationResult(
 		return mutationRefusal(ctx, plan.NodeID, validated.Err().Error(), node.ErrSchemaRead)
 	}
 
+	if err := checkRequestedParent(ctx, tr, plan, result, schema); err != nil {
+		return err
+	}
+
 	issues := make([]node.PropertyIssue, 0, len(validated.Invalid))
 	for _, issue := range validated.Invalid {
 		if checked(issue.Property) && ordinaryIssue(issue) {
@@ -51,11 +56,10 @@ func checkMutationResult(
 }
 
 // ordinaryIssue reports whether a write rejects issue before strict
-// validation becomes active. checkParentChain and childOfChanges check the
-// parent of an ordinary write. The parent rules of node.PropertyIssueParent
-// apply only under strict validation. If a managed property's stored
-// definition does not apply to that property, the property passes until
-// every environment stores the corrected definition.
+// validation becomes active. checkRequestedParent checks an explicit parent
+// request. Strict validation checks the parent of every write. If a managed
+// property's stored definition does not apply to that property, the property
+// passes until every environment stores the corrected definition.
 func ordinaryIssue(issue node.PropertyIssue) bool {
 	switch issue.Code {
 	case node.PropertyIssueParent:
@@ -68,6 +72,74 @@ func ordinaryIssue(issue node.PropertyIssue) bool {
 	}
 
 	return true
+}
+
+// checkRequestedParent validates an explicit parent request against the
+// current node and type records inside tr.
+func checkRequestedParent(
+	ctx context.Context,
+	tr fdb.Transaction,
+	plan node.MutationPlan,
+	result *node.Node,
+	schema node.Schema,
+) error {
+	if plan.Parent == nil {
+		return nil
+	}
+
+	if result.OrgID != plan.OrgID {
+		return mutationRefusal(
+			ctx,
+			plan.NodeID,
+			"the child is not a node in the organization",
+			domain.ErrInvalidArgument,
+		)
+	}
+
+	parentID := plan.Parent.TargetID
+	parent, err := readMutationSource(ctx, tr, plan.OrgID, parentID)
+	if err != nil {
+		return err
+	}
+
+	if !parent.Exists || parent.Node.OrgID != plan.OrgID {
+		return mutationRefusal(
+			ctx,
+			plan.NodeID,
+			"parent "+parentID.String()+" is not a node in the organization",
+			domain.ErrInvalidArgument,
+		)
+	}
+
+	parentType, err := cachedNodeTypeByKey(ctx, tr, plan.OrgID, parent.TypeKey, schema.Types)
+	if err != nil {
+		return err
+	}
+
+	if parentType == nil {
+		return mutationRefusal(
+			ctx,
+			plan.NodeID,
+			"the schema does not contain node type "+parent.TypeKey+" of parent "+parentID.String(),
+			node.ErrSchemaRead,
+		)
+	}
+
+	if !node.LivesUnder(schema.Types[plan.NodeType], parentType) {
+		return mutationRefusal(
+			ctx,
+			plan.NodeID,
+			fmt.Sprintf(
+				"node type %q cannot live under the parent %s of type %q",
+				plan.NodeType,
+				parentID,
+				parentType.TypeKey,
+			),
+			domain.ErrInvalidArgument,
+		)
+	}
+
+	return nil
 }
 
 // readResultGraph reads the stored node for each checked UUID reference
