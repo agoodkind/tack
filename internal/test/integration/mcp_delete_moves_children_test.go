@@ -74,8 +74,8 @@ func TestDeleteCycleMovesItsIssueToTheProject(t *testing.T) {
 		)
 	}
 
-	if got := stringPropOf(view, "parent_id"); got != projectID {
-		t.Errorf("parent_id of the moved issue = %q, want the project %s", got, projectID)
+	if _, exists := view.Props["parent_id"]; exists {
+		t.Errorf("moved issue %s stores parent_id", issueID)
 	}
 
 	parents, err := stores.Relationships.ListBySource(

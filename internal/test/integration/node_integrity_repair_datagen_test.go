@@ -36,8 +36,8 @@ type datagenRepairResult struct {
 // organization other than the test organization, with every entry applied
 // and every entry unchanged after the second execution. It requires the
 // preview to include every repair class and each remaining node to belong
-// to the datagen organization with exactly one child_of edge to its
-// parent_id. It requires the repair to delete one node and the repair
+// to the datagen organization with exactly one child_of edge to an existing
+// parent. It requires the repair to delete one node and the repair
 // directory to contain one export file.
 func TestNodeIntegrityRepairDatagenProvesEveryClass(t *testing.T) {
 	env := integration.SetupTestEnv(t)
@@ -106,18 +106,25 @@ func TestNodeIntegrityRepairDatagenProvesEveryClass(t *testing.T) {
 			entry.NodeID,
 			node.RelChildOf,
 		)
-		parentID := propText(t, view.Props, "parent_id")
-		if err != nil || view.OrgID != result.OrgID || len(
-			edges,
-		) != 1 || edges[0].TargetID.String() != parentID {
+		_, parentProperty := view.Props["parent_id"]
+		if err != nil || view.OrgID != result.OrgID || len(edges) != 1 || parentProperty {
 			t.Fatalf(
-				"node %s in organization %s has parent_id %s and child_of edges %+v, %v, want one edge to its parent in %s",
+				"node %s in organization %s has child_of edges %+v, %v, want one edge without parent_id in %s",
 				entry.NodeID,
 				view.OrgID,
-				parentID,
 				edges,
 				err,
 				result.OrgID,
+			)
+		}
+		parent, err := env.Stores.Views.Get(env.Ctx, edges[0].TargetID)
+		if err != nil || parent == nil || parent.OrgID != result.OrgID {
+			t.Fatalf(
+				"read repaired parent %s in organization %s: %+v, %v",
+				edges[0].TargetID,
+				result.OrgID,
+				parent,
+				err,
 			)
 		}
 	}

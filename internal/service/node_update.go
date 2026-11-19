@@ -75,7 +75,7 @@ func (s *NodeService) Update(ctx context.Context, in UpdateInput) (*node.NodeVie
 		return nil, err
 	}
 
-	merged := mergedUpdateProps(source.Props, props, parent.Change)
+	merged := mergedUpdateProps(source.Props, props)
 	// An update can change a value that a reference renders from, such as the
 	// scope pointer or numbered property. Update renders reference keys from
 	// the merged properties and claims them. The store refuses a move to a
@@ -110,7 +110,7 @@ func (s *NodeService) Update(ctx context.Context, in UpdateInput) (*node.NodeVie
 			Incoming:      nil,
 		},
 		Name:          in.Name,
-		Props:         propsWithoutParent(props),
+		Props:         props,
 		Parent:        parent.Change,
 		ReferenceKeys: referenceKeys,
 		Relationships: stampRelationshipChanges(otherChanges, in.ActorID, clock.Now().UTC()),
@@ -129,16 +129,4 @@ func (s *NodeService) Update(ctx context.Context, in UpdateInput) (*node.NodeVie
 	}
 
 	return s.committedView(ctx, in.NodeID)
-}
-
-// propsWithoutParent removes the internal parent property from a plan patch.
-func propsWithoutParent(props map[string]json.RawMessage) map[string]json.RawMessage {
-	patch := make(map[string]json.RawMessage, len(props))
-	for name, value := range props {
-		if name != propertyParentID {
-			patch[name] = value
-		}
-	}
-
-	return patch
 }

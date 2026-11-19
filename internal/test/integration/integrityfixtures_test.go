@@ -106,7 +106,8 @@ func stringProperty(t *testing.T, view *node.NodeView, name string) string {
 	return value
 }
 
-// requireParents checks the stored parent and all child_of targets.
+// requireParents checks that primary and view properties omit parent_id and
+// child_of edges target exactly the IDs in targets.
 func requireParents(
 	t *testing.T,
 	stores *fdbadapter.Stores,
@@ -121,10 +122,8 @@ func requireParents(
 	}
 
 	for _, props := range []map[string]json.RawMessage{primary.Props, view.Props} {
-		var parentID string
-		if err := json.Unmarshal(props["parent_id"], &parentID); err != nil ||
-			parentID != targets[0] {
-			t.Errorf("node %s stores parent %q, want %s: %v", nodeID, parentID, targets[0], err)
+		if _, exists := props["parent_id"]; exists {
+			t.Errorf("node %s stores parent_id", nodeID)
 		}
 	}
 

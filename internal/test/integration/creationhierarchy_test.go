@@ -5,17 +5,18 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+	"goodkind.io/tack/internal/domain/node"
 	"goodkind.io/tack/internal/service"
 )
 
-// TestCreateEpicAndIssueInProject covers the scope_id / parent_id split
+// TestCreateEpicAndIssueInProject covers the scope and parent relationship
 // from TACK-164. An issue created under an epic must:
-//   - be parented to the epic via Props["parent_id"]
+//   - have one child_of edge to the epic
 //   - be scoped to the project via Props["scope_id"]
 //   - allocate its sequence under the project, not under the epic
 //
 // Every work-item type in the project shares one numbering space. The epics
-// take 1 and 2, so the issues must receive 3 and 4.
+// receive 1 and 2. The issues must receive 3 and 4.
 func TestCreateEpicAndIssueInProject(t *testing.T) {
 	env := SetupTestEnv(t)
 	actor := uuid.New()
@@ -70,8 +71,18 @@ func TestCreateEpicAndIssueInProject(t *testing.T) {
 		},
 	)
 
-	if got := stringPropOf(issue1, "parent_id"); got != epicA.ID.String() {
-		t.Errorf("issue1 parent_id: got %q want %q", got, epicA.ID.String())
+	parents, err := env.Stores.Relationships.ListBySource(
+		env.Ctx,
+		env.OrgID,
+		issue1.ID,
+		node.RelChildOf,
+	)
+	if err != nil || len(parents) != 1 || parents[0].TargetID != epicA.ID {
+		t.Errorf("issue1 parent edges = %v, %v, want %s", parents, err, epicA.ID)
+	}
+
+	if _, exists := issue1.Props["parent_id"]; exists {
+		t.Errorf("issue %s stores parent_id", issue1.ID)
 	}
 
 	if got := stringPropOf(issue1, "scope_id"); got != proj.ID.String() {
