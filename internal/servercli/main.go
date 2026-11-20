@@ -7,8 +7,10 @@ package servercli
 import (
 	"context"
 	"errors"
+	"io"
 	"log/slog"
 	"os"
+	"strings"
 
 	"github.com/google/uuid"
 
@@ -41,8 +43,15 @@ func Run() int {
 	requestID := uuid.NewString()
 	factory := cli.System(cfg)
 	root := buildRoot(factory)
-	logs := processLogFiles(cfg, root, os.Args[1:], requestID)
-	closer, err := telemetry.Setup(telemetry.LogConfig{
+	target, _, findErr := root.Find(os.Args[1:])
+	server := findErr == nil && (target == root || target.Name() == serveCommandName)
+	commandName := root.Name()
+	if findErr == nil {
+		commandName = strings.TrimPrefix(target.CommandPath(), root.Name()+" ")
+	}
+
+	logs := processLogFiles(cfg, server, commandName, requestID)
+	logConfig := telemetry.LogConfig{
 		Level:         cfg.LogLevel,
 		JSONFile:      logs.JSONFile,
 		TextFile:      logs.TextFile,
@@ -52,7 +61,15 @@ func Run() int {
 		MaxAgeDays:    cfg.LogMaxAgeDays,
 		OTELEndpoint:  cfg.OTELEndpoint,
 		Env:           cfg.Env,
-	})
+	}
+
+	var closer io.Closer
+	if server {
+		closer, err = telemetry.SetupServer(logConfig, cfg.PyroscopeAddress, cfg.MetricEndpoint)
+	} else {
+		closer, err = telemetry.Setup(logConfig)
+	}
+
 	if err != nil {
 		slog.Error("telemetry.setup", "err", err)
 
@@ -70,7 +87,6 @@ func Run() int {
 		slog.String("commit", version.Commit()),
 	)
 
-	target, _, findErr := root.Find(os.Args[1:])
 	if findErr != nil || target.CommandPath() != "tack ops audit seed-roles" {
 		configureAuditOutbox(factory)
 	}

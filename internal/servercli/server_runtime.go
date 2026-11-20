@@ -11,6 +11,8 @@ import (
 	"syscall"
 	"time"
 
+	"go.opentelemetry.io/otel"
+
 	"goodkind.io/tack/internal/config"
 	appruntime "goodkind.io/tack/internal/runtime"
 	"goodkind.io/tack/internal/telemetry"
@@ -35,7 +37,13 @@ func runServer(ctx context.Context, cfg *config.Config) error {
 	graph.StartAuditReadRecovery(ctx)
 	defer func() { _ = graph.CloseContext(context.WithoutCancel(ctx)) }()
 
-	mux := graph.Routes
+	handler, err := telemetry.RequestMetrics(
+		otel.GetMeterProvider(),
+		telemetry.RequestPathCounter(graph.Routes),
+	)
+	if err != nil {
+		return fmt.Errorf("server: initialize request metrics: %w", err)
+	}
 
 	addr := fmt.Sprintf(":%d", cfg.Port)
 	slog.InfoContext(
@@ -59,7 +67,7 @@ func runServer(ctx context.Context, cfg *config.Config) error {
 	// the supported replacement for the deprecated x/net/http2/h2c handler.
 	srv := &http.Server{
 		Addr:              addr,
-		Handler:           telemetry.RequestLogger(telemetry.RequestPathCounter(mux)),
+		Handler:           telemetry.RequestLogger(handler),
 		ReadHeaderTimeout: serverTimeout,
 	}
 	protocols := new(http.Protocols)
