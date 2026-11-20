@@ -104,9 +104,9 @@ func (c referenceMatchContext) candidateViews(
 			)
 		}
 
-		query.ByProperty = &node.PropertyMatch{
-			PropName: repairParentProperty,
-			Value:    service.MustRawString(c.scopeID.String()),
+		query.ByTargetRelation = &node.RelationScan{
+			NodeID:       c.scopeID,
+			RelationType: node.RelChildOf,
 		}
 	default:
 		return nil, loggedRepairError(

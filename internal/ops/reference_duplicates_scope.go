@@ -6,6 +6,7 @@ import (
 	"log/slog"
 
 	"github.com/google/uuid"
+	"goodkind.io/tack/internal/domain"
 	"goodkind.io/tack/internal/domain/node"
 )
 
@@ -22,7 +23,14 @@ func scopeReferencesForView(
 ) (map[string]string, error) {
 	startID := rawUUIDProp(view.Props, "scope_id")
 	if startID == uuid.Nil {
-		startID = rawUUIDProp(view.Props, "parent_id")
+		parent, err := repairParentView(ctx, env.Stores.Views, orgID, view.ID)
+		if err != nil {
+			return nil, err
+		}
+
+		if parent != nil {
+			startID = parent.ID
+		}
 	}
 
 	if cached, ok := cache[startID]; ok {
@@ -51,24 +59,26 @@ func scopeReferencesForView(
 			break
 		}
 
-		ancestorType := typeIndex[ancestor.NodeType]
-		if ancestorType != nil {
-			propertyName := ancestorType.Reference.DirectAddressProperty()
-			reference := stringProp(ancestor.Props, propertyName)
-			if propertyName != "" && reference != "" {
-				for _, feature := range ancestorType.Features {
-					if references[feature] == "" {
-						references[feature] = reference
-					}
-				}
-			}
+		addAncestorReferences(references, typeIndex[ancestor.NodeType], ancestor)
+
+		parent, err := repairParentView(ctx, env.Stores.Views, orgID, ancestor.ID)
+		if err != nil {
+			return nil, err
 		}
 
-		currentID = rawUUIDView(ancestor, "parent_id")
+		currentID = uuid.Nil
+		if parent != nil {
+			currentID = parent.ID
+		}
 	}
 
 	if currentID != uuid.Nil {
-		err := fmt.Errorf("scope walk from %s exceeded %d ancestors", view.ID, maxRepairParentDepth)
+		err := fmt.Errorf(
+			"scope walk from %s exceeded %d ancestors: %w",
+			view.ID,
+			maxRepairParentDepth,
+			domain.ErrFailedPrecondition,
+		)
 		env.Log.WarnContext(
 			ctx,
 			"reference.duplicates.scope_depth_exceeded",
@@ -82,4 +92,26 @@ func scopeReferencesForView(
 	cache[startID] = references
 
 	return references, nil
+}
+
+func addAncestorReferences(
+	references map[string]string,
+	ancestorType *node.NodeType,
+	ancestor *node.NodeView,
+) {
+	if ancestorType == nil {
+		return
+	}
+
+	propertyName := ancestorType.Reference.DirectAddressProperty()
+	reference := stringProp(ancestor.Props, propertyName)
+	if propertyName == "" || reference == "" {
+		return
+	}
+
+	for _, feature := range ancestorType.Features {
+		if references[feature] == "" {
+			references[feature] = reference
+		}
+	}
 }

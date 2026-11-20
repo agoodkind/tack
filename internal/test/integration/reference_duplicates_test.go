@@ -104,9 +104,8 @@ func mustCreateLegacyReference(
 	t.Helper()
 	now := clock.Now().UTC()
 	props := map[string]json.RawMessage{
-		"parent_id": jsonStr(projectID.String()),
-		"scope_id":  jsonStr(projectID.String()),
-		"sequence":  jsonNumber(1),
+		"scope_id": jsonStr(projectID.String()),
+		"sequence": jsonNumber(1),
 	}
 	current := &node.Node{
 		ID:        uuid.New(),
@@ -130,8 +129,16 @@ func mustCreateLegacyReference(
 		env.Ctx,
 		current,
 		view,
-		nil,
-		[]string{"parent_id", "scope_id", "sequence"},
+		[]*node.Relationship{
+			{
+				OrgID:        env.OrgID,
+				SourceID:     current.ID,
+				RelationType: node.RelChildOf,
+				TargetID:     projectID,
+				CreatedAt:    now,
+			},
+		},
+		[]string{"scope_id", "sequence"},
 		nil,
 		nil,
 	); err != nil {
