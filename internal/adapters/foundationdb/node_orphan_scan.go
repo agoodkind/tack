@@ -3,7 +3,7 @@ package foundationdb
 import (
 	"context"
 	"encoding/base64"
-	"encoding/json"
+	"fmt"
 
 	"github.com/apple/foundationdb/bindings/go/src/fdb"
 	"github.com/apple/foundationdb/bindings/go/src/fdb/tuple"
@@ -24,9 +24,7 @@ type OrphanNode struct {
 	NodeType string    `json:"node_type"`
 }
 
-// ParentEdge identifies one child_of edge from NodeID to TargetID that does
-// not target the node's parent_id, on a node that also has a child_of edge
-// to its parent_id.
+// ParentEdge identifies a child_of edge that an operator selected for repair.
 type ParentEdge struct {
 	NodeID   uuid.UUID `json:"node_id"`
 	OrgID    uuid.UUID `json:"org_id"`
@@ -45,15 +43,13 @@ type OrphanPage struct {
 
 // orphanCandidate is one scanned node of a type that requires a parent.
 type orphanCandidate struct {
-	node     OrphanNode
-	parentID uuid.UUID
+	node OrphanNode
 }
 
 // ScanOrphans reads one page of node resolution records of every
 // organization after cursor. It returns the nodes without a hierarchy parent
-// and the child_of edges that do not target the parent_id of a node with a
-// hierarchy parent. One read transaction reads the page, the node types, and
-// the parent_id of each node. Each candidate then reads its child_of edges in
+// and refuses ambiguous parents. One read transaction reads the page and
+// the node types. Each candidate then reads its child_of edges in
 // bounded pages, one read transaction per page.
 func (s *NodeDeleteStore) ScanOrphans(
 	ctx context.Context,
@@ -90,18 +86,23 @@ func (s *NodeDeleteStore) ScanOrphans(
 			continue
 		}
 
-		page.ExtraParentEdges = append(
-			page.ExtraParentEdges,
-			extraParentEdges(candidate, targets)...,
-		)
+		if len(targets) > 1 {
+			return empty, nodeOperationFailure(
+				ctx,
+				"scan parent of node "+candidate.node.ID.String(),
+				fmt.Errorf(
+					"multiple child_of targets require an explicit parent selection: %w",
+					node.ErrNoHierarchyParent,
+				),
+			)
+		}
 	}
 
 	return page, nil
 }
 
 // readOrphanCandidates reads up to orphanScanPageSize resolution records
-// after cursor and returns the nodes of a type that lists CanLiveUnder types,
-// with the parent_id of each.
+// after cursor and returns the nodes of a type that lists CanLiveUnder types.
 func readOrphanCandidates(
 	ctx context.Context,
 	tr fdb.Transaction,
@@ -160,56 +161,5 @@ func readOrphanCandidates(
 		}
 	}
 
-	return page, candidates, readCandidateParentIDs(ctx, tr, candidates)
-}
-
-// decodeOrphanCandidate decodes one resolution record and reads its node
-// type. It reports whether the type lists CanLiveUnder types.
-func decodeOrphanCandidate(
-	ctx context.Context,
-	tr fdb.Transaction,
-	item fdb.KeyValue,
-	kindsByOrg map[uuid.UUID]map[string]*node.NodeType,
-) (orphanCandidate, bool, error) {
-	none := orphanCandidate{
-		node:     OrphanNode{ID: uuid.Nil, OrgID: uuid.Nil, NodeType: ""},
-		parentID: uuid.Nil,
-	}
-	nodeID, err := lastTupleID(ctx, item.Key)
-	if err != nil {
-		return none, false, err
-	}
-
-	var resolved node.NodeResolve
-	if err := json.Unmarshal(item.Value, &resolved); err != nil {
-		return none, false, nodeOperationFailure(
-			ctx,
-			"decode node resolution "+nodeID.String(),
-			err,
-		)
-	}
-
-	if kindsByOrg[resolved.OrgID] == nil {
-		kindsByOrg[resolved.OrgID] = make(map[string]*node.NodeType)
-	}
-
-	kind, err := cachedNodeTypeByKey(
-		ctx,
-		tr,
-		resolved.OrgID,
-		resolved.NodeType,
-		kindsByOrg[resolved.OrgID],
-	)
-	if err != nil || kind == nil || len(kind.CanLiveUnder) == 0 {
-		return none, false, err
-	}
-
-	return orphanCandidate{
-		node: OrphanNode{
-			ID:       nodeID,
-			OrgID:    resolved.OrgID,
-			NodeType: resolved.NodeType,
-		},
-		parentID: uuid.Nil,
-	}, true, nil
+	return page, candidates, nil
 }

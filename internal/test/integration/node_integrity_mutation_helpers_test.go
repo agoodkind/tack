@@ -85,7 +85,7 @@ func movePlan(
 }
 
 // parentChain returns the graph record of parentID and each ancestor along
-// the stored parent_id chain.
+// the stored child_of chain.
 func parentChain(t *testing.T, env *integration.TestEnv, parentID uuid.UUID) []node.GraphRecord {
 	t.Helper()
 	records := []node.GraphRecord{}
@@ -144,15 +144,18 @@ func deletionPlan(snapshot node.MutationSnapshot) node.DeletionPlan {
 	}
 }
 
-// moveUpdate returns the service update that sets parent_id of nodeID to
-// parentID.
+// moveUpdate returns the service update that parents nodeID under parentID.
 func moveUpdate(nodeID, parentID uuid.UUID) service.UpdateInput {
 	return service.UpdateInput{
-		NodeID:              nodeID,
-		Name:                nil,
-		Props:               schemaProps("parent_id", quoted(parentID.String())),
-		RelationshipChanges: node.RelationshipChanges{Add: nil, Remove: nil},
-		ActorID:             uuid.New(),
+		NodeID: nodeID,
+		Name:   nil,
+		Props:  nil,
+		RelationshipChanges: node.RelationshipChanges{
+			Add: []*node.Relationship{
+				{SourceID: nodeID, RelationType: node.RelChildOf, TargetID: parentID},
+			},
+		},
+		ActorID: uuid.New(),
 	}
 }
 

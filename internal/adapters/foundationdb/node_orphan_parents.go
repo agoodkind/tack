@@ -2,66 +2,11 @@ package foundationdb
 
 import (
 	"context"
-	"encoding/json"
 
 	"github.com/apple/foundationdb/bindings/go/src/fdb"
 	"github.com/google/uuid"
 	"goodkind.io/tack/internal/domain/node"
 )
-
-// readCandidateParentIDs reads the node record of each candidate inside tr
-// and sets the candidate's parentID from its parent_id property. It issues
-// every read before it waits on any of them. A missing or unparsable
-// parent_id leaves candidate.parentID at [uuid.Nil].
-func readCandidateParentIDs(
-	ctx context.Context,
-	tr fdb.Transaction,
-	candidates []orphanCandidate,
-) error {
-	futures := make([]fdb.FutureByteSlice, 0, len(candidates))
-	for _, candidate := range candidates {
-		futures = append(
-			futures,
-			tr.Get(
-				fdb.Key(
-					nodeInstanceKey(
-						candidate.node.OrgID,
-						candidate.node.NodeType,
-						candidate.node.ID,
-					),
-				),
-			),
-		)
-	}
-
-	for position, future := range futures {
-		candidate := &candidates[position]
-		encoded, err := future.Get()
-		if err != nil {
-			return searchReadFailure(ctx, "read node "+candidate.node.ID.String(), err)
-		}
-
-		if len(encoded) == 0 {
-			continue
-		}
-
-		var current node.Node
-		if err := json.Unmarshal(encoded, &current); err != nil {
-			return nodeOperationFailure(ctx, "decode node "+candidate.node.ID.String(), err)
-		}
-
-		var parentText string
-		if err := json.Unmarshal(current.Props[parentIDProperty], &parentText); err != nil {
-			continue
-		}
-
-		if parentID, err := uuid.Parse(parentText); err == nil {
-			candidate.parentID = parentID
-		}
-	}
-
-	return nil
-}
 
 // readParentEdges reads the child_of edges from the candidate in pages of
 // maxDeleteEdgePage edges, one read transaction per page. It returns the
@@ -139,9 +84,8 @@ func (s *NodeDeleteStore) readParentEdges(
 
 // pageParentTargets returns every child_of target in items, including
 // additional parent targets. pageParentTargets reports whether any target is
-// an existing node other than the candidate. The caller passes every target
-// to extraParentEdges, which reports edges that do not target the candidate's
-// parent_id.
+// an existing node other than the candidate. It does not select one parent
+// from several valid targets.
 func pageParentTargets(
 	ctx context.Context,
 	tr fdb.Transaction,
@@ -176,37 +120,4 @@ func pageParentTargets(
 	}
 
 	return targetIDs, false, nil
-}
-
-// extraParentEdges returns the child_of edges of the candidate that do not
-// target its parent_id. A candidate without a child_of edge to its parent_id
-// returns none, and its edges stay: the scan keeps its only parent edges.
-func extraParentEdges(candidate orphanCandidate, targets []uuid.UUID) []ParentEdge {
-	hasParentEdge := false
-
-	for _, target := range targets {
-		if target == candidate.parentID {
-			hasParentEdge = true
-		}
-	}
-
-	if candidate.parentID == uuid.Nil || !hasParentEdge {
-		return nil
-	}
-
-	extra := make([]ParentEdge, 0, len(targets))
-	for _, target := range targets {
-		if target != candidate.parentID {
-			extra = append(
-				extra,
-				ParentEdge{
-					NodeID:   candidate.node.ID,
-					OrgID:    candidate.node.OrgID,
-					TargetID: target,
-				},
-			)
-		}
-	}
-
-	return extra
 }
