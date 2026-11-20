@@ -2,7 +2,6 @@ package tools
 
 import (
 	"context"
-	"encoding/json"
 
 	"github.com/google/uuid"
 	mcpmcp "github.com/mark3labs/mcp-go/v2/mcp"
@@ -22,24 +21,6 @@ type routeTarget struct {
 // hasAlternativeParent reports whether Parent and Scope have different IDs.
 func (target routeTarget) hasAlternativeParent() bool {
 	return target.Parent.ID != target.Scope.ID
-}
-
-// refuseParentProperty returns a recoverable error when props contains parent_id
-// and Parent and Scope have different IDs.
-func (target routeTarget) refuseParentProperty(
-	props map[string]json.RawMessage,
-) *mcpmcp.CallToolResult {
-	if !target.hasAlternativeParent() {
-		return nil
-	}
-
-	if _, present := props["parent_id"]; !present {
-		return nil
-	}
-
-	return recoverableError(
-		"Specify the parent with exactly one of " + target.ParentParam + " or properties.parent_id.",
-	)
 }
 
 // createParentID returns Parent.ID when Parent and Scope have different IDs.

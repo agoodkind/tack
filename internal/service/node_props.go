@@ -22,8 +22,7 @@ func (s *NodeService) validateCreateProps(
 }
 
 // validateUpdateProps refuses caller values for scope_id and sequence and
-// checks the declared names of the set properties. A parent_id value stays
-// allowed because Update turns it into a parent change.
+// checks the declared property names.
 func (s *NodeService) validateUpdateProps(
 	ctx context.Context,
 	orgID uuid.UUID,
@@ -31,7 +30,7 @@ func (s *NodeService) validateUpdateProps(
 	props map[string]json.RawMessage,
 	currentProps map[string]json.RawMessage,
 ) error {
-	if err := refuseManagedProps(ctx, nt, "update", props, "parent_id"); err != nil {
+	if err := refuseManagedProps(ctx, nt, "update", props); err != nil {
 		return err
 	}
 
@@ -49,8 +48,7 @@ func (s *NodeService) validateUpdateProps(
 
 // refuseManagedProps returns an error that wraps domain.ErrInvalidArgument
 // when props contains a property that node.IsManagedProperty reports, other
-// than the names in allowed. The node service writes those properties
-// itself.
+// than the names in allowed. The node service writes those properties itself.
 func refuseManagedProps(
 	ctx context.Context,
 	nt *node.NodeType,
@@ -133,9 +131,8 @@ func ValidateNodeProps(
 	return loggedPropertyCheckError(ctx, nt, operation, refused)
 }
 
-// undeclaredPropNames returns quoted property names that interpretation
-// reports as undeclared or not applicable. It omits property names that the
-// service accepts for every node type.
+// undeclaredPropNames returns quoted names for undeclared or inapplicable
+// properties. It skips managed properties that apply to every node type.
 func undeclaredPropNames(result node.PropertyResult) []string {
 	names := make([]string, 0, len(result.Invalid))
 	for _, issue := range result.Invalid {

@@ -47,15 +47,6 @@ func normalizePropertyCommandReferences(
 		) (uuid.UUID, error) {
 			return resolveReferenceProp(ctx, binding.Resolver, orgID, scopeID, targetType, ref)
 		},
-		func(
-			ctx context.Context,
-			childType *node.NodeType,
-			orgID uuid.UUID,
-			scopeID uuid.UUID,
-			ref string,
-		) (uuid.UUID, error) {
-			return resolveParentReference(ctx, binding, childType, orgID, scopeID, ref)
-		},
 	)
 	if err != nil {
 		return nil, loggedNormalizeError(ctx, nodeType, "filter", err)

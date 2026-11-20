@@ -1,7 +1,6 @@
 package integration_test
 
 import (
-	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -44,6 +43,7 @@ func TestParentEdgeUpdateRefusesCyclicAncestry(t *testing.T) {
 
 	for source, target := range map[uuid.UUID]uuid.UUID{first: second, second: first} {
 		storeLegacyParentFixture(t, env, source, project, true)
+
 		edge := &node.Relationship{
 			OrgID:        env.OrgID,
 			SourceID:     source,
@@ -59,8 +59,16 @@ func TestParentEdgeUpdateRefusesCyclicAncestry(t *testing.T) {
 		env.Ctx,
 		service.UpdateInput{
 			NodeID:  moved,
-			Props:   map[string]json.RawMessage{"parent_id": parentEdgeJSON(t, first.String())},
 			ActorID: actor,
+			RelationshipChanges: node.RelationshipChanges{
+				Add: []*node.Relationship{
+					{
+						SourceID:     moved,
+						RelationType: node.RelChildOf,
+						TargetID:     first,
+					},
+				},
+			},
 		},
 	)
 	if !errors.Is(err, domain.ErrInvalidArgument) ||
@@ -75,6 +83,7 @@ func TestParentEdgeUpdateRefusesCyclicAncestry(t *testing.T) {
 	}
 
 	requireSingleParentEdge(t, env, moved, project)
+
 	view, err := env.Stores.Views.Get(env.Ctx, moved)
 	if err != nil || view == nil ||
 		string(view.Props["parent_id"]) != string(parentEdgeJSON(t, project.String())) {
@@ -93,6 +102,7 @@ func TestParentEdgeUpdateRefusesCyclicAncestry(t *testing.T) {
 // It does not change child_of edges.
 func storeParentID(t *testing.T, env *integration.TestEnv, nodeID uuid.UUID, parentValue string) {
 	t.Helper()
+
 	current, err := env.Stores.Nodes.Get(env.Ctx, env.OrgID, nodeID)
 	if err != nil || current == nil {
 		t.Fatalf("read node %s: %v", nodeID, err)
@@ -104,6 +114,7 @@ func storeParentID(t *testing.T, env *integration.TestEnv, nodeID uuid.UUID, par
 	}
 
 	value := parentEdgeJSON(t, parentValue)
+
 	current.Props["parent_id"], view.Props["parent_id"] = value, value
 	if err := env.Stores.Nodes.Set(env.Ctx, current, view); err != nil {
 		t.Fatalf("store parent_id %q on node %s: %v", parentValue, nodeID, err)
