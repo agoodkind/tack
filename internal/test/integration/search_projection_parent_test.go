@@ -54,7 +54,6 @@ func TestSearchProjectionOmitsParentReference(t *testing.T) {
 	parentID := putHierarchyNode(t, env, orgID, "project", "Reference project", nil, workspaceID)
 	referencedID := uuid.Must(uuid.NewV7())
 	props := map[string]json.RawMessage{
-		"parent_id":   json.RawMessage(strconv.Quote(parentID.String())),
 		"scope_id":    json.RawMessage(strconv.Quote(parentID.String())),
 		referenceName: json.RawMessage(strconv.Quote(referencedID.String())),
 		"group":       json.RawMessage(`"started"`),
