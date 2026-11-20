@@ -1,7 +1,6 @@
 package integration
 
 import (
-	"maps"
 	"testing"
 	"time"
 
@@ -12,7 +11,7 @@ import (
 	"goodkind.io/tack/internal/testenv"
 )
 
-func TestDefaultChildrenBackfillUsesRelationshipsAndKeepsParentWrites(t *testing.T) {
+func TestDefaultChildrenBackfillUsesRelationships(t *testing.T) {
 	environment := SetupTestEnv(t)
 	registerOpsOrg(t, environment)
 	actor := uuid.New()
@@ -37,26 +36,6 @@ func TestDefaultChildrenBackfillUsesRelationshipsAndKeepsParentWrites(t *testing
 	}
 
 	originalCount := len(children)
-	existing := children[0]
-	current, err := environment.Stores.Nodes.Get(environment.Ctx, environment.OrgID, existing.ID)
-	if err != nil || current == nil {
-		t.Fatalf("read default state %s: %v", existing.ID, err)
-	}
-
-	previous := maps.Clone(current.Props)
-	delete(current.Props, "parent_id")
-	existing.Props = maps.Clone(current.Props)
-	if err := environment.Stores.Nodes.UpdateAtomic(
-		environment.Ctx,
-		current,
-		existing,
-		previous,
-		[]string{"parent_id"},
-		nil,
-	); err != nil {
-		t.Fatalf("remove the existing state's parent property: %v", err)
-	}
-
 	types, err := environment.Stores.NodeTypes.List(environment.Ctx, environment.OrgID)
 	if err != nil {
 		t.Fatalf("list node types: %v", err)
@@ -112,12 +91,34 @@ func TestDefaultChildrenBackfillUsesRelationshipsAndKeepsParentWrites(t *testing
 		t.Fatalf("read the legacy parent index: %v", err)
 	}
 
-	for _, child := range indexed {
-		if child.Name == missingName &&
-			string(child.Props["parent_id"]) == string(jsonStr(project.ID.String())) {
-			return
-		}
+	if len(indexed) != 0 {
+		t.Fatalf("found %d states in the legacy parent index", len(indexed))
 	}
 
-	t.Fatal("the new default child does not have its parent property and index")
+	for _, child := range children {
+		if child.Name != missingName {
+			continue
+		}
+
+		current, err := environment.Stores.Nodes.Get(environment.Ctx, environment.OrgID, child.ID)
+		if err != nil || current == nil {
+			t.Fatalf("read backfilled state %s: %v", child.ID, err)
+		}
+
+		if _, ok := current.Props["parent_id"]; ok {
+			t.Fatal("the backfill wrote parent_id to the state")
+		}
+
+		if _, ok := child.Props["parent_id"]; ok {
+			t.Fatal("the backfill wrote parent_id to the view")
+		}
+
+		if string(current.Props["scope_id"]) != string(jsonStr(project.ID.String())) {
+			t.Fatalf("backfilled state %s has scope %s", child.ID, current.Props["scope_id"])
+		}
+
+		return
+	}
+
+	t.Fatalf("the backfill did not create state %q", missingName)
 }

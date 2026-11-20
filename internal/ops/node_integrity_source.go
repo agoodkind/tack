@@ -16,9 +16,7 @@ import (
 	fdbadapter "goodkind.io/tack/internal/adapters/foundationdb"
 )
 
-const repairParentProperty = "parent_id"
-
-// RepairEvidenceReader reads a repair's source state within one transaction.
+// RepairEvidenceReader reads a repair's source state within a single transaction.
 type RepairEvidenceReader interface {
 	RepairEvidence(
 		ctx context.Context,

@@ -60,7 +60,6 @@ func (s *NodeService) copyCreateProps(
 ) (map[string]json.RawMessage, error) {
 	props := make(map[string]json.RawMessage, len(in.Props)+2)
 	maps.Copy(props, in.Props)
-	stampUUIDCreateProp(props, "parent_id", in.ParentID)
 	stampUUIDCreateProp(props, "scope_id", in.ScopeID)
 	if err := s.allocateCreateSequence(ctx, log, orgID, nt, in.ScopeID, props); err != nil {
 		return nil, err

@@ -39,7 +39,7 @@ func (runner repairPhaseRunner) resultPhase(ctx context.Context, run repairPhase
 		run.entry,
 		schema,
 		run.entry.NodeType,
-		repairResultProps(snapshot.Node.Props, plan.Props, plan.Parent),
+		repairResultProps(snapshot.Node.Props, plan.Props),
 		resultChildOf(snapshot, plan.Parent),
 	)
 	if err != nil {

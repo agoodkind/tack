@@ -1,6 +1,7 @@
 package integration_test
 
 import (
+	"encoding/json"
 	"errors"
 	"testing"
 
@@ -13,9 +14,8 @@ import (
 // TestNodeIntegrityMutationParentDeletedBeforeMove prepares a plan that moves
 // issue A from its epic under issue B. NodeService.Delete deletes B before
 // the plan commits. The plan must then fail with domain.ErrConflict or
-// domain.ErrInvalidArgument. A must keep its primary record, parent_id equal
-// to the epic, and exactly one child_of edge to the epic. B must not exist,
-// and no issue parent_id or child_of edge may point at B.
+// domain.ErrInvalidArgument. A must keep its primary record and exactly one
+// child_of edge to the epic. B must not exist or have incoming child_of edges.
 func TestNodeIntegrityMutationParentDeletedBeforeMove(t *testing.T) {
 	env := integration.SetupTestEnv(t)
 	projectID := createSchemaProject(t, env)
@@ -47,9 +47,8 @@ func TestNodeIntegrityMutationParentDeletedBeforeMove(t *testing.T) {
 // TestNodeIntegrityMutationParentDeletedAfterMove commits a plan that moves
 // issue A from its epic under issue B. NodeService.DeleteSubtree then deletes
 // B. The issue NodeType lists the project type in CanLiveUnder. The delete
-// must move A to the project and delete only B. A must store parent_id equal
-// to the project and exactly one child_of edge to the project. B must not
-// exist, and no issue parent_id or child_of edge may point at B.
+// must move A to the project and delete only B. A must have exactly one
+// child_of edge to the project. B must not exist or have incoming child_of edges.
 func TestNodeIntegrityMutationParentDeletedAfterMove(t *testing.T) {
 	env := integration.SetupTestEnv(t)
 	projectID := createSchemaProject(t, env)
@@ -84,9 +83,8 @@ func TestNodeIntegrityMutationParentDeletedAfterMove(t *testing.T) {
 	requireDeletedParent(t, env, target.ID)
 }
 
-// requireStoredParent fails unless nodeID exists with parent_id equal to
-// parentID in its primary record and its view, parentID resolves, and nodeID
-// has exactly one child_of edge, which targets parentID.
+// requireStoredParent checks primary and view records without parent_id,
+// parent resolution, and exactly one child_of edge to parentID.
 func requireStoredParent(t *testing.T, env *integration.TestEnv, nodeID, parentID uuid.UUID) {
 	t.Helper()
 	snapshot, _ := mutationSnapshot(t, env, nodeID)
@@ -101,9 +99,14 @@ func requireStoredParent(t *testing.T, env *integration.TestEnv, nodeID, parentI
 	}
 
 	view, err := env.Stores.Views.Get(env.Ctx, nodeID)
-	if err != nil || view == nil ||
-		string(view.Props["parent_id"]) != string(quoted(parentID.String())) {
-		t.Fatalf("view of node %s = %+v, err %v, want parent_id %s", nodeID, view, err, parentID)
+	if err != nil || view == nil {
+		t.Fatalf("read view of node %s: %v", nodeID, err)
+	}
+
+	for _, props := range []map[string]json.RawMessage{snapshot.Node.Props, view.Props} {
+		if _, exists := props["parent_id"]; exists {
+			t.Fatalf("node %s stores parent_id", nodeID)
+		}
 	}
 
 	if resolved, err := env.Stores.Views.Resolve(env.Ctx, parentID); err != nil || resolved == nil {
@@ -120,8 +123,7 @@ func requireStoredParent(t *testing.T, env *integration.TestEnv, nodeID, parentI
 }
 
 // requireDeletedParent fails if nodeID still has a primary record or a
-// NodeResolve record, or if an issue parent_id or a child_of edge targets
-// nodeID.
+// NodeResolve record, or if a child_of edge targets nodeID.
 func requireDeletedParent(t *testing.T, env *integration.TestEnv, nodeID uuid.UUID) {
 	t.Helper()
 	if snapshot, _ := mutationSnapshot(t, env, nodeID); snapshot.Exists {
@@ -134,22 +136,6 @@ func requireDeletedParent(t *testing.T, env *integration.TestEnv, nodeID uuid.UU
 			"node %s after the delete resolves to %+v, err %v, want not found",
 			nodeID,
 			resolved,
-			err,
-		)
-	}
-
-	children, err := env.Stores.Nodes.ListByProperty(
-		env.Ctx,
-		env.OrgID,
-		"issue",
-		"parent_id",
-		quoted(nodeID.String()),
-	)
-	if err != nil || len(children) != 0 {
-		t.Fatalf(
-			"issues with parent_id %s after the delete = %d, err %v, want none",
-			nodeID,
-			len(children),
 			err,
 		)
 	}
