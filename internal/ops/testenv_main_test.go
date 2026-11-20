@@ -12,7 +12,12 @@ import (
 // engines this binary started once every test has run; the binary exits with
 // the tests' result.
 func TestMain(m *testing.M) {
-	testenv.TrustMailpit(context.Background(), breakGlassMailTests)
+	mailTests := append(
+		breakGlassMailTests,
+		"TestBackupAlarmIncludesCheckOutput",
+		"TestBackupAlarmReportsFDBCommandFailure",
+	)
+	testenv.TrustMailpit(context.Background(), mailTests)
 	m.Run()
 	_ = testenv.Release(context.Background())
 }

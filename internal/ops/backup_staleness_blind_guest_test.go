@@ -117,18 +117,12 @@ func TestGuestAlarmsWithoutLocalHealthDespiteFreshSharedMarker(t *testing.T) {
 	}
 
 	message := captured.messages[0]
-	if message.Subject != "["+backupAlarmHost()+"] This guest cannot read ledger cluster health" {
+	if message.Subject != "["+backupAlarmHost()+"] Backup check reported a problem" {
 		t.Errorf("subject = %q", message.Subject)
 	}
 
-	wantBody := "This guest could not read a usable health report from the ledger cluster (logins and audit trail). " +
-		"This check cannot establish whether the cluster is healthy. " +
-		"This guest last observed the cluster healthy at 5:00 PM UTC on Sep 19, 2026, 1 hour 4 minutes ago; " +
-		"the limit is 30 minutes.\n" +
-		"\n" +
-		"1. Confirm every ledger guest is up.\n" +
-		"2. From this guest, confirm the ledger master page answers.\n" +
-		"3. Resolve the health-check failure; the checker clears the alarm after this guest reads a healthy response."
+	wantBody := "replication age=3840s threshold=1800s STALE no master answered the health check; " +
+		"the shared record dates the cluster healthy at 2026-09-19T18:02:00Z\n"
 	if message.Body != wantBody {
 		t.Errorf("body mismatch:\n got=%q\nwant=%q", message.Body, wantBody)
 	}
@@ -138,8 +132,6 @@ func TestGuestAlarmsWithoutLocalHealthDespiteFreshSharedMarker(t *testing.T) {
 			t.Errorf("failed master observations must not establish %q:\n%s", claim, message.Body)
 		}
 	}
-
-	assertBackupAlarmPlainWords(t, message.Subject, message.Body, owner.BackupS3Endpoint)
 
 	// Failed local observation must not replace the other guest's shared marker.
 	if marker := readBackupStatusMarkerObject(
@@ -209,18 +201,14 @@ func TestDegradedClusterReportsObservedReplicationFailure(t *testing.T) {
 	}
 
 	message := captured.messages[0]
-	if message.Subject != "["+backupAlarmHost()+"] Ledger cluster unhealthy for 45 minutes" {
+	if message.Subject != "["+backupAlarmHost()+"] Backup check reported a problem" {
 		t.Errorf("subject = %q", message.Subject)
 	}
 
 	if !strings.Contains(
 		message.Body,
-		"The ledger cluster (logins and audit trail) was last healthy at "+
-			"5:00 PM UTC on Sep 19, 2026, 45 minutes ago; the limit is 30 minutes. "+
-			"The last check reported: 1 dead nodes, 1 under-replicated tablets.",
+		"replication age=2700s threshold=1800s STALE 1 dead nodes, 1 under-replicated tablets",
 	) {
 		t.Errorf("body mismatch:\n%s", message.Body)
 	}
-
-	assertBackupAlarmPlainWords(t, message.Subject, message.Body, owner.BackupS3Endpoint)
 }

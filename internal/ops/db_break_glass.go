@@ -30,6 +30,8 @@ var (
 const (
 	// dbBreakGlassCaller identifies the command in the alarm email.
 	dbBreakGlassCaller = "tack ops db sql"
+	// dbBreakGlassTimeLayout prints the time zone beside the clock value.
+	dbBreakGlassTimeLayout = "3:04 PM MST on Jan 2, 2006"
 	// dbBreakGlassRecordTimeout limits each ledger write independently of
 	// command cancellation, as the token commands do.
 	dbBreakGlassRecordTimeout = 30 * time.Second
@@ -175,7 +177,7 @@ func mailDBBreakGlass(
 		Subject: "Break-glass database statement on " + host + " by " + subjectEmail,
 		Body: identityLine + "\n" +
 			"Host: " + host + "\n" +
-			"Time: " + clock.Now().UTC().Format(backupAlarmTimeLayout) + "\n" +
+			"Time: " + clock.Now().UTC().Format(dbBreakGlassTimeLayout) + "\n" +
 			"Reason: " + reason + "\n" +
 			"Statement:\n" + statement + "\n",
 		From:   "",
