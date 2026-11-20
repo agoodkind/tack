@@ -8,6 +8,7 @@ import (
 
 	"github.com/google/uuid"
 	"goodkind.io/tack/internal/domain"
+	"goodkind.io/tack/internal/domain/node"
 	"goodkind.io/tack/internal/ops"
 )
 
@@ -91,7 +92,17 @@ func TestRepairConsolePreviewMatchesByReferenceStrategy(t *testing.T) {
 	epic := createSchemaNode(t, f.env, f.projectID, f.projectID, "epic", nil)
 	state := createSchemaNode(t, f.env, f.projectID, f.projectID, "state", nil)
 	f.legacyNode(t, state, map[string]json.RawMessage{"slug": quoted("ready-slug")})
-	workspaceID := uuidProp(storedStoreView(t, f.env.Stores, f.projectID).Props, "parent_id")
+	parents, err := f.env.Stores.Relationships.ListBySource(
+		f.env.Ctx,
+		f.env.OrgID,
+		f.projectID,
+		node.RelChildOf,
+	)
+	if err != nil || len(parents) != 1 {
+		t.Fatalf("read parent of project %s: %v, %v", f.projectID, parents, err)
+	}
+
+	workspaceID := parents[0].TargetID
 	issue := f.legacyIssue(
 		t,
 		map[string]json.RawMessage{

@@ -10,8 +10,8 @@ import (
 )
 
 // TestRepairConsoleApplyMovesParentByName tests parent repair for an issue
-// using the legacy parent_epic_title property. The repair must set parent_id
-// to the matching epic, replace the child_of edge to the project with one edge
+// using the legacy parent_epic_title property. The repair must
+// replace the child_of edge to the project with one edge
 // to the epic created by the repair actor, and remove parent_epic_title.
 func TestRepairConsoleApplyMovesParentByName(t *testing.T) {
 	f := newRepairConsoleFixture(t)
@@ -23,8 +23,8 @@ func TestRepairConsoleApplyMovesParentByName(t *testing.T) {
 		Profile: parentProfile("epic", "name", "parent_epic_title"),
 	}
 	preview, err := f.console.Preview(f.env.Ctx, input)
-	if err != nil || !preview.CanApply || uuidProp(preview.PlannedProps, "parent_id") != epic.ID {
-		t.Fatalf("preview = %+v, %v, want parent_id %s", preview, err, epic.ID)
+	if err != nil || !preview.CanApply || !plansParentEdge(preview.PlannedRelationships, epic.ID) {
+		t.Fatalf("preview = %+v, %v, want a child_of edge to %s", preview, err, epic.ID)
 	}
 
 	actorID := uuid.New()
@@ -42,13 +42,8 @@ func TestRepairConsoleApplyMovesParentByName(t *testing.T) {
 	}
 
 	repaired := storedStoreView(t, f.env.Stores, issue.ID)
-	if _, kept := repaired.Props["parent_epic_title"]; kept ||
-		uuidProp(repaired.Props, "parent_id") != epic.ID {
-		t.Fatalf(
-			"repaired issue props = %v, want parent_id %s without parent_epic_title",
-			repaired.Props,
-			epic.ID,
-		)
+	if _, kept := repaired.Props["parent_epic_title"]; kept {
+		t.Fatalf("repaired issue props = %v, want removal of parent_epic_title", repaired.Props)
 	}
 
 	edges, err := f.env.Stores.Relationships.ListBySource(
@@ -71,9 +66,9 @@ func TestRepairConsoleApplyMovesParentByName(t *testing.T) {
 }
 
 // TestRepairConsoleApplyAddsMissingParentEdge tests repair of an issue with
-// legacy parent_epic_title, parent_id equal to the epic ID, and a child_of
-// edge to the project. During preview, the console must plan a child_of edge
-// addition to the epic without a parent_id change. The repair must leave
+// legacy parent_epic_title and without a child_of edge.
+// During preview, the console must plan a child_of edge
+// addition to the epic. The repair must leave
 // exactly one child_of edge to the epic.
 func TestRepairConsoleApplyAddsMissingParentEdge(t *testing.T) {
 	f := newRepairConsoleFixture(t)
@@ -82,9 +77,9 @@ func TestRepairConsoleApplyAddsMissingParentEdge(t *testing.T) {
 		t,
 		map[string]json.RawMessage{
 			"parent_epic_title": quoted(epic.Name),
-			"parent_id":         quoted(epic.ID.String()),
 		},
 	)
+	removeRepairParentEdges(t, f.env, issue.ID)
 	input := ops.RepairPreviewInput{
 		Class:   ops.RepairClassParentReference,
 		NodeID:  issue.ID,
