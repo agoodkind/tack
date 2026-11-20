@@ -2,20 +2,23 @@ package integration_test
 
 import (
 	"encoding/json"
+	"errors"
 	"maps"
 	"testing"
 
 	"github.com/google/uuid"
 
+	"goodkind.io/tack/internal/domain"
 	"goodkind.io/tack/internal/domain/node"
 	"goodkind.io/tack/internal/ops"
+	"goodkind.io/tack/internal/service"
 	"goodkind.io/tack/internal/test/integration"
 )
 
 // TestParentRelationshipMigration runs the public backfill command against
 // legacy primary records, read views, indexes, and metadata. Preview must not
 // change them. Execution must repair missing edges, preserve existing edges,
-// preserve the property and its definition, and record the added relationship
+// remove the property and its definition, and record committed old/new values
 // under the operator identity. Repeating execution must not add change events.
 func TestParentRelationshipMigration(t *testing.T) {
 	env := integration.SetupTestEnv(t)
@@ -37,7 +40,7 @@ func TestParentRelationshipMigration(t *testing.T) {
 	}
 
 	storeLegacyParentFixture(t, env, missing, project, true)
-	storeLegacyParentFixture(t, env, existing, project, false)
+	storeLegacyParentFixture(t, env, existing, workspace, false)
 	staleParent := uuid.Must(uuid.NewV7())
 	storeStaleParentIndexFixture(t, env, existing, staleParent)
 	requireParentMigrationIndexes(
@@ -93,12 +96,13 @@ func TestParentRelationshipMigration(t *testing.T) {
 		env,
 		project,
 		[]uuid.UUID{missing, existing},
-		false,
+		true,
+		workspace,
 		staleParent,
 	)
-	retained, err := env.Stores.PropertyDefs.Get(env.Ctx, env.OrgID, definition.ID)
-	if err != nil || retained == nil {
-		t.Fatalf("legacy parent definition missing: %+v, %v", retained, err)
+	removed, err := env.Stores.PropertyDefs.Get(env.Ctx, env.OrgID, definition.ID)
+	if err != nil || removed != nil {
+		t.Fatalf("legacy parent definition remains: %+v, %v", removed, err)
 	}
 
 	originalEvents := requireParentMigrationAudit(
@@ -154,8 +158,36 @@ func TestParentRelationshipMigration(t *testing.T) {
 		env,
 		project,
 		[]uuid.UUID{missing, existing},
-		false,
+		true,
+		workspace,
 		staleParent,
 	)
+	requireRetiredParentRejected(t, env, existing, project, actor)
 	ledger.requireChainVerifies(t, env.OrgID)
+}
+
+func requireRetiredParentRejected(
+	t *testing.T,
+	env *integration.TestEnv,
+	nodeID uuid.UUID,
+	parentID uuid.UUID,
+	actor uuid.UUID,
+) {
+	t.Helper()
+
+	for _, value := range []json.RawMessage{quoted(parentID.String()), json.RawMessage("null")} {
+		_, err := env.NodeSvc.Update(
+			env.Ctx,
+			service.UpdateInput{
+				NodeID:  nodeID,
+				Props:   map[string]json.RawMessage{"parent_id": value},
+				ActorID: actor,
+			},
+		)
+		if !errors.Is(err, domain.ErrInvalidArgument) {
+			t.Fatalf("parent_id value %s returned %v, want unknown-property rejection", value, err)
+		}
+	}
+
+	requireMigratedParent(t, env, nodeID, parentID)
 }
