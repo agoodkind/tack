@@ -55,7 +55,7 @@ func referencePropertyValue(view *node.NodeView, propName string) string {
 }
 
 func rawStringValue(raw json.RawMessage) string {
-	if len(raw) == 0 || string(raw) == "null" {
+	if len(raw) == 0 || string(raw) == transformedNullProperty {
 		return ""
 	}
 

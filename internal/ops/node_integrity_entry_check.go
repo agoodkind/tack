@@ -101,7 +101,7 @@ func reportProblem(entry NodeIntegrityEntry) string {
 	}
 
 	removal, declared := entry.Result.Props[report.SourceProperty]
-	if !declared || string(removal) != "null" {
+	if !declared || string(removal) != transformedNullProperty {
 		return fmt.Sprintf("the result must remove report property %q", report.SourceProperty)
 	}
 
