@@ -9,7 +9,12 @@ The reset destroys the existing QA FoundationDB, YugabyteDB, Kafka, and OpenSear
 1. Confirm that the target inventory contains only the six suburban QA guests: `tack-qa` (CT 217), `tack-data1` through `tack-data3` (CT 220 through 222), `tack-app2` (CT 223), and `tack-search1` (CT 227). Compare their resource addresses, hostnames, and network addresses with the live Proxmox inventory and the current Configs inventory.
 2. Confirm that the reviewed Configs revision permits replacement of those six QA resources. Confirm that the Tack image and Configs revision include the audited agent identity, empty ledger audit bootstrap, serial ledger join and replication wait, and fresh guest preparation. If a prerequisite is missing, stop before replacement.
 3. Record the operator, agent session, Configs commit, Tack commit, image tag and digest, current QA service state, and the evidence retained before deletion. Use the identity flags rendered by Configs. Reject a dry run that displays a shared or incorrect operator identity.
-4. Review the [QA OpenSearch release requirements](../superpowers/plans/2026-09-19-opensearch-release.md) and the current capacity stop thresholds. Keep production operations and deployments paused. The Configs OpenTofu root also includes non-QA modules; target only `module.suburban` in the saved plan.
+4. Review the [OpenSearch acceptance criteria](../superpowers/specs/2026-09-19-search-acceptance.md)
+   and current capacity stop thresholds. Keep production operations and
+   deployments paused.
+
+   Target only `module.suburban` in the saved plan. The Configs OpenTofu root
+   also includes non-QA modules.
 5. Before replacement, save a read-only listing of `/root/backups` from CT 217. On the suburban hypervisor, confirm that `zpool list -H -o name` includes `slowpool`, `pvesm status --storage slow-zfs` reports active, and `pct config 218 --current 1` reports its root filesystem on `slow-zfs`. Save these results for comparison before the slow-tier play.
 
 ## Replace the QA guests

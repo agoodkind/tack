@@ -75,7 +75,7 @@ OpenSearch must filter opaque access keys before ranking. Tack must check curren
 
 The correction must preserve complete Unicode text coverage, distinct results, durable continuation and replay, one inference per session, bounded work, source-write durability during search outages, stale-write rejection, replacement recovery, and eventual cleanup. A successful exact-title query does not establish semantic acceptance.
 
-The [search correction and delivery plan](../plans/2026-10-16-search-correction.md) maps every existing acceptance section to required evidence. The full criteria remain mandatory, including workload measurements and environment-specific recovery proof.
+Full search acceptance includes workload measurements and environment-specific recovery proof.
 
 ## Record committed changes in the audit ledger
 
@@ -83,7 +83,10 @@ Ordinary node updates, repairs, and fixed-metadata corrections must record chang
 
 Build the delta from the committed mutation, including transaction retries and normalized values. A rejected request must not appear as an applied value. Commit the event intent with the FoundationDB mutation; retain the existing relay, Kafka, single consumer writer, ledger identity, and hash chain.
 
-Preserve the [operator identity and audit contract](../../operator-identity-and-audit.md). Keep applicable data-protection rules and secret handling. Do not rewrite historical ledger rows or fabricate missing property timestamps, authors, or values. Future recording cannot reconstruct absent history.
+Follow the [audit policy](../../audit.md) and require
+[operator identity](../../operator-identity-and-audit.md). Existing records may
+lack property timestamps, authors, or values. Future recording cannot reconstruct
+that history.
 
 ## Repair existing data separately
 
