@@ -19,7 +19,7 @@ func TestListScopePropertyUsesScopeForSequenceTypes(t *testing.T) {
 func TestListScopePropertyUsesParentForDirectChildren(t *testing.T) {
 	nodeType := &node.NodeType{}
 	got := listScopeProperty(nodeType, scopeRoute{Chain: []ScopeLevel{{TypeKey: "project"}}})
-	if got != "parent_id" {
-		t.Fatalf("listScopeProperty: got %q want parent_id", got)
+	if got != "" {
+		t.Fatalf("listScopeProperty: got %q want relationship selector", got)
 	}
 }

@@ -73,7 +73,9 @@ func renderDeletedNode(
 func nodeFields(rc *renderCtx, view *node.NodeView) []markdownField {
 	fields := make([]markdownField, 0, len(view.Props)+6)
 	fields = appendRefField(fields, rc, "Scope", uuidProp(view, "scope_id"))
-	fields = appendRefField(fields, rc, "Parent", uuidProp(view, "parent_id"))
+	if parent := rc.parent(view); parent != nil {
+		fields = appendRefField(fields, rc, "Parent", parent.ID)
+	}
 
 	fields = appendRefField(fields, rc, "State", uuidProp(view, "state_id"))
 	for _, key := range sortedScalarPropKeys(view) {
