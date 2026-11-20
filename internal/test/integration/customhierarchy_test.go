@@ -47,7 +47,6 @@ func putSeedlessHierarchyNode(
 	t.Helper()
 	relationships := make([]*node.Relationship, 0, 1)
 	if parentID != uuid.Nil {
-		value.Props[seedlessParentProperty] = json.RawMessage(strconv.Quote(parentID.String()))
 		relationships = append(
 			relationships,
 			&node.Relationship{

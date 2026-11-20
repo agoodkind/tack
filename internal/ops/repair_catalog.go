@@ -20,7 +20,7 @@ var repairClassCatalog = []RepairClassInfo{
 	},
 	{
 		Class:       RepairClassParentReference,
-		Description: "Repair a node parent_id and child_of edge from operator-declared source fields.",
+		Description: "Repair a node child_of relationship from operator-declared source fields.",
 	},
 	{
 		Class:       RepairClassPropsTransform,

@@ -15,8 +15,6 @@ import (
 
 var errScopedUnauthenticated = errors.New("unauthenticated")
 
-const scopedParentProperty = "parent_id"
-
 // resolveScopedReference looks up "<scope reference>::<value>" by matching
 // propName against the value on nodes of type nodeType in that scope.
 func (r *Resolver) resolveScopedReference(

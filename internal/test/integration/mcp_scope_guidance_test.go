@@ -150,7 +150,7 @@ func TestCreateIssueRefusesMissingOrConflictingScope(t *testing.T) {
 		"two scopes": {both, exactlyOneIssueScope},
 		"parent and property": {
 			withParentProperty,
-			"a request cannot set them",
+			"properties.parent_id is not declared",
 		},
 	}
 	for name, test := range cases {
