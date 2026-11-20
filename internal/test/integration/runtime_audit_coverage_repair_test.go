@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
-	"strconv"
 	"testing"
 	"time"
 
@@ -127,7 +126,7 @@ func (env *coverageEnv) integrityManifest(t *testing.T, directory string) string
 		)
 	}
 	request, err := json.Marshal(ops.NodeIntegrityRequest{
-		Version: 1,
+		Version: 2,
 		Ticket:  "TACK-582",
 		Entries: []ops.NodeIntegrityEntry{
 			{
@@ -144,9 +143,7 @@ func (env *coverageEnv) integrityManifest(t *testing.T, directory string) string
 					},
 				},
 				Result: ops.RepairResult{
-					Props: map[string]json.RawMessage{
-						"parent_id": json.RawMessage(strconv.Quote(epic.String())),
-					},
+					ParentID: &epic,
 					RemoveEdges: []ops.RepairEdge{
 						{RelationType: node.RelChildOf, TargetID: fixture.nodes["project"]},
 					},

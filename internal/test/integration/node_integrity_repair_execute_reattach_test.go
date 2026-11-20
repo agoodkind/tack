@@ -4,8 +4,6 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/google/uuid"
-	"goodkind.io/tack/internal/domain/node"
 	"goodkind.io/tack/internal/ops"
 	"goodkind.io/tack/internal/test/integration"
 )
@@ -28,21 +26,7 @@ func TestNodeIntegrityRepairExecuteReattachesComment(t *testing.T) {
 		graph.projectID,
 		"Duplicate of the target issue",
 	)
-	setLegacyProps(
-		t,
-		env,
-		commentID,
-		map[string]json.RawMessage{"parent_id": textValue(uuid.New().String())},
-	)
-	if err := env.Stores.Relationships.Remove(
-		env.Ctx,
-		env.OrgID,
-		commentID,
-		node.RelChildOf,
-		original,
-	); err != nil {
-		t.Fatalf("remove the child_of edge of comment %s: %v", commentID, err)
-	}
+	removeRepairParentEdges(t, env, commentID)
 
 	before, err := env.Stores.Views.Get(env.Ctx, commentID)
 	if err != nil || before == nil {
@@ -63,7 +47,7 @@ func TestNodeIntegrityRepairExecuteReattachesComment(t *testing.T) {
 			},
 		},
 		Result: ops.RepairResult{
-			Props: map[string]json.RawMessage{"parent_id": textValue(target.String())},
+			ParentID: &target,
 		},
 	}
 	manifest := freezeRepairRequest(t, repairRequest(entry))

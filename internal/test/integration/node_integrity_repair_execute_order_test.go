@@ -1,6 +1,7 @@
 package integration_test
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
@@ -13,8 +14,7 @@ import (
 // TestNodeIntegrityRepairExecuteRunsEntriesInManifestOrder checks both
 // manifest orders with new nodes for each manifest.
 // Each fixture creates a chosen issue and a nested issue under the project.
-// The chosen issue also has a child_of edge to the epic. The nested issue
-// also has a child_of edge to the chosen issue.
+// The nested issue also has a child_of edge to the chosen issue.
 // The dependent entry selects the chosen issue as the nested issue's parent.
 // The ancestor entry selects the epic as the chosen issue's parent.
 // Each frozen graph records edges in both directions. The ancestor entry's
@@ -24,7 +24,7 @@ import (
 // to report entries in manifest order. The first entry must apply, and its
 // node must have the selected parent and exactly one child_of edge.
 // The second entry must report a stale graph conflict and must not have a
-// checkpoint. Its node must keep both stored child_of edges.
+// checkpoint. Its node must keep its stored child_of edges.
 func TestNodeIntegrityRepairExecuteRunsEntriesInManifestOrder(t *testing.T) {
 	env := integration.SetupTestEnv(t)
 	graph := newRepairGraph(t, env)
@@ -33,7 +33,6 @@ func TestNodeIntegrityRepairExecuteRunsEntriesInManifestOrder(t *testing.T) {
 	}
 	dependentEntries := func(prefix string) (ops.NodeIntegrityEntry, ops.NodeIntegrityEntry) {
 		chosen := createRepairIssue(t, env, graph.projectID, "Chosen parent "+prefix)
-		addLegacyParentEdge(t, env, chosen, graph.epicID)
 		nested := createRepairIssue(t, env, graph.projectID, "Nested issue "+prefix)
 		addLegacyParentEdge(t, env, nested, chosen)
 		dependent := parentEntry(prefix+"-nested", nested, chosen, childOf(graph.projectID))
@@ -57,6 +56,7 @@ func requireFirstEntryApplied(
 	firstParentID uuid.UUID,
 ) {
 	t.Helper()
+	secondParents := childOfTargets(t, env, second.NodeID)
 	manifest := freezeRepairRequest(t, repairRequest(first, second))
 	applied, err := executeRepairManifest(t, manifest)
 	if err != nil {
@@ -85,11 +85,12 @@ func requireFirstEntryApplied(
 
 	requireParent(t, env, first.NodeID, firstParentID)
 	requireCheckpointPhase(t, env, second.RepairID, "")
-	if targets := childOfTargets(t, env, second.NodeID); len(targets) != 2 {
+	if targets := childOfTargets(t, env, second.NodeID); !slices.Equal(targets, secondParents) {
 		t.Fatalf(
-			"child_of targets of %s after the conflict = %v, want both stored edges",
+			"child_of targets of %s after the conflict = %v, want %v",
 			second.NodeID,
 			targets,
+			secondParents,
 		)
 	}
 }

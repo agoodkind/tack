@@ -123,8 +123,7 @@ func TestOrphanBackfillRefusesAmbiguousParentEdges(t *testing.T) {
 	}
 }
 
-// requireParentEdges requires nodeID to have want child_of edges, and one of
-// them to target the node's parent_id.
+// requireParentEdges requires nodeID to have want child_of edges.
 func requireParentEdges(t *testing.T, env *TestEnv, nodeID uuid.UUID, want int) {
 	t.Helper()
 	edges, err := env.Stores.Relationships.ListBySource(env.Ctx, env.OrgID, nodeID, node.RelChildOf)
@@ -135,19 +134,4 @@ func requireParentEdges(t *testing.T, env *TestEnv, nodeID uuid.UUID, want int) 
 	if len(edges) != want {
 		t.Fatalf("node %s has %d child_of edges, want %d", nodeID, len(edges), want)
 	}
-
-	view, err := env.Stores.Views.Get(env.Ctx, nodeID)
-	if err != nil || view == nil {
-		t.Fatalf("read node %s: %v", nodeID, err)
-	}
-
-	parentID := stringPropOf(view, "parent_id")
-
-	for _, edge := range edges {
-		if edge.TargetID.String() == parentID {
-			return
-		}
-	}
-
-	t.Fatalf("node %s has no child_of edge to its parent_id %s", nodeID, parentID)
 }
