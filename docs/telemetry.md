@@ -32,13 +32,14 @@ the corresponding trace and log entry.
 
 Each Tack server reads these environment variables when it starts.
 
-| Signal | Settings |
+| Environment variable | What it controls |
 | --- | --- |
-| Diagnostic logs | `GKLOG_LOG_ENABLED` controls logging. `GKLOG_LOG_LEVEL` sets the minimum level. |
-| Traces | `GKLOG_TRACE_ENABLED` controls sampling for new traces. `GKLOG_TRACE_SAMPLE_RATIO` sets the fraction to sample. Requests that continue a trace follow the parent’s sampling decision. |
-| CPU profiles | `GKLOG_CPU_PROFILE_ENABLED=true` starts CPU profiling. `PYROSCOPE_SERVER_ADDRESS` selects the Pyroscope server that receives the samples. |
-| Request metrics | `GKLOG_METRIC_EXPORT_ENABLED=true` enables export. The local request count remains available at either setting. |
-
-`OTEL_EXPORTER_OTLP_ENDPOINT` selects the collector for sampled traces and
-exported metrics. `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT` overrides that
-destination for metrics alone.
+| `GKLOG_LOG_ENABLED` | Turns diagnostic logging on or off. |
+| `GKLOG_LOG_LEVEL` | Sets the minimum level for diagnostic logs. |
+| `GKLOG_TRACE_ENABLED` | Turns sampling on or off for new traces. Requests that continue an existing trace follow the parent’s sampling decision. |
+| `GKLOG_TRACE_SAMPLE_RATIO` | Sets the fraction of new traces to sample, from `0` to `1`. |
+| `GKLOG_CPU_PROFILE_ENABLED` | Turns CPU profiling on or off. |
+| `PYROSCOPE_SERVER_ADDRESS` | Sets the address where Tack sends CPU profiles. |
+| `GKLOG_METRIC_EXPORT_ENABLED` | Turns metric export on or off. The local request count is available at either setting. |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | Sets the collector address for sampled traces and exported metrics. |
+| `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT` | Overrides the collector address for metrics only. |
