@@ -69,8 +69,29 @@ func createCommandScope(
 
 func projectStates(t *testing.T, env *integration.TestEnv, projectID uuid.UUID) []*node.Node {
 	t.Helper()
-	parent := json.RawMessage(strconv.Quote(projectID.String()))
-	states, err := env.Stores.Nodes.ListByProperty(env.Ctx, env.OrgID, "state", "parent_id", parent)
+	edges, err := env.Stores.Relationships.ListByTarget(
+		env.Ctx,
+		env.OrgID,
+		projectID,
+		node.RelChildOf,
+	)
+	if err != nil {
+		t.Fatalf("list children of project %s: %v", projectID, err)
+	}
+
+	var states []*node.Node
+
+	for _, edge := range edges {
+		current, readErr := env.Stores.Nodes.Get(env.Ctx, env.OrgID, edge.SourceID)
+		if readErr != nil || current == nil {
+			t.Fatalf("read child %s of project %s: %v", edge.SourceID, projectID, readErr)
+		}
+
+		if current.NodeType == "state" {
+			states = append(states, current)
+		}
+	}
+
 	if err != nil || len(states) == 0 {
 		t.Fatalf(
 			"project %s has %d states (list error %v); the test requires at least one",

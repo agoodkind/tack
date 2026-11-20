@@ -25,7 +25,7 @@ func mustCreate(t *testing.T, env *TestEnv, in service.CreateInput) *node.NodeVi
 
 // mustCreateScope is a thin wrapper for the scaffolding pattern (workspace
 // then project) that nearly every test uses. It seeds the props map with the
-// slug derived from the lowercase name so the slug index gets populated.
+// slug from the lowercase name.
 func mustCreateScope(
 	t *testing.T,
 	env *TestEnv,
@@ -122,14 +122,20 @@ func uuidPropOf(t *testing.T, v *node.NodeView, key string) uuid.UUID {
 	return id
 }
 
-func mustFindProjectState(t *testing.T, env *TestEnv, projectID uuid.UUID, name string) *node.Node {
+func mustFindProjectState(
+	t *testing.T,
+	env *TestEnv,
+	projectID uuid.UUID,
+	name string,
+) *node.NodeView {
 	t.Helper()
-	nodes, err := env.Stores.Nodes.ListByProperty(
+	nodes, err := env.Stores.Views.List(
 		env.Ctx,
-		env.OrgID,
-		"state",
-		"parent_id",
-		jsonStr(projectID.String()),
+		node.NodeListQuery{
+			OrgID:            env.OrgID,
+			NodeType:         "state",
+			ByTargetRelation: &node.RelationScan{NodeID: projectID, RelationType: node.RelChildOf},
+		},
 	)
 	if err != nil {
 		t.Fatalf("list states for project %s: %v", projectID, err)
@@ -157,9 +163,7 @@ func containsID(nodes []*node.Node, id uuid.UUID) bool {
 }
 
 func lower(s string) string { return toCase(s, false) }
-
 func upper(s string) string { return toCase(s, true) }
-
 func toCase(s string, up bool) string {
 	out := make([]byte, len(s))
 	for i := 0; i < len(s); i++ {

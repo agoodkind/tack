@@ -106,7 +106,7 @@ type ParentChange struct {
 
 // MutationPlan specifies one checked node create or update. Props specifies
 // a partial patch that preserves omitted properties and removes properties
-// with a JSON null. Parent sets parent_id and the child_of edge. A nil Parent
+// with a JSON null. Parent sets the child_of edge. A nil Parent
 // preserves the current parent. Relationships changes relationships of other
 // types.
 type MutationPlan struct {
