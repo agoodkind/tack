@@ -106,10 +106,10 @@ func seededIssueDefinitions(
 		parentReference := projectRawID
 		if len(containers) > 0 && issueIndex%3 != 0 {
 			parentReference = containers[issueIndex%len(containers)].RawID
-			properties.setString("parent_id", parentReference)
 		}
 		definitions[name] = discoveryDefinition{
-			token: actor.Token,
+			token:           actor.Token,
+			parentReference: parentReference,
 			arguments: ToolArguments{
 				WorkspaceReference: workspace.Slug,
 				ProjectReference:   projectReference,
