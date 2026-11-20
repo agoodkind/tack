@@ -55,7 +55,6 @@ func newAuthzFixture(t *testing.T) *authzFixture {
 		Name:     "Ours",
 		Props: map[string]json.RawMessage{
 			"identifier": mustRaw(t, "OURS"),
-			"parent_id":  mustRaw(t, f.workspaceID.String()),
 		},
 	}
 	projectB := &node.NodeView{
@@ -72,6 +71,7 @@ func newAuthzFixture(t *testing.T) *authzFixture {
 			f.projectB:    projectB,
 		},
 		workspaces: []*node.NodeView{workspace},
+		parents:    map[uuid.UUID]uuid.UUID{f.projectA: f.workspaceID},
 	}
 	f.projectType = &node.NodeType{
 		TypeKey:      "project",
