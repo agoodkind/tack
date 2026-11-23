@@ -10,38 +10,6 @@ import (
 	"goodkind.io/tack/internal/test/integration"
 )
 
-const gettingStartedURI = "tack://getting-started"
-
-const exactlyOneIssueScope = "exactly one of project_reference, epic_reference, cycle_reference, module_reference, issue_reference is required"
-
-func epicScopedArguments(harness *integration.MCPHarness, epic, name string) datagen.ToolArguments {
-	arguments := parentIntegrityArguments(harness, "")
-	arguments.EpicReference = epic
-	arguments.Name = name
-
-	return arguments
-}
-
-func createProjectEpic(t *testing.T, harness *integration.MCPHarness, name string) datagen.Result {
-	t.Helper()
-	arguments := parentIntegrityArguments(harness, harness.Project)
-	arguments.Name = name
-
-	return harness.Call(t, "tack_create_epic", arguments)
-}
-
-func listedUnder(
-	t *testing.T,
-	harness *integration.MCPHarness,
-	tool string,
-	arguments datagen.ToolArguments,
-) string {
-	t.Helper()
-	arguments.Name = ""
-
-	return harness.Call(t, tool, arguments).Text()
-}
-
 func TestCreateIssueFromGeneratedGuidanceUnderEpic(t *testing.T) {
 	harness := integration.NewMCPHarness(t)
 	stores := parentIntegrityStores(t)
@@ -70,7 +38,7 @@ func TestCreateIssueFromGeneratedGuidanceUnderEpic(t *testing.T) {
 	issueID := result.RawID()
 	view := storedParentView(t, stores, issueID)
 	projectID := stringProperty(t, storedParentView(t, stores, epicID), "scope_id")
-	requireParents(t, stores, issueID, epicID, []string{epicID})
+	requireParents(t, stores, issueID, []string{epicID})
 	if scope := stringProperty(t, view, "scope_id"); scope != projectID {
 		t.Fatalf("issue %s has scope_id %s, want project %s", issueID, scope, projectID)
 	}
@@ -143,7 +111,7 @@ func TestCreateEpicWithOnlyEpicReference(t *testing.T) {
 		epicScopedArguments(harness, printedReference(t, parent.Text()), "Inner epic"),
 	)
 
-	requireParents(t, stores, child.RawID(), parent.RawID(), []string{parent.RawID()})
+	requireParents(t, stores, child.RawID(), []string{parent.RawID()})
 	parentScope := stringProperty(t, storedParentView(t, stores, parent.RawID()), "scope_id")
 	if scope := stringProperty(
 		t,
