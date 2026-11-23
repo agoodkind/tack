@@ -299,8 +299,8 @@ Register a maintenance operation through `ops.Register`. For every org and
 NodeType with a template, report each duplicated rendered reference with all
 candidate UUIDs and creation times.
 
-Detection is a read-class operation under `docs/operator-identity-and-audit.md`.
-It records an access event before reading and refuses to run if recording fails.
+Detection saves an attempt record before reading. If Tack cannot save that
+record, detection stops before reading, as required by the [audit policy](../../audit.md).
 The first run establishes whether projects beyond FAN contain duplicates; the
 eight confirmed duplicates are all in FAN.
 
@@ -321,8 +321,8 @@ older text.
 
 Write a reference key for every visited node in the same pass to repair
 duplicates and populate keys for nodes created before templates existed.
-Renumbering declares `Atomic` in its audit specification and commits the audit
-event and FDB mutation in one transaction.
+Renumbering commits each change and its audit evidence in one FoundationDB
+transaction.
 
 ### No forwarding record
 

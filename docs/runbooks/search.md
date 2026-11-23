@@ -82,24 +82,61 @@ worker and target identities before the first member stop and after each restart
 Shard health alone does not satisfy this validation requirement. Save the first
 public error during a member stop, even if a later request succeeds.
 
-## Run the complete acceptance gates
+## Run all acceptance tests
 
-1. Follow the ordered groups, complete suite, and repeated tail in the
-   [final validation plan](../superpowers/plans/2026-09-19-opensearch-final-validation.md).
-   Use its timeouts and count requirements unchanged, and allow no skipped test.
-   On macOS, run each group with `make test-search-group TEST_SEARCH_RUNNER=mac`
-   and set `GROUP`, `MAC_RUNNER_IMAGE`, and `MAC_RUNNER_EVIDENCE_DIR` for that
-   invocation. This mode uses the existing native executable and local image.
-2. Use `TACK_SEARCH_CLUSTER=1 make test-search` for the standard container search
-   target. This target supplies the source revision and search integration
-   opt-in, but its 90-minute timeout does not replace the plan's 45-minute gate.
-   The host equivalent is `TACK_SEARCH_CLUSTER=1 make test-search-host`; it also
-   requires the local FoundationDB client library.
-3. Verify the terminal results for every required group. Compilation, a skipped
-   cluster group, or a successful startup does not establish search acceptance.
-   Require fixed-client throughput measurements with indexed mutations and
-   complete search sessions, zero errors, and a two-process gain above
-   unchanged-control variation before claiming a speedup.
+Run these groups in order with the focused runner before running the complete
+suite. On macOS, use `testenv run-mac` with a fresh evidence directory for
+each selection. Pass each expression to `-run` and include `-tags runtimeaudit`.
+
+| Order | Check | Test selection |
+| --- | --- | --- |
+| 1 | Client, model, and mapping | `^TestSearchNative` |
+| 2 | Projection, reader, and work queue | `^TestSearch(Projection\|Reader\|Work)` |
+| 3 | Index updates and recovery | `^TestSearch(DelayedWriter\|RevisionCleanup\|WorkerFairness\|Recovery)` |
+| 4 | Ranking, access, and continuation | `^TestSearch(SemanticPairs\|ContinuationTraversesDuplicateHeavyCorpus\|FiltersForbiddenPagesBeforeRanking\|FinalCheckRejectsCorruptIndexedAccess\|RevokedAccessRejectsLaterResultsAndReplay\|AuthenticatedResults\|UnavailableWhileDisabled\|Cursor\|EmptyQuery)` |
+| 5 | Replacement, metadata, and runtime | `^TestSearch(Rebuild\|Split\|Restore\|Runtime\|Metadata\|Access\|Datagen)` |
+| 6 | Cursors across server processes | `^TestSearchCursorActualOSProcesses$` |
+| 7 | Throughput across server processes | `^TestSearchActualOSProcessThroughput$` |
+| 8 | Cluster failures and recovery | `^TestSearchCluster` |
+
+Run the throughput selection in isolation with the 45-minute limit and
+measurement requirements below.
+
+1. Run the complete suite against the
+   [search acceptance criteria](../superpowers/specs/2026-09-19-search-acceptance.md)
+   using the environment prepared above. Include runtime audit
+   tests and require every selected test to pass without a skip.
+
+   ```sh
+   docker compose -f docker-compose.test.yml --profile runner run --rm tests \
+       test -tags runtimeaudit -count=1 -timeout 90m -v \
+       -run '^TestSearch' ./internal/test/integration
+   ```
+
+2. Repeat concurrency and replacement checks with the focused runner.
+   Use `-count=3` with each selection and timeout below. Run these groups serially.
+
+   Repeated checks:
+
+   | Check | Timeout | Test selection |
+   | --- | --- | --- |
+   | Complete continuation | `180m` | `^TestSearchContinuationTraversesDuplicateHeavyCorpus$` |
+   | Replacement and restore | `85m` | `^TestSearch(Rebuild(ExcludesOrphanNodes\|StepFitsLease\|FailsAfterPauseLimit\|DuringChanges)\|RestoreRejectsCursors\|Split(DuringChanges\|WithoutModel))$` |
+   | Access, cursors, and workers | `50m` | `^TestSearch(Access(DependentsSurviveEdit\|UpdatesOlderActiveRevision\|VersionWithoutRebuild\|MembershipQueryOnly\|ResourceRefresh\|RolloutRecovery\|OnlyUpdateWithoutModel\|ChangeKeepsPendingContent)\|Cursor(ExactSortValues\|ReplayAndConcurrency\|ActualOSProcesses)\|FiltersForbiddenPagesBeforeRanking\|FinalCheckRejectsCorruptIndexedAccess\|RevokedAccessRejectsLaterResultsAndReplay\|DelayedWriter\|RuntimeIndexesThroughGraph)$` |
+
+   Require every selected test to pass with these execution counts:
+
+   | Selected tests | Executions per test | Total executions |
+   | --- | --- | --- |
+   | 24 | 3 | 72 |
+
+3. Run `^TestSearchActualOSProcessThroughput$` once with `-timeout 45m`
+   using the focused runner. Require fixed-client measurements with indexed
+   mutations and complete search sessions, zero errors, and a two-process gain
+   above unchanged-control variation before claiming a speedup.
+4. Verify final results for every required group. Require every selected
+   test to execute and pass. Compilation, a skipped cluster group, or a successful
+   startup does not establish search acceptance.
 
 ## Prepare the required QA cohorts
 
