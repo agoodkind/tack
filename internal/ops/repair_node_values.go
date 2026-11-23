@@ -27,14 +27,6 @@ func rawUUIDProp(props map[string]json.RawMessage, key string) uuid.UUID {
 	return id
 }
 
-func rawUUIDView(view *node.NodeView, key string) uuid.UUID {
-	if view == nil {
-		return uuid.Nil
-	}
-
-	return rawUUIDProp(view.Props, key)
-}
-
 func stringProp(props map[string]json.RawMessage, key string) string {
 	raw, ok := props[key]
 	if !ok || len(raw) == 0 {

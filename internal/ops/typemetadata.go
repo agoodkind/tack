@@ -49,11 +49,16 @@ func (c *RepairConsole) loadReferenceRepairMetadata(
 			)
 		}
 
+		scopeID, err := c.explicitTargetScope(ctx, view, profile, targetType)
+		if err != nil {
+			return nil, err
+		}
+
 		return &referenceRepairMetadata{
 			typeIndex:  typeIndex,
 			targetDef:  nil,
 			targetType: targetType,
-			scopeID:    repairScopeID(view, profile.ScopeFields),
+			scopeID:    scopeID,
 		}, nil
 	}
 
@@ -84,12 +89,42 @@ func (c *RepairConsole) loadReferenceRepairMetadata(
 		)
 	}
 
+	scopeID, err := repairScopeID(ctx, c.reader, view, profile.ScopeFields)
+	if err != nil {
+		return nil, err
+	}
+
 	return &referenceRepairMetadata{
 		typeIndex:  typeIndex,
 		targetDef:  targetDef,
 		targetType: targetType,
-		scopeID:    repairScopeID(view, profile.ScopeFields),
+		scopeID:    scopeID,
 	}, nil
+}
+
+func (c *RepairConsole) explicitTargetScope(
+	ctx context.Context,
+	view *node.NodeView,
+	profile RepairReferenceProfile,
+	targetType *node.NodeType,
+) (uuid.UUID, error) {
+	if len(profile.ScopeFields) > 0 {
+		return repairScopeID(ctx, c.reader, view, profile.ScopeFields)
+	}
+
+	if scopedReferenceStrategy(targetType.Reference.Strategy) ||
+		strings.Contains(stringProp(view.Props, profile.TargetProperty), "::") {
+		return repairScopeID(ctx, c.reader, view, []string{repairScopeProperty})
+	}
+
+	for _, field := range profile.SourceFields {
+		source := observedReferenceSource(view, field, profile.Normalization)
+		if strings.Contains(source.Normalized, "::") {
+			return repairScopeID(ctx, c.reader, view, []string{repairScopeProperty})
+		}
+	}
+
+	return uuid.Nil, nil
 }
 
 func referenceTargetDef(

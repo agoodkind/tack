@@ -2,15 +2,11 @@ package ops
 
 import (
 	"context"
-	"encoding/json"
-	"errors"
 	"log/slog"
-	"maps"
 
 	"github.com/google/uuid"
 	"goodkind.io/tack/internal/audit"
 	"goodkind.io/tack/internal/clispec"
-	"goodkind.io/tack/internal/domain"
 	"goodkind.io/tack/internal/domain/node"
 )
 
@@ -93,162 +89,33 @@ func RepairSequenceScopeIDs(ctx context.Context, env *Env) (int, int, error) {
 	return scopeRepairResult(ctx, env, totalRepaired, totalSkipped, totalRefused)
 }
 
-func repairTypeScopeIDs(
-	ctx context.Context,
-	env *Env,
-	orgID uuid.UUID,
-	nodeType *node.NodeType,
-	propertyDefs []*node.PropertyDef,
-	typeIndex map[string]*node.NodeType,
-	scopeCache map[uuid.UUID]map[string]string,
-) (int, int, int) {
-	views, err := env.Stores.Views.List(
-		ctx,
-		node.NodeListQuery{
-			OrgID:    orgID,
-			NodeType: nodeType.TypeKey,
-		},
-	)
-	if err != nil {
-		env.Log.ErrorContext(
-			ctx,
-			"repair.scope_ids: list views",
-			slog.String("org_id", orgID.String()),
-			slog.String("type", nodeType.TypeKey),
-			slog.String("err", err.Error()),
-		)
-
-		return 0, 0, 0
-	}
-
-	indexedProps := indexedPropsFor(nodeType, propertyDefs)
-	repaired, skipped, refused := 0, 0, 0
-
-	for _, view := range views {
-		currentNode, readDigest, err := env.Stores.Nodes.GetForUpdate(ctx, orgID, view.ID)
-		if err != nil || currentNode == nil {
-			skipped++
-			continue
-		}
-
-		canonicalScopeID := deriveScopeID(ctx, env, currentNode)
-		if canonicalScopeID == uuid.Nil {
-			skipped++
-			continue
-		}
-
-		if rawUUIDProp(currentNode.Props, "scope_id") == canonicalScopeID {
-			skipped++
-			continue
-		}
-
-		oldProps := maps.Clone(currentNode.Props)
-		newProps := maps.Clone(currentNode.Props)
-		scopeRaw, _ := json.Marshal(canonicalScopeID.String())
-		newProps["scope_id"] = scopeRaw
-
-		updatedNode := &node.Node{
-			ID:        currentNode.ID,
-			OrgID:     currentNode.OrgID,
-			NodeType:  currentNode.NodeType,
-			Name:      currentNode.Name,
-			Props:     newProps,
-			CreatedBy: currentNode.CreatedBy,
-			UpdatedBy: currentNode.UpdatedBy,
-			CreatedAt: currentNode.CreatedAt,
-			UpdatedAt: currentNode.UpdatedAt,
-		}
-		updatedView := &node.NodeView{
-			ID:        currentNode.ID,
-			OrgID:     currentNode.OrgID,
-			NodeType:  currentNode.NodeType,
-			Name:      currentNode.Name,
-			Props:     maps.Clone(newProps),
-			CreatedBy: currentNode.CreatedBy,
-			UpdatedBy: currentNode.UpdatedBy,
-			CreatedAt: currentNode.CreatedAt,
-			UpdatedAt: currentNode.UpdatedAt,
-		}
-		// A scope change changes the rendered reference. Claim the new scope's
-		// keys to prevent collisions. Omitting those claims would retain the
-		// old claims without reserving the new reference.
-		referenceKeys, keyErr := referenceKeysForRepairedView(
-			ctx,
-			env,
-			orgID,
-			typeIndex,
-			nodeType,
-			updatedView,
-			scopeCache,
-		)
-		if keyErr != nil {
-			env.Log.WarnContext(
-				ctx,
-				"repair.scope_ids: render reference keys",
-				slog.String("node_id", currentNode.ID.String()),
-				slog.String("type", nodeType.TypeKey),
-				slog.String("err", keyErr.Error()),
-			)
-			skipped++
-			continue
-		}
-
-		if err := env.Stores.Nodes.UpdateAtomicFrom(
-			ctx,
-			readDigest,
-			updatedNode,
-			updatedView,
-			oldProps,
-			indexedProps,
-			referenceKeys,
-		); err != nil {
-			env.Log.WarnContext(
-				ctx,
-				"repair.scope_ids: update node",
-				slog.String("node_id", currentNode.ID.String()),
-				slog.String("type", nodeType.TypeKey),
-				slog.String("err", err.Error()),
-			)
-			if errors.Is(err, domain.ErrConflict) {
-				refused++
-			} else {
-				skipped++
-			}
-
-			continue
-		}
-
-		repaired++
-	}
-
-	return repaired, skipped, refused
-}
-
-func deriveScopeID(ctx context.Context, env *Env, currentNode *node.Node) uuid.UUID {
+func deriveScopeID(ctx context.Context, env *Env, currentNode *node.Node) (uuid.UUID, error) {
 	if currentNode == nil {
-		return uuid.Nil
+		return uuid.Nil, nil
 	}
 
-	parentID := rawUUIDProp(currentNode.Props, "parent_id")
-	for depth := 0; depth < maxRepairParentDepth && parentID != uuid.Nil; depth++ {
-		parentView, err := env.Stores.Views.Get(ctx, parentID)
-		if err != nil || parentView == nil {
-			return uuid.Nil
-		}
+	parentView, err := repairParentView(ctx, env.Stores.Views, currentNode.OrgID, currentNode.ID)
+	if err != nil {
+		return uuid.Nil, err
+	}
 
+	for depth := 0; depth < maxRepairParentDepth && parentView != nil; depth++ {
 		if stringProp(parentView.Props, "identifier") != "" {
-			return parentView.ID
+			return parentView.ID, nil
 		}
 
-		parentID = rawUUIDView(parentView, "parent_id")
+		parentView, err = repairParentView(ctx, env.Stores.Views, currentNode.OrgID, parentView.ID)
+		if err != nil {
+			return uuid.Nil, err
+		}
 	}
 
 	if currentScopeID := rawUUIDProp(currentNode.Props, "scope_id"); currentScopeID != uuid.Nil {
 		if scopeView, err := env.Stores.Views.Get(ctx, currentScopeID); err == nil &&
 			scopeView != nil {
-			return currentScopeID
+			return currentScopeID, nil
 		}
 	}
 
-	return uuid.Nil
+	return uuid.Nil, nil
 }
