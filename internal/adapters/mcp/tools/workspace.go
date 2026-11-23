@@ -101,7 +101,7 @@ func RegisterWorkspace(
 						OrgID:    ws.OrgID,
 						NodeType: nt.TypeKey,
 						ByProperty: &node.PropertyMatch{
-							PropName: scopedParentProperty,
+							PropName: "parent_id",
 							Value:    parentIDRaw,
 						},
 						BySourceRelation: nil,

@@ -28,8 +28,7 @@ func TestIdentifierForUsesAncestorProjectWhenScopeIDMissing(t *testing.T) {
 		NodeType: "epic",
 		Name:     "Resolver work",
 		Props: map[string]json.RawMessage{
-			"sequence":  mustRaw(t, 12),
-			"parent_id": mustRaw(t, projectID.String()),
+			"sequence": mustRaw(t, 12),
 		},
 	}
 	issue := &node.NodeView{
@@ -38,13 +37,11 @@ func TestIdentifierForUsesAncestorProjectWhenScopeIDMissing(t *testing.T) {
 		NodeType: "issue",
 		Name:     "Fix round-trip",
 		Props: map[string]json.RawMessage{
-			"sequence":  mustRaw(t, 64),
-			"parent_id": mustRaw(t, epicID.String()),
+			"sequence": mustRaw(t, 64),
 		},
 	}
 	reader := &fakeReader{
-		views: map[uuid.UUID]*node.NodeView{projectID: project, epicID: epic, issueID: issue},
-
+		views:   map[uuid.UUID]*node.NodeView{projectID: project, epicID: epic, issueID: issue},
 		parents: map[uuid.UUID]uuid.UUID{epicID: projectID, issueID: epicID},
 	}
 	rc := newRenderCtxWithTypes(
@@ -90,7 +87,6 @@ func TestIdentifierForRendersScopedStateReference(t *testing.T) {
 		OrgID:    orgID,
 		NodeType: "state",
 		Name:     "In Progress",
-		Props:    map[string]json.RawMessage{"parent_id": mustRaw(t, projectID.String())},
 	}
 	reader := &fakeReader{
 		views:   map[uuid.UUID]*node.NodeView{projectID: project, stateID: state},
