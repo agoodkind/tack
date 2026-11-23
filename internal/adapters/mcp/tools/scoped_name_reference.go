@@ -22,17 +22,18 @@ func (rc *renderCtx) scopedNameIdentifierFor(view *node.NodeView, nodeType *node
 		return ""
 	}
 
-	parentID := uuidProp(view, "parent_id")
-	if parentID == uuid.Nil {
+	parent := rc.parent(view)
+	if parent == nil {
 		return ""
 	}
+
+	parentID := parent.ID
 
 	if scopeID := uuidProp(view, "scope_id"); scopeID != uuid.Nil && scopeID != parentID {
 		return ""
 	}
 
-	parent, err := rc.reader.Get(rc.ctx, parentID)
-	if err != nil || parent == nil || parent.NodeType != nodeType.CanLiveUnder[0] {
+	if parent.NodeType != nodeType.CanLiveUnder[0] {
 		return ""
 	}
 

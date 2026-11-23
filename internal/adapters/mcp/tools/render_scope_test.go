@@ -44,6 +44,8 @@ func TestIdentifierForUsesAncestorProjectWhenScopeIDMissing(t *testing.T) {
 	}
 	reader := &fakeReader{
 		views: map[uuid.UUID]*node.NodeView{projectID: project, epicID: epic, issueID: issue},
+
+		parents: map[uuid.UUID]uuid.UUID{epicID: projectID, issueID: epicID},
 	}
 	rc := newRenderCtxWithTypes(
 		context.Background(),
@@ -90,7 +92,10 @@ func TestIdentifierForRendersScopedStateReference(t *testing.T) {
 		Name:     "In Progress",
 		Props:    map[string]json.RawMessage{"parent_id": mustRaw(t, projectID.String())},
 	}
-	reader := &fakeReader{views: map[uuid.UUID]*node.NodeView{projectID: project, stateID: state}}
+	reader := &fakeReader{
+		views:   map[uuid.UUID]*node.NodeView{projectID: project, stateID: state},
+		parents: map[uuid.UUID]uuid.UUID{stateID: projectID},
+	}
 	rc := newRenderCtxWithTypes(
 		context.Background(),
 		reader,
