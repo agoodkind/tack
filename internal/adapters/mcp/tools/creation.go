@@ -51,10 +51,6 @@ func createHandler(
 			return propsResult, nil
 		}
 
-		if refusal := target.refuseParentProperty(rawProps); refusal != nil {
-			return refusal, nil
-		}
-
 		rawProps, parentID, defs, err := normalizeCreateProps(
 			ctx,
 			binding,
