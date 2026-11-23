@@ -21,7 +21,7 @@ func verifyDatagenRepair(
 	expected := map[uuid.UUID]uuid.UUID{
 		fixture.MultipleEdges: fixture.EpicID,
 		fixture.LegacyStatus:  fixture.ProjectID,
-		fixture.PrintedParent: fixture.EpicID,
+		fixture.MissingEdge:   fixture.EpicID,
 		fixture.AbsentParent:  fixture.ProjectID,
 		fixture.Notice:        fixture.NoticeTarget,
 	}
@@ -105,17 +105,13 @@ func requireDatagenRepairParent(ctx context.Context, env *Env, orgID, nodeID, pa
 	if err != nil {
 		return datagenRepairFailure(ctx, "list the child_of edges of node "+nodeID.String(), err)
 	}
-	if view.OrgID != orgID || datagenRepairProp(
-		view.Props,
-		repairParentProperty,
-	) != parentID.String() || len(edges) != 1 || edges[0].TargetID != parentID {
+	if view.OrgID != orgID || len(edges) != 1 || edges[0].TargetID != parentID {
 		return datagenRepairFailure(
 			ctx,
 			"verify node "+nodeID.String(),
 			fmt.Errorf(
-				"organization %s, parent_id %s, and %d child_of edges, want organization %s and one parent %s",
+				"organization %s and %d child_of edges, want organization %s and one parent %s",
 				view.OrgID,
-				view.Props[repairParentProperty],
 				len(edges),
 				orgID,
 				parentID,

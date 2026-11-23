@@ -10,14 +10,14 @@ import (
 )
 
 // repairParentChange returns the resulting parent when the result sets
-// parent_id or removes a child_of edge. A result that only removes edges
-// keeps the current parent.
+// its parent instruction or removes a child_of edge. A result that only
+// removes edges keeps the current parent.
 func repairParentChange(
 	ctx context.Context,
 	entry NodeIntegrityEntry,
 	snapshot node.MutationSnapshot,
 ) (*node.ParentChange, error) {
-	if _, declared := entry.Result.Props[repairParentProperty]; declared {
+	if entry.Result.ParentID != nil {
 		parentID := resultParent(entry.Result)
 		if parentID == uuid.Nil {
 			return nil, repairRefused(
@@ -36,8 +36,7 @@ func repairParentChange(
 			continue
 		}
 
-		parentID := repairNodeID(snapshot.Node.Props[repairParentProperty])
-		if parentID == uuid.Nil {
+		if snapshot.ParentID == uuid.Nil {
 			return nil, repairRefused(
 				ctx,
 				entry,
@@ -46,7 +45,7 @@ func repairParentChange(
 			)
 		}
 
-		return &node.ParentChange{TargetID: parentID}, nil
+		return &node.ParentChange{TargetID: snapshot.ParentID}, nil
 	}
 
 	return nil, nil

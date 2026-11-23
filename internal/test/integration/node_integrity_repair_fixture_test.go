@@ -95,9 +95,7 @@ func (graph repairGraph) selectEpicEntry(repairID string) ops.NodeIntegrityEntry
 			},
 		},
 		Result: ops.RepairResult{
-			Props: map[string]json.RawMessage{
-				"parent_id": json.RawMessage(strconv.Quote(graph.epicID.String())),
-			},
+			ParentID: &graph.epicID,
 			RemoveEdges: []ops.RepairEdge{
 				{RelationType: node.RelChildOf, TargetID: graph.projectID},
 			},
@@ -106,7 +104,7 @@ func (graph repairGraph) selectEpicEntry(repairID string) ops.NodeIntegrityEntry
 }
 
 func repairRequest(entries ...ops.NodeIntegrityEntry) ops.NodeIntegrityRequest {
-	return ops.NodeIntegrityRequest{Version: 1, Ticket: "TACK-582", Entries: entries}
+	return ops.NodeIntegrityRequest{Version: 2, Ticket: "TACK-582", Entries: entries}
 }
 
 func createRepairNode(t *testing.T, env *integration.TestEnv, in service.CreateInput) uuid.UUID {

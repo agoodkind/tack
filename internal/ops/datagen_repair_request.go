@@ -15,11 +15,6 @@ import (
 // before deleting it.
 func datagenRepairRequest(fixture datagen.RepairFixture, directory repairDirectory) NodeIntegrityRequest {
 	prefix := "qa-repair-" + fixture.Suffix + "-"
-	parent := func(parentID uuid.UUID) map[string]json.RawMessage {
-		return map[string]json.RawMessage{
-			repairParentProperty: datagenRepairText(parentID.String()),
-		}
-	}
 	entries := []NodeIntegrityEntry{
 		datagenRepairEntry(
 			prefix+"multiple-edges",
@@ -27,7 +22,7 @@ func datagenRepairRequest(fixture datagen.RepairFixture, directory repairDirecto
 			"issue",
 			RepairEvidenceInferred,
 			RepairResult{
-				Props: parent(fixture.EpicID),
+				ParentID: &fixture.EpicID,
 				RemoveEdges: []RepairEdge{
 					{
 						RelationType: node.RelChildOf,
@@ -53,14 +48,14 @@ func datagenRepairRequest(fixture datagen.RepairFixture, directory repairDirecto
 			"select_label",
 		),
 		datagenRepairEntry(
-			prefix+"printed-parent",
-			fixture.PrintedParent,
+			prefix+"missing-edge",
+			fixture.MissingEdge,
 			"issue",
 			RepairEvidenceObserved,
 			RepairResult{
-				Props: parent(fixture.EpicID),
+				ParentID: &fixture.EpicID,
 			},
-			"printed_parent",
+			"missing_parent_edge",
 		),
 		datagenRepairEntry(
 			prefix+"absent-parent",
@@ -68,7 +63,13 @@ func datagenRepairRequest(fixture datagen.RepairFixture, directory repairDirecto
 			"issue",
 			RepairEvidenceInferred,
 			RepairResult{
-				Props: parent(fixture.ProjectID),
+				ParentID: &fixture.ProjectID,
+				RemoveEdges: []RepairEdge{
+					{
+						RelationType: node.RelChildOf,
+						TargetID:     fixture.AbsentParentTarget,
+					},
+				},
 			},
 			"absent_parent_uuid",
 		),
@@ -78,7 +79,7 @@ func datagenRepairRequest(fixture datagen.RepairFixture, directory repairDirecto
 			"comment",
 			RepairEvidenceObserved,
 			RepairResult{
-				Props: parent(fixture.NoticeTarget),
+				ParentID: &fixture.NoticeTarget,
 			},
 			"absent_parent",
 		),

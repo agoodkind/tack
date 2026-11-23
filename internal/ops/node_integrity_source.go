@@ -18,7 +18,7 @@ import (
 
 const repairParentProperty = "parent_id"
 
-// RepairEvidenceReader reads a repair's source state within a single transaction.
+// RepairEvidenceReader reads a repair's source state within one transaction.
 type RepairEvidenceReader interface {
 	RepairEvidence(
 		ctx context.Context,
@@ -79,17 +79,11 @@ func readRepairEvidence(
 }
 
 func resultParent(result RepairResult) uuid.UUID {
-	var parentText string
-	if json.Unmarshal(result.Props[repairParentProperty], &parentText) != nil {
+	if result.ParentID == nil {
 		return uuid.Nil
 	}
 
-	parentID, err := uuid.Parse(parentText)
-	if err != nil {
-		return uuid.Nil
-	}
-
-	return parentID
+	return *result.ParentID
 }
 
 func sourceFromEvidence(

@@ -11,6 +11,7 @@ import (
 	"regexp"
 
 	"github.com/google/uuid"
+	"goodkind.io/tack/internal/domain"
 )
 
 var errIntegrityManifestEmpty = errors.New("manifest does not contain any entries")
@@ -93,7 +94,16 @@ func checkNodeIntegrityManifest(ctx context.Context, manifest NodeIntegrityManif
 
 func checkManifestHeader(version int, ticket string, entries int) error {
 	if version != nodeIntegrityManifestVersion {
-		return fmt.Errorf("manifest version %d is not %d", version, nodeIntegrityManifestVersion)
+		wrapped := fmt.Errorf(
+			"manifest version %d is not %d; "+
+				"convert parent instructions to result.parent_id and freeze the request again: %w",
+			version,
+			nodeIntegrityManifestVersion,
+			domain.ErrInvalidArgument,
+		)
+		slog.Error("repair.manifest.version_failed", slog.String("err", wrapped.Error()))
+
+		return wrapped
 	}
 
 	if ticket != nodeIntegrityTicket {
