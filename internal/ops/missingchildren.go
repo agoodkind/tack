@@ -42,7 +42,7 @@ func createMissingDefaultChild(
 		child,
 		view,
 		relationships,
-		[]string{repairParentProperty},
+		nil,
 		nil,
 		nil,
 	); err != nil {

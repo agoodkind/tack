@@ -6,20 +6,18 @@ import (
 	"fmt"
 	"log/slog"
 	"maps"
-	"strconv"
+	"slices"
 
 	"github.com/google/uuid"
 	"goodkind.io/tack/internal/domain/node"
 )
 
 // repairResultProps returns the properties that a mutation writes when it
-// applies patch and parent to source. If patch assigns JSON null to a
-// property, the mutation removes that property. If parent has a value, the
-// mutation sets parent_id.
+// applies patch to source. If patch assigns JSON null to a
+// property, the mutation removes that property.
 func repairResultProps(
 	source map[string]json.RawMessage,
 	patch map[string]json.RawMessage,
-	parent *node.ParentChange,
 ) map[string]json.RawMessage {
 	result := maps.Clone(source)
 	if result == nil {
@@ -27,16 +25,12 @@ func repairResultProps(
 	}
 
 	for name, value := range patch {
-		if len(value) == 0 || string(value) == "null" {
+		if len(value) == 0 || string(value) == nullPropertyValue {
 			delete(result, name)
 			continue
 		}
 
 		result[name] = value
-	}
-
-	if parent != nil {
-		result[repairParentProperty] = json.RawMessage(strconv.Quote(parent.TargetID.String()))
 	}
 
 	return result
@@ -47,7 +41,7 @@ func repairResultProps(
 // a snapshot read. childOf lists the targets of the child_of edges that the
 // node has after the mutation.
 //
-// It reads the parent_id target and each reference target through a mutation
+// It reads the child_of targets and each reference target through a mutation
 // snapshot and passes them to ValidateResult in a node.ResultGraph.
 //
 // It returns the primary digest of each existing target. The mutation
@@ -69,7 +63,10 @@ func validateRepairResult(
 	}
 	records := []node.GraphRecord{}
 
-	for _, targetID := range resultTargetIDs(schema, nodeType, props) {
+	for _, targetID := range append(
+		slices.Clone(childOf),
+		resultTargetIDs(schema, nodeType, props)...,
+	) {
 		if _, read := graph.Targets[targetID]; read {
 			continue
 		}
@@ -132,7 +129,7 @@ func resultChildOf(snapshot node.MutationSnapshot, parent *node.ParentChange) []
 	return targets
 }
 
-// resultTargetIDs returns the node ID in parent_id and the node ID in each
+// resultTargetIDs returns the node ID in each
 // applicable UUID property that declares a reference target type. It skips
 // any value that does not represent a node ID.
 func resultTargetIDs(
@@ -141,10 +138,6 @@ func resultTargetIDs(
 	props map[string]json.RawMessage,
 ) []uuid.UUID {
 	targets := []uuid.UUID{}
-	if parentID := repairNodeID(props[repairParentProperty]); parentID != uuid.Nil {
-		targets = append(targets, parentID)
-	}
-
 	kind := schema.Types[nodeType]
 	if kind == nil {
 		return targets

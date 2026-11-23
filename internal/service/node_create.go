@@ -18,8 +18,7 @@ import (
 // CreateInput supplies the arguments for Create. Create writes Relationships
 // (assigned_to, labeled_with, etc.) in the same FDB transaction as the node.
 type CreateInput struct {
-	// ParentID is the direct container the new node lives under. It becomes
-	// Props["parent_id"] and the target of the implicit child_of edge.
+	// ParentID is the direct container and target of the implicit child_of edge.
 	// Defaults to ScopeID when zero.
 	ParentID uuid.UUID
 	// ScopeID is the resolved scope-bearing ancestor. For an issue this is
@@ -190,7 +189,7 @@ func (s *NodeService) createPlan(
 			Incoming:      nil,
 		},
 		Name:          &name,
-		Props:         propsWithoutParent(props),
+		Props:         props,
 		Parent:        parent,
 		ReferenceKeys: referenceKeys,
 		Relationships: node.RelationshipChanges{Add: relationships, Remove: nil},

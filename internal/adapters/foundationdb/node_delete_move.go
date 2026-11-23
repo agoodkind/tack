@@ -3,8 +3,6 @@ package foundationdb
 import (
 	"context"
 	"encoding/json"
-	"maps"
-	"strconv"
 	"time"
 
 	"github.com/apple/foundationdb/bindings/go/src/fdb"
@@ -15,9 +13,7 @@ import (
 // moveChild moves child, a direct child of the deleted root, to the root's
 // parent when node.LivesUnder places the child's type under the parent's
 // type. It calls the write fence for the child. The move replaces every
-// child_of edge of the child with one child_of edge to the parent, sets the
-// child's parent_id to the parent, moves the parent_id index entry,
-// schedules
+// child_of edge of the child with one child_of edge to the parent, schedules
 // the search work of a parent change, and records the old and new values of
 // the node and each changed child_of edge in changes.
 //
@@ -65,12 +61,8 @@ func (s *NodeDeleteStore) moveChild(
 	}
 
 	now := s.nodes.clock.Now().UTC()
-	oldProps := maps.Clone(current.Props)
-	parentValue := json.RawMessage(strconv.Quote(job.RootParentID.String()))
-	current.Props = setProperty(current.Props, parentIDProperty, parentValue)
 	current.UpdatedAt, current.UpdatedBy = now, job.ActorID
 	if view != nil {
-		view.Props = setProperty(view.Props, parentIDProperty, parentValue)
 		view.UpdatedAt, view.UpdatedBy = now, job.ActorID
 	}
 
@@ -81,15 +73,6 @@ func (s *NodeDeleteStore) moveChild(
 
 	if err := changes.record(nodeTarget(current), source, encoded); err != nil {
 		return false, nodeOperationFailure(ctx, "record the move of node "+child.ID.String(), err)
-	}
-
-	if err := moveParentIndexEntry(
-		ctx,
-		transaction,
-		current,
-		oldProps[parentIDProperty],
-	); err != nil {
-		return false, err
 	}
 
 	edgeChanges := parentEdgeChanges(job, child.ID, edges, now)

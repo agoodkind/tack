@@ -57,7 +57,7 @@ func (runner repairPhaseRunner) createReportPhase(ctx context.Context, run repai
 		run.entry,
 		schema,
 		report.NodeType,
-		repairResultProps(nil, plan.Props, plan.Parent),
+		repairResultProps(nil, plan.Props),
 		[]uuid.UUID{run.entry.NodeID},
 	)
 	if err != nil {

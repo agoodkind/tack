@@ -14,17 +14,8 @@ import (
 )
 
 // refuseOnlyParentRemoval runs inside the relationship removal transaction
-// and allows removal of edges of other relation types and child_of edges
-// that
-// do not exist. When the source node stores parent_id as a UUID string, the
-// guard refuses removal of the child_of edge targeting parent_id for every
-// node type, even when another child_of edge remains, and allows removal of
-// other child_of edges. When the source node stores a parent_id value that
-// is
-// not a UUID string, the guard refuses removal of every existing child_of
-// edge. When the source node does not store parent_id, the guard refuses
-// removal if node.HierarchyParent returns an error for the source type and
-// the other remaining child_of target, if any. Each refusal returns an error
+// and refuses removal of the last child_of edge when the source type
+// requires a parent. Each refusal returns an error
 // that matches domain.ErrFailedPrecondition. FoundationDB aborts one of two
 // concurrent transactions that each remove a different parent edge of the
 // same node.
@@ -65,33 +56,22 @@ func refuseOnlyParentRemoval(
 		return err
 	}
 
-	canonicalID, err := storedParentID(ctx, transaction, orgID, sources[0])
+	otherID, found, err := otherParentTarget(ctx, transaction, orgID, sourceID, removedKey)
 	if err != nil {
 		return err
 	}
 
-	if canonicalID != uuid.Nil && canonicalID != targetID {
-		return nil
+	var remaining []uuid.UUID
+	if found {
+		remaining = []uuid.UUID{otherID}
 	}
 
-	if canonicalID == uuid.Nil {
-		otherID, found, err := otherParentTarget(ctx, transaction, orgID, sourceID, removedKey)
-		if err != nil {
-			return err
-		}
-
-		var remaining []uuid.UUID
-		if found {
-			remaining = []uuid.UUID{otherID}
-		}
-
-		if _, parentErr := node.HierarchyParent(
-			sourceID,
-			sources[0].Kind,
-			remaining,
-		); parentErr == nil {
-			return nil
-		}
+	if _, parentErr := node.HierarchyParent(
+		sourceID,
+		sources[0].Kind,
+		remaining,
+	); parentErr == nil {
+		return nil
 	}
 
 	wrapped := fmt.Errorf(
@@ -116,12 +96,10 @@ func refuseOnlyParentRemoval(
 const parentGuardEdgeLimit = 2
 
 // otherParentTarget reads at most parentGuardEdgeLimit child_of edges from
-// sourceID. It returns the target and true for the first edge with a key
-// other
+// sourceID. It returns the target and true for the first edge with a key other
 // than removedKey. It returns [uuid.Nil] and false when it does not find
-// another
-// edge. It returns an error if the range read fails or an edge key does not
-// decode.
+// another edge. It returns an error if the range read fails or an edge key
+// does not decode.
 func otherParentTarget(
 	ctx context.Context,
 	transaction fdb.Transaction,
