@@ -21,7 +21,7 @@ require (
 	github.com/google/go-containerregistry v0.22.1
 	github.com/google/uuid v1.6.0
 	github.com/grafana/pyroscope-go v1.5.0
-	github.com/jackc/pgx/v5 v5.11.0
+	github.com/jackc/pgx/v5 v5.13.0
 	github.com/mark3labs/mcp-go/v2 v2.0.0
 	github.com/moby/moby/api v1.56.1
 	github.com/moby/moby/client v0.6.2
