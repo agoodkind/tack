@@ -49,6 +49,7 @@ isolation until later.
 
 ## Read design and operation guides
 
+- [Server telemetry](docs/telemetry.md) explains how Tack connects request logs, traces, metrics, and CPU profiles.
 - [docs/plans/](docs/plans/) contains proposed designs, including audit subsystem
   horizontal scale and the Kafka cutover.
 - [docs/runbooks/](docs/runbooks/) contains recovery and operational procedures.

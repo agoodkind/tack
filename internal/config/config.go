@@ -100,8 +100,10 @@ type Config struct {
 	AuditReadBufferCapacity int           `env:"AUDIT_READ_BUFFER_CAPACITY" envDefault:"8192"`
 	AuditReadBatchSize      int           `env:"AUDIT_READ_BATCH_SIZE"      envDefault:"256"`
 	AuditReadFlushInterval  time.Duration `env:"AUDIT_READ_FLUSH_INTERVAL"  envDefault:"200ms"`
-	// An empty OTELEndpoint disables tracing.
-	OTELEndpoint string `env:"OTEL_EXPORTER_OTLP_ENDPOINT"`
+	// OTELEndpoint configures trace export and supplies the default metric endpoint.
+	OTELEndpoint     string `env:"OTEL_EXPORTER_OTLP_ENDPOINT"`
+	MetricEndpoint   string `env:"OTEL_EXPORTER_OTLP_METRICS_ENDPOINT"`
+	PyroscopeAddress string `env:"PYROSCOPE_SERVER_ADDRESS"`
 
 	BackupRoot       string `env:"TACK_BACKUP_ROOT"        envDefault:"/root/backups"`
 	BackupFDBNetwork string `env:"TACK_BACKUP_FDB_NETWORK" envDefault:"tack_default"`

@@ -89,6 +89,16 @@ services:
       # Development defaults enable debug logging and retain every rotated log.
       # Append-only logs support incident investigation.
       LOG_LEVEL: ${LOG_LEVEL:-debug}
+      GKLOG_LOG_ENABLED:
+      GKLOG_LOG_LEVEL:
+      GKLOG_TRACE_ENABLED:
+      GKLOG_TRACE_SAMPLE_RATIO:
+      GKLOG_CPU_PROFILE_ENABLED:
+      GKLOG_METRIC_EXPORT_ENABLED:
+      OTEL_EXPORTER_OTLP_ENDPOINT:
+      OTEL_EXPORTER_OTLP_METRICS_ENDPOINT:
+      OTEL_RESOURCE_ATTRIBUTES:
+      PYROSCOPE_SERVER_ADDRESS:
       LOG_MAX_BACKUPS: ${LOG_MAX_BACKUPS:-0}
       LOG_MAX_AGE_DAYS: ${LOG_MAX_AGE_DAYS:-0}
       LOG_MAX_SIZE_MB: ${LOG_MAX_SIZE_MB:-100}
