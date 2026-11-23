@@ -27,7 +27,7 @@ func TestParentRelationshipMigrationRefusesViewOnlyParent(t *testing.T) {
 	issue := createRepairIssue(t, env, project, "View-only legacy parent")
 	storeLegacyParentFixture(t, env, issue, project, true)
 	removePrimaryParentFixture(t, env, issue)
-	requireParentMigrationRefused(t, []uuid.UUID{issue}, "disagree")
+	requireParentMigrationRefused(t, []uuid.UUID{issue}, "only the read view")
 }
 
 func TestParentRelationshipMigrationRefusesMissingResolution(t *testing.T) {

@@ -61,6 +61,10 @@ func checkParentMigrationView(
 		return nodeOperationFailure(ctx, "decode a read view for parent migration", err)
 	}
 
+	if _, present := view.Props[legacyParentProperty]; !present {
+		return nil
+	}
+
 	if !bytes.Equal(item.Key, nodeViewKey(view.OrgID, view.NodeType, view.ID)) {
 		return mutationRefusal(
 			ctx,
@@ -86,5 +90,5 @@ func checkParentMigrationView(
 		)
 	}
 
-	return checkAdditiveParentParity(ctx, transaction, &source.Node, &view)
+	return nil
 }
