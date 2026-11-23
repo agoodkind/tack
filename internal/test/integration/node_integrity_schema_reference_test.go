@@ -151,12 +151,16 @@ func schemaStateID(
 	name string,
 ) uuid.UUID {
 	t.Helper()
-	states, err := stores.Nodes.ListByProperty(
+	states, err := stores.Views.List(
 		t.Context(),
-		issue.OrgID,
-		"state",
-		"parent_id",
-		issue.Props["scope_id"],
+		node.NodeListQuery{
+			OrgID:    issue.OrgID,
+			NodeType: "state",
+			ByTargetRelation: &node.RelationScan{
+				NodeID:       uuid.MustParse(stringProperty(t, issue, "scope_id")),
+				RelationType: node.RelChildOf,
+			},
+		},
 	)
 	if err != nil {
 		t.Fatalf("list states of the project of issue %s: %v", issue.ID, err)

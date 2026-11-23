@@ -115,12 +115,13 @@ func stateByName(
 	name string,
 ) uuid.UUID {
 	t.Helper()
-	states, err := env.Stores.Nodes.ListByProperty(
+	states, err := env.Stores.Views.List(
 		env.Ctx,
-		env.OrgID,
-		"state",
-		"parent_id",
-		quoted(projectID.String()),
+		node.NodeListQuery{
+			OrgID:            env.OrgID,
+			NodeType:         "state",
+			ByTargetRelation: &node.RelationScan{NodeID: projectID, RelationType: node.RelChildOf},
+		},
 	)
 	if err != nil {
 		t.Fatalf("list states of project %s: %v", projectID, err)

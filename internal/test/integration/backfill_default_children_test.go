@@ -129,13 +129,11 @@ func TestDefaultChildrenBackfillRefusesUndeclaredProperties(t *testing.T) {
 		}
 	}
 
-	parentIDRaw := json.RawMessage(strconv.Quote(parent.ID.String()))
-	children, err := env.Stores.Nodes.ListByProperty(
+	children, err := env.Stores.Relationships.ListByTarget(
 		env.Ctx,
 		env.OrgID,
-		"state",
-		"parent_id",
-		parentIDRaw,
+		parent.ID,
+		node.RelChildOf,
 	)
 	if err != nil {
 		t.Fatalf("list the children of node %s: %v", parent.ID, err)
