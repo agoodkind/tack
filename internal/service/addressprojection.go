@@ -34,7 +34,6 @@ func (e seedSearchDecisionError) Unwrap() error { return node.ErrInvalidSearchPr
 //	err := applyDefaultSearchProjections(definitions)
 func applyDefaultSearchProjections(definitions []*node.PropertyDef) error {
 	orders := map[string]int{
-		propertyParentID:    searchParentOrder,
 		"priority":          0,
 		"due_date":          1,
 		"start_date":        searchStartDateOrder,
@@ -50,7 +49,6 @@ func applyDefaultSearchProjections(definitions []*node.PropertyDef) error {
 		propertySortOrder:   searchSortOrder,
 	}
 	included := map[string]bool{
-		propertyParentID:    false,
 		propertyDescription: true,
 		propertySlug:        true,
 		propertyIdentifier:  true,
@@ -81,15 +79,11 @@ func applyDefaultSearchProjections(definitions []*node.PropertyDef) error {
 	return nil
 }
 
-// scopedSequenceTemplate joins the scope reference, a hyphen, and a
-// generated
-// sequence. Types using this template share numbering within each scope
-// because
+// scopedSequenceTemplate joins the scope reference, a hyphen, and a generated
+// sequence. Types using this template share numbering within each scope because
 // the template omits the node type.
-// The engine does not supply a default template or constrain types without
-// one.
-// SeedOrg overwrites built-in templates on reseed. Org-defined types
-// preserve
+// The engine does not supply a default template or constrain types without one.
+// SeedOrg overwrites built-in templates on reseed. Org-defined types preserve
 // custom templates because the seed does not update those types.
 func scopedSequenceTemplate() []node.ReferenceTemplate {
 	return []node.ReferenceTemplate{

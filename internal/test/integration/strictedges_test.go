@@ -25,8 +25,6 @@ func TestNodeIntegrityStrictRejectsInvalidCreateAndEdgeAfterActivation(t *testin
 	issue := createSchemaNode(t, env, projectID, projectID, "issue", nil)
 	label := createSchemaNode(t, env, workspaceID, workspaceID, "label", nil)
 	otherOrgID := createStrictOtherOrg(t, env)
-	// The existing issue has a valid project edge. Its stale property points to a label.
-	storeLegacyParentFixture(t, env, issue.ID, label.ID, false)
 	activateStrict(t)
 
 	_, err := env.NodeSvc.Create(env.Ctx, schemaCreateInput(label.ID, projectID, "issue", nil))

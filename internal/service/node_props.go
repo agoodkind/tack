@@ -101,7 +101,7 @@ func (s *NodeService) checkDeclaredProps(
 // ValidateNodeProps interprets props with schema for nt. It logs and returns
 // an error for schema read failures. It logs and refuses property names
 // without definitions and names with definitions that do not apply to nt.
-// For names with definitions, it exempts parent_id, scope_id, and sequence.
+// For names with definitions, it exempts scope_id and sequence.
 // Refusal errors wrap domain.ErrInvalidArgument and list quoted names in
 // sorted order. Errors and log entries include the operation value.
 // It ignores value and option issues and returns nil otherwise.
@@ -131,8 +131,9 @@ func ValidateNodeProps(
 	return loggedPropertyCheckError(ctx, nt, operation, refused)
 }
 
-// undeclaredPropNames returns quoted names for undeclared or inapplicable
-// properties. It skips managed properties that apply to every node type.
+// undeclaredPropNames returns quoted property names that interpretation
+// reports as undeclared or not applicable. It omits property names that the
+// service accepts for every node type.
 func undeclaredPropNames(result node.PropertyResult) []string {
 	names := make([]string, 0, len(result.Invalid))
 	for _, issue := range result.Invalid {
