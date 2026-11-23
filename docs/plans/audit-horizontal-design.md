@@ -247,8 +247,9 @@ can advance concurrently. `audit.consumer_offsets` stores
 
 ## Record events at either size
 
-Producers publish read and state-change events to Kafka. Only `audit-consumer`
-writes ledger rows and chain heads.
+Tack now publishes both read and state-change events to Kafka. Only
+`audit-consumer` writes ledger rows and chain heads. Both sequences below
+predate that change.
 
 The original state-change sequence is:
 
@@ -370,10 +371,8 @@ If the lock service fails, every signer refuses work until it recovers.
 Notarization pauses without changing chain integrity. Brief duplicate leaders
 write redundant valid notarizations rather than incorrect rows.
 
-The abandoned dual-write proposal required parity checks when WAL and Kafka
-records differed. The accepted hard cutover does not use a dual-write window
-or an `events_v2` table. Follow the cutover plan for migration
-`003_audit_kafka_cutover.sql`, sole consumer ownership, keying, and rollback.
+For migration `003` and its rollback procedure, see the
+[production cutover runbook](../runbooks/audit/cutover.md).
 
 ## Expand beyond one host
 

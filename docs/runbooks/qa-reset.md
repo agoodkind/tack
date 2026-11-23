@@ -9,9 +9,9 @@ The reset destroys the existing QA FoundationDB, YugabyteDB, Kafka, and OpenSear
 1. Confirm that the target inventory contains only the six suburban QA guests: `tack-qa` (CT 217), `tack-data1` through `tack-data3` (CT 220 through 222), `tack-app2` (CT 223), and `tack-search1` (CT 227). Compare their resource addresses, hostnames, and network addresses with the live Proxmox inventory and the current Configs inventory.
 2. Confirm that the reviewed Configs revision permits replacement of those six QA resources. Confirm that the Tack image and Configs revision include the audited agent identity, empty ledger audit bootstrap, serial ledger join and replication wait, and fresh guest preparation. If a prerequisite is missing, stop before replacement.
 3. Record the operator, agent session, Configs commit, Tack commit, image tag and digest, current QA service state, and the evidence retained before deletion. Use the identity flags rendered by Configs. Reject a dry run that displays a shared or incorrect operator identity.
-4. Review the [OpenSearch acceptance criteria](../superpowers/specs/2026-09-19-search-acceptance.md)
-   and current capacity stop thresholds. Keep production operations and
-   deployments paused.
+4. Review the [OpenSearch release criteria](../superpowers/specs/2026-09-19-search-acceptance.md),
+   including [QA capacity limits and stop conditions](../superpowers/specs/2026-09-19-search-acceptance.md#cluster-and-capacity).
+   Keep production operations and deployments paused.
 
    When saving a plan, target only `module.suburban` because Configs also
    manages non-QA modules in this OpenTofu root.
@@ -66,6 +66,6 @@ Use the reviewed operator identity flags on every direct `docker compose run --r
 
 ## Close the reset
 
-1. Run the public behavior, authorization, pagination, outage recovery, capacity, and two-process checks required by the QA release plan. Record deployment, search activation, and live acceptance as separate results. A successful datagen seed alone does not prove search acceptance.
+1. Run the public behavior, authorization, pagination, outage recovery, capacity, and two-process checks required by the OpenSearch release criteria. Record deployment, search activation, and live acceptance as separate results. A successful datagen seed alone does not prove search acceptance.
 2. Restore `prevent_destroy = true` for all six QA resources in a reviewed Configs change. Confirm the merged revision and require `./configsctl tofu plan -target=module.suburban` to report zero pending changes.
 3. Record the final guest identities, Configs and Tack commits, image digests, operator provenance, audited command results, generated corpus size, OpenSearch generation, and unresolved failures in the QA evidence ledger. Preserve the production pause.

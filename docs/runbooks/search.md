@@ -84,6 +84,24 @@ public error during a member stop, even if a later request succeeds.
 
 ## Run all acceptance tests
 
+Run these groups in order with the focused runner before running the complete
+suite. On macOS, use `testenv run-mac` with a fresh evidence directory for
+each selection. Pass each expression to `-run` and include `-tags runtimeaudit`.
+
+| Order | Check | Test selection |
+| --- | --- | --- |
+| 1 | Client, model, and mapping | `^TestSearchNative` |
+| 2 | Projection, reader, and work queue | `^TestSearch(Projection\|Reader\|Work)` |
+| 3 | Index updates and recovery | `^TestSearch(DelayedWriter\|RevisionCleanup\|WorkerFairness\|Recovery)` |
+| 4 | Ranking, access, and continuation | `^TestSearch(SemanticPairs\|ContinuationTraversesDuplicateHeavyCorpus\|FiltersForbiddenPagesBeforeRanking\|FinalCheckRejectsCorruptIndexedAccess\|RevokedAccessRejectsLaterResultsAndReplay\|AuthenticatedResults\|UnavailableWhileDisabled\|Cursor\|EmptyQuery)` |
+| 5 | Replacement, metadata, and runtime | `^TestSearch(Rebuild\|Split\|Restore\|Runtime\|Metadata\|Access\|Datagen)` |
+| 6 | Cursors across server processes | `^TestSearchCursorActualOSProcesses$` |
+| 7 | Throughput across server processes | `^TestSearchActualOSProcessThroughput$` |
+| 8 | Cluster failures and recovery | `^TestSearchCluster` |
+
+Run the throughput selection in isolation with the 45-minute limit and
+measurement requirements below.
+
 1. Run the complete suite against the
    [search acceptance criteria](../superpowers/specs/2026-09-19-search-acceptance.md)
    using the environment prepared above. Include runtime audit

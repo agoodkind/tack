@@ -299,7 +299,8 @@ Register a maintenance operation through `ops.Register`. For every org and
 NodeType with a template, report each duplicated rendered reference with all
 candidate UUIDs and creation times.
 
-Detection is a read operation and follows the [audit policy](../../audit.md).
+Detection saves an attempt record before reading. If Tack cannot save that
+record, detection stops before reading, as required by the [audit policy](../../audit.md).
 The first run establishes whether projects beyond FAN contain duplicates; the
 eight confirmed duplicates are all in FAN.
 
