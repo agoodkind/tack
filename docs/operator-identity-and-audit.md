@@ -6,23 +6,20 @@ during initial installation, before audit storage exists.
 
 ## Shared audit choke point
 
-A shared audit choke point is the common check every operator command uses
-before running. For ordinary commands, Tack determines the operator identity
-and saves an attempt record before executing the action. Missing identity or a recording failure
-prevents execution.
+A shared audit choke point is a check every operator command must pass before
+running. For ordinary commands, Tack identifies who requested the command and
+saves an attempt record. Tack refuses execution if either step fails.
 
-Every command declares its audited action through the shared command registry
-and uses the same identity lookup. Commands cannot bypass the gate or disable
+Every command declares its audited action in a shared command registry and uses
+a common identity lookup. Commands cannot bypass this check or disable
 recording.
 
 ## Identity sources
 
-An identity source is a method for identifying the person or service requesting
-a command.
-Tack reads identity from command options or global Git configuration. These
-sources supply asserted identities: they state who requested an action without
-proving that the person or service controls that identity. Verified identity
-requires authentication, which checks that proof.
+An identity source supplies a name or identifier for whoever requested a
+command. Tack reads this information from command options or global Git
+configuration. Both sources provide an asserted identity. Authentication
+verifies that a caller controls the identity they claim.
 
 Tack chooses the first available source in this order:
 
@@ -37,18 +34,18 @@ not contain only zeros. A session identifier requires a service name.
 
 ## Attribution
 
-Attribution is a record of the identity and identity source for each command
-and request. When a service acts for a person, Tack can record both identities.
+Attribution records who requested each command or operation and which identity
+source Tack used. When a service acts for a person, Tack can record both identities.
 That pairing requires the person's operator UUID and email address together
 with the service's session identifier. Recording this attribution does not grant
 permission to perform an action.
 
 ## Dry runs
 
-A dry run is a command preview that does not execute the proposed action.
+A dry run previews a command without executing its proposed action.
 Without `--execute`, an audited command displays its operator identity and
 proposed action. Both preview and execution require identity.
 
 A preview that reads system state requires an access-attempt record before
-reading. A preview that only prints the proposed action does not access system
+reading. A preview that only prints its proposed action does not access system
 state.

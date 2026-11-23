@@ -13,8 +13,8 @@ The reset destroys the existing QA FoundationDB, YugabyteDB, Kafka, and OpenSear
    and current capacity stop thresholds. Keep production operations and
    deployments paused.
 
-   Target only `module.suburban` in the saved plan. The Configs OpenTofu root
-   also includes non-QA modules.
+   When saving a plan, target only `module.suburban` because Configs also
+   manages non-QA modules in this OpenTofu root.
 5. Before replacement, save a read-only listing of `/root/backups` from CT 217. On the suburban hypervisor, confirm that `zpool list -H -o name` includes `slowpool`, `pvesm status --storage slow-zfs` reports active, and `pct config 218 --current 1` reports its root filesystem on `slow-zfs`. Save these results for comparison before the slow-tier play.
 
 ## Replace the QA guests

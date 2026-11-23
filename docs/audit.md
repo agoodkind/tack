@@ -19,31 +19,31 @@ through its public interfaces. They include:
 An attempt record is evidence that a caller requested an action. Before
 executing an audited action, Tack saves:
 
-- The caller who requested the action.
-- The requested action.
-- The target data or resource.
-- The time of the attempt.
+- Caller identity.
+- Requested action.
+- Target data or resource.
+- Time of request.
 
-Tack refuses execution if it cannot save this record. An attempt record does
-not establish that the action succeeded, and audit records do not require
-success or failure outcomes.
+Tack refuses execution if it cannot save this record. An attempt record alone
+does not establish success. Audit records do not require success or failure
+outcomes.
 
 ## Data changes
 
 Data changes are additions, updates, or removals of stored records. Change
-evidence includes the affected records and their actual old and new values,
+evidence includes affected records and their actual old and new values,
 including removals. Tack commits a database change and its evidence in one
 transaction.
 
 Jobs that perform a requested action associate resulting data changes with
 the original caller and action.
 
-An example request changes the title of issue 123:
+For example, a caller requests a title change for issue 123:
 
 | Evidence | Example |
 | --- | --- |
 | Attempt | Sam requests renaming issue 123 at 10:00. |
-| Data change | Tack saves the old title “Draft” and new title “Ready” with the change. |
+| Data change | Tack saves both titles with issue 123: “Draft” before renaming and “Ready” after. |
 
 ## Internal work
 
@@ -58,8 +58,8 @@ Tack does not audit this work, even when it reads user data. Examples include:
 
 ## Initial installation
 
-Initial installation is the setup of a new Tack environment, including creation
-of its audit storage. Tack may defer recording while it creates that storage.
+Initial installation sets up a new Tack environment, including its audit
+storage. Tack may defer recording while it creates that storage.
 Operator identity remains required during installation. Authentication or
 storage failures during ordinary operation do not qualify for this exception.
 

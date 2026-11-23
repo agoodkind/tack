@@ -320,8 +320,8 @@ older text.
 
 Write a reference key for every visited node in the same pass to repair
 duplicates and populate keys for nodes created before templates existed.
-Renumbering commits its change evidence in the same FoundationDB transaction as
-the change.
+Renumbering commits each change and its audit evidence in one FoundationDB
+transaction.
 
 ### No forwarding record
 

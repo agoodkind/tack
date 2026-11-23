@@ -82,11 +82,11 @@ worker and target identities before the first member stop and after each restart
 Shard health alone does not satisfy this validation requirement. Save the first
 public error during a member stop, even if a later request succeeds.
 
-## Run the complete acceptance tests
+## Run all acceptance tests
 
 1. Run the complete suite against the
    [search acceptance criteria](../superpowers/specs/2026-09-19-search-acceptance.md)
-   with the environment from the preparation step. Include the runtime audit
+   using the environment prepared above. Include runtime audit
    tests and require every selected test to pass without a skip.
 
    ```sh
@@ -95,7 +95,7 @@ public error during a member stop, even if a later request succeeds.
        -run '^TestSearch' ./internal/test/integration
    ```
 
-2. Repeat the concurrency and replacement checks with the focused runner.
+2. Repeat concurrency and replacement checks with the focused runner.
    Use `-count=3` with each selection and timeout below. Run these groups serially.
 
    Repeated checks:
@@ -116,7 +116,7 @@ public error during a member stop, even if a later request succeeds.
    using the focused runner. Require fixed-client measurements with indexed
    mutations and complete search sessions, zero errors, and a two-process gain
    above unchanged-control variation before claiming a speedup.
-4. Verify the terminal results for every required group. Require every selected
+4. Verify final results for every required group. Require every selected
    test to execute and pass. Compilation, a skipped cluster group, or a successful
    startup does not establish search acceptance.
 
