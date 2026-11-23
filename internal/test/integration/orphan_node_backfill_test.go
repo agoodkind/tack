@@ -11,15 +11,15 @@ import (
 
 // TestOrphanNodeBackfill deletes a project with the single-node store delete,
 // the shape every public delete left before the cascade existed. The
-// project's states, epic, and direct issues keep parent_id values that refer
-// to the deleted project and have no parent edge. The dry run must report
+// project's states, epic, and direct issues do not have parent edges after
+// the deletion. The dry run must report
 // exactly those orphans and delete nothing. The executed run must delete the
 // orphans and their descendants and write one node.delete ledger event per
 // deleted node. A rerun must report zero orphans.
 func TestOrphanNodeBackfill(t *testing.T) {
 	env := SetupTestEnv(t)
 	fixture := newCascadeFixture(t, env)
-	orphans := directChildren(t, fixture.Project)
+	orphans := directChildren(t, env, fixture.Project)
 	if err := env.Stores.Nodes.Delete(env.Ctx, env.OrgID, fixture.Project); err != nil {
 		t.Fatalf("delete project %s without its descendants: %v", fixture.Project, err)
 	}

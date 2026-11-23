@@ -1,7 +1,6 @@
 package integration
 
 import (
-	"encoding/json"
 	"errors"
 	"testing"
 
@@ -50,8 +49,8 @@ func TestServiceUpdateRefusesMoveOntoHeldReference(t *testing.T) {
 		env.Ctx,
 		service.UpdateInput{
 			NodeID: mover.ID,
-			Props: map[string]json.RawMessage{
-				"parent_id": jsonStr(first.ID.String()),
+			RelationshipChanges: node.RelationshipChanges{
+				Add: []*node.Relationship{{RelationType: node.RelChildOf, TargetID: first.ID}},
 			},
 			ActorID: actor,
 			ScopeID: first.ID,
@@ -106,8 +105,10 @@ func TestServiceUpdateReclaimsReferenceOnCleanMove(t *testing.T) {
 		env.Ctx,
 		service.UpdateInput{
 			NodeID: mover.ID,
-			Props: map[string]json.RawMessage{
-				"parent_id": jsonStr(destination.ID.String()),
+			RelationshipChanges: node.RelationshipChanges{
+				Add: []*node.Relationship{
+					{RelationType: node.RelChildOf, TargetID: destination.ID},
+				},
 			},
 			ActorID: actor,
 			ScopeID: destination.ID,
