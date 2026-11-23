@@ -59,18 +59,13 @@ func (rc *renderCtx) scopeIdentifierFor(view *node.NodeView) string {
 		}
 	}
 
-	parentID := uuidProp(view, "parent_id")
-	for depth := 0; depth < maxParentDepth && parentID != uuid.Nil; depth++ {
-		parentView, err := rc.reader.Get(rc.ctx, parentID)
-		if err != nil || parentView == nil {
-			return ""
-		}
-
+	parentView := rc.parent(view)
+	for depth := 0; depth < maxParentDepth && parentView != nil; depth++ {
 		if ident := stringProp(parentView, "identifier"); ident != "" {
 			return ident
 		}
 
-		parentID = uuidProp(parentView, "parent_id")
+		parentView = rc.parent(parentView)
 	}
 
 	return ""

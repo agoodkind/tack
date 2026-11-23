@@ -78,7 +78,7 @@ func putSeedlessOrg(t *testing.T, env seedlessEnvironment, keys seedlessKeys) se
 		env,
 		entry,
 		built.OrgID,
-		[]string{keys.Address, seedlessParentProperty},
+		[]string{keys.Address},
 	)
 	built.UserID, built.Token = putSeedlessIdentity(t, env, built.OrgID)
 	requireOnlyDeclaredMetadata(t, env, built)
@@ -176,7 +176,6 @@ func requireOnlyDeclaredMetadata(t *testing.T, env seedlessEnvironment, built se
 		names,
 		[]string{
 			keys.Address,
-			seedlessParentProperty,
 			seedlessScopeProperty,
 			keys.Included,
 			keys.Excluded,

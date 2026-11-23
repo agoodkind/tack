@@ -21,15 +21,20 @@ func TestStampAuditNodeInEntryPointPopulatesWorkspace(t *testing.T) {
 		ID:       projectID,
 		OrgID:    orgID,
 		NodeType: "project",
-		Props:    map[string]json.RawMessage{"parent_id": mustRaw(t, workspaceID.String())},
 	}
 	issue := &node.NodeView{
 		ID:       issueID,
 		OrgID:    orgID,
 		NodeType: "issue",
-		Props:    map[string]json.RawMessage{"parent_id": mustRaw(t, projectID.String())},
 	}
-	reader := &resolverReader{views: map[uuid.UUID]*node.NodeView{projectID: project}}
+	reader := &resolverReader{
+		views: map[uuid.UUID]*node.NodeView{
+			workspaceID: workspace,
+			projectID:   project,
+			issueID:     issue,
+		},
+		parents: map[uuid.UUID]uuid.UUID{projectID: workspaceID, issueID: projectID},
+	}
 	resolver := &Resolver{reader: reader}
 	ctx := audit.WithScopeBuilder(context.Background())
 

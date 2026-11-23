@@ -42,10 +42,11 @@ func parentRelationshipBackfillOp(factory *cli.Factory) clispec.Operation[noInpu
 		Examples: nil,
 		Args:     nil,
 		Params:   nil,
-		Short:    "Create missing child_of relationships from stored parent properties",
-		Long: "Run with application writers stopped during validation and execution. " +
+		Short:    "Replace stored parent properties with child_of relationships",
+		Long: "Run with application writers stopped before starting the relationship-only application. " +
 			"A dry run validates nodes and reports proposed changes. With --execute, the command creates " +
-			"missing child_of relationships from parent_id and preserves stored properties and metadata. " +
+			"missing child_of relationships from parent_id, removes parent_id from nodes and read views, " +
+			"clears its property index entries, and removes its property definitions. " +
 			"Existing relationships remain unchanged. Repeating execution skips completed nodes.",
 		New: func() noInput { return noInput{InputMarker: clispec.InputMarker{}} },
 		DryRun: func(ctx context.Context, _ noInput, sink clispec.ResultSink) error {

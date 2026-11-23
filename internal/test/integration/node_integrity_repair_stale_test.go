@@ -15,7 +15,7 @@ import (
 // issue through NodeService. The test reads the issue with GetForUpdate, moves
 // the issue under the epic with NodeService.Update, and attempts a scope_id
 // repair with UpdateAtomicFrom and the old digest. The test requires
-// domain.ErrConflict, parent_id at the epic, and exactly one child_of edge to
+// domain.ErrConflict and exactly one child_of edge to
 // the epic. A second read and write with the current digest must succeed.
 func TestRepairWriteRefusesNodeMovedAfterRead(t *testing.T) {
 	env := integration.SetupTestEnv(t)
@@ -24,11 +24,13 @@ func TestRepairWriteRefusesNodeMovedAfterRead(t *testing.T) {
 	issue := createSchemaNode(t, env, projectID, projectID, "issue", nil)
 	read, readDigest := readForRepair(t, env, issue.ID)
 	move := service.UpdateInput{
-		NodeID:              issue.ID,
-		Name:                nil,
-		Props:               schemaProps("parent_id", quoted(epic.ID.String())),
-		RelationshipChanges: node.RelationshipChanges{Add: nil, Remove: nil},
-		ActorID:             uuid.New(),
+		NodeID: issue.ID,
+		Name:   nil,
+		Props:  nil,
+		RelationshipChanges: node.RelationshipChanges{
+			Add: []*node.Relationship{{RelationType: node.RelChildOf, TargetID: epic.ID}},
+		},
+		ActorID: uuid.New(),
 	}
 	if _, err := env.NodeSvc.Update(env.Ctx, move); err != nil {
 		t.Fatalf(
@@ -41,16 +43,7 @@ func TestRepairWriteRefusesNodeMovedAfterRead(t *testing.T) {
 
 	err := writeRepairedScope(env, read, readDigest, projectID)
 	requireError(t, err, domain.ErrConflict, "repair write after the parent move")
-	if got := string(storedStoreView(t, env.Stores, issue.ID).Props["parent_id"]); got != string(
-		quoted(epic.ID.String()),
-	) {
-		t.Fatalf(
-			"issue %s has parent_id %s after the refused repair write; the test expects epic %s",
-			issue.ID,
-			got,
-			epic.ID,
-		)
-	}
+	requireParent(t, env, issue.ID, epic.ID)
 
 	edges, err := env.Stores.Relationships.ListBySource(
 		env.Ctx,

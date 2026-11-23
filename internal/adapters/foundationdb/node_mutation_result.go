@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log/slog"
 	"maps"
-	"strconv"
 	"time"
 
 	"github.com/apple/foundationdb/bindings/go/src/fdb"
@@ -14,19 +13,10 @@ import (
 	"goodkind.io/tack/internal/domain/node"
 )
 
-// checkPlanShape refuses a plan that sets parent_id in Props, changes a
+// checkPlanShape refuses a plan that changes a
 // child_of relationship, or specifies a different node type from the stored
 // node type.
 func checkPlanShape(ctx context.Context, plan node.MutationPlan, source mutationSource) error {
-	if _, present := plan.Props[parentIDProperty]; present {
-		return mutationRefusal(
-			ctx,
-			plan.NodeID,
-			"the plan sets parent_id in Props instead of Parent",
-			domain.ErrInvalidArgument,
-		)
-	}
-
 	for _, relationship := range append(
 		append([]*node.Relationship{}, plan.Relationships.Add...),
 		plan.Relationships.Remove...,
@@ -96,16 +86,14 @@ func mutationResult(plan node.MutationPlan, source mutationSource, now time.Time
 	return result
 }
 
-// childOfChanges sets parent_id on result to the parent from plan and
-// returns
-// the child_of changes that leave exactly one edge to that parent. It
-// returns
+// childOfChanges returns the child_of changes that leave exactly one edge
+// to the parent from plan. It returns
 // an error that wraps domain.ErrConflict if a removed edge does not match a
 // digest in plan.Graph.Relationships. If plan does not specify Parent, it
 // preserves the stored parent and edges.
 func childOfChanges(
 	ctx context.Context,
-	transaction fdb.Transaction,
+	tr fdb.Transaction,
 	plan node.MutationPlan,
 	source mutationSource,
 	result *node.Node,
@@ -116,17 +104,10 @@ func childOfChanges(
 	}
 
 	targetID := plan.Parent.TargetID
-	result.Props[parentIDProperty] = json.RawMessage(strconv.Quote(targetID.String()))
 	var edges []node.RelationshipSnapshot
 	if source.Exists {
 		var err error
-		edges, err = readOutgoingSnapshots(
-			ctx,
-			transaction,
-			plan.OrgID,
-			plan.NodeID,
-			node.RelChildOf,
-		)
+		edges, err = readOutgoingSnapshots(ctx, tr, plan.OrgID, plan.NodeID, node.RelChildOf)
 		if err != nil {
 			return changes, err
 		}

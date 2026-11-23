@@ -7,9 +7,9 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-
 	fdbadapter "goodkind.io/tack/internal/adapters/foundationdb"
 	"goodkind.io/tack/internal/datagen"
+	"goodkind.io/tack/internal/domain/node"
 	"goodkind.io/tack/internal/test/integration"
 	"goodkind.io/tack/internal/testenv"
 )
@@ -99,12 +99,16 @@ func doneStateID(
 	projectID string,
 ) string {
 	t.Helper()
-	states, err := stores.Nodes.ListByProperty(
+	states, err := stores.Views.List(
 		t.Context(),
-		orgID,
-		"state",
-		"parent_id",
-		json.RawMessage(strconv.Quote(projectID)),
+		node.NodeListQuery{
+			OrgID:    orgID,
+			NodeType: "state",
+			ByTargetRelation: &node.RelationScan{
+				NodeID:       uuid.MustParse(projectID),
+				RelationType: node.RelChildOf,
+			},
+		},
 	)
 	if err != nil {
 		t.Fatalf("list states of project %s: %v", projectID, err)

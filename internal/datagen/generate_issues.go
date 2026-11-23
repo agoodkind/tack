@@ -30,7 +30,6 @@ func (g *Generator) generateIssues(
 		parentReference := projectReference
 		if len(containers) > 0 && issueIndex%3 != 0 {
 			parentReference = containers[issueIndex%len(containers)]
-			properties.setString("parent_id", parentReference)
 		}
 		issueReference, created, err := g.ensureNode(
 			ctx,
@@ -83,6 +82,14 @@ func (g *Generator) generateIssues(
 		workspace,
 		projectIdentifier,
 		projectReference,
+		firstIssue,
+	); err != nil {
+		return err
+	}
+	if err := g.probeParentPropertyRefused(
+		ctx,
+		workspace,
+		projectIdentifier,
 		firstIssue,
 	); err != nil {
 		return err

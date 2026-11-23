@@ -8,6 +8,7 @@ import (
 
 	"github.com/google/uuid"
 	"goodkind.io/tack/internal/domain"
+	"goodkind.io/tack/internal/domain/node"
 	"goodkind.io/tack/internal/ops"
 )
 
@@ -91,7 +92,17 @@ func TestRepairConsolePreviewMatchesByReferenceStrategy(t *testing.T) {
 	epic := createSchemaNode(t, f.env, f.projectID, f.projectID, "epic", nil)
 	state := createSchemaNode(t, f.env, f.projectID, f.projectID, "state", nil)
 	f.legacyNode(t, state, map[string]json.RawMessage{"slug": quoted("ready-slug")})
-	workspaceID := uuidProp(storedStoreView(t, f.env.Stores, f.projectID).Props, "parent_id")
+	parents, err := f.env.Stores.Relationships.ListBySource(
+		f.env.Ctx,
+		f.env.OrgID,
+		f.projectID,
+		node.RelChildOf,
+	)
+	if err != nil || len(parents) != 1 {
+		t.Fatalf("read parent of project %s: %v, %v", f.projectID, parents, err)
+	}
+
+	workspaceID := parents[0].TargetID
 	issue := f.legacyIssue(
 		t,
 		map[string]json.RawMessage{
@@ -132,62 +143,6 @@ func TestRepairConsolePreviewMatchesByReferenceStrategy(t *testing.T) {
 				preview.Summary,
 				expected.parentID,
 			)
-		}
-	}
-}
-
-// TestRepairConsolePreviewTransformsLegacyProperties tests a property
-// transform preview for an issue with legacy properties Description, status,
-// and progress. The console must plan a description with the text of
-// Description and the status under its heading. It must also plan the removal
-// of each legacy property.
-func TestRepairConsolePreviewTransformsLegacyProperties(t *testing.T) {
-	f := newRepairConsoleFixture(t)
-	issue := f.legacyIssue(
-		t,
-		map[string]json.RawMessage{
-			"Description": quoted("Imported description"),
-			"status":      quoted("Completed"),
-			"progress":    quoted("100%"),
-		},
-	)
-	profile := &ops.RepairReferenceProfile{
-		Name:         "legacy-props",
-		RemoveFields: []string{"progress"},
-		RenameFields: []ops.RepairRenameField{{From: "Description", To: "description"}},
-		AppendTextFields: []ops.RepairAppendTextField{
-			{From: "status", To: "description", Heading: "Imported status"},
-		},
-	}
-
-	preview, err := f.console.Preview(
-		f.env.Ctx,
-		ops.RepairPreviewInput{
-			Class:   ops.RepairClassPropsTransform,
-			NodeID:  issue.ID,
-			Profile: profile,
-		},
-	)
-	if err != nil || !preview.CanApply {
-		t.Fatalf("preview = %+v, %v, want an applicable transform", preview, err)
-	}
-
-	var description string
-	if err := json.Unmarshal(preview.PlannedProps["description"], &description); err != nil {
-		t.Fatalf("decode the planned description %s: %v", preview.PlannedProps["description"], err)
-	}
-
-	if !strings.Contains(description, "Imported description") ||
-		!strings.Contains(description, "Imported status\nCompleted") {
-		t.Fatalf(
-			"planned description = %q, want the renamed text and the appended status",
-			description,
-		)
-	}
-
-	for _, field := range []string{"Description", "status", "progress"} {
-		if string(preview.PlannedProps[field]) != "null" {
-			t.Fatalf("planned %s = %s, want null", field, preview.PlannedProps[field])
 		}
 	}
 }

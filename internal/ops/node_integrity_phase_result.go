@@ -5,7 +5,6 @@ import (
 	"encoding/hex"
 	"fmt"
 	"log/slog"
-	"maps"
 	"slices"
 
 	"goodkind.io/tack/internal/domain"
@@ -40,7 +39,7 @@ func (runner repairPhaseRunner) resultPhase(ctx context.Context, run repairPhase
 		run.entry,
 		schema,
 		run.entry.NodeType,
-		repairResultProps(snapshot.Node.Props, plan.Props, plan.Parent),
+		repairResultProps(snapshot.Node.Props, plan.Props),
 		resultChildOf(snapshot, plan.Parent),
 	)
 	if err != nil {
@@ -94,11 +93,6 @@ func repairResultPlan(
 		return node.MutationPlan{}, err
 	}
 
-	props := maps.Clone(entry.Result.Props)
-	if parent != nil {
-		delete(props, repairParentProperty)
-	}
-
 	removed, err := removedEdgeExpectations(ctx, entry, snapshot, parent)
 	if err != nil {
 		return node.MutationPlan{}, err
@@ -137,7 +131,7 @@ func repairResultPlan(
 			Incoming:      nil,
 		},
 		Name:          entry.Result.Name,
-		Props:         props,
+		Props:         entry.Result.Props,
 		Parent:        parent,
 		ReferenceKeys: nil,
 		Relationships: repairRelationshipChanges(entry, frozen, run.operator),

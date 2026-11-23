@@ -161,16 +161,15 @@ func checkOrgDefaultChildProps(
 }
 
 // checkedParentRaw is the JSON encoding of the nil UUID string. defaultChildProps
-// uses it for parent_id and scope_id. ValidateNodeProps checks the complete map
+// uses it for scope_id. ValidateNodeProps checks the complete map
 // and rejects undeclared names and, subject to its applicability exemptions,
 // names with definitions that do not apply to the child node type. It ignores
 // value and option issues.
 var checkedParentRaw = json.RawMessage(strconv.Quote(uuid.Nil.String()))
 
 func defaultChildProps(dc node.DefaultChild, parentRaw json.RawMessage) map[string]json.RawMessage {
-	props := make(map[string]json.RawMessage, len(dc.Props)+2)
+	props := make(map[string]json.RawMessage, len(dc.Props)+1)
 	maps.Copy(props, dc.Props)
-	props["parent_id"] = parentRaw
 	props["scope_id"] = parentRaw
 
 	return props

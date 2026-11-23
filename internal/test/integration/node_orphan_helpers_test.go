@@ -51,17 +51,23 @@ func storedNodes(t *testing.T) []node.Node {
 	return nodes
 }
 
-// directChildren returns the nodes with parent_id equal to parentID.
-func directChildren(t *testing.T, parentID uuid.UUID) []uuid.UUID {
+// directChildren returns the nodes with a child_of edge to parentID.
+func directChildren(t *testing.T, env *TestEnv, parentID uuid.UUID) []uuid.UUID {
 	t.Helper()
+	edges, err := env.Stores.Relationships.ListByTarget(
+		env.Ctx,
+		env.OrgID,
+		parentID,
+		node.RelChildOf,
+	)
+	if err != nil {
+		t.Fatalf("read children of node %s: %v", parentID, err)
+	}
+
 	children := []uuid.UUID{}
 
-	for _, current := range storedNodes(t) {
-		var parentText string
-		if err := json.Unmarshal(current.Props["parent_id"], &parentText); err == nil &&
-			parentText == parentID.String() {
-			children = append(children, current.ID)
-		}
+	for _, edge := range edges {
+		children = append(children, edge.SourceID)
 	}
 
 	if len(children) == 0 {
@@ -87,34 +93,31 @@ func resolveNode(t *testing.T, env *TestEnv, nodeID uuid.UUID) *node.NodeResolve
 	return resolved
 }
 
-// requireNoDanglingParents fails when the parent_id property of a stored node
-// is the ID of a node without a resolution record.
+// requireNoDanglingParents fails when a child_of target does not have a
+// resolution record.
 func requireNoDanglingParents(t *testing.T, env *TestEnv) {
 	t.Helper()
 
 	for _, current := range storedNodes(t) {
-		raw, found := current.Props["parent_id"]
-		if !found {
-			continue
-		}
-
-		var parentText string
-		if err := json.Unmarshal(raw, &parentText); err != nil || parentText == "" {
-			continue
-		}
-
-		parentID, err := uuid.Parse(parentText)
+		edges, err := env.Stores.Relationships.ListBySource(
+			env.Ctx,
+			current.OrgID,
+			current.ID,
+			node.RelChildOf,
+		)
 		if err != nil {
-			t.Fatalf("node %s has parent_id %q that is not a UUID", current.ID, parentText)
+			t.Fatalf("read parent edges of node %s: %v", current.ID, err)
 		}
 
-		if resolveNode(t, env, parentID) == nil {
-			t.Errorf(
-				"%s %s has parent_id %s, and that node does not exist",
-				current.NodeType,
-				current.ID,
-				parentID,
-			)
+		for _, edge := range edges {
+			if resolveNode(t, env, edge.TargetID) == nil {
+				t.Errorf(
+					"%s %s has a child_of edge to absent node %s",
+					current.NodeType,
+					current.ID,
+					edge.TargetID,
+				)
+			}
 		}
 	}
 }

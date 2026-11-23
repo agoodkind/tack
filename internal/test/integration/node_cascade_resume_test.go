@@ -80,12 +80,13 @@ func TestDeleteSplitsHighFanOutAcrossSteps(t *testing.T) {
 		}
 	}
 
-	states, err := env.Stores.Nodes.ListByProperty(
+	states, err := env.Stores.Views.List(
 		env.Ctx,
-		env.OrgID,
-		"state",
-		"parent_id",
-		jsonStr(project.ID.String()),
+		node.NodeListQuery{
+			OrgID:            env.OrgID,
+			NodeType:         "state",
+			ByTargetRelation: &node.RelationScan{NodeID: project.ID, RelationType: node.RelChildOf},
+		},
 	)
 	if err != nil {
 		t.Fatalf("list states of project %s: %v", project.ID, err)

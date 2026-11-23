@@ -9,20 +9,20 @@ import (
 )
 
 // parentCycleRefusalText is part of the error that the node service returns
-// when a parent_id value is the node's own ID or the ID of one of its
+// when a parent is the node's own ID or the ID of one of its
 // descendants.
 const parentCycleRefusalText = "one of its descendants"
 
-// errParentCycleAccepted reports that an update stored a parent_id value
+// errParentCycleAccepted reports that an update added a parent relationship
 // that is the node's own ID or the ID of one of its descendants.
 var errParentCycleAccepted = errors.New(
-	"the update stored a parent_id that is the node or one of its descendants",
+	"the update added a parent that is the node or one of its descendants",
 )
 
 // generateNestedEpic skips a project without a generated epic and otherwise
-// creates an epic in the same project with parent_id set to the raw ID of
-// parentEpic. It requires tack_get_epic to return the nested epic. It then
-// requires tack_update_epic to refuse parentEpic's move under the nested
+// creates an epic in the same project and adds child_of to parentEpic.
+// It requires tack_get_epic to return the nested epic. It then
+// requires tack_add_relationship to refuse parentEpic's move under the nested
 // epic and the nested epic's move under itself.
 func (g *Generator) generateNestedEpic(
 	ctx context.Context,
@@ -44,8 +44,6 @@ func (g *Generator) generateNestedEpic(
 		return loggedError(ctx, "qa datagen: list epics before the nested epic", err)
 	}
 	name := fmt.Sprintf("QA nested epic seed %d", g.seed)
-	properties := newProperties()
-	properties.setString("parent_id", parentEpic)
 	nested, created, err := g.ensureNode(
 		ctx,
 		actor.Token,
@@ -56,13 +54,22 @@ func (g *Generator) generateNestedEpic(
 			WorkspaceReference: workspace.Slug,
 			ProjectReference:   projectIdentifier,
 			Name:               name,
-			Properties:         properties,
 		},
 	)
 	if err != nil {
 		return err
 	}
 	g.recordEnsure(created)
+	if err := g.callRelationship(
+		ctx,
+		actor.Token,
+		"tack_add_relationship",
+		nested,
+		"child_of",
+		parentEpic,
+	); err != nil {
+		return err
+	}
 	if _, err := g.driver.Call(
 		ctx,
 		actor.Token,
@@ -86,7 +93,7 @@ func (g *Generator) generateNestedEpic(
 	return g.probeParentCycleRefused(ctx, actor.Token, workspace.Slug, nested, nested)
 }
 
-// probeParentCycleRefused calls tack_update_epic to set the parent_id of
+// probeParentCycleRefused calls tack_add_relationship to set the parent of
 // epicReference to parentReference, which is the epic itself or one of its
 // descendants. The server must refuse the call. A dry run plans the call and
 // skips the check.
@@ -97,16 +104,14 @@ func (g *Generator) probeParentCycleRefused(
 	epicReference string,
 	parentReference string,
 ) error {
-	properties := newProperties()
-	properties.setString("parent_id", parentReference)
 	_, err := g.driver.Call(
 		ctx,
 		token,
-		"tack_update_epic",
+		"tack_add_relationship",
 		ToolArguments{
-			WorkspaceReference: workspaceReference,
-			NodeID:             epicReference,
-			Properties:         properties,
+			SourceID:     epicReference,
+			RelationType: "child_of",
+			TargetID:     parentReference,
 		},
 	)
 	if g.dryRun {

@@ -1,6 +1,9 @@
 package integration
 
 import (
+	"errors"
+	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -11,20 +14,16 @@ import (
 	"goodkind.io/tack/internal/service"
 )
 
-// TestOrphanBackfillRemovesExtraParentEdges stores an issue under a project
-// with three more child_of edges, to a cycle, a module, and an epic, written
-// straight to the relationship store. That is the stored shape a client made
-// through tack_add_relationship before the tool refused child_of. The dry
-// run must keep all four edges. The executed run must remove the three
-// edges that do not target the issue's parent_id, keep the issue and its
-// parent edge, delete nothing, and write one relationship.remove ledger row
-// per removed edge. A rerun must change nothing.
-func TestOrphanBackfillRemovesExtraParentEdges(t *testing.T) {
+// TestOrphanBackfillRefusesAmbiguousParentEdges requires an explicit repair
+// when an issue has several existing child_of targets. Dry runs and executed
+// runs must refuse the ambiguity and preserve every node and relationship.
+func TestOrphanBackfillRefusesAmbiguousParentEdges(t *testing.T) {
 	env := SetupTestEnv(t)
 	actor := uuid.New()
 	workspace := mustCreateScope(t, env, "workspace", "Main", env.OrgID, env.OrgID, actor)
 	project := mustCreateScope(t, env, "project", "Edges", workspace.ID, workspace.ID, actor)
 	issueID := createTestIssue(t, env, project.ID, "Issue with extra parents")
+	kept := []uuid.UUID{issueID, project.ID}
 
 	for _, typeKey := range []string{"cycle", "module", "epic"} {
 		container := mustCreate(
@@ -38,6 +37,7 @@ func TestOrphanBackfillRemovesExtraParentEdges(t *testing.T) {
 				ActorID:     actor,
 			},
 		)
+		kept = append(kept, container.ID)
 		if err := env.Stores.Relationships.Add(
 			env.Ctx,
 			&node.Relationship{
@@ -67,76 +67,63 @@ func TestOrphanBackfillRemovesExtraParentEdges(t *testing.T) {
 		uuid.Must(uuid.NewV7()),
 	)
 
-	planned, err := ops.RunOrphanNodeBackfill(
-		ctx,
-		env.Stores.NodeDeleter,
-		env.Stores.Relationships,
-		env.NodeSvc,
-		true,
+	before, err := env.Stores.Relationships.ListBySource(
+		env.Ctx,
+		env.OrgID,
+		issueID,
+		node.RelChildOf,
 	)
 	if err != nil {
-		t.Fatalf("dry-run orphan backfill: %v", err)
+		t.Fatalf("read parent edges of issue %s: %v", issueID, err)
 	}
 
-	if planned.ExtraParentEdges != 3 || planned.RemovedEdges != 0 || planned.Orphans != 0 {
-		t.Errorf(
-			"dry-run result = %+v, want 3 extra parent edges, none removed, and no orphans",
-			planned,
+	for _, dryRun := range []bool{true, false} {
+		result, err := ops.RunOrphanNodeBackfill(
+			ctx,
+			env.Stores.NodeDeleter,
+			env.Stores.Relationships,
+			env.NodeSvc,
+			dryRun,
 		)
-	}
+		if !errors.Is(err, node.ErrNoHierarchyParent) ||
+			!strings.Contains(err.Error(), issueID.String()) {
+			t.Fatalf(
+				"orphan backfill dry_run=%t returned %+v, %v, want an explicit parent ambiguity refusal for %s",
+				dryRun,
+				result,
+				err,
+				issueID,
+			)
+		}
 
-	requireParentEdges(t, env, issueID, 4)
+		if result.RemovedEdges != 0 || result.Deleted != 0 {
+			t.Fatalf("refused backfill changed records: %+v", result)
+		}
 
-	applied, err := ops.RunOrphanNodeBackfill(
-		ctx,
-		env.Stores.NodeDeleter,
-		env.Stores.Relationships,
-		env.NodeSvc,
-		false,
-	)
-	if err != nil {
-		t.Fatalf("run orphan backfill: %v", err)
-	}
+		requireNodesPresent(t, env, kept)
+		after, readErr := env.Stores.Relationships.ListBySource(
+			env.Ctx,
+			env.OrgID,
+			issueID,
+			node.RelChildOf,
+		)
+		if readErr != nil || len(after) != len(before) {
+			t.Fatalf("read preserved parent edges: %v, %v", after, readErr)
+		}
 
-	if applied.ExtraParentEdges != 3 || applied.RemovedEdges != 3 || applied.Deleted != 0 {
-		t.Errorf("backfill result = %+v, want 3 extra parent edges removed and no deletes", applied)
-	}
-
-	requireParentEdges(t, env, issueID, 1)
-	requireNodesPresent(t, env, []uuid.UUID{issueID, project.ID})
-	removals := 0
-
-	for _, event := range outboxEvents(t, env) {
-		target := event.Context.Target
-		if event.Verb == string(audit.VerbRelationshipRemove) && event.Actor.ID == principal.ID &&
-			target != nil &&
-			target.SourceID == issueID {
-			removals++
+		for index, edge := range before {
+			if !reflect.DeepEqual(after[index], edge) {
+				t.Fatalf("parent edge changed from %+v to %+v", edge, after[index])
+			}
 		}
 	}
 
-	if removals != 3 {
-		t.Errorf("relationship.remove ledger rows for issue %s = %d, want 3", issueID, removals)
-	}
-
-	rerun, err := ops.RunOrphanNodeBackfill(
-		ctx,
-		env.Stores.NodeDeleter,
-		env.Stores.Relationships,
-		env.NodeSvc,
-		false,
-	)
-	if err != nil {
-		t.Fatalf("rerun orphan backfill: %v", err)
-	}
-
-	if rerun.ExtraParentEdges != 0 || rerun.RemovedEdges != 0 || rerun.Orphans != 0 {
-		t.Errorf("rerun result = %+v, want no extra parent edges and no orphans", rerun)
+	if events := outboxEvents(t, env); len(events) != 0 {
+		t.Fatalf("refused backfill wrote change events: %+v", events)
 	}
 }
 
-// requireParentEdges requires nodeID to have want child_of edges, and one of
-// them to target the node's parent_id.
+// requireParentEdges requires nodeID to have want child_of edges.
 func requireParentEdges(t *testing.T, env *TestEnv, nodeID uuid.UUID, want int) {
 	t.Helper()
 	edges, err := env.Stores.Relationships.ListBySource(env.Ctx, env.OrgID, nodeID, node.RelChildOf)
@@ -147,19 +134,4 @@ func requireParentEdges(t *testing.T, env *TestEnv, nodeID uuid.UUID, want int) 
 	if len(edges) != want {
 		t.Fatalf("node %s has %d child_of edges, want %d", nodeID, len(edges), want)
 	}
-
-	view, err := env.Stores.Views.Get(env.Ctx, nodeID)
-	if err != nil || view == nil {
-		t.Fatalf("read node %s: %v", nodeID, err)
-	}
-
-	parentID := stringPropOf(view, "parent_id")
-
-	for _, edge := range edges {
-		if edge.TargetID.String() == parentID {
-			return
-		}
-	}
-
-	t.Fatalf("node %s has no child_of edge to its parent_id %s", nodeID, parentID)
 }

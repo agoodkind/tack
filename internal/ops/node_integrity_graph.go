@@ -15,8 +15,8 @@ import (
 // changes. It accepts listed removals of existing outgoing child_of edges,
 // including edges outside the resulting parent's ancestor chain, but refuses
 // a listed removal of the edge to the resulting parent. The resulting parent
-// is the result's parent_id, or the node's current parent_id when the result
-// does not set one.
+// is the result's parent instruction, or the node's current child_of parent
+// when the result does not set one.
 func graphProblem(entry NodeIntegrityEntry, evidence fdbadapter.RepairEvidence) string {
 	if !evidence.Node.Found {
 		return "the node does not exist"
@@ -69,7 +69,7 @@ func graphProblem(entry NodeIntegrityEntry, evidence fdbadapter.RepairEvidence) 
 
 	for _, edge := range entry.Result.AddEdges {
 		if edge.RelationType == node.RelChildOf {
-			return "a result sets the parent through parent_id and cannot add a child_of edge"
+			return "a result sets the parent through result.parent_id and cannot add a child_of edge"
 		}
 
 		if outgoing[edge] {

@@ -28,7 +28,7 @@ func normalizeCreateProps(
 ) (map[string]json.RawMessage, uuid.UUID, []*node.PropertyDef, error) {
 	defs, err := b.PropertyDefs.List(ctx, orgID)
 	if err != nil {
-		return nil, uuid.Nil, nil, err
+		return nil, uuid.Nil, nil, loggedNormalizeError(ctx, nt, "create", err)
 	}
 
 	command, err := service.CompileCreatePropertyCommand(
@@ -48,25 +48,16 @@ func normalizeCreateProps(
 		) (uuid.UUID, error) {
 			return resolveReferenceProp(ctx, b.Resolver, orgID, scopeID, targetType, ref)
 		},
-		func(
-			ctx context.Context,
-			childType *node.NodeType,
-			orgID uuid.UUID,
-			scopeID uuid.UUID,
-			ref string,
-		) (uuid.UUID, error) {
-			return resolveParentReference(ctx, b, childType, orgID, scopeID, ref)
-		},
 	)
 	if err != nil {
-		return nil, uuid.Nil, nil, err
+		return nil, uuid.Nil, nil, loggedNormalizeError(ctx, nt, "create", err)
 	}
 
 	if command == nil {
 		return nil, scopeID, defs, nil
 	}
 
-	return command.Props, command.ParentID, defs, nil
+	return command.Props, scopeID, defs, nil
 }
 
 // normalizeUpdateProps normalizes update properties for the existing node.
@@ -84,12 +75,19 @@ func normalizeUpdateProps(
 
 	scopeID := uuidProp(existing, "scope_id")
 	if scopeID == uuid.Nil {
-		scopeID = uuidProp(existing, "parent_id")
+		parent, err := readParent(ctx, b.Reader, existing)
+		if err != nil {
+			return nil, nil, err
+		}
+
+		if parent != nil {
+			scopeID = parent.ID
+		}
 	}
 
 	defs, err := b.PropertyDefs.List(ctx, existing.OrgID)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, loggedNormalizeError(ctx, nt, "update", err)
 	}
 
 	command, err := service.CompileUpdatePropertyCommand(
@@ -108,15 +106,6 @@ func normalizeUpdateProps(
 			ref string,
 		) (uuid.UUID, error) {
 			return resolveReferenceProp(ctx, b.Resolver, orgID, scopeID, targetType, ref)
-		},
-		func(
-			ctx context.Context,
-			childType *node.NodeType,
-			orgID uuid.UUID,
-			scopeID uuid.UUID,
-			ref string,
-		) (uuid.UUID, error) {
-			return resolveParentReference(ctx, b, childType, orgID, scopeID, ref)
 		},
 	)
 	if err != nil {

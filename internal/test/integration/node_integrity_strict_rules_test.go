@@ -48,6 +48,11 @@ func TestNodeIntegrityStrictRejectsEveryRuleAfterActivation(t *testing.T) {
 			property: "state_id",
 			value:    quoted(label.ID.String()),
 		},
+		{
+			rule:     "undeclared parent property",
+			property: "parent_id",
+			value:    quoted(stateID.String()),
+		},
 	}
 	for _, rule := range cases {
 		before, _ := mutationSnapshot(t, env, issue.ID)
