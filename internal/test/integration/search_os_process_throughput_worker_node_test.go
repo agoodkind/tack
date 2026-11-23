@@ -6,6 +6,7 @@ import (
 
 	"github.com/google/uuid"
 	"goodkind.io/tack/internal/adapters/postgres"
+	"goodkind.io/tack/internal/domain/node"
 	"goodkind.io/tack/internal/service"
 	"goodkind.io/tack/internal/testenv"
 )
@@ -59,11 +60,24 @@ func createThroughputWorkerNode(
 		t.Fatalf("read production worker fixture: %v", err)
 	}
 
-	for _, key := range []string{"parent_id", "scope_id"} {
-		var id string
-		if err := json.Unmarshal(stored.Props[key], &id); err != nil || id != parent.String() {
-			t.Fatalf("production worker fixture %s does not match its entry point: %v", key, err)
-		}
+	var scopeID string
+	if err := json.Unmarshal(stored.Props["scope_id"], &scopeID); err != nil ||
+		scopeID != parent.String() {
+		t.Fatalf("production worker fixture scope_id does not match its entry point: %v", err)
+	}
+
+	parents, err := stores.Relationships.ListBySource(
+		WithTestOperation(t, t.Context()),
+		stored.OrgID,
+		stored.ID,
+		node.RelChildOf,
+	)
+	if err != nil || len(parents) != 1 || parents[0].TargetID != parent {
+		t.Fatalf(
+			"production worker fixture child_of does not match its entry point: %v, %v",
+			parents,
+			err,
+		)
 	}
 
 	return stored.ID
