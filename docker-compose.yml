@@ -379,7 +379,7 @@ services:
   # new metadata that cannot reference the existing logs.
   # Kafka does not expose an external port; traffic uses the IPv6 bridge.
   kafka:
-    image: apache/kafka:4.2.0
+    image: apache/kafka:4.3.1
     profiles: [audit]
     restart: unless-stopped
     mem_limit: 2g
