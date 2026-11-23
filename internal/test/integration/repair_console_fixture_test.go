@@ -116,12 +116,13 @@ func legacyStatusProfile() *ops.RepairReferenceProfile {
 	}
 }
 
-// parentProfile returns a profile for repairing parent_id to a node of
+// parentProfile returns a profile for repairing child_of to a node of
 // targetTypeKey using the legacy property source. When matchProperty is
 // empty, matching uses the target type's reference strategy.
 func parentProfile(targetTypeKey, matchProperty, source string) *ops.RepairReferenceProfile {
 	return &ops.RepairReferenceProfile{
 		Name:                "legacy-parent",
+		TargetProperty:      node.RelChildOf,
 		TargetTypeKey:       targetTypeKey,
 		TargetMatchProperty: matchProperty,
 		SourceFields:        []string{source},

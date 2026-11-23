@@ -41,7 +41,7 @@ func prepareReferenceProfile(
 
 	prepared.ScopeFields = compactStrings(prepared.ScopeFields)
 	if len(prepared.ScopeFields) == 0 {
-		prepared.ScopeFields = []string{"scope_id", repairParentProperty}
+		prepared.ScopeFields = []string{"scope_id"}
 	}
 
 	if prepared.CleanupBehavior == "" {
@@ -87,7 +87,7 @@ func observedReferenceSource(
 ) RepairObservedSource {
 	raw, present := view.Props[field]
 	source := RepairObservedSource{Field: field, Raw: raw, Normalized: "", Present: present}
-	if !present || len(raw) == 0 || string(raw) == transformedNullProperty {
+	if !present || len(raw) == 0 || string(raw) == nullPropertyValue {
 		return source
 	}
 
