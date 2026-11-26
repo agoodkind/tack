@@ -58,10 +58,14 @@ fetch_image_digest() {
 
 resolve_image_reference() {
     local image_repository="$1"
+    local image_name="${image_repository##*/}"
     local image_digest
 
-    if ! image_digest="$(fetch_image_digest "${image_repository}:${GITHUB_SHA}")"; then
-        return 1
+    if [[ -n "${RELEASE_INDEX_DIRECTORY:-}" ]]; then
+        image_digest=$(jq --exit-status --raw-output '."containerimage.descriptor".digest' \
+            "${RELEASE_INDEX_DIRECTORY}/${image_name}.json")
+    else
+        image_digest=$(fetch_image_digest "${image_repository}:${GITHUB_SHA}")
     fi
     if [[ ! "$image_digest" =~ ^sha256:[0-9a-f]{64}$ ]]; then
         printf 'The image %s did not return a SHA-256 digest.\n' "$image_repository" >&2
@@ -103,6 +107,32 @@ verify_release() {
     gh release verify "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY"
 }
 
+write_manifest() {
+    local server_reference="$1"
+    local audit_reference="$2"
+    local foundationdb_checksum
+    local yugabyte_checksum
+
+    : "${RELEASE_INDEX_DIRECTORY:?Set RELEASE_INDEX_DIRECTORY to the published image indexes.}"
+    : "${GITHUB_RUN_ID:?Set GITHUB_RUN_ID to the release workflow run.}"
+    : "${GITHUB_RUN_ATTEMPT:?Set GITHUB_RUN_ATTEMPT to the release workflow attempt.}"
+
+    foundationdb_checksum=$(sha256sum fdb-overlay/fdb.bash)
+    yugabyte_checksum=$(sha256sum yugabyte-overlay/yugabyted)
+    jq --null-input \
+        --arg source_sha "$GITHUB_SHA" \
+        --argjson build_run_id "$GITHUB_RUN_ID" \
+        --argjson build_attempt "$GITHUB_RUN_ATTEMPT" \
+        --arg server "$server_reference" \
+        --arg consumer "$audit_reference" \
+        --arg fdb "${foundationdb_checksum%% *}" \
+        --arg yugabyte "${yugabyte_checksum%% *}" \
+        '{version: 1, $source_sha, $build_run_id, $build_attempt,
+          artifacts: {$server, $consumer},
+          variables: {"fdb-overlay/fdb.bash": $fdb, "yugabyte-overlay/yugabyted": $yugabyte}}' \
+        > "$RELEASE_MANIFEST"
+}
+
 main() {
     local release_commit
     local server_reference
@@ -124,6 +154,9 @@ main() {
         publish_release_notes "$notes"
     fi
     verify_release
+    if [[ -n "${RELEASE_MANIFEST:-}" ]]; then
+        write_manifest "$server_reference" "$audit_reference"
+    fi
 }
 
 main

@@ -21,4 +21,5 @@ for IMAGE_ARCH in amd64 arm64; do
     fi
     SOURCES+=("${REGISTRY}/${IMAGE_OWNER}/${IMAGE_NAME}@${IMAGE_DIGEST}")
 done
-docker buildx imagetools create "${TAGS[@]}" "${SOURCES[@]}"
+: "${IMAGE_METADATA_FILE:?Set IMAGE_METADATA_FILE to the image index metadata path.}"
+docker buildx imagetools create --metadata-file "$IMAGE_METADATA_FILE" "${TAGS[@]}" "${SOURCES[@]}"

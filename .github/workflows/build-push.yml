@@ -174,7 +174,17 @@ jobs:
           IMAGE_NAME: ${{ matrix.image }}
           IMAGE_TAG_FILE: ${{ runner.temp }}/image-tags
           DIGEST_DIRECTORY: ${{ runner.temp }}/digests
+          IMAGE_METADATA_FILE: ${{ runner.temp }}/${{ matrix.image }}.json
         run: bash scripts/image-manifest.sh
+
+      - name: Upload published image index
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-index-${{ matrix.image }}
+          path: ${{ runner.temp }}/${{ matrix.image }}.json
+          if-no-files-found: error
+          overwrite: true
 
   release:
     name: Release
