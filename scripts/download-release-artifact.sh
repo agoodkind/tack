@@ -5,6 +5,8 @@ set -euo pipefail
 : "${TACK_BUILD_RUN:?Set TACK_BUILD_RUN to the successful Tack workflow run.}"
 : "${TACK_BUILD_ATTEMPT:?Set TACK_BUILD_ATTEMPT to the workflow attempt.}"
 : "${RELEASE_ARCHIVE:?Set RELEASE_ARCHIVE to the artifact download path.}"
+: "${GITHUB_OUTPUT:?Set GITHUB_OUTPUT to the GitHub Actions step output file.}"
+
 
 if [[ ! "$TACK_BUILD_RUN" =~ ^[0-9]+$ ]]; then
     printf 'The Tack build run ID must be an integer.\n' >&2
@@ -34,3 +36,5 @@ if [[ "sha256:${actual_checksum%% *}" != "$expected_digest" ]]; then
     printf 'The downloaded Tack release artifact failed SHA-256 verification.\n' >&2
     exit 1
 fi
+
+printf 'artifact-id=%s\n' "$artifact_id" >> "$GITHUB_OUTPUT"

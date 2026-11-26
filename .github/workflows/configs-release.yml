@@ -1,4 +1,4 @@
-name: Publish Tack release to Configs
+name: Send Tack release evidence to Configs
 
 on:
   workflow_run:
@@ -9,7 +9,7 @@ on:
 permissions: {}
 
 jobs:
-  publish:
+  dispatch:
     if: >-
       github.repository == 'agoodkind/tack' &&
       github.event.workflow_run.head_repository.full_name == github.repository &&
@@ -27,29 +27,27 @@ jobs:
           ref: ${{ github.workflow_sha }}
           persist-credentials: false
       - name: Download the successful build attempt's release artifact
+        id: release-archive
         env:
           GH_TOKEN: ${{ github.token }}
           TACK_BUILD_RUN: ${{ github.event.workflow_run.id }}
           TACK_BUILD_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
           RELEASE_ARCHIVE: ${{ runner.temp }}/tack-release.zip
         run: bash scripts/download-release-artifact.sh
-      - name: Create Configs publisher token
+      - name: Create Configs dispatch token
         uses: actions/create-github-app-token@f418cff399f7aef4c2f0ad47e25ca7a6abbdd6fc # v3.4.0
-        id: configs-publisher
+        id: configs-dispatch
         with:
           client-id: ${{ vars.TACK_RELEASE_PUBLISHER_CLIENT_ID }}
           private-key: ${{ secrets.TACK_RELEASE_PUBLISHER_PRIVATE_KEY }}
           owner: agoodkind
           repositories: configs
           permission-contents: write
-          permission-pull-requests: write
-      - name: Publish Configs release PR
-        uses: agoodkind/tofu-workflows/.github/actions/tack-release@31e8f09a9ed94328ede31641f6c786331b6fd882
-        with:
-          publisher-token: ${{ steps.configs-publisher.outputs.token }}
-          publisher-slug: ${{ steps.configs-publisher.outputs.app-slug }}
-          reporter-app-id: ${{ vars.TERRAKUBE_PLAN_REPORTER_APP_ID }}
-          artifact: ${{ runner.temp }}/tack-release.zip
-          build-run: ${{ github.event.workflow_run.id }}
-          build-attempt: ${{ github.event.workflow_run.run_attempt }}
-          source-token: ${{ github.token }}
+      - name: Send verified release evidence to Configs
+        env:
+          GH_TOKEN: ${{ steps.configs-dispatch.outputs.token }}
+          TACK_BUILD_RUN: ${{ github.event.workflow_run.id }}
+          TACK_BUILD_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
+          TACK_ARTIFACT_ID: ${{ steps.release-archive.outputs.artifact-id }}
+          RELEASE_ARCHIVE: ${{ runner.temp }}/tack-release.zip
+        run: bash scripts/dispatch-release.sh
